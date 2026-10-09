@@ -1,0 +1,13 @@
+--- a/source/html/md.c
++++ b/source/html/md.c
+@@ -107,7 +107,9 @@
+ 
+ 	fz_try(ctx)
+ 	{
+-		int options = CMARK_OPT_UNSAFE | CMARK_OPT_LIBERAL_HTML_TAG | CMARK_OPT_FOOTNOTES | CMARK_OPT_VALIDATE_UTF8;
++		/* Keep CommonMark inline HTML rules. Liberal tags can emit an unclosed
++		 * comment that hides all later text in the generated HTML document. */
++		int options = CMARK_OPT_UNSAFE | CMARK_OPT_FOOTNOTES | CMARK_OPT_VALIDATE_UTF8;
+ 
+ 		fz_register_markdown_plugins(ctx);
+ 

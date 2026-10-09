@@ -1,0 +1,2788 @@
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -344,6 +344,11 @@
+ 	fz_storable storable;
+ 	fz_pool *pool; /* pool allocator for this html tree */
+ 	fz_html_box *root;
++	/* Nodes stay in the original tree pool; only these O(1) directories move. */
++	void **flow_blocks, **flow_escape, **box_directory;
++	size_t flow_block_count, flow_block_capacity, flow_block_offset;
++	size_t flow_escape_count, flow_escape_capacity;
++	size_t box_count, box_capacity;
+ } fz_html_tree;
+ 
+ typedef struct
+@@ -516,6 +521,7 @@
+ 	// to indicate when an inline formatting context has been finished (when interrupted by a block level block)
+ 	unsigned int stop : 1;
+ 
++	uint32_t index; /* occupies existing pointer-alignment padding on64-bit */
+ 	fz_html_box *up, *down, *next;
+ 
+ 	const char *tag, *id, *href;
+@@ -528,7 +534,7 @@
+ 		/* Only needed during build stage */
+ 		struct {
+ 			fz_html_box *last_child;
+-			fz_html_flow **flow_tail;
++			uint32_t *flow_tail;
+ 		} build;
+ 
+ 		/* Only needed during layout */
+@@ -605,12 +611,12 @@
+ 	unsigned int generated_hyphen : 1;
+ 	unsigned int source_no_separator_before : 1;
+ 	/* Compact SPACE preserves the original h write phases: zero, CSS, em. */
+-	unsigned int compact_space_height_phase : 2;
++	unsigned int compact_height_phase : 2;
+ 	uint32_t source_node;
+ 
+ 	float x, y;
+-	fz_html_box *box; /* for style and em */
+-	fz_html_flow *next;
++	uint32_t box_index; /* full pointer in tree directory */
++	uint32_t next_ref; /* stable chunk/offset or full-pointer escape */
+ 	/* Inline-owned SPACE allocates only the prefix before w. */
+ 	float w, h;
+ 	union {
+@@ -619,6 +625,126 @@
+ 	} content;
+ };
+ 
++
++enum { HTML_FLOW_CHUNK_BYTES = 4096, HTML_FLOW_OFFSET_BITS = 9 };
++#define HTML_FLOW_ESCAPE_BIT UINT32_C(0x80000000)
++#define HTML_FLOW_BLOCK_LIMIT (UINT32_C(1) << 22)
++
++static inline char *fz_html_flow_text(fz_html_flow *flow)
++{
++	return (char *)flow + offsetof(fz_html_flow, h);
++}
++
++static inline const char *fz_html_flow_text_const(const fz_html_flow *flow)
++{
++	return (const char *)flow + offsetof(fz_html_flow, h);
++}
++
++static inline fz_html_box *fz_html_flow_box(const fz_html_tree *tree, const fz_html_flow *flow)
++{
++	return (fz_html_box *)tree->box_directory[flow->box_index];
++}
++
++static inline fz_html_flow *fz_html_flow_resolve(const fz_html_tree *tree, uint32_t ref)
++{
++	if (!ref) return NULL;
++	if (ref & HTML_FLOW_ESCAPE_BIT)
++		return (fz_html_flow *)tree->flow_escape[ref & ~HTML_FLOW_ESCAPE_BIT];
++	return (fz_html_flow *)((char *)tree->flow_blocks[ref >> HTML_FLOW_OFFSET_BITS] +
++		((ref & ((1u << HTML_FLOW_OFFSET_BITS) - 1)) << 3));
++}
++
++static inline fz_html_flow *fz_html_flow_next(const fz_html_tree *tree, const fz_html_flow *flow)
++{
++	return fz_html_flow_resolve(tree, flow->next_ref);
++}
++
++static inline void fz_html_directory_reserve(fz_context *ctx, void ***directory, size_t *capacity, size_t required)
++{
++	size_t cap = *capacity ? *capacity : 16;
++	void **p;
++	if (required <= *capacity) return;
++	if (required > SIZE_MAX / sizeof(void *))
++		fz_throw(ctx, FZ_ERROR_LIMIT, "HTML directory capacity exceeded");
++	while (cap < required)
++	{
++		if (cap > SIZE_MAX / sizeof(void *) / 2) { cap = required; break; }
++		cap *= 2;
++	}
++	p = (void **)fz_realloc(ctx, *directory, cap * sizeof(void *));
++	*directory = p;
++	*capacity = cap;
++}
++
++static inline fz_html_flow *fz_html_alloc_flow(fz_context *ctx, fz_html_tree *tree,
++	size_t size, uint32_t *ref)
++{
++	size_t aligned, block, offset;
++	fz_html_flow *flow;
++	if (size <= HTML_FLOW_CHUNK_BYTES)
++	{
++		aligned = (size + 7) & ~(size_t)7;
++		if (tree->flow_block_count && tree->flow_block_offset + aligned <= HTML_FLOW_CHUNK_BYTES)
++		{
++			block = tree->flow_block_count - 1;
++			offset = tree->flow_block_offset;
++			flow = (fz_html_flow *)((char *)tree->flow_blocks[block] + offset);
++			tree->flow_block_offset += aligned;
++			*ref = (uint32_t)(block << HTML_FLOW_OFFSET_BITS) | (uint32_t)(offset >> 3);
++			return flow;
++		}
++		if (tree->flow_block_count < HTML_FLOW_BLOCK_LIMIT)
++		{
++			block = tree->flow_block_count;
++			offset = block == 0 ? 8 : 0; /* ref0 is NULL */
++			if (offset + aligned <= HTML_FLOW_CHUNK_BYTES)
++			{
++				void *chunk;
++				fz_html_directory_reserve(ctx, &tree->flow_blocks, &tree->flow_block_capacity, block + 1);
++				chunk = fz_pool_alloc(ctx, tree->pool, HTML_FLOW_CHUNK_BYTES);
++				tree->flow_blocks[block] = chunk;
++				tree->flow_block_count++;
++				tree->flow_block_offset = offset + aligned;
++				*ref = (uint32_t)(block << HTML_FLOW_OFFSET_BITS) | (uint32_t)(offset >> 3);
++				return (fz_html_flow *)((char *)chunk + offset);
++			}
++		}
++	}
++	/* Includes oversize, first-block4096 and normal logical-capacity exhaustion. */
++	if (tree->flow_escape_count >= HTML_FLOW_ESCAPE_BIT)
++		fz_throw(ctx, FZ_ERROR_LIMIT, "HTML flow escape capacity exceeded");
++	fz_html_directory_reserve(ctx, &tree->flow_escape, &tree->flow_escape_capacity, tree->flow_escape_count + 1);
++	flow = (fz_html_flow *)fz_pool_alloc(ctx, tree->pool, size);
++	*ref = HTML_FLOW_ESCAPE_BIT | (uint32_t)tree->flow_escape_count;
++	tree->flow_escape[tree->flow_escape_count++] = flow;
++	return flow;
++}
++
++static inline void fz_html_register_box(fz_context *ctx, fz_html_tree *tree, fz_html_box *box)
++{
++	size_t index;
++	if (tree->box_count >= UINT32_MAX || tree->box_count >= SIZE_MAX - 1)
++		fz_throw(ctx, FZ_ERROR_LIMIT, "HTML box directory capacity exceeded");
++	index = tree->box_count + 1;
++	fz_html_directory_reserve(ctx, &tree->box_directory, &tree->box_capacity, index + 1);
++	tree->box_directory[0] = NULL;
++	tree->box_directory[index] = box;
++	tree->box_count = index;
++	box->index = (uint32_t)index;
++}
++
++static inline size_t fz_html_directory_bytes(const fz_html_tree *tree)
++{
++	return (tree->flow_block_capacity + tree->flow_escape_capacity + tree->box_capacity) * sizeof(void *);
++}
++
++static inline void fz_html_drop_directories(fz_context *ctx, fz_html_tree *tree)
++{
++	fz_free(ctx, tree->flow_blocks);
++	fz_free(ctx, tree->flow_escape);
++	fz_free(ctx, tree->box_directory);
++}
++
+ enum
+ {
+ 	HTML_SPACE_HEIGHT_ZERO = 0,
+@@ -626,9 +759,9 @@
+ 	HTML_SPACE_HEIGHT_LAID_OUT = 2
+ };
+ 
+-static inline int fz_html_flow_is_compact_space(const fz_html_flow *flow)
+-{
+-	return flow->type == FLOW_SPACE && flow->box->type == BOX_INLINE;
++static inline int fz_html_flow_is_compact_space(fz_html_tree *tree, const fz_html_flow *flow)
++{
++	return flow->type == FLOW_SPACE && fz_html_flow_box(tree, flow)->type == BOX_INLINE;
+ }
+ 
+ static inline uint32_t fz_html_flow_space_key(const fz_html_flow *flow)
+@@ -636,14 +769,14 @@
+ 	return (flow->script << 1) | (flow->bidi_level & 1);
+ }
+ 
+-static inline float fz_html_flow_width(const fz_html_flow *flow)
++static inline float fz_html_flow_width(fz_html_tree *tree, const fz_html_flow *flow)
+ {
+ 	const fz_html_space_metric *metric;
+ 	uint32_t key;
+-	if (!fz_html_flow_is_compact_space(flow))
++	if (!fz_html_flow_is_compact_space(tree, flow))
+ 		return flow->w;
+ 	key = fz_html_flow_space_key(flow);
+-	for (metric = &flow->box->u.inline_space; metric; metric = metric->next)
++	for (metric = &fz_html_flow_box(tree, flow)->u.inline_space; metric; metric = metric->next)
+ 		if ((metric->flags & HTML_SPACE_METRIC_PRESENT) &&
+ 			(metric->flags & HTML_SPACE_METRIC_KEY_MASK) == key)
+ 			return metric->width;
+@@ -655,7 +788,7 @@
+  * the split frees at least 4 - old_offset bytes from the original text. */
+ static inline size_t fz_html_flow_word_size(size_t len, uint32_t source_offset, int lang)
+ {
+-	return offsetof(fz_html_flow, content) + len + 1 +
++	return offsetof(fz_html_flow, h) + len + 1 +
+ 		(source_offset > 3 ? sizeof(uint32_t) : source_offset) +
+ 		(lang != FZ_LANG_UNSET ? sizeof(uint16_t) : 0);
+ }
+@@ -665,7 +798,7 @@
+ 	uint32_t offset;
+ 	if (flow->type != FLOW_WORD || !flow->has_large_source_offset)
+ 		return flow->source_offset_small;
+-	memcpy(&offset, flow->content.text + strlen(flow->content.text) + 1, sizeof(offset));
++	memcpy(&offset, fz_html_flow_text_const(flow) + strlen(fz_html_flow_text_const(flow)) + 1, sizeof(offset));
+ 	return offset;
+ }
+ 
+@@ -675,7 +808,7 @@
+ 	const char *tail;
+ 	if (flow->type != FLOW_WORD || !flow->has_markup_lang)
+ 		return FZ_LANG_UNSET;
+-	tail = flow->content.text + strlen(flow->content.text) + 1;
++	tail = fz_html_flow_text_const(flow) + strlen(fz_html_flow_text_const(flow)) + 1;
+ 	if (flow->has_large_source_offset)
+ 		tail += sizeof(uint32_t);
+ 	memcpy(&lang, tail, sizeof(lang));
+@@ -684,7 +817,7 @@
+ 
+ static inline void fz_html_flow_set_word_metadata(fz_html_flow *flow, uint32_t source_offset, int lang)
+ {
+-	char *tail = flow->content.text + strlen(flow->content.text) + 1;
++	char *tail = fz_html_flow_text(flow) + strlen(fz_html_flow_text_const(flow)) + 1;
+ 	flow->source_offset_small = source_offset <= 3 ? source_offset : 0;
+ 	flow->has_large_source_offset = source_offset > 3;
+ 	flow->has_markup_lang = lang != FZ_LANG_UNSET;
+@@ -729,26 +862,26 @@
+ int fz_css_number_defined(fz_css_number number);
+ int fz_css_number_defined_not_auto(fz_css_number number);
+ 
+-static inline float fz_html_flow_measure_height(const fz_html_flow *flow)
++static inline float fz_html_flow_measure_height(fz_html_tree *tree, const fz_html_flow *flow)
+ {
+ 	float em;
+-	if (!fz_html_flow_is_compact_space(flow))
++	if (flow->type != FLOW_WORD && !fz_html_flow_is_compact_space(tree, flow))
+ 		return flow->h;
+-	em = flow->box->s.layout.em;
+-	if (fz_css_number_defined(flow->box->style->leading))
+-		return fz_from_css_number(flow->box->style->leading, em, em, 0);
+-	return fz_from_css_number_scale(flow->box->style->line_height, em);
++	em = fz_html_flow_box(tree, flow)->s.layout.em;
++	if (fz_css_number_defined(fz_html_flow_box(tree, flow)->style->leading))
++		return fz_from_css_number(fz_html_flow_box(tree, flow)->style->leading, em, em, 0);
++	return fz_from_css_number_scale(fz_html_flow_box(tree, flow)->style->line_height, em);
+ }
+ 
+ /* Geometry readers can observe a measured but not yet placed Story suffix. */
+-static inline float fz_html_flow_layout_height(const fz_html_flow *flow)
+-{
+-	if (!fz_html_flow_is_compact_space(flow))
++static inline float fz_html_flow_layout_height(fz_html_tree *tree, const fz_html_flow *flow)
++{
++	if (flow->type != FLOW_WORD && !fz_html_flow_is_compact_space(tree, flow))
+ 		return flow->h;
+-	if (flow->compact_space_height_phase == HTML_SPACE_HEIGHT_LAID_OUT)
+-		return flow->box->s.layout.em;
+-	if (flow->compact_space_height_phase == HTML_SPACE_HEIGHT_MEASURED)
+-		return fz_html_flow_measure_height(flow);
++	if (flow->compact_height_phase == HTML_SPACE_HEIGHT_LAID_OUT)
++		return fz_html_flow_box(tree, flow)->s.layout.em;
++	if (flow->compact_height_phase == HTML_SPACE_HEIGHT_MEASURED)
++		return fz_html_flow_measure_height(tree, flow);
+ 	return 0;
+ }
+ 
+@@ -772,7 +905,7 @@
+ void fz_drop_html(fz_context *ctx, fz_html *html);
+ fz_bookmark fz_make_html_bookmark(fz_context *ctx, fz_html *html, int page);
+ int fz_lookup_html_bookmark(fz_context *ctx, fz_html *html, fz_bookmark mark);
+-void fz_debug_html(fz_context *ctx, fz_html_box *box);
++void fz_debug_html(fz_html_tree *tree, fz_context *ctx, fz_html_box *box);
+ 
+ fz_html *fz_store_html(fz_context *ctx, fz_html *html, void *doc, int chapter);
+ fz_html *fz_find_html(fz_context *ctx, void *doc, int chapter);
+@@ -780,7 +913,7 @@
+ 
+ void fz_restartable_layout_html(fz_context *ctx, fz_html_tree *tree, float start_x, float start_y, float page_w, float page_h, float em, fz_html_restarter *restart);
+ 
+-fz_html_flow *fz_html_split_flow(fz_context *ctx, fz_pool *pool, fz_html_flow *flow, size_t offset);
++fz_html_flow *fz_html_split_flow(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_flow *flow, size_t offset);
+ 
+ fz_archive *fz_extract_html_from_mobi(fz_context *ctx, fz_buffer *mobi);
+ 
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -246,6 +246,7 @@
+ struct genstate
+ {
+ 	fz_pool *pool;
++	fz_html_tree *tree;
+ 	fz_html_font_set *set;
+ 	fz_archive *zip;
+ 	fz_tree *images;
+@@ -293,21 +294,22 @@
+ /* TODO: pool allocator for flow nodes */
+ /* TODO: store text by pointing to a giant buffer */
+ 
+-static void fz_drop_html_flow(fz_context *ctx, fz_html_flow *flow)
++static void fz_drop_html_flow(fz_html_tree *tree, fz_context *ctx, fz_html_flow *flow)
+ {
+ 	while (flow)
+ 	{
+-		fz_html_flow *next = flow->next;
++		fz_html_flow *next = fz_html_flow_next(tree, flow);
+ 		if (flow->type == FLOW_IMAGE)
+ 			fz_drop_image(ctx, flow->content.image);
+ 		flow = next;
+ 	}
+ }
+ 
+-static fz_html_flow *add_flow(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, int type, size_t extras)
+-{
+-	size_t size = (type == FLOW_IMAGE ? sizeof(fz_html_flow) : offsetof(fz_html_flow, content) + extras);
++static fz_html_flow *add_flow(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, int type, size_t extras)
++{
++	size_t size = (type == FLOW_IMAGE ? sizeof(fz_html_flow) : (type == FLOW_WORD ? offsetof(fz_html_flow, h) : offsetof(fz_html_flow, content)) + extras);
+ 	fz_html_flow *flow;
++	uint32_t ref;
+ 
+ 	/* Shouldn't happen, but bug 705324. */
+ 	if (top == NULL || top->type != BOX_FLOW)
+@@ -315,7 +317,7 @@
+ 
+ 	if (type == FLOW_SPACE && inline_box->type == BOX_INLINE)
+ 		size = offsetof(fz_html_flow, w);
+-	flow = fz_pool_alloc(ctx, pool, size);
++	flow = fz_html_alloc_flow(ctx, tree, size, &ref);
+ 	flow->type = type;
+ 	flow->expand = 0;
+ 	flow->bidi_level = 0;
+@@ -324,64 +326,68 @@
+ 	flow->has_markup_lang = 0;
+ 	flow->generated_hyphen = 0;
+ 	flow->source_no_separator_before = 0;
+-	flow->compact_space_height_phase = HTML_SPACE_HEIGHT_ZERO;
++	flow->compact_height_phase = HTML_SPACE_HEIGHT_ZERO;
+ 	flow->breaks_line = 0;
+-	flow->box = inline_box;
+-	(*top->s.build.flow_tail) = flow;
+-	top->s.build.flow_tail = &flow->next;
++	flow->box_index = inline_box->index;
++	if (top->u.flow.head)
++		*top->s.build.flow_tail = ref;
++	else
++		top->u.flow.head = flow;
++	top->s.build.flow_tail = &flow->next_ref;
+ 	return flow;
+ }
+ 
+-static void add_flow_space(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box)
+-{
+-	fz_html_flow *flow = add_flow(ctx, pool, top, inline_box, FLOW_SPACE, 0);
++static void add_flow_space(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box)
++{
++	fz_html_flow *flow = add_flow(tree, ctx, pool, top, inline_box, FLOW_SPACE, 0);
+ 	if (flow)
+ 		flow->expand = 1;
+ }
+ 
+-static void add_flow_break(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box)
+-{
+-	(void)add_flow(ctx, pool, top, inline_box, FLOW_BREAK, 0);
+-}
+-
+-static void add_flow_sbreak(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box)
+-{
+-	(void)add_flow(ctx, pool, top, inline_box, FLOW_SBREAK, 0);
+-}
+-
+-static void add_flow_shyphen(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, int generated)
+-{
+-	fz_html_flow *flow = add_flow(ctx, pool, top, inline_box, FLOW_SHYPHEN, 0);
++static void add_flow_break(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box)
++{
++	(void)add_flow(tree, ctx, pool, top, inline_box, FLOW_BREAK, 0);
++}
++
++static void add_flow_sbreak(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box)
++{
++	(void)add_flow(tree, ctx, pool, top, inline_box, FLOW_SBREAK, 0);
++}
++
++static void add_flow_shyphen(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, int generated)
++{
++	fz_html_flow *flow = add_flow(tree, ctx, pool, top, inline_box, FLOW_SHYPHEN, 0);
+ 	if (flow)
+ 		flow->generated_hyphen = generated;
+ }
+ 
+-static void add_flow_word(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, const char *a, const char *b, int lang)
+-{
+-	fz_html_flow *flow = add_flow(ctx, pool, top, inline_box, FLOW_WORD,
+-		fz_html_flow_word_size(b - a, 0, lang) - offsetof(fz_html_flow, content));
++static void add_flow_word(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, const char *a, const char *b, int lang)
++{
++	fz_html_flow *flow = add_flow(tree, ctx, pool, top, inline_box, FLOW_WORD,
++		fz_html_flow_word_size(b - a, 0, lang) - offsetof(fz_html_flow, h));
+ 	if (flow == NULL)
+ 		return;
+-	memcpy(flow->content.text, a, b - a);
+-	flow->content.text[b - a] = 0;
++	memcpy(fz_html_flow_text(flow), a, b - a);
++	fz_html_flow_text(flow)[b - a] = 0;
+ 	fz_html_flow_set_word_metadata(flow, 0, lang);
+ }
+ 
+-static void add_flow_image(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, fz_image *img)
+-{
+-	fz_html_flow *flow = add_flow(ctx, pool, top, inline_box, FLOW_IMAGE, 0);
++static void add_flow_image(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, fz_image *img)
++{
++	fz_html_flow *flow = add_flow(tree, ctx, pool, top, inline_box, FLOW_IMAGE, 0);
+ 	if (flow)
+ 		flow->content.image = fz_keep_image(ctx, img);
+ }
+ 
+-static void add_flow_anchor(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box)
+-{
+-	(void)add_flow(ctx, pool, top, inline_box, FLOW_ANCHOR, 0);
+-}
+-
+-fz_html_flow *fz_html_split_flow(fz_context *ctx, fz_pool *pool, fz_html_flow *flow, size_t offset)
++static void add_flow_anchor(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box)
++{
++	(void)add_flow(tree, ctx, pool, top, inline_box, FLOW_ANCHOR, 0);
++}
++
++fz_html_flow *fz_html_split_flow(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_flow *flow, size_t offset)
+ {
+ 	fz_html_flow *new_flow;
++	uint32_t new_ref;
+ 	char *text;
+ 	size_t len;
+ 	int lang;
+@@ -390,7 +396,7 @@
+ 
+ 	if (offset == 0)
+ 		return flow;
+-	text = flow->content.text;
++	text = fz_html_flow_text(flow);
+ 	while (*text && offset)
+ 	{
+ 		int rune;
+@@ -399,11 +405,11 @@
+ 	}
+ 	len = strlen(text);
+ 	lang = fz_html_flow_markup_lang(flow);
+-	new_flow = fz_pool_alloc(ctx, pool, fz_html_flow_word_size(len, 0, lang));
+-	memcpy(new_flow, flow, offsetof(fz_html_flow, content));
+-	new_flow->next = flow->next;
+-	flow->next = new_flow;
+-	strcpy(new_flow->content.text, text);
++	new_flow = fz_html_alloc_flow(ctx, tree, fz_html_flow_word_size(len, 0, lang), &new_ref);
++	memcpy(new_flow, flow, offsetof(fz_html_flow, h));
++	new_flow->next_ref = flow->next_ref;
++	flow->next_ref = new_ref;
++	strcpy(fz_html_flow_text(new_flow), text);
+ 	fz_html_flow_set_word_metadata(new_flow, 0, lang);
+ 	/* This split happens while parsing, before source IDs are assigned. */
+ 	*text = 0;
+@@ -421,9 +427,9 @@
+ 		if (!g->at_bol)
+ 		{
+ 			if (bsp)
+-				add_flow_space(ctx, pool, flow, g->emit_white);
++				add_flow_space(g->tree, ctx, pool, flow, g->emit_white);
+ 			else
+-				add_flow_word(ctx, pool, flow, g->emit_white, space, space+1, lang);
++				add_flow_word(g->tree, ctx, pool, flow, g->emit_white, space, space+1, lang);
+ 		}
+ 		g->emit_white = 0;
+ 	}
+@@ -513,9 +519,9 @@
+ 		if (c == 0xAD) /* soft hyphen */
+ 		{
+ 			if (mark != prev)
+-				add_flow_word(ctx, pool, flow, box, mark, prev, lang);
++				add_flow_word(g->tree, ctx, pool, flow, box, mark, prev, lang);
+ 			if (box->style->hyphens != HYP_NONE)
+-				add_flow_shyphen(ctx, pool, flow, box, generated_hyphens);
++				add_flow_shyphen(g->tree, ctx, pool, flow, box, generated_hyphens);
+ 			mark = text;
+ 			g->last_brk_cls = UCDN_LINEBREAK_CLASS_WJ; /* don't add sbreaks after a soft hyphen */
+ 		}
+@@ -534,8 +540,8 @@
+ 				if (brk == '_')
+ 				{
+ 					if (mark != prev)
+-						add_flow_word(ctx, pool, flow, box, mark, prev, lang);
+-					add_flow_sbreak(ctx, pool, flow, box);
++						add_flow_word(g->tree, ctx, pool, flow, box, mark, prev, lang);
++					add_flow_sbreak(g->tree, ctx, pool, flow, box);
+ 					mark = prev;
+ 				}
+ 
+@@ -544,7 +550,7 @@
+ 		}
+ 	}
+ 	if (mark != text)
+-		add_flow_word(ctx, pool, flow, box, mark, text, lang);
++		add_flow_word(g->tree, ctx, pool, flow, box, mark, text, lang);
+ }
+ 
+ static void
+@@ -606,7 +612,7 @@
+ 				text += 2;
+ 			else
+ 				text += 1;
+-			add_flow_break(ctx, pool, flow, box);
++			add_flow_break(g->tree, ctx, pool, flow, box);
+ 			g->at_bol = 1;
+ 		}
+ 		else if (iswhite(*text))
+@@ -625,14 +631,14 @@
+ 			{
+ 				if (bsp)
+ 				{
+-					add_flow_space(ctx, pool, flow, box);
++					add_flow_space(g->tree, ctx, pool, flow, box);
+ 				}
+ 				else
+ 				{
+ 					if (*text == '\t')
+-						add_flow_word(ctx, pool, flow, box, space, space+4, lang);
++						add_flow_word(g->tree, ctx, pool, flow, box, space, space+4, lang);
+ 					else
+-						add_flow_word(ctx, pool, flow, box, space, space+1, lang);
++						add_flow_word(g->tree, ctx, pool, flow, box, space, space+1, lang);
+ 				}
+ 				++text;
+ 			}
+@@ -765,15 +771,15 @@
+ 	if (!img)
+ 	{
+ 		const char *alt = "[image]";
+-		add_flow_word(ctx, pool, flow, box, alt, alt + 7, 0);
++		add_flow_word(g->tree, ctx, pool, flow, box, alt, alt + 7, 0);
+ 	}
+ 	else
+ 	{
+ 		fz_try(ctx)
+ 		{
+-			add_flow_sbreak(ctx, pool, flow, box);
+-			add_flow_image(ctx, pool, flow, box, img);
+-			add_flow_sbreak(ctx, pool, flow, box);
++			add_flow_sbreak(g->tree, ctx, pool, flow, box);
++			add_flow_image(g->tree, ctx, pool, flow, box, img);
++			add_flow_sbreak(g->tree, ctx, pool, flow, box);
+ 		}
+ 		fz_always(ctx)
+ 		{
+@@ -786,14 +792,14 @@
+ 	g->at_bol = 0;
+ }
+ 
+-static void fz_drop_html_box(fz_context *ctx, fz_html_box *box)
++static void fz_drop_html_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box)
+ {
+ 	while (box)
+ 	{
+ 		fz_html_box *next = box->next;
+ 		if (box->type == BOX_FLOW)
+-			fz_drop_html_flow(ctx, box->u.flow.head);
+-		fz_drop_html_box(ctx, box->down);
++			fz_drop_html_flow(tree, ctx, box->u.flow.head);
++		fz_drop_html_box(tree, ctx, box->down);
+ 		box = next;
+ 	}
+ }
+@@ -801,7 +807,8 @@
+ static void fz_drop_html_imp(fz_context *ctx, fz_storable *stor)
+ {
+ 	fz_html *html = (fz_html *)stor;
+-	fz_drop_html_box(ctx, html->tree.root);
++	fz_drop_html_box(&html->tree, ctx, html->tree.root);
++	fz_html_drop_directories(ctx, &html->tree);
+ 	fz_drop_pool(ctx, html->tree.pool);
+ }
+ 
+@@ -811,9 +818,10 @@
+ 	fz_free(ctx, story->user_css);
+ 	fz_drop_html_font_set(ctx, story->font_set);
+ 	fz_drop_xml(ctx, story->dom);
+-	fz_drop_html_box(ctx, story->tree.root);
++	fz_drop_html_box(&story->tree, ctx, story->tree.root);
+ 	fz_drop_buffer(ctx, story->warnings);
+ 	fz_drop_archive(ctx, story->zip);
++	fz_html_drop_directories(ctx, &story->tree);
+ 	/* The pool must be the last thing dropped. */
+ 	fz_drop_pool(ctx, story->tree.pool);
+ }
+@@ -867,6 +875,7 @@
+ 	else
+ 		box = fz_pool_alloc(ctx, g->pool, sizeof(fz_html_box));
+ 
++	fz_html_register_box(ctx, g->tree, box);
+ 	box->type = type;
+ 	box->is_first_flow = 0;
+ 	box->markup_dir = g->markup_dir;
+@@ -928,7 +937,7 @@
+ 	if (type == BOX_FLOW)
+ 	{
+ 		box->u.flow.head = NULL;
+-		box->s.build.flow_tail = &box->u.flow.head;
++		box->s.build.flow_tail = NULL;
+ 	}
+ 
+ 	return box;
+@@ -1169,7 +1178,7 @@
+ 	if (this_box->id)
+ 	{
+ 		flow_box = find_flow_encloser(ctx, this_box);
+-		add_flow_anchor(ctx, g->pool, flow_box, this_box);
++		add_flow_anchor(g->tree, ctx, g->pool, flow_box, this_box);
+ 	}
+ 	return this_box;
+ }
+@@ -1195,7 +1204,7 @@
+ 	}
+ 
+ 	flow_box = find_flow_encloser(ctx, this_box);
+-	add_flow_break(ctx, g->pool, flow_box, this_box);
++	add_flow_break(g->tree, ctx, g->pool, flow_box, this_box);
+ 	g->at_bol = 1;
+ }
+ 
+@@ -1816,6 +1825,7 @@
+ {
+ 	fz_context *ctx;
+ 	fz_pool *pool;
++	fz_html_tree *tree;
+ 	fz_html_flow *flow;
+ 	uni_buf *buffer;
+ } bidi_data;
+@@ -1846,25 +1856,25 @@
+ 		else
+ 		{
+ 			/* Must be text */
+-			len = fz_utflen(data->flow->content.text);
++			len = fz_utflen(fz_html_flow_text(data->flow));
+ 			if (len > fragment_len)
+ 			{
+ 				/* We need to split this flow box */
+-				(void)fz_html_split_flow(data->ctx, data->pool, data->flow, fragment_len);
+-				len = fz_utflen(data->flow->content.text);
++				(void)fz_html_split_flow(data->tree, data->ctx, data->pool, data->flow, fragment_len);
++				len = fz_utflen(fz_html_flow_text(data->flow));
+ 			}
+ 		}
+ 
+ 		/* This flow box is entirely contained within this fragment. */
+ 		data->flow->bidi_level = bidi_level;
+ 		data->flow->script = script;
+-		data->flow = data->flow->next;
++		data->flow = fz_html_flow_next(data->tree, data->flow);
+ 		fragment_len -= len;
+ 	}
+ }
+ 
+ static fz_bidi_direction
+-detect_flow_directionality(fz_context *ctx, fz_pool *pool, uni_buf *buffer, fz_bidi_direction bidi_dir, fz_html_flow *flow)
++detect_flow_directionality(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, uni_buf *buffer, fz_bidi_direction bidi_dir, fz_html_flow *flow)
+ {
+ 	fz_html_flow *end = flow;
+ 	bidi_data data;
+@@ -1885,8 +1895,8 @@
+ 			switch (end->type)
+ 			{
+ 			case FLOW_WORD:
+-				len = fz_utflen(end->content.text);
+-				text = end->content.text;
++				len = fz_utflen(fz_html_flow_text(end));
++				text = fz_html_flow_text(end);
+ 				break;
+ 			case FLOW_SPACE:
+ 				len = 1;
+@@ -1901,7 +1911,7 @@
+ 				break;
+ 			}
+ 
+-			end = end->next;
++			end = fz_html_flow_next(tree, end);
+ 
+ 			if (broken)
+ 				break;
+@@ -1935,6 +1945,7 @@
+ 		/* Detect directionality for the buffer */
+ 		data.ctx = ctx;
+ 		data.pool = pool;
++		data.tree = tree;
+ 		data.flow = flow;
+ 		data.buffer = buffer;
+ 		fz_bidi_fragment_text(ctx, buffer->data, buffer->len, &bidi_dir, fragment_cb, &data, 0 /* Flags */);
+@@ -1944,24 +1955,24 @@
+ }
+ 
+ static void
+-detect_box_directionality(fz_context *ctx, fz_pool *pool, uni_buf *buffer, fz_html_box *box)
++detect_box_directionality(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, uni_buf *buffer, fz_html_box *box)
+ {
+ 	while (box)
+ 	{
+ 		if (box->type == BOX_FLOW)
+-			box->markup_dir = detect_flow_directionality(ctx, pool, buffer, box->markup_dir, box->u.flow.head);
+-		detect_box_directionality(ctx, pool, buffer, box->down);
++			box->markup_dir = detect_flow_directionality(tree, ctx, pool, buffer, box->markup_dir, box->u.flow.head);
++		detect_box_directionality(tree, ctx, pool, buffer, box->down);
+ 		box = box->next;
+ 	}
+ }
+ 
+ static void
+-detect_directionality(fz_context *ctx, fz_pool *pool, fz_html_box *box)
++detect_directionality(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *box)
+ {
+ 	uni_buf buffer = { NULL };
+ 
+ 	fz_try(ctx)
+-		detect_box_directionality(ctx, pool, &buffer, box);
++		detect_box_directionality(tree, ctx, pool, &buffer, box);
+ 	fz_always(ctx)
+ 		fz_free(ctx, buffer.data);
+ 	fz_catch(ctx)
+@@ -2289,6 +2300,7 @@
+ 		fz_apply_css_style(ctx, g.set, &style, &root_match);
+ 
+ 		g.pool = tree->pool;
++		g.tree = tree;
+ 		if (style.direction != FZ_BIDI_UNSET)
+ 			g.markup_dir = style.direction;
+ 		g.markup_lang = FZ_LANG_UNSET;
+@@ -2310,7 +2322,7 @@
+ 		display = fz_get_css_match_display(&match);
+ 		gen2_tag(ctx, &g, tree->root, root, &match, display, &style);
+ 
+-		detect_directionality(ctx, g.pool, tree->root);
++		detect_directionality(tree, ctx, g.pool, tree->root);
+ 
+ 		if (g.is_fb2)
+ 		{
+@@ -2577,14 +2589,14 @@
+ 	}
+ }
+ 
+-static void assign_source_nodes(fz_context *ctx, fz_html_box *box, uint32_t *next)
++static void assign_source_nodes(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, uint32_t *next)
+ {
+ 	for (; box; box = box->next)
+ 	{
+ 		if (box->type == BOX_FLOW)
+ 		{
+ 			int adjacent = 0;
+-			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
+ 			{
+ 				if (*next == UINT32_MAX)
+ 					fz_throw(ctx, FZ_ERROR_LIMIT, "HTML has too many flow nodes");
+@@ -2592,11 +2604,11 @@
+ 				/* Classify once, before layout can split/reorder word nodes.
+ 				 * Zero-width break opportunities/anchors are not authored
+ 				 * separators; spaces, explicit breaks and block boundaries are. */
+-				if (((flow->type == FLOW_WORD && *flow->content.text) || flow->type == FLOW_SPACE ||
++				if (((flow->type == FLOW_WORD && *fz_html_flow_text(flow)) || flow->type == FLOW_SPACE ||
+ 					flow->type == FLOW_BREAK || flow->type == FLOW_IMAGE || flow->type == FLOW_SHYPHEN) &&
+-					(flow->box->style->visibility != V_VISIBLE ||
++					(fz_html_flow_box(tree, flow)->style->visibility != V_VISIBLE ||
+ 					((flow->type == FLOW_WORD || flow->type == FLOW_SPACE || flow->type == FLOW_SHYPHEN) &&
+-					flow->box->style->text_fill_color.a == 0 && flow->box->style->text_stroke_color.a == 0)))
++					fz_html_flow_box(tree, flow)->style->text_fill_color.a == 0 && fz_html_flow_box(tree, flow)->style->text_stroke_color.a == 0)))
+ 				{
+ 					/* Unpainted content leaves a layout gap. In particular, a
+ 					 * hidden first word must not join this paragraph's first
+@@ -2613,7 +2625,7 @@
+ 			}
+ 		}
+ 		if (fz_html_box_has_boxes(box))
+-			assign_source_nodes(ctx, box->down, next);
++			assign_source_nodes(tree, ctx, box->down, next);
+ 	}
+ }
+ 
+@@ -2637,7 +2649,7 @@
+ 		fz_parse_html_tree(ctx, set, zip, base_uri, buf, user_css, try_xml, try_html5, &html->tree, &html->metadata, flavor, publisher_css,
+ 			&html->meta_w, &html->meta_h);
+ 		uint32_t source_node = 0;
+-		assign_source_nodes(ctx, html->tree.root, &source_node);
++		assign_source_nodes(&html->tree, ctx, html->tree.root, &source_node);
+ 		reserve_draw_groups(ctx, html->tree.pool, html->tree.root);
+ 	}
+ 	fz_catch(ctx)
+@@ -2761,13 +2773,13 @@
+ }
+ 
+ static void
+-fz_debug_html_flow(fz_context *ctx, fz_html_flow *flow, int level)
++fz_debug_html_flow(fz_html_tree *tree, fz_context *ctx, fz_html_flow *flow, int level)
+ {
+ 	fz_html_box *sbox = NULL;
+ 	while (flow)
+ 	{
+-		if (flow->box != sbox) {
+-			sbox = flow->box;
++		if (fz_html_flow_box(tree, flow) != sbox) {
++			sbox = fz_html_flow_box(tree, flow);
+ 			indent(level);
+ #ifndef NDEBUG
+ 			printf("@style <%s> em=%g font='%s'", sbox->tag, sbox->s.layout.em, fz_font_name(ctx, sbox->style->font));
+@@ -2800,18 +2812,18 @@
+ 		case FLOW_ANCHOR: printf("anchor"); break;
+ 		}
+ 		printf(" script=%d", flow->script);
+-		// printf(" y=%g x=%g w=%g", flow->y, flow->x, fz_html_flow_width(flow));
++		// printf(" y=%g x=%g w=%g", flow->y, flow->x, fz_html_flow_width(tree, flow));
+ 		if (flow->type == FLOW_IMAGE)
+ 			printf(" h=%g", flow->h);
+ 		if (flow->type == FLOW_WORD)
+-			printf(" text='%s'", flow->content.text);
++			printf(" text='%s'", fz_html_flow_text(flow));
+ 		printf("\n");
+ 		if (flow->breaks_line) {
+ 			indent(level);
+ 			printf("*\n");
+ 		}
+ 
+-		flow = flow->next;
++		flow = fz_html_flow_next(tree, flow);
+ 	}
+ }
+ 
+@@ -2858,7 +2870,7 @@
+ }
+ 
+ static void
+-fz_debug_html_box(fz_context *ctx, fz_html_box *box, int level)
++fz_debug_html_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, int level)
+ {
+ 	while (box)
+ 	{
+@@ -2932,11 +2944,11 @@
+ 		printf(">layout=(%g %g)->(%g %g)\n", box->s.layout.x, box->s.layout.y, box->s.layout.w + box->s.layout.x, box->s.layout.b);
+ 
+ 		if (box->down)
+-			fz_debug_html_box(ctx, box->down, level + 1);
++			fz_debug_html_box(tree, ctx, box->down, level + 1);
+ 		if (box->type == BOX_FLOW) {
+ 			indent(level+1);
+ 			printf("flow\n");
+-			fz_debug_html_flow(ctx, box->u.flow.head, level + 2);
++			fz_debug_html_flow(tree, ctx, box->u.flow.head, level + 2);
+ 		}
+ 
+ 		box = box->next;
+@@ -2944,13 +2956,13 @@
+ }
+ 
+ void
+-fz_debug_html(fz_context *ctx, fz_html_box *box)
+-{
+-	fz_debug_html_box(ctx, box, 0);
++fz_debug_html(fz_html_tree *tree, fz_context *ctx, fz_html_box *box)
++{
++	fz_debug_html_box(tree, ctx, box, 0);
+ }
+ 
+ static size_t
+-html_box_image_size(fz_context *ctx, fz_html_box *box)
++html_box_image_size(fz_html_tree *tree, fz_context *ctx, fz_html_box *box)
+ {
+ 	size_t size = 0;
+ 	for (; box; box = box->next)
+@@ -2958,11 +2970,11 @@
+ 		if (box->type == BOX_FLOW)
+ 		{
+ 			fz_html_flow *flow;
+-			for (flow = box->u.flow.head; flow; flow = flow->next)
++			for (flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
+ 				if (flow->type == FLOW_IMAGE)
+ 					size += fz_image_size(ctx, flow->content.image);
+ 		}
+-		size += html_box_image_size(ctx, box->down);
++		size += html_box_image_size(tree, ctx, box->down);
+ 	}
+ 	return size;
+ }
+@@ -2971,7 +2983,7 @@
+ fz_html_size(fz_context *ctx, fz_html *html)
+ {
+ 	/* Images are held by the flows, outside the pool allocation. */
+-	return html ? fz_pool_size(ctx, html->tree.pool) + html_box_image_size(ctx, html->tree.root) : 0;
++	return html ? fz_pool_size(ctx, html->tree.pool) + fz_html_directory_bytes(&html->tree) + html_box_image_size(&html->tree, ctx, html->tree.root) : 0;
+ }
+ 
+ /* Magic to make html storable. */
+@@ -3162,7 +3174,7 @@
+ 
+ #ifndef NDEBUG
+ 	if (fz_atoi(getenv("FZ_DEBUG_HTML")))
+-		fz_debug_html(ctx, story->tree.root);
++		fz_debug_html(&story->tree, ctx, story->tree.root);
+ #endif
+ 
+ 	if (story->restart_draw.end == NULL)
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -324,7 +324,7 @@
+ static const char *get_node_text(fz_context *ctx, fz_html_flow *node)
+ {
+ 	if (node->type == FLOW_WORD)
+-		return node->content.text;
++		return fz_html_flow_text(node);
+ 	else if (node->type == FLOW_SPACE)
+ 		return " ";
+ 	else if (node->type == FLOW_SHYPHEN)
+@@ -333,15 +333,15 @@
+ 		return "";
+ }
+ 
+-static float measure_string_w(fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf)
+-{
+-	float em = node->box->s.layout.em;
++static float measure_string_w(fz_html_tree *tree, fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf)
++{
++	float em = fz_html_flow_box(tree, node)->s.layout.em;
+ 	float width = 0;
+ 	string_walker walker;
+ 	unsigned int i;
+ 	const char *s;
+ 	s = get_node_text(ctx, node);
+-	init_string_walker(ctx, &walker, hb_buf, node->bidi_level & 1, node->box->style->font, node->script, fz_html_flow_markup_lang(node), node->box->style->small_caps, s, 0);
++	init_string_walker(ctx, &walker, hb_buf, node->bidi_level & 1, fz_html_flow_box(tree, node)->style->font, node->script, fz_html_flow_markup_lang(node), fz_html_flow_box(tree, node)->style->small_caps, s, 0);
+ 	while (walk_string(&walker))
+ 	{
+ 		int x = 0;
+@@ -352,27 +352,27 @@
+ 	return width;
+ }
+ 
+-static void measure_string_h(fz_context *ctx, fz_html_flow *node)
+-{
+-	float em = node->box->s.layout.em;
+-	if (fz_html_flow_is_compact_space(node))
+-	{
+-		node->compact_space_height_phase = HTML_SPACE_HEIGHT_MEASURED;
++static void measure_string_h(fz_html_tree *tree, fz_context *ctx, fz_html_flow *node)
++{
++	float em = fz_html_flow_box(tree, node)->s.layout.em;
++	if (node->type == FLOW_WORD || fz_html_flow_is_compact_space(tree, node))
++	{
++		node->compact_height_phase = HTML_SPACE_HEIGHT_MEASURED;
+ 		return;
+ 	}
+-	if (fz_css_number_defined(node->box->style->leading))
+-		node->h = fz_from_css_number(node->box->style->leading, em, em, 0);
++	if (fz_css_number_defined(fz_html_flow_box(tree, node)->style->leading))
++		node->h = fz_from_css_number(fz_html_flow_box(tree, node)->style->leading, em, em, 0);
+ 	else
+-		node->h = fz_from_css_number_scale(node->box->style->line_height, em);
+-}
+-
+-
+-static float measure_line(fz_html_flow *node, fz_html_flow *end, float *baseline)
+-{
+-	float max_a = 0, max_d = 0, h = fz_html_flow_measure_height(node);
++		node->h = fz_from_css_number_scale(fz_html_flow_box(tree, node)->style->line_height, em);
++}
++
++
++static float measure_line(fz_html_tree *tree, fz_html_flow *node, fz_html_flow *end, float *baseline)
++{
++	float max_a = 0, max_d = 0, h = fz_html_flow_measure_height(tree, node);
+ 	while (node != end)
+ 	{
+-		float node_h = fz_html_flow_measure_height(node);
++		float node_h = fz_html_flow_measure_height(tree, node);
+ 		if (node->type == FLOW_IMAGE)
+ 		{
+ 			if (node_h > max_a)
+@@ -382,7 +382,7 @@
+ 		{
+ 			// Clamp ascender/descender to line-height size.
+ 			// TODO: This is not entirely to spec, but close enough.
+-			float s = fz_min(node->box->s.layout.em, node_h);
++			float s = fz_min(fz_html_flow_box(tree, node)->s.layout.em, node_h);
+ 			float a = s * 0.8f;
+ 			float d = s * 0.2f;
+ 			if (a > max_a) max_a = a;
+@@ -390,13 +390,13 @@
+ 		}
+ 		if (node_h > h)
+ 			h = node_h;
+-		node = node->next;
++		node = fz_html_flow_next(tree, node);
+ 	}
+ 	*baseline = max_a + (h - max_a - max_d) / 2;
+ 	return h;
+ }
+ 
+-static void layout_line(fz_context *ctx, float indent, float page_w, float line_w, int align, fz_html_flow *start, fz_html_flow *end, fz_html_box *box, float baseline, float line_h)
++static void layout_line(fz_html_tree *tree, fz_context *ctx, float indent, float page_w, float line_w, int align, fz_html_flow *start, fz_html_flow *end, fz_html_box *box, float baseline, float line_h)
+ {
+ 	float x = box->s.layout.x + indent;
+ 	float y = box->s.layout.b;
+@@ -409,7 +409,7 @@
+ 	unsigned int min_level, max_level;
+ 
+ 	/* Count the number of nodes on the line */
+-	for(i = 0, n = 0, node = start; node != end; node = node->next)
++	for(i = 0, n = 0, node = start; node != end; node = fz_html_flow_next(tree, node))
+ 	{
+ 		n++;
+ 		if (node->type == FLOW_SPACE && node->expand && !node->breaks_line)
+@@ -429,7 +429,7 @@
+ 	reorder = fz_malloc_array(ctx, n, fz_html_flow*);
+ 	min_level = start->bidi_level;
+ 	max_level = start->bidi_level;
+-	for(i = 0, node = start; node != end; i++, node = node->next)
++	for(i = 0, node = start; node != end; i++, node = fz_html_flow_next(tree, node))
+ 	{
+ 		reorder[i] = node;
+ 		if (node->bidi_level < min_level)
+@@ -482,7 +482,7 @@
+ 		float w;
+ 
+ 		node = reorder[i];
+-		w = fz_html_flow_width(node);
++		w = fz_html_flow_width(tree, node);
+ 
+ 		if (node->type == FLOW_SPACE && node->breaks_line)
+ 			w = 0;
+@@ -498,41 +498,41 @@
+ 
+ 		if (node->type == FLOW_IMAGE)
+ 		{
+-			switch (node->box->style->vertical_align)
++			switch (fz_html_flow_box(tree, node)->style->vertical_align)
+ 			{
+ 			default:
+ 			case VA_BASELINE:
+ 				node->y = y + baseline - node->h;
+ 				break;
+ 			case VA_SUB:
+-				node->y = y + baseline - node->h + node->box->s.layout.em / 5;
++				node->y = y + baseline - node->h + fz_html_flow_box(tree, node)->s.layout.em / 5;
+ 				break;
+ 			case VA_SUPER:
+-				node->y = y + baseline - node->h - node->box->s.layout.em / 3;
++				node->y = y + baseline - node->h - fz_html_flow_box(tree, node)->s.layout.em / 3;
+ 				break;
+ 			case VA_MIDDLE:
+ 				// middle of the element with the baseline plus half the x-height of the parent
+-				node->y = y + baseline - node->box->s.layout.em * 0.25f - node->h * 0.5f;
++				node->y = y + baseline - fz_html_flow_box(tree, node)->s.layout.em * 0.25f - node->h * 0.5f;
+ 				break;
+ 			case VA_TOP:
+ 				node->y = y;
+ 				break;
+ 			case VA_TEXT_TOP:
+-				node->y = y + baseline - node->box->s.layout.em * 0.8f;
++				node->y = y + baseline - fz_html_flow_box(tree, node)->s.layout.em * 0.8f;
+ 				break;
+ 			case VA_BOTTOM:
+ 				node->y = y + line_h - node->h;
+ 				break;
+ 			case VA_TEXT_BOTTOM:
+-				node->y = y + baseline + node->box->s.layout.em * 0.2f - node->h;
++				node->y = y + baseline + fz_html_flow_box(tree, node)->s.layout.em * 0.2f - node->h;
+ 				break;
+ 			case VA_PERCENT:
+ 			case VA_LENGTH:
+ 				node->y = y + baseline - node->h -
+ 					fz_from_css_number(
+-						node->box->style->vertical_align_number,
+-						node->box->s.layout.em,
+-						fz_from_css_number_scale(node->box->style->line_height, node->box->s.layout.em),
++						fz_html_flow_box(tree, node)->style->vertical_align_number,
++						fz_html_flow_box(tree, node)->s.layout.em,
++						fz_from_css_number_scale(fz_html_flow_box(tree, node)->style->line_height, fz_html_flow_box(tree, node)->s.layout.em),
+ 						0
+ 					);
+ 				break;
+@@ -540,39 +540,39 @@
+ 		}
+ 		else
+ 		{
+-			switch (node->box->style->vertical_align)
++			switch (fz_html_flow_box(tree, node)->style->vertical_align)
+ 			{
+ 			default:
+ 			case VA_BASELINE:
+ 			case VA_SUB:
+ 			case VA_SUPER:
+ 			case VA_MIDDLE:
+-				va = node->box->s.layout.baseline;
++				va = fz_html_flow_box(tree, node)->s.layout.baseline;
+ 				break;
+ 
+ 			case VA_TOP:
+ 			case VA_TEXT_TOP:
+-				va = -baseline + node->box->s.layout.em * 0.8f;
++				va = -baseline + fz_html_flow_box(tree, node)->s.layout.em * 0.8f;
+ 				break;
+ 			case VA_BOTTOM:
+ 			case VA_TEXT_BOTTOM:
+-				va = -baseline + line_h - node->box->s.layout.em * 0.2f;
++				va = -baseline + line_h - fz_html_flow_box(tree, node)->s.layout.em * 0.2f;
+ 				break;
+ 			case VA_PERCENT:
+ 			case VA_LENGTH:
+ 				va = -fz_from_css_number(
+-					node->box->style->vertical_align_number,
+-					node->box->s.layout.em,
+-					fz_from_css_number_scale(node->box->style->line_height, node->box->s.layout.em),
++					fz_html_flow_box(tree, node)->style->vertical_align_number,
++					fz_html_flow_box(tree, node)->s.layout.em,
++					fz_from_css_number_scale(fz_html_flow_box(tree, node)->style->line_height, fz_html_flow_box(tree, node)->s.layout.em),
+ 					0
+ 				);
+ 				break;
+ 			}
+ 			node->y = y + baseline + va;
+-			if (fz_html_flow_is_compact_space(node))
+-				node->compact_space_height_phase = HTML_SPACE_HEIGHT_LAID_OUT;
++			if (node->type == FLOW_WORD || fz_html_flow_is_compact_space(tree, node))
++				node->compact_height_phase = HTML_SPACE_HEIGHT_LAID_OUT;
+ 			else
+-				node->h = node->box->s.layout.em;
++				node->h = fz_html_flow_box(tree, node)->s.layout.em;
+ 		}
+ 	}
+ 
+@@ -619,13 +619,13 @@
+ #define TRBLCPY(DST,SRC) \
+ do { DST[T] = SRC[T] ; DST[R] = SRC[R]; DST[B] = SRC[B]; DST[L] = SRC[L]; } while (0)
+ 
+-static int flush_line(fz_context *ctx, fz_html_box *box, layout_data *ld, float line_w, int align, float indent, fz_html_flow *a, fz_html_flow *b, fz_html_restarter *restart)
++static int flush_line(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, layout_data *ld, float line_w, int align, float indent, fz_html_flow *a, fz_html_flow *b, fz_html_restarter *restart)
+ {
+ 	float avail, line_h, baseline;
+ 	float page_w = ld->bounds[R] - ld->bounds[L];
+ 	float page_h = ld->page[B] - ld->page[T];
+ 	float page_top = ld->page[T];
+-	line_h = measure_line(a, b, &baseline);
++	line_h = measure_line(tree, a, b, &baseline);
+ 	if (!ld->no_pagination && page_h > 0)
+ 	{
+ 		avail = page_h - fmodf(box->s.layout.b - page_top, page_h);
+@@ -650,7 +650,7 @@
+ 			box->s.layout.b += avail;
+ 		}
+ 	}
+-	layout_line(ctx, indent, page_w, line_w, align, a, b, box, baseline, line_h);
++	layout_line(tree, ctx, indent, page_w, line_w, align, a, b, box, baseline, line_h);
+ 	box->s.layout.b += line_h;
+ 	if (box->s.layout.b > ld->used[B])
+ 		ld->used[B] = box->s.layout.b;
+@@ -660,9 +660,10 @@
+ 	return 0;
+ }
+ 
+-static void split_flow_at_byte_offset(fz_context *ctx, fz_pool *pool, fz_html_flow *flow, size_t offset)
++static void split_flow_at_byte_offset(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_flow *flow, size_t offset)
+ {
+ 	fz_html_flow *new_flow;
++	uint32_t new_ref;
+ 	char *text;
+ 	size_t len;
+ 	uint32_t source_offset, new_offset;
+@@ -671,25 +672,26 @@
+ 	assert(flow->type == FLOW_WORD);
+ 
+ 	assert(offset != 0);
+-	text = flow->content.text + offset;
++	text = fz_html_flow_text(flow) + offset;
+ 	len = strlen(text);
+ 	source_offset = fz_html_flow_source_offset(flow);
+ 	new_offset = source_offset + offset;
+ 	lang = fz_html_flow_markup_lang(flow);
+-	new_flow = fz_pool_alloc(ctx, pool, fz_html_flow_word_size(len, new_offset, lang));
+-	memcpy(new_flow, flow, offsetof(fz_html_flow, content));
+-	new_flow->next = flow->next;
+-	flow->next = new_flow;
+-	strcpy(new_flow->content.text, text);
++	new_flow = fz_html_alloc_flow(ctx, tree, fz_html_flow_word_size(len, new_offset, lang), &new_ref);
++	memcpy(new_flow, flow, offsetof(fz_html_flow, h));
++	new_flow->next_ref = flow->next_ref;
++	flow->next_ref = new_ref;
++	strcpy(fz_html_flow_text(new_flow), text);
+ 	fz_html_flow_set_word_metadata(new_flow, new_offset, lang);
+ 	*text = 0;
+ 	fz_html_flow_set_word_metadata(flow, source_offset, lang);
+ }
+ 
+ /* node becomes last cluster, node->next becomes the rest */
+-static void split_flow_at_byte_offset_reverse(fz_context *ctx, fz_pool *pool, fz_html_flow *flow, size_t offset)
++static void split_flow_at_byte_offset_reverse(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_flow *flow, size_t offset)
+ {
+ 	fz_html_flow *new_flow;
++	uint32_t new_ref;
+ 	char *text;
+ 	size_t len;
+ 	uint32_t source_offset;
+@@ -698,30 +700,30 @@
+ 	assert(flow->type == FLOW_WORD);
+ 
+ 	assert(offset != 0);
+-	text = flow->content.text + offset;
++	text = fz_html_flow_text(flow) + offset;
+ 	len = strlen(text);
+ 	source_offset = fz_html_flow_source_offset(flow);
+ 	lang = fz_html_flow_markup_lang(flow);
+-	new_flow = fz_pool_alloc(ctx, pool, fz_html_flow_word_size(offset, source_offset, lang));
+-	memcpy(new_flow, flow, offsetof(fz_html_flow, content));
+-	new_flow->next = flow->next;
+-	flow->next = new_flow;
+-	memcpy(new_flow->content.text, flow->content.text, offset);
+-	new_flow->content.text[offset] = 0;
++	new_flow = fz_html_alloc_flow(ctx, tree, fz_html_flow_word_size(offset, source_offset, lang), &new_ref);
++	memcpy(new_flow, flow, offsetof(fz_html_flow, h));
++	new_flow->next_ref = flow->next_ref;
++	flow->next_ref = new_ref;
++	memcpy(fz_html_flow_text(new_flow), fz_html_flow_text(flow), offset);
++	fz_html_flow_text(new_flow)[offset] = 0;
+ 	fz_html_flow_set_word_metadata(new_flow, source_offset, lang);
+-	memmove(flow->content.text, text, len);
+-	flow->content.text[len] = 0;
++	memmove(fz_html_flow_text(flow), text, len);
++	fz_html_flow_text(flow)[len] = 0;
+ 	fz_html_flow_set_word_metadata(flow, source_offset + offset, lang);
+ }
+ 
+-static void break_word_for_overflow_wrap(fz_context *ctx, fz_html_flow *node, layout_data *ld, float max_w)
++static void break_word_for_overflow_wrap(fz_html_tree *tree, fz_context *ctx, fz_html_flow *node, layout_data *ld, float max_w)
+ {
+ 	hb_buffer_t *hb_buf = ld->hb_buf;
+-	const char *text = node->content.text;
++	const char *text = fz_html_flow_text(node);
+ 	string_walker walker;
+ 	float w = 0;
+ 	unsigned int at = (unsigned int)-1;
+-	float em = node->box->s.layout.em;
++	float em = fz_html_flow_box(tree, node)->s.layout.em;
+ 
+ 	assert(node->type == FLOW_WORD);
+ 	assert(node->atomic == 0);
+@@ -748,7 +750,7 @@
+ 	if ((node->bidi_level & 1) == 0)
+ 	{
+ 		/* Left 2 Right */
+-		init_string_walker(ctx, &walker, hb_buf, 0 /* L2R */, node->box->style->font, node->script, fz_html_flow_markup_lang(node), node->box->style->small_caps, text, 1);
++		init_string_walker(ctx, &walker, hb_buf, 0 /* L2R */, fz_html_flow_box(tree, node)->style->font, node->script, fz_html_flow_markup_lang(node), fz_html_flow_box(tree, node)->style->small_caps, text, 1);
+ 		while (walk_string(&walker))
+ 		{
+ 			unsigned int i;
+@@ -787,18 +789,18 @@
+ 		}
+ 		if (at != (unsigned int)-1 && at != 0 && at != strlen(text))
+ 		{
+-			/* node becomes first cluster, node->next becomes the rest */
+-			split_flow_at_byte_offset(ctx, ld->pool, node, at);
+-			node->next->overflow_wrap = 1;
+-			node->w = measure_string_w(ctx, node, ld->hb_buf);
+-			node->next->w = measure_string_w(ctx, node->next, ld->hb_buf);
++			/* node becomes first cluster, fz_html_flow_next(tree, node) becomes the rest */
++			split_flow_at_byte_offset(tree, ctx, ld->pool, node, at);
++			fz_html_flow_next(tree, node)->overflow_wrap = 1;
++			node->w = measure_string_w(tree, ctx, node, ld->hb_buf);
++			fz_html_flow_next(tree, node)->w = measure_string_w(tree, ctx, fz_html_flow_next(tree, node), ld->hb_buf);
+ 			return;
+ 		}
+ 	}
+ 	else
+ 	{
+ 		/* Right 2 Left */
+-		init_string_walker(ctx, &walker, hb_buf, 1 /* R2L */, node->box->style->font, node->script, fz_html_flow_markup_lang(node), node->box->style->small_caps, text, 1);
++		init_string_walker(ctx, &walker, hb_buf, 1 /* R2L */, fz_html_flow_box(tree, node)->style->font, node->script, fz_html_flow_markup_lang(node), fz_html_flow_box(tree, node)->style->small_caps, text, 1);
+ 		while (walk_string(&walker))
+ 		{
+ 			unsigned int i;
+@@ -843,11 +845,11 @@
+ 		if (at != (unsigned int)-1 && at != 0 && at != strlen(text))
+ 		{
+ 			/* Split at the last point found */
+-			/* node becomes last cluster, node->next becomes the rest */
+-			split_flow_at_byte_offset_reverse(ctx, ld->pool, node, at);
+-			node->next->overflow_wrap = 1;
+-			node->w = measure_string_w(ctx, node, ld->hb_buf);
+-			node->next->w = measure_string_w(ctx, node->next, ld->hb_buf);
++			/* node becomes last cluster, fz_html_flow_next(tree, node) becomes the rest */
++			split_flow_at_byte_offset_reverse(tree, ctx, ld->pool, node, at);
++			fz_html_flow_next(tree, node)->overflow_wrap = 1;
++			node->w = measure_string_w(tree, ctx, node, ld->hb_buf);
++			fz_html_flow_next(tree, node)->w = measure_string_w(tree, ctx, fz_html_flow_next(tree, node), ld->hb_buf);
+ 			return;
+ 		}
+ 	}
+@@ -865,7 +867,7 @@
+ 	box: The BOX_FLOW to layout.
+ 	top: The enclosing box.
+ */
+-static void layout_flow(fz_context *ctx, layout_data *ld, fz_html_box *box, fz_html_box *top)
++static void layout_flow(fz_html_tree *tree, fz_context *ctx, layout_data *ld, fz_html_box *box, fz_html_box *top)
+ {
+ 	fz_html_flow *node, *line, *candidate, *desperate;
+ 	fz_html_flow *start_flow = NULL;
+@@ -906,14 +908,14 @@
+ 		/* Output us some crufty debug */
+ 		if (restart->start_flow == NULL)
+ 			printf("<restart>");
+-		for (node = box->u.flow.head; node; node = node->next)
++		for (node = box->u.flow.head; node; node = fz_html_flow_next(tree, node))
+ 		{
+ 			if (restart->start_flow == node)
+ 				printf("<restart>");
+ 			switch (node->type)
+ 			{
+ 			case FLOW_WORD:
+-				printf("[%s]", node->content.text);
++				printf("[%s]", fz_html_flow_text(node));
+ 				break;
+ 			case FLOW_BREAK:
+ 			case FLOW_SBREAK:
+@@ -947,14 +949,14 @@
+ 		while(node && node != restart->start_flow)
+ 		{
+ 			indent = 0;
+-			node = node->next;
++			node = fz_html_flow_next(tree, node);
+ 		}
+ 		start_flow = node;
+ 		restart->start_flow = NULL;
+ 	}
+ 
+ 	/* Now measure the size of the remaining nodes. */
+-	for (; node; node = node->next)
++	for (; node; node = fz_html_flow_next(tree, node))
+ 	{
+ 		node->breaks_line = 0; /* reset line breaks from previous layout */
+ 
+@@ -962,7 +964,7 @@
+ 		{
+ 			float xs = 1, ys = 1, s;
+ 			float aspect = 1;
+-			float image_em = ld->no_pagination ? node->box->s.layout.em : top->s.layout.em;
++			float image_em = ld->no_pagination ? fz_html_flow_box(tree, node)->s.layout.em : top->s.layout.em;
+ 			float max_w = ld->bounds[R] - ld->bounds[L]; // current block content box width
+ 			float max_h = ld->no_pagination ? ld->bounds[B] - ld->bounds[T] : ld->page[B] - ld->page[T];
+ 
+@@ -971,13 +973,13 @@
+ 			node->h = node->content.image->h * (ld->no_pagination ? 1 : 72.0f / 96.0f);
+ 			aspect = node->h ? node->w / node->h : 0;
+ 
+-			if (node->box->style->width.unit != N_AUTO)
+-				node->w = fz_from_css_number(node->box->style->width, image_em, max_w, node->w);
+-			if (node->box->style->height.unit != N_AUTO)
+-				node->h = fz_from_css_number(node->box->style->height, image_em, max_h, node->h);
+-			if (node->box->style->width.unit == N_AUTO && node->box->style->height.unit != N_AUTO)
++			if (fz_html_flow_box(tree, node)->style->width.unit != N_AUTO)
++				node->w = fz_from_css_number(fz_html_flow_box(tree, node)->style->width, image_em, max_w, node->w);
++			if (fz_html_flow_box(tree, node)->style->height.unit != N_AUTO)
++				node->h = fz_from_css_number(fz_html_flow_box(tree, node)->style->height, image_em, max_h, node->h);
++			if (fz_html_flow_box(tree, node)->style->width.unit == N_AUTO && fz_html_flow_box(tree, node)->style->height.unit != N_AUTO)
+ 				node->w = node->h * aspect;
+-			if (node->box->style->width.unit != N_AUTO && node->box->style->height.unit == N_AUTO)
++			if (fz_html_flow_box(tree, node)->style->width.unit != N_AUTO && fz_html_flow_box(tree, node)->style->height.unit == N_AUTO)
+ 				node->h = (aspect == 0) ? 0 : (node->w / aspect);
+ 
+ 			/* Shrink image to fit on one page if needed */
+@@ -997,7 +999,7 @@
+ 		else
+ 		{
+ 			/* Note: already measured width in layout_update_widths */
+-			measure_string_h(ctx, node);
++			measure_string_h(tree, ctx, node);
+ 		}
+ 	}
+ 
+@@ -1027,16 +1029,16 @@
+ 		{
+ 		default:
+ 			// always same width
+-			line_w += fz_html_flow_width(node);
++			line_w += fz_html_flow_width(tree, node);
+ 			break;
+ 
+ 		case FLOW_WORD:
+ 			/* Allow desperate breaking in middle of word if overflow-wrap: break-word. */
+ 			if (line_w + node->w > bounds_w && !candidate)
+ 			{
+-				if (!node->atomic && node->box->style->overflow_wrap == OVERFLOW_WRAP_BREAK_WORD)
++				if (!node->atomic && fz_html_flow_box(tree, node)->style->overflow_wrap == OVERFLOW_WRAP_BREAK_WORD)
+ 				{
+-					break_word_for_overflow_wrap(ctx, node, ld, bounds_w - line_w);
++					break_word_for_overflow_wrap(tree, ctx, node, ld, bounds_w - line_w);
+ 				}
+ 			}
+ 			/* Remember overflow-wrap word fragments, unless at the beginning of a line. */
+@@ -1059,7 +1061,7 @@
+ 			// zero width if broken, default width if unbroken
+ 			candidate = node;
+ 			candidate_w = line_w;
+-			line_w += fz_html_flow_width(node);
++			line_w += fz_html_flow_width(tree, node);
+ 			break;
+ 
+ 		case FLOW_SHYPHEN:
+@@ -1083,7 +1085,7 @@
+ 				if (candidate->type == FLOW_BREAK)
+ 					line_align = (align == TA_JUSTIFY) ? justify_align : align;
+ 				candidate->breaks_line = 1;
+-				break_at = candidate->next;
++				break_at = fz_html_flow_next(tree, candidate);
+ 				break_w = candidate_w;
+ 			}
+ 			else
+@@ -1101,10 +1103,10 @@
+ 			 * first line merely because that image cannot fit the canvas. */
+ 			int empty_soft_line = ld->no_pagination && candidate &&
+ 				candidate->type == FLOW_SBREAK && break_w == 0;
+-			for (fz_html_flow *scan = line; empty_soft_line && scan != break_at; scan = scan->next)
++			for (fz_html_flow *scan = line; empty_soft_line && scan != break_at; scan = fz_html_flow_next(tree, scan))
+ 				if (scan->type != FLOW_SBREAK && scan->type != FLOW_ANCHOR)
+ 					empty_soft_line = 0;
+-			if (!empty_soft_line && flush_line(ctx, box, ld, break_w, line_align, indent, line, break_at, restart))
++			if (!empty_soft_line && flush_line(tree, ctx, box, ld, break_w, line_align, indent, line, break_at, restart))
+ 				return;
+ 
+ 			line = break_at;
+@@ -1129,14 +1131,14 @@
+ 		}
+ 		else
+ 		{
+-			node = node->next;
++			node = fz_html_flow_next(tree, node);
+ 		}
+ 	}
+ 
+ 	if (line)
+ 	{
+ 		int line_align = (align == TA_JUSTIFY) ? justify_align : align;
+-		flush_line(ctx, box, ld, line_w, line_align, indent, line, NULL, restart);
++		flush_line(tree, ctx, box, ld, line_w, line_align, indent, line, NULL, restart);
+ 	}
+ 
+ 	ld->used[T] = box->s.layout.y;
+@@ -1240,7 +1242,7 @@
+  * POS_ABSOLUTE: Positioned relative to the nearest positioned ancestor.
+  */
+ static void
+-shift_box_contents(fz_html_box *box, float x, float y)
++shift_box_contents(fz_html_tree *tree, fz_html_box *box, float x, float y)
+ {
+ 	fz_html_box *child;
+ 
+@@ -1250,14 +1252,14 @@
+ 	if (box->type == BOX_FLOW)
+ 	{
+ 		fz_html_flow *flow;
+-		for (flow = box->u.flow.head; flow != NULL; flow = flow->next)
++		for (flow = box->u.flow.head; flow != NULL; flow = fz_html_flow_next(tree, flow))
+ 			flow->x += x, flow->y += y;
+ 	}
+ 	for (child = box->down; child; child = child->next)
+ 	{
+ 		if (child->style->position == POS_FIXED || child->style->position == POS_ABSOLUTE)
+ 			return;
+-		shift_box_contents(child, x, y);
++		shift_box_contents(tree, child, x, y);
+ 	}
+ }
+ 
+@@ -1537,7 +1539,7 @@
+  *	Returns eop
+  */
+ static int
+-post_position(fz_context *ctx, position_data *pd, layout_data *ld, fz_html_box *box, int widths_set)
++post_position(fz_html_tree *tree, fz_context *ctx, position_data *pd, layout_data *ld, fz_html_box *box, int widths_set)
+ {
+ 	int eop = 0; /* dummy */
+ 	fz_html_restarter *restart = ld->restart;
+@@ -1592,7 +1594,7 @@
+ 
+ 		/* Space is taken out of the flow as if this stuff had been laid out without
+ 		 * relativeness. So we just need to move the content. */
+-		shift_box_contents(box, x, y);
++		shift_box_contents(tree, box, x, y);
+ 
+ 		break;
+ 	}
+@@ -1635,7 +1637,7 @@
+ 				/* Right and page define the box. */
+ 				/* We laid this out on the left, cos we didn't know the width. Now we
+ 				 * know the width, shift it right. */
+-				shift_box_contents(box, page[R] - page[L] - box->s.layout.w - pd->inset[R], 0);
++				shift_box_contents(tree, box, page[R] - page[L] - box->s.layout.w - pd->inset[R], 0);
+ 			}
+ 		}
+ 		if (fz_css_number_defined(box->style->inset[T]))
+@@ -1663,7 +1665,7 @@
+ 			else
+ 			{
+ 				/* Bottom and page define the box. */
+-				shift_box_contents(box, 0, page[B] - box->s.layout.b - pd->inset[B]);
++				shift_box_contents(tree, box, 0, page[B] - box->s.layout.b - pd->inset[B]);
+ 			}
+ 		}
+ 		/* As far as the caller is concerned, no space used. */
+@@ -1703,7 +1705,7 @@
+ 				/* Right and ancestor define the box. */
+ 				/* We laid this out on the left, cos we didn't know the width. Now we
+ 				 * know the width, shift it right. */
+-				shift_box_contents(box, ld->ancestor[R] - ld->ancestor[L] - box->s.layout.w - pd->inset[R], 0);
++				shift_box_contents(tree, box, ld->ancestor[R] - ld->ancestor[L] - box->s.layout.w - pd->inset[R], 0);
+ 			}
+ 		}
+ 		if (fz_css_number_defined(box->style->inset[T]))
+@@ -1730,7 +1732,7 @@
+ 			else
+ 			{
+ 				/* Bottom and ancestor bottom define the box. */
+-				shift_box_contents(box, 0, ld->ancestor[B] - box->s.layout.b - pd->inset[B]);
++				shift_box_contents(tree, box, 0, ld->ancestor[B] - box->s.layout.b - pd->inset[B]);
+ 			}
+ 		}
+ 		/* As far as the caller is concerned, no space used. */
+@@ -1744,8 +1746,8 @@
+ }
+ 
+ 
+-static int layout_block(fz_context *ctx, layout_data *ld, fz_html_box *box);
+-static int layout_table(fz_context *ctx, layout_data *ld, fz_html_box *box);
++static int layout_block(fz_html_tree *tree, fz_context *ctx, layout_data *ld, fz_html_box *box);
++static int layout_table(fz_html_tree *tree, fz_context *ctx, layout_data *ld, fz_html_box *box);
+ 
+ /* === LAYOUT TABLE === */
+ 
+@@ -2115,7 +2117,7 @@
+ 	);
+ }
+ 
+-static float largest_min_width(fz_context *ctx, fz_html_box *box)
++static float largest_min_width(fz_html_tree *tree, fz_context *ctx, fz_html_box *box)
+ {
+ 	/* The "minimum" width is the largest word in a paragraph. */
+ 	float r_min = 0;
+@@ -2124,7 +2126,7 @@
+ 		fz_html_box *child = box->down;
+ 		while (child)
+ 		{
+-			float min = largest_min_width(ctx, child);
++			float min = largest_min_width(tree, ctx, child);
+ 			if (min > r_min)
+ 				r_min = min;
+ 			child = child->next;
+@@ -2134,9 +2136,9 @@
+ 	else if (box->type == BOX_FLOW)
+ 	{
+ 		fz_html_flow *flow;
+-		for (flow = box->u.flow.head; flow; flow = flow->next)
+-			if (fz_html_flow_width(flow) > r_min)
+-				r_min = fz_html_flow_width(flow);
++		for (flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
++			if (fz_html_flow_width(tree, flow) > r_min)
++				r_min = fz_html_flow_width(tree, flow);
+ 	}
+ 	else
+ 	{
+@@ -2145,7 +2147,7 @@
+ 	return r_min;
+ }
+ 
+-static float largest_max_width(fz_context *ctx, fz_html_box *box)
++static float largest_max_width(fz_html_tree *tree, fz_context *ctx, fz_html_box *box)
+ {
+ 	/* The "maximum" width is the length of the longest paragraph laid out on one line. */
+ 	float r_max = 0;
+@@ -2154,7 +2156,7 @@
+ 		fz_html_box *child = box->down;
+ 		while (child)
+ 		{
+-			float max = largest_max_width(ctx, child);
++			float max = largest_max_width(tree, ctx, child);
+ 			if (max > r_max)
+ 				r_max = max;
+ 			child = child->next;
+@@ -2165,9 +2167,9 @@
+ 	{
+ 		fz_html_flow *flow;
+ 		float max = 0;
+-		for (flow = box->u.flow.head; flow; flow = flow->next)
+-		{
+-			max += fz_html_flow_width(flow);
++		for (flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
++		{
++			max += fz_html_flow_width(tree, flow);
+ 			if (flow->type == FLOW_BREAK)
+ 			{
+ 				if (max > r_max)
+@@ -2196,7 +2198,7 @@
+ 		squish_block(ctx, child);
+ }
+ 
+-static void layout_table_row(fz_context *ctx, layout_data *ld, table_grid *grid, int celly, fz_html_box *row, int ncol, column_width *colw, float spacing, border_collapse_info *border_collapse)
++static void layout_table_row(fz_html_tree *tree, fz_context *ctx, layout_data *ld, table_grid *grid, int celly, fz_html_box *row, int ncol, column_width *colw, float spacing, border_collapse_info *border_collapse)
+ {
+ 	fz_html_box *cell, *child;
+ 	int col = 0;
+@@ -2307,15 +2309,15 @@
+ 		{
+ 			if (child->type == BOX_BLOCK)
+ 			{
+-				(void)layout_block(ctx, ld, child);
++				(void)layout_block(tree, ctx, ld, child);
+ 			}
+ 			else if (child->type == BOX_TABLE)
+ 			{
+-				(void)layout_table(ctx, ld, child);
++				(void)layout_table(tree, ctx, ld, child);
+ 			}
+ 			else if (child->type == BOX_FLOW)
+ 			{
+-				layout_flow(ctx, ld, child, cell);
++				layout_flow(tree, ctx, ld, child, cell);
+ 			}
+ 			ld->bounds[T] = ld->used[B];
+ 		}
+@@ -2373,7 +2375,7 @@
+ }
+ 
+ static void
+-fixup_collapsed_cell_bottoms_for_row(fz_context *ctx, table_grid *grid, int row, fz_html_box *box)
++fixup_collapsed_cell_bottoms_for_row(fz_html_tree *tree, fz_context *ctx, table_grid *grid, int row, fz_html_box *box)
+ {
+ 	int row0;
+ 	fz_html_box *rowbox, *cell;
+@@ -2393,7 +2395,7 @@
+ 				float offset = (y - cell->s.layout.b);
+ 				if (cell->style->vertical_align == VA_MIDDLE)
+ 					offset /= 2;
+-				shift_box_contents(cell, 0, offset);
++				shift_box_contents(tree, cell, 0, offset);
+ 				cell->s.layout.y -= offset;
+ 			}
+ 			cell->s.layout.b = y;
+@@ -2402,7 +2404,7 @@
+ }
+ 
+ static void
+-fixup_cell_bottoms(fz_context *ctx, table_grid *grid, fz_html_box *box)
++fixup_cell_bottoms(fz_html_tree *tree, fz_context *ctx, table_grid *grid, fz_html_box *box)
+ {
+ 	fz_html_box *rowbox, *cell;
+ 	int row;
+@@ -2421,7 +2423,7 @@
+ 				float offset = (y - cell->s.layout.b);
+ 				if (cell->style->vertical_align == VA_MIDDLE)
+ 					offset /= 2;
+-				shift_box_contents(cell, 0, offset);
++				shift_box_contents(tree, cell, 0, offset);
+ 				cell->s.layout.y -= offset;
+ 			}
+ 			cell->s.layout.b = y;
+@@ -2538,7 +2540,7 @@
+ 	}
+ }
+ 
+-static int layout_table(fz_context *ctx, layout_data *ld, fz_html_box *box)
++static int layout_table(fz_html_tree *tree, fz_context *ctx, layout_data *ld, fz_html_box *box)
+ {
+ 	fz_html_box *row;
+ 	int col, ncol;
+@@ -2643,8 +2645,8 @@
+ 					float cellmaxw = 0;
+ 					for (child = cell->down; child; child = child->next)
+ 					{
+-						float min = largest_min_width(ctx, child) + cell_pad;
+-						float max = largest_max_width(ctx, child) + cell_pad;
++						float min = largest_min_width(tree, ctx, child) + cell_pad;
++						float max = largest_max_width(tree, ctx, child) + cell_pad;
+ 						/* The logic here looks screwy, but isn't! */
+ 						if (min > cellminw)
+ 							cellminw = min;
+@@ -2747,9 +2749,9 @@
+ 				 * the one above. */
+ 				row->s.layout.y -= table->row_max_bottom_border[y-1]/2;
+ 			}
+-			layout_table_row(ctx, ld, table, y, row, ncol, colw, spacing, border_collapse ? &bci : NULL);
++			layout_table_row(tree, ctx, ld, table, y, row, ncol, colw, spacing, border_collapse ? &bci : NULL);
+ 			if (border_collapse)
+-				fixup_collapsed_cell_bottoms_for_row(ctx, table, y, box);
++				fixup_collapsed_cell_bottoms_for_row(tree, ctx, table, y, box);
+ 
+ 			/* If the row doesn't fit on the current page, break here and put the row on the next page.
+ 			 * Unless the row was at the very start of the page, in which case it'll overflow instead.
+@@ -2770,7 +2772,7 @@
+ 					else
+ 					{
+ 						row->s.layout.y += avail;
+-						layout_table_row(ctx, ld, table, y, row, ncol, colw, spacing, border_collapse ? &bci : NULL);
++						layout_table_row(tree, ctx, ld, table, y, row, ncol, colw, spacing, border_collapse ? &bci : NULL);
+ 					}
+ 				}
+ 			}
+@@ -2781,7 +2783,7 @@
+ 
+ 		/* And align the cell bottoms. */
+ 		if (!border_collapse)
+-			fixup_cell_bottoms(ctx, table, box->down);
++			fixup_cell_bottoms(tree, ctx, table, box->down);
+ 
+ 		exit:;
+ 	}
+@@ -2793,7 +2795,7 @@
+ 	fz_catch(ctx)
+ 		fz_rethrow(ctx);
+ 
+-	if (post_position(ctx, &position, ld, box, 1))
++	if (post_position(tree, ctx, &position, ld, box, 1))
+ 	{
+ 		if (SHOULD_STOP_FOR_RESTART(restart))
+ 		{
+@@ -2834,7 +2836,7 @@
+ 
+ 	Return 1 if we should restart at the next block, 0 otherwise.
+ */
+-static int layout_block(fz_context *ctx, layout_data *ld, fz_html_box *box)
++static int layout_block(fz_html_tree *tree, fz_context *ctx, layout_data *ld, fz_html_box *box)
+ {
+ 	fz_html_box *child;
+ 	fz_html_restarter *restart = ld->restart;
+@@ -2915,14 +2917,14 @@
+ 		ld->used[L] = ld->bounds[L];
+ 
+ 		if (child->type == BOX_BLOCK)
+-			eop = layout_block(ctx, ld, child);
++			eop = layout_block(tree, ctx, ld, child);
+ 
+ 		else if (child->type == BOX_TABLE)
+-			eop = layout_table(ctx, ld, child);
++			eop = layout_table(tree, ctx, ld, child);
+ 
+ 		else if (child->type == BOX_FLOW)
+ 		{
+-			layout_flow(ctx, ld, child, box);
++			layout_flow(tree, ctx, ld, child, box);
+ 			if (!WE_ARE_SKIPPING(restart))
+ 			{
+ 				if (child->s.layout.b > child->s.layout.y)
+@@ -2949,7 +2951,7 @@
+ 		ld->bounds[T] = ld->used[B];
+ 	}
+ 
+-	if (post_position(ctx, &position, ld, box, 0))
++	if (post_position(tree, ctx, &position, ld, box, 0))
+ 	{
+ 		if (SHOULD_STOP_FOR_RESTART(restart))
+ 		{
+@@ -3075,15 +3077,15 @@
+ 	int script, language, rtl, small_caps;
+ } width_cache_entry;
+ 
+-static float measure_string_w_cached(fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf, width_cache_entry *cache)
++static float measure_string_w_cached(fz_html_tree *tree, fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf, width_cache_entry *cache)
+ {
+ 	const char *text = get_node_text(ctx, node);
+ 	const unsigned char *p = (const unsigned char *)text;
+-	fz_font *font = node->box->style->font;
+-	float em = node->box->s.layout.em;
++	fz_font *font = fz_html_flow_box(tree, node)->style->font;
++	float em = fz_html_flow_box(tree, node)->s.layout.em;
+ 	int language = fz_html_flow_markup_lang(node);
+ 	int rtl = node->bidi_level & 1;
+-	int small_caps = node->box->style->small_caps;
++	int small_caps = fz_html_flow_box(tree, node)->style->small_caps;
+ 	uint32_t hash = 2166136261u;
+ 	width_cache_entry *entry;
+ 	float width;
+@@ -3100,14 +3102,14 @@
+ 		return entry->width;
+ 	}
+ 
+-	width = measure_string_w(ctx, node, hb_buf);
++	width = measure_string_w(tree, ctx, node, hb_buf);
+ 	*entry = (width_cache_entry){ text, font, em, width, node->script, language, rtl, small_caps };
+ 	return width;
+ }
+ 
+-static void measure_inline_space_w(fz_context *ctx, fz_pool *pool, fz_html_flow *node, hb_buffer_t *hb_buf, width_cache_entry *cache)
+-{
+-	fz_html_space_metric *metric = &node->box->u.inline_space;
++static void measure_inline_space_w(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_flow *node, hb_buffer_t *hb_buf, width_cache_entry *cache)
++{
++	fz_html_space_metric *metric = &fz_html_flow_box(tree, node)->u.inline_space;
+ 	uint32_t key = fz_html_flow_space_key(node);
+ 
+ 	if (!(metric->flags & HTML_SPACE_METRIC_PRESENT))
+@@ -3127,12 +3129,12 @@
+ 	}
+ 	if (!(metric->flags & HTML_SPACE_METRIC_VALID))
+ 	{
+-		metric->width = measure_string_w_cached(ctx, node, hb_buf, cache);
++		metric->width = measure_string_w_cached(tree, ctx, node, hb_buf, cache);
+ 		metric->flags |= HTML_SPACE_METRIC_VALID;
+ 	}
+ }
+ 
+-static void layout_update_widths(fz_context *ctx, fz_pool *pool, fz_html_box *box, fz_html_box *top, hb_buffer_t *hb_buf, int no_pagination, width_cache_entry *cache)
++static void layout_update_widths(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_html_box *box, fz_html_box *top, hb_buffer_t *hb_buf, int no_pagination, width_cache_entry *cache)
+ {
+ 	while (box)
+ 	{
+@@ -3140,23 +3142,23 @@
+ 		{
+ 			fz_html_flow *node;
+ 
+-			for (node = box->u.flow.head; node; node = node->next)
++			for (node = box->u.flow.head; node; node = fz_html_flow_next(tree, node))
+ 			{
+ 				if (node->type == FLOW_IMAGE)
+ 				{
+ 					/* start with "native" size (only used for table width calculations) */
+ 					node->w = node->content.image->w * (no_pagination ? 1 : 72.0f / 96.0f);
+-					node->w = fz_from_css_number(node->box->style->width, no_pagination ? node->box->s.layout.em : top->s.layout.em, node->w, node->w);
++					node->w = fz_from_css_number(fz_html_flow_box(tree, node)->style->width, no_pagination ? fz_html_flow_box(tree, node)->s.layout.em : top->s.layout.em, node->w, node->w);
+ 				}
+-				else if (fz_html_flow_is_compact_space(node))
+-					measure_inline_space_w(ctx, pool, node, hb_buf, cache);
++				else if (fz_html_flow_is_compact_space(tree, node))
++					measure_inline_space_w(tree, ctx, pool, node, hb_buf, cache);
+ 				else if (node->type == FLOW_WORD || node->type == FLOW_SPACE || node->type == FLOW_SHYPHEN)
+-					node->w = measure_string_w_cached(ctx, node, hb_buf, cache);
++					node->w = measure_string_w_cached(tree, ctx, node, hb_buf, cache);
+ 			}
+ 		}
+ 
+ 		if (box->down)
+-			layout_update_widths(ctx, pool, box->down, box, hb_buf, no_pagination, cache);
++			layout_update_widths(tree, ctx, pool, box->down, box, hb_buf, no_pagination, cache);
+ 
+ 		box = box->next;
+ 	}
+@@ -3399,12 +3401,12 @@
+ 			box->s.layout.w = page_w;
+ 			layout_update_styles(ctx, box->down, box);
+ 			width_cache = fz_calloc(ctx, WIDTH_CACHE_SIZE, sizeof(*width_cache));
+-			layout_update_widths(ctx, tree->pool, box->down, box, ld.hb_buf, no_pagination, width_cache);
++			layout_update_widths(tree, ctx, tree->pool, box->down, box, ld.hb_buf, no_pagination, width_cache);
+ 			layout_collapse_margins(ctx, box->down, box);
+ 		}
+ 
+ 		assert(box->type == BOX_BLOCK);
+-		layout_block(ctx, &ld, box);
++		layout_block(tree, ctx, &ld, box);
+ 	}
+ 	fz_always(ctx)
+ 	{
+@@ -3486,7 +3488,7 @@
+ 
+ #ifndef NDEBUG
+ 	if (fz_atoi(getenv("FZ_DEBUG_HTML")))
+-		fz_debug_html(ctx, html->tree.root);
++		fz_debug_html(&html->tree, ctx, html->tree.root);
+ #endif
+ }
+ 
+@@ -3540,7 +3542,7 @@
+ 		source_offset + byte_offset != 0 || node->source_no_separator_before;
+ }
+ 
+-static int draw_flow_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
++static int draw_flow_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	fz_html_flow *node;
+ 	fz_text *text = NULL;
+@@ -3568,9 +3570,9 @@
+ 
+ 	fz_try(ctx)
+ 	{
+-		for (node = box->u.flow.head; node; node = node->next)
+-		{
+-			const fz_css_style *style = node->box->style;
++		for (node = box->u.flow.head; node; node = fz_html_flow_next(tree, node))
++		{
++			const fz_css_style *style = fz_html_flow_box(tree, node)->style;
+ 
+ 			if (restart)
+ 			{
+@@ -3617,12 +3619,12 @@
+ 				if (style->visibility != V_VISIBLE)
+ 					continue;
+ 
+-				em = node->box->s.layout.em;
+-
+-				bg = find_inline_background_color(ctx, node->box);
++				em = fz_html_flow_box(tree, node)->s.layout.em;
++
++				bg = find_inline_background_color(ctx, fz_html_flow_box(tree, node));
+ 				if (bg.a > 0)
+ 					draw_rect(ctx, dev, ctm, page_top, bg,
+-						node->x, node->y - 0.8f * fz_html_flow_layout_height(node), node->x + fz_html_flow_width(node), node->y + 0.2f * fz_html_flow_layout_height(node));
++						node->x, node->y - 0.8f * fz_html_flow_layout_height(tree, node), node->x + fz_html_flow_width(tree, node), node->y + 0.2f * fz_html_flow_layout_height(tree, node));
+ 
+ 				line_width = fz_from_css_number(style->text_stroke_width, em, em, 0);
+ 				filling = style->text_fill_color.a != 0;
+@@ -3693,12 +3695,12 @@
+ 					if (style->text_decoration & TD_UNDERLINE)
+ 					{
+ 						fz_moveto(ctx, line, node->x, node->y + 1.5f - page_top);
+-						fz_lineto(ctx, line, node->x + fz_html_flow_width(node), node->y + 1.5f - page_top);
++						fz_lineto(ctx, line, node->x + fz_html_flow_width(tree, node), node->y + 1.5f - page_top);
+ 					}
+ 					if (style->text_decoration & TD_LINE_THROUGH)
+ 					{
+ 						fz_moveto(ctx, line, node->x, node->y - em * 0.3f - page_top);
+-						fz_lineto(ctx, line, node->x + fz_html_flow_width(node), node->y - em * 0.3f - page_top);
++						fz_lineto(ctx, line, node->x + fz_html_flow_width(tree, node), node->y - em * 0.3f - page_top);
+ 					}
+ 				}
+ 
+@@ -3706,7 +3708,7 @@
+ 					text = fz_new_text(ctx);
+ 
+ 				if (node->bidi_level & 1)
+-					x = node->x + fz_html_flow_width(node);
++					x = node->x + fz_html_flow_width(tree, node);
+ 				else
+ 					x = node->x;
+ 				y = node->y;
+@@ -3724,7 +3726,7 @@
+ 				init_string_walker(ctx, &walker, hb_buf, node->bidi_level & 1, style->font, node->script, markup_lang, style->small_caps, s, 0);
+ 				while (walk_string(&walker))
+ 				{
+-					float node_scale = node->box->s.layout.em / walker.scale;
++					float node_scale = fz_html_flow_box(tree, node)->s.layout.em / walker.scale;
+ 					unsigned int i;
+ 					uint32_t k;
+ 					int c, n;
+@@ -4158,10 +4160,10 @@
+ 		fz_rethrow(ctx);
+ }
+ 
+-static int draw_block_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination);
+-static int draw_table_row(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination);
+-
+-static int draw_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
++static int draw_block_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination);
++static int draw_table_row(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination);
++
++static int draw_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	int ret = 0;
+ 	/* Plain text extraction and raster devices do not consume structure tags. */
+@@ -4177,7 +4179,7 @@
+ 	case BOX_TABLE_ROW:
+ 		if (restart && restart->end == box)
+ 			ret = 1;
+-		else if (draw_table_row(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
++		else if (draw_table_row(tree, ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 			ret = 1;
+ 		break;
+ 	case BOX_TABLE:
+@@ -4185,11 +4187,11 @@
+ 	case BOX_BLOCK:
+ 		if (restart && restart->end == box)
+ 			ret = 1;
+-		else if (draw_block_box(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
++		else if (draw_block_box(tree, ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 			ret = 1;
+ 		break;
+ 	case BOX_FLOW:
+-		if (draw_flow_box(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
++		if (draw_flow_box(tree, ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 			ret = 1;
+ 		break;
+ 	}
+@@ -4624,7 +4626,7 @@
+ 		draw_border(ctx, dev, ctm, box, L, x0, y0, x1, y1);
+ }
+ 
+-static int draw_box_children(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
++static int draw_box_children(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	fz_html_draw_index *index = fz_html_box_has_boxes(box) ? box->draw_index : NULL;
+ 	if (index && !no_pagination && !restart && !(dev && (dev->begin_structure || dev->end_structure)))
+@@ -4635,18 +4637,18 @@
+ 			if (group->low > page_bot || group->high < page_top)
+ 				continue;
+ 			for (fz_html_box *child = group->first; child != group->after; child = child->next)
+-				if (draw_box(ctx, child, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
++				if (draw_box(tree, ctx, child, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 					return 1;
+ 		}
+ 	}
+ 	else
+ 		for (fz_html_box *child = box->down; child; child = child->next)
+-			if (draw_box(ctx, child, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
++			if (draw_box(tree, ctx, child, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 				return 1;
+ 	return 0;
+ }
+ 
+-static int draw_block_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
++static int draw_block_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	float x0, y0, x1, y1;
+ 
+@@ -4703,7 +4705,7 @@
+ 		}
+ 	}
+ 
+-	stopped = draw_box_children(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination);
++	stopped = draw_box_children(tree, ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination);
+ 
+ 	if (box->style->visibility == V_VISIBLE && restart && restart->start == NULL)
+ 	{
+@@ -4730,7 +4732,7 @@
+ 	return stopped;
+ }
+ 
+-static int draw_table_row(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
++static int draw_table_row(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	/* Table rows don't draw background colors or borders */
+ 
+@@ -4752,11 +4754,11 @@
+ 	if (restart && restart->end == box)
+ 		return 1;
+ 
+-	return draw_box_children(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination);
++	return draw_box_children(tree, ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination);
+ }
+ 
+ static void
+-draw_restarted_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html_box *top, float page_top, float page_bot, fz_html_restarter *restart, int no_pagination)
++draw_restarted_html(fz_html_tree *tree, fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html_box *top, float page_top, float page_bot, fz_html_restarter *restart, int no_pagination)
+ {
+ 	hb_buffer_t *hb_buf = NULL;
+ 	int unlocked = 0;
+@@ -4771,7 +4773,7 @@
+ 		fz_hb_unlock(ctx);
+ 		unlocked = 1;
+ 
+-		draw_box_children(ctx, top, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination);
++		draw_box_children(tree, ctx, top, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination);
+ 	}
+ 	fz_always(ctx)
+ 	{
+@@ -4787,9 +4789,9 @@
+ }
+ 
+ void
+-fz_draw_restarted_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html_box *top, float page_top, float page_bot, fz_html_restarter *restart)
+-{
+-	draw_restarted_html(ctx, dev, ctm, top, page_top, page_bot, restart, 0);
++fz_draw_restarted_html(fz_html_tree *tree, fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html_box *top, float page_top, float page_bot, fz_html_restarter *restart)
++{
++	draw_restarted_html(tree, ctx, dev, ctm, top, page_top, page_bot, restart, 0);
+ }
+ 
+ void
+@@ -4818,7 +4820,7 @@
+ 			ctm = fz_pre_translate(ctm, html->page_margin[L], html->page_margin[T]);
+ 			/* Page culling would discard overflow whose children or glyphs
+ 			 * still intersect the viewport. Let the device clip the canvas. */
+-			draw_restarted_html(ctx, dev, ctm, html->tree.root, 0, html->page_h, NULL, 1);
++			draw_restarted_html(&html->tree, ctx, dev, ctm, html->tree.root, 0, html->page_h, NULL, 1);
+ 		}
+ 		fz_always(ctx)
+ 		{
+@@ -4838,7 +4840,7 @@
+ 
+ 	ctm = fz_pre_translate(ctm, html->page_margin[L], html->page_margin[T]);
+ 
+-	fz_draw_restarted_html(ctx, dev, ctm, html->tree.root, page_top, page_bot, NULL);
++	fz_draw_restarted_html(&html->tree, ctx, dev, ctm, html->tree.root, page_top, page_bot, NULL);
+ }
+ 
+ void fz_draw_story(fz_context *ctx, fz_story *story, fz_device *dev, fz_matrix ctm)
+@@ -4875,7 +4877,7 @@
+ 	story->restart_draw.left_page ^= 1;
+ 	story->restart_place = story->restart_draw;
+ 	if (dev)
+-		fz_draw_restarted_html(ctx, dev, ctm, story->tree.root->down, 0, page_bot+page_top, &story->restart_place);
++		fz_draw_restarted_html(&story->tree, ctx, dev, ctm, story->tree.root->down, 0, page_bot+page_top, &story->restart_place);
+ 	story->restart_place.start = story->restart_draw.end;
+ 	story->restart_place.start_flow = story->restart_draw.end_flow;
+ 	story->restart_place.start_flags = story->restart_draw.end_flags;
+@@ -4915,7 +4917,7 @@
+ }
+ 
+ static char *
+-gather_text(fz_context *ctx, fz_html_box *box)
++gather_text(fz_html_tree *tree, fz_context *ctx, fz_html_box *box)
+ {
+ 	fz_html_flow *node;
+ 	char *text = NULL;
+@@ -4924,9 +4926,9 @@
+ 
+ 	fz_try(ctx)
+ 	{
+-		for (node = box->u.flow.head; node; node = node->next)
+-		{
+-			const fz_css_style *style = node->box->style;
++		for (node = box->u.flow.head; node; node = fz_html_flow_next(tree, node))
++		{
++			const fz_css_style *style = fz_html_flow_box(tree, node)->style;
+ 
+ 			if (node->type == FLOW_WORD || node->type == FLOW_SPACE || node->type == FLOW_SHYPHEN)
+ 			{
+@@ -4967,9 +4969,9 @@
+ 	return text;
+ }
+ 
+-static int enumerate_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_story_position_callback *cb, void *arg, int depth, int rect_num, fz_html_restarter *restart);
+-
+-static int enumerate_block_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_story_position_callback *cb, void *arg, int depth, int rect_num, fz_html_restarter *restart)
++static int enumerate_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_story_position_callback *cb, void *arg, int depth, int rect_num, fz_html_restarter *restart);
++
++static int enumerate_block_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_story_position_callback *cb, void *arg, int depth, int rect_num, fz_html_restarter *restart)
+ {
+ 	fz_html_box *child;
+ 	float y0, y1;
+@@ -5011,7 +5013,7 @@
+ 			char *text = NULL;
+ 			pos.text = NULL;
+ 			if (heading && box->down)
+-				pos.text = text = gather_text(ctx, box->down);
++				pos.text = text = gather_text(tree, ctx, box->down);
+ 			pos.depth = depth;
+ 			pos.heading = heading;
+ 			pos.open_close = 1;
+@@ -5034,7 +5036,7 @@
+ 
+ 	for (child = box->down; child; child = child->next)
+ 	{
+-		if (enumerate_box(ctx, child, page_top, page_bot, cb, arg, depth+1, rect_num, restart))
++		if (enumerate_box(tree, ctx, child, page_top, page_bot, cb, arg, depth+1, rect_num, restart))
+ 		{
+ 			stopped = 1;
+ 			break;
+@@ -5055,7 +5057,7 @@
+ 	return stopped;
+ }
+ 
+-static int enumerate_flow_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_story_position_callback *cb, void *arg, int depth, int rect_num, fz_html_restarter *restart)
++static int enumerate_flow_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_story_position_callback *cb, void *arg, int depth, int rect_num, fz_html_restarter *restart)
+ {
+ 	fz_html_flow *node;
+ 	int restartable_ended = 0;
+@@ -5065,9 +5067,9 @@
+ 	if (restart && restart->start != NULL && restart->start != box)
+ 		return 0;
+ 
+-	for (node = box->u.flow.head; node; node = node->next)
+-	{
+-		const fz_css_style *style = node->box->style;
++	for (node = box->u.flow.head; node; node = fz_html_flow_next(tree, node))
++	{
++		const fz_css_style *style = fz_html_flow_box(tree, node)->style;
+ 
+ 		if (restart)
+ 		{
+@@ -5097,7 +5099,7 @@
+ 				continue;
+ 		}
+ 
+-		if (node->box->id || node->box->href)
++		if (fz_html_flow_box(tree, node)->id || fz_html_flow_box(tree, node)->href)
+ 		{
+ 			/* We have a node to callback for. */
+ 			fz_story_element_position pos;
+@@ -5106,13 +5108,13 @@
+ 			pos.depth = depth;
+ 			pos.heading = 0;
+ 			pos.open_close = 1 | 2;
+-			pos.id = node->box->id;
+-			pos.href = node->box->href;
++			pos.id = fz_html_flow_box(tree, node)->id;
++			pos.href = fz_html_flow_box(tree, node)->href;
+ 			/* We only have the baseline and the em, so the bbox is a bit of a fudge. */
+ 			pos.rect.x0 = node->x;
+-			pos.rect.y0 = node->y - fz_html_flow_layout_height(node) * 0.8f;
+-			pos.rect.x1 = node->x + fz_html_flow_width(node);
+-			pos.rect.y1 = node->y + fz_html_flow_layout_height(node) * 0.2f;
++			pos.rect.y0 = node->y - fz_html_flow_layout_height(tree, node) * 0.8f;
++			pos.rect.x1 = node->x + fz_html_flow_width(tree, node);
++			pos.rect.y1 = node->y + fz_html_flow_layout_height(tree, node) * 0.2f;
+ 			pos.rectangle_num = rect_num;
+ 			cb(ctx, arg, &pos);
+ 		}
+@@ -5132,7 +5134,7 @@
+ 	return restartable_ended;
+ }
+ 
+-static int enumerate_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_story_position_callback *cb, void *arg, int depth, int rect_num, fz_html_restarter *restart)
++static int enumerate_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_story_position_callback *cb, void *arg, int depth, int rect_num, fz_html_restarter *restart)
+ {
+ 	switch (box->type)
+ 	{
+@@ -5142,11 +5144,11 @@
+ 	case BOX_BLOCK:
+ 		if (restart && restart->end == box)
+ 			return 1;
+-		if (enumerate_block_box(ctx, box, page_top, page_bot, cb, arg, depth, rect_num, restart))
++		if (enumerate_block_box(tree, ctx, box, page_top, page_bot, cb, arg, depth, rect_num, restart))
+ 			return 1;
+ 		break;
+ 	case BOX_FLOW:
+-		if (enumerate_flow_box(ctx, box, page_top, page_bot, cb, arg, depth, rect_num, restart))
++		if (enumerate_flow_box(tree, ctx, box, page_top, page_bot, cb, arg, depth, rect_num, restart))
+ 			return 1;
+ 		break;
+ 	}
+@@ -5173,6 +5175,6 @@
+ 	restart = story->restart_draw;
+ 
+ 	for (box = top->down; box; box = box->next)
+-		if (enumerate_box(ctx, box, page_top, page_bot, cb, arg, 0, story->rect_count+1, &restart))
++		if (enumerate_box(&story->tree, ctx, box, page_top, page_bot, cb, arg, 0, story->rect_count+1, &restart))
+ 			break;
+ }
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -177,16 +177,16 @@
+ 	return (fz_page*)page;
+ }
+ 
+-static fz_html_flow *htdoc_find_source(fz_html_box *box, uint32_t source_node, uint32_t source_offset)
++static fz_html_flow *htdoc_find_source(fz_html_tree *tree, fz_html_box *box, uint32_t source_node, uint32_t source_offset)
+ {
+ 	for (; box; box = box->next)
+ 	{
+ 		if (box->type == BOX_FLOW)
+-			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
+ 			{
+ 				if (flow->source_node != source_node)
+ 					continue;
+-				size_t len = flow->type == FLOW_WORD ? strlen(flow->content.text) :
++				size_t len = flow->type == FLOW_WORD ? strlen(fz_html_flow_text(flow)) :
+ 					(flow->type == FLOW_SPACE || flow->type == FLOW_SHYPHEN ? 1 : 0);
+ 				uint32_t flow_offset = fz_html_flow_source_offset(flow);
+ 				if (source_offset >= flow_offset && source_offset - flow_offset < len)
+@@ -194,7 +194,7 @@
+ 			}
+ 		if (fz_html_box_has_boxes(box))
+ 		{
+-			fz_html_flow *flow = htdoc_find_source(box->down, source_node, source_offset);
++			fz_html_flow *flow = htdoc_find_source(tree, box->down, source_node, source_offset);
+ 			if (flow)
+ 				return flow;
+ 		}
+@@ -209,7 +209,7 @@
+ 	html_document *doc = (html_document *)doc_;
+ 	if (!doc->html || !isfinite(doc->html->page_h) || doc->html->page_h <= 0)
+ 		return -1;
+-	fz_html_flow *flow = htdoc_find_source(doc->html->tree.root, source_node, source_offset);
++	fz_html_flow *flow = htdoc_find_source(&doc->html->tree, doc->html->tree.root, source_node, source_offset);
+ 	if (!flow || !isfinite(flow->y) || flow->y < 0)
+ 		return -1;
+ 	int page = (int)(flow->y / doc->html->page_h);
+@@ -260,9 +260,9 @@
+ 	state->last_page = page;
+ }
+ 
+-static int html_search_flow_visible(fz_html_flow *flow)
+-{
+-	const fz_css_style *style = flow->box->style;
++static int html_search_flow_visible(fz_html_tree *tree, fz_html_flow *flow)
++{
++	const fz_css_style *style = fz_html_flow_box(tree, flow)->style;
+ 	if (style->visibility != V_VISIBLE)
+ 		return 0;
+ 	if (flow->type == FLOW_WORD || flow->type == FLOW_SPACE || flow->type == FLOW_SHYPHEN)
+@@ -274,19 +274,19 @@
+ {
+ 	/* draw_flow_box uses the flow's own inline style. A visible descendant of
+ 	 * a hidden ancestor can still paint, while hidden sibling flows cannot. */
+-	if (!html_search_flow_visible(flow))
++	if (!html_search_flow_visible(&state->doc->html->tree, flow))
+ 	{
+ 		/* Visibility leaves the inline box's width in layout. Do not join the
+ 		 * visible text on its two sides into an invented word. */
+ 		if (state->emitted && state->last_rune != ' ' && state->last_rune != '\n' &&
+-			((flow->type == FLOW_WORD && *flow->content.text) || flow->type == FLOW_SPACE ||
++			((flow->type == FLOW_WORD && *fz_html_flow_text(flow)) || flow->type == FLOW_SPACE ||
+ 			flow->type == FLOW_BREAK || flow->type == FLOW_IMAGE || flow->type == FLOW_SHYPHEN))
+ 			html_search_emit(state, ' ', 0, 0, 0, state->last_page, 0);
+ 		return;
+ 	}
+ 	if (flow->type == FLOW_WORD)
+ 	{
+-		const char *text = flow->content.text;
++		const char *text = fz_html_flow_text(flow);
+ 		uint32_t base = fz_html_flow_source_offset(flow);
+ 		int page = html_search_flow_page(state, flow);
+ 		for (size_t offset = 0; text[offset] && !state->stop; )
+@@ -308,11 +308,11 @@
+ 	}
+ }
+ 
+-static int html_search_box_has_text(fz_html_box *box)
+-{
+-	for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
+-		if (html_search_flow_visible(flow) &&
+-			((flow->type == FLOW_WORD && *flow->content.text) || flow->type == FLOW_SPACE ||
++static int html_search_box_has_text(fz_html_tree *tree, fz_html_box *box)
++{
++	for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
++		if (html_search_flow_visible(tree, flow) &&
++			((flow->type == FLOW_WORD && *fz_html_flow_text(flow)) || flow->type == FLOW_SPACE ||
+ 			flow->type == FLOW_BREAK || flow->type == FLOW_IMAGE ||
+ 			(flow->type == FLOW_SHYPHEN && !flow->generated_hyphen)))
+ 			return 1;
+@@ -335,7 +335,7 @@
+ 	{
+ 		if (((++state->visited) & 1023) == 0 && state->cancelled && state->cancelled())
+ 			fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
+-		if (box->type == BOX_FLOW && html_search_box_has_text(box))
++		if (box->type == BOX_FLOW && html_search_box_has_text(&state->doc->html->tree, box))
+ 			return 1;
+ 		if (fz_html_box_has_boxes(box) && html_search_boxes_have_text(state, box->down, NULL))
+ 			return 1;
+@@ -345,12 +345,12 @@
+ 
+ static int html_search_box_reaches_page(html_search_source_state *state, fz_html_box *box)
+ {
+-	for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++	for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(&state->doc->html->tree, flow))
+ 	{
+ 		if (((++state->visited) & 1023) == 0 && state->cancelled && state->cancelled())
+ 			fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
+-		if (html_search_flow_visible(flow) &&
+-			((flow->type == FLOW_WORD && *flow->content.text) ||
++		if (html_search_flow_visible(&state->doc->html->tree, flow) &&
++			((flow->type == FLOW_WORD && *fz_html_flow_text(flow)) ||
+ 			(flow->type == FLOW_SPACE && !flow->breaks_line)) &&
+ 			html_search_flow_page(state, flow) >= state->seek_page)
+ 			return 1;
+@@ -364,7 +364,7 @@
+ 	{
+ 		if (((++state->visited) & 1023) == 0 && state->cancelled && state->cancelled())
+ 			fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
+-		if (box->type == BOX_FLOW && html_search_box_has_text(box))
++		if (box->type == BOX_FLOW && html_search_box_has_text(&state->doc->html->tree, box))
+ 		{
+ 			if (!state->started)
+ 			{
+@@ -383,12 +383,12 @@
+ 				html_search_emit(state, '\n', 0, 0, 0, state->last_page, 0);
+ 			for (fz_html_flow *flow = box->u.flow.head; flow && !state->stop; )
+ 			{
+-				fz_html_flow *end = flow->next;
++				fz_html_flow *end = fz_html_flow_next(&state->doc->html->tree, flow);
+ 				size_t count = 1;
+ 				while (end && flow->source_node && end->source_node == flow->source_node)
+ 				{
+ 					++count;
+-					end = end->next;
++					end = fz_html_flow_next(&state->doc->html->tree, end);
+ 				}
+ 				if (count == 1)
+ 					html_search_emit_flow(state, flow);
+@@ -398,7 +398,7 @@
+ 					fz_try(state->ctx)
+ 					{
+ 						fz_html_flow *part = flow;
+-						for (size_t i = 0; i < count; ++i, part = part->next)
++						for (size_t i = 0; i < count; ++i, part = fz_html_flow_next(&state->doc->html->tree, part))
+ 							parts[i] = part;
+ 						qsort(parts, count, sizeof(*parts), html_search_flow_compare);
+ 						for (size_t i = 0; i < count && !state->stop; ++i)
+@@ -466,6 +466,7 @@
+ typedef struct
+ {
+ 	fz_context *ctx;
++	fz_html_tree *tree;
+ 	const fz_html_selection_char *chars;
+ 	size_t count, next;
+ 	uint32_t first_node, last_node;
+@@ -485,8 +486,8 @@
+ 	fz_html_flow *first = box->u.flow.head, *last = first;
+ 	if (!first)
+ 		return 0;
+-	while (last->next)
+-		last = last->next;
++	while (fz_html_flow_next(state->tree, last))
++		last = fz_html_flow_next(state->tree, last);
+ 	while (state->next < state->count && state->chars[state->next].source_node < first->source_node)
+ 		++state->next;
+ 	return state->next < state->count &&
+@@ -529,7 +530,7 @@
+ 			int has_chars = source_box_has_chars(state, box);
+ 			if (has_chars && state->emitted && state->last_selected_box != box)
+ 				source_text_block_newline(state);
+-			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(state->tree, flow))
+ 			{
+ 				uint32_t node = flow->source_node;
+ 				while (state->next < state->count && state->chars[state->next].source_node < node)
+@@ -615,6 +616,6 @@
+ 	if (!doc->html || chars[0].source_node == 0)
+ 		return;
+-	source_text_state state = { ctx, chars, count, 0, chars[0].source_node,
++	source_text_state state = { ctx, &doc->html->tree, chars, count, 0, chars[0].source_node,
+ 		chars[count-1].source_node, buffer, NULL, 0, 0 };
+ 	(void)source_text_walk(&state, doc->html->tree.root);
+ 	if (state.matched != count)
+--- a/source/html/html-outline.c
++++ b/source/html/html-outline.c
+@@ -37,7 +37,7 @@
+ 	return 1;
+ }
+ 
+-static fz_link *load_link_flow(fz_context *ctx, fz_html_flow *flow, fz_link *head, int page, float page_h, int fixed_layout, const char *dir, const char *file)
++static fz_link *load_link_flow(fz_html_tree *tree, fz_context *ctx, fz_html_flow *flow, fz_link *head, int page, float page_h, int fixed_layout, const char *dir, const char *file)
+ {
+ 	fz_link *link;
+ 	fz_html_flow *next;
+@@ -52,32 +52,32 @@
+ 
+ 	while (flow)
+ 	{
+-		next = flow->next;
++		next = fz_html_flow_next(tree, flow);
+ 		if (fixed_layout || (flow->y >= page_y0 && flow->y <= page_y1))
+ 		{
+-			href = flow->box->href;
++			href = fz_html_flow_box(tree, flow)->href;
+ 			if (href)
+ 			{
+ 				/* Coalesce contiguous flow boxes into one link node */
+-				end = flow->x + fz_html_flow_width(flow);
++				end = flow->x + fz_html_flow_width(tree, flow);
+ 				while (next &&
+ 					next->y == flow->y &&
+-					fz_html_flow_layout_height(next) == fz_html_flow_layout_height(flow) &&
+-					next->box->href == href)
++					fz_html_flow_layout_height(tree, next) == fz_html_flow_layout_height(tree, flow) &&
++					fz_html_flow_box(tree, next)->href == href)
+ 				{
+-					end = next->x + fz_html_flow_width(next);
+-					next = next->next;
++					end = next->x + fz_html_flow_width(tree, next);
++					next = fz_html_flow_next(tree, next);
+ 				}
+ 
+ 				bbox.x0 = flow->x;
+ 				bbox.y0 = flow->y - page * page_h;
+ 				bbox.x1 = end;
+-				bbox.y1 = bbox.y0 + fz_html_flow_layout_height(flow);
++				bbox.y1 = bbox.y0 + fz_html_flow_layout_height(tree, flow);
+ 				if (flow->type != FLOW_IMAGE)
+ 				{
+ 					/* flow->y is the baseline, adjust bbox appropriately */
+-					bbox.y0 -= 0.8f * fz_html_flow_layout_height(flow);
+-					bbox.y1 -= 0.8f * fz_html_flow_layout_height(flow);
++					bbox.y0 -= 0.8f * fz_html_flow_layout_height(tree, flow);
++					bbox.y1 -= 0.8f * fz_html_flow_layout_height(tree, flow);
+ 				}
+ 
+ 				/* Standalone file links are resolved by the host. Keep their URI
+@@ -116,14 +116,14 @@
+ 	return head;
+ }
+ 
+-static fz_link *load_link_box(fz_context *ctx, fz_html_box *box, fz_link *head, int page, float page_h, int fixed_layout, const char *dir, const char *file)
+-{
+-	while (box)
+-	{
+-		if (box->type == BOX_FLOW)
+-			head = load_link_flow(ctx, box->u.flow.head, head, page, page_h, fixed_layout, dir, file);
++static fz_link *load_link_box(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, fz_link *head, int page, float page_h, int fixed_layout, const char *dir, const char *file)
++{
++	while (box)
++	{
++		if (box->type == BOX_FLOW)
++			head = load_link_flow(tree, ctx, box->u.flow.head, head, page, page_h, fixed_layout, dir, file);
+ 		if (box->down)
+-			head = load_link_box(ctx, box->down, head, page, page_h, fixed_layout, dir, file);
++			head = load_link_box(tree, ctx, box->down, head, page, page_h, fixed_layout, dir, file);
+ 		box = box->next;
+ 	}
+ 	return head;
+@@ -138,7 +138,7 @@
+ 
+ 	if (html->fixed_layout && page != 0)
+ 		return NULL;
+-	head = load_link_box(ctx, html->tree.root, NULL, page, html->page_h, html->fixed_layout, dir, file);
++	head = load_link_box(&html->tree, ctx, html->tree.root, NULL, page, html->page_h, html->fixed_layout, dir, file);
+ 
+ 	for (link = head; link; link = link->next)
+ 	{
+@@ -181,32 +181,32 @@
+ }
+ 
+ static float
+-find_flow_top(fz_html_flow *node)
++find_flow_top(fz_html_tree *tree, fz_html_flow *node)
+ {
+ 	// try to find next "real" element
+-	while (node->type == FLOW_ANCHOR && node->next)
+-		node = node->next;
++	while (node->type == FLOW_ANCHOR && fz_html_flow_next(tree, node))
++		node = fz_html_flow_next(tree, node);
+ 	// an image flow node's coordinates are the top left corner
+ 	if (node->type == FLOW_IMAGE)
+ 		return node->y;
+ 	// and everything else is the baseline
+-	return node->y - fz_html_flow_layout_height(node) * 0.8f;
++	return node->y - fz_html_flow_layout_height(tree, node) * 0.8f;
+ }
+ 
+ static float
+-find_flow_target(fz_html_flow *flow, const char *id)
++find_flow_target(fz_html_tree *tree, fz_html_flow *flow, const char *id)
+ {
+ 	while (flow)
+ 	{
+-		if (flow->box->id && !strcmp(id, flow->box->id))
+-			return find_flow_top(flow);
+-		flow = flow->next;
++		if (fz_html_flow_box(tree, flow)->id && !strcmp(id, fz_html_flow_box(tree, flow)->id))
++			return find_flow_top(tree, flow);
++		flow = fz_html_flow_next(tree, flow);
+ 	}
+ 	return -1;
+ }
+ 
+ static float
+-find_box_target(fz_html_box *box, const char *id)
++find_box_target(fz_html_tree *tree, fz_html_box *box, const char *id)
+ {
+ 	float y;
+ 	while (box)
+@@ -215,18 +215,18 @@
+ 		{
+ 			fz_html_flow *flow = find_first_content(box);
+ 			if (flow)
+-				return find_flow_top(flow);
++				return find_flow_top(tree, flow);
+ 			return box->s.layout.y;
+ 		}
+ 		if (box->type == BOX_FLOW)
+ 		{
+-			y = find_flow_target(box->u.flow.head, id);
++			y = find_flow_target(tree, box->u.flow.head, id);
+ 			if (y >= 0)
+ 				return y;
+ 		}
+ 		else
+ 		{
+-			y = find_box_target(box->down, id);
++			y = find_box_target(tree, box->down, id);
+ 			if (y >= 0)
+ 				return y;
+ 		}
+@@ -238,7 +238,7 @@
+ float
+ fz_find_html_target(fz_context *ctx, fz_html *html, const char *id)
+ {
+-	return find_box_target(html->tree.root, id);
++	return find_box_target(&html->tree, html->tree.root, id);
+ }
+ 
+ /* One-operation target join; no retained tree or result cache. */
+@@ -290,7 +290,7 @@
+ 	return low;
+ }
+ 
+-static void record_outline_target(html_outline_query *queries, size_t n, const char *id, fz_html_box *box, fz_html_flow *flow)
++static void record_outline_target(fz_html_tree *tree, html_outline_query *queries, size_t n, const char *id, fz_html_box *box, fz_html_flow *flow)
+ {
+ 	size_t i;
+ 	float y;
+@@ -301,7 +301,7 @@
+ 		return;
+ 	if (!flow)
+ 		flow = find_first_content(box);
+-	y = flow ? find_flow_top(flow) : box->s.layout.y;
++	y = flow ? find_flow_top(tree, flow) : box->s.layout.y;
+ 	for (; i < n && !strcmp(queries[i].id, id); ++i)
+ 	{
+ 		queries[i].y = y;
+@@ -309,18 +309,18 @@
+ 	}
+ }
+ 
+-static void walk_outline_targets(html_outline_query *queries, size_t n, fz_html_box *box)
++static void walk_outline_targets(fz_html_tree *tree, html_outline_query *queries, size_t n, fz_html_box *box)
+ {
+ 	for (; box; box = box->next)
+ 	{
+-		record_outline_target(queries, n, box->id, box, NULL);
+-		if (box->type == BOX_FLOW)
+-		{
+-			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
+-				record_outline_target(queries, n, flow->box->id, flow->box, flow);
++		record_outline_target(tree, queries, n, box->id, box, NULL);
++		if (box->type == BOX_FLOW)
++		{
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
++				record_outline_target(tree, queries, n, fz_html_flow_box(tree, flow)->id, fz_html_flow_box(tree, flow), flow);
+ 		}
+ 		else
+-			walk_outline_targets(queries, n, box->down);
++			walk_outline_targets(tree, queries, n, box->down);
+ 	}
+ }
+ 
+@@ -338,7 +338,7 @@
+ 		queries = fz_calloc(ctx, n, sizeof(*queries));
+ 		fill_outline_queries(queries, &used, outline);
+ 		qsort(queries, n, sizeof(*queries), compare_outline_queries);
+-		walk_outline_targets(queries, n, html->tree.root);
++		walk_outline_targets(&html->tree, queries, n, html->tree.root);
+ 		for (size_t i = 0; i < n; ++i)
+ 		{
+ 			float y = queries[i].y;
+@@ -356,20 +356,20 @@
+ }
+ 
+ static fz_html_flow *
+-make_flow_bookmark(fz_context *ctx, fz_html_flow *flow, float y, fz_html_flow **candidate)
++make_flow_bookmark(fz_html_tree *tree, fz_context *ctx, fz_html_flow *flow, float y, fz_html_flow **candidate)
+ {
+ 	while (flow)
+ 	{
+ 		*candidate = flow;
+ 		if (flow->y >= y)
+ 			return flow;
+-		flow = flow->next;
++		flow = fz_html_flow_next(tree, flow);
+ 	}
+ 	return NULL;
+ }
+ 
+ static fz_html_flow *
+-make_box_bookmark(fz_context *ctx, fz_html_box *box, float y, fz_html_flow **candidate)
++make_box_bookmark(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, float y, fz_html_flow **candidate)
+ {
+ 	fz_html_flow *mark;
+ 	fz_html_flow *dummy = NULL;
+@@ -381,16 +381,16 @@
+ 		{
+ 			if (box->s.layout.y >= y)
+ 			{
+-				mark = make_flow_bookmark(ctx, box->u.flow.head, y, candidate);
++				mark = make_flow_bookmark(tree, ctx, box->u.flow.head, y, candidate);
+ 				if (mark)
+ 					return mark;
+ 			}
+ 			else
+-				*candidate = make_flow_bookmark(ctx, box->u.flow.head, y, candidate);
++				*candidate = make_flow_bookmark(tree, ctx, box->u.flow.head, y, candidate);
+ 		}
+ 		else
+ 		{
+-			mark = make_box_bookmark(ctx, box->down, y, candidate);
++			mark = make_box_bookmark(tree, ctx, box->down, y, candidate);
+ 			if (mark)
+ 				return mark;
+ 		}
+@@ -402,34 +402,34 @@
+ fz_bookmark
+ fz_make_html_bookmark(fz_context *ctx, fz_html *html, int page)
+ {
+-	return (fz_bookmark)make_box_bookmark(ctx, html->tree.root, page * html->page_h, NULL);
++	return (fz_bookmark)make_box_bookmark(&html->tree, ctx, html->tree.root, page * html->page_h, NULL);
+ }
+ 
+ static int
+-lookup_flow_bookmark(fz_context *ctx, fz_html_flow *flow, fz_html_flow *mark)
++lookup_flow_bookmark(fz_html_tree *tree, fz_context *ctx, fz_html_flow *flow, fz_html_flow *mark)
+ {
+ 	while (flow)
+ 	{
+ 		if (flow == mark)
+ 			return 1;
+-		flow = flow->next;
++		flow = fz_html_flow_next(tree, flow);
+ 	}
+ 	return 0;
+ }
+ 
+ static int
+-lookup_box_bookmark(fz_context *ctx, fz_html_box *box, fz_html_flow *mark)
+-{
+-	while (box)
+-	{
+-		if (box->type == BOX_FLOW)
+-		{
+-			if (lookup_flow_bookmark(ctx, box->u.flow.head, mark))
++lookup_box_bookmark(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, fz_html_flow *mark)
++{
++	while (box)
++	{
++		if (box->type == BOX_FLOW)
++		{
++			if (lookup_flow_bookmark(tree, ctx, box->u.flow.head, mark))
+ 				return 1;
+ 		}
+ 		else
+ 		{
+-			if (lookup_box_bookmark(ctx, box->down, mark))
++			if (lookup_box_bookmark(tree, ctx, box->down, mark))
+ 				return 1;
+ 		}
+ 		box = box->next;
+@@ -441,7 +441,7 @@
+ fz_lookup_html_bookmark(fz_context *ctx, fz_html *html, fz_bookmark mark)
+ {
+ 	fz_html_flow *flow = (fz_html_flow*)mark;
+-	if (flow && lookup_box_bookmark(ctx, html->tree.root, flow))
++	if (flow && lookup_box_bookmark(&html->tree, ctx, html->tree.root, flow))
+ 		return (int)(flow->y / html->page_h);
+ 	return -1;
+ }
+@@ -459,14 +459,14 @@
+ };
+ 
+ static void
+-cat_html_flow(fz_context *ctx, fz_buffer *cat, fz_html_flow *flow)
++cat_html_flow(fz_html_tree *tree, fz_context *ctx, fz_buffer *cat, fz_html_flow *flow)
+ {
+ 	while (flow)
+ 	{
+ 		switch (flow->type)
+ 		{
+ 		case FLOW_WORD:
+-			fz_append_string(ctx, cat, flow->content.text);
++			fz_append_string(ctx, cat, fz_html_flow_text(flow));
+ 			break;
+ 		case FLOW_SPACE:
+ 		case FLOW_BREAK:
+@@ -475,18 +475,18 @@
+ 		default:
+ 			break;
+ 		}
+-		flow = flow->next;
++		flow = fz_html_flow_next(tree, flow);
+ 	}
+ }
+ 
+ static void
+-cat_html_box(fz_context *ctx, fz_buffer *cat, fz_html_box *box)
+-{
+-	while (box)
+-	{
+-		if (box->type == BOX_FLOW)
+-			cat_html_flow(ctx, cat, box->u.flow.head);
+-		cat_html_box(ctx, cat, box->down);
++cat_html_box(fz_html_tree *tree, fz_context *ctx, fz_buffer *cat, fz_html_box *box)
++{
++	while (box)
++	{
++		if (box->type == BOX_FLOW)
++			cat_html_flow(tree, ctx, cat, box->u.flow.head);
++		cat_html_box(tree, ctx, cat, box->down);
+ 		box = box->next;
+ 	}
+ }
+@@ -499,8 +499,8 @@
+ 	else
+ 		fz_clear_buffer(ctx, x->cat);
+ 
+-	cat_html_flow(ctx, x->cat, box->u.flow.head);
+-	cat_html_box(ctx, x->cat, box->down);
++	cat_html_flow(&x->html->tree, ctx, x->cat, box->u.flow.head);
++	cat_html_box(&x->html->tree, ctx, x->cat, box->down);
+ 
+ 	return fz_string_from_buffer(ctx, x->cat);
+ }

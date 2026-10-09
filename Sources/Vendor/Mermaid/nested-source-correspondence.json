@@ -1,0 +1,64 @@
+[
+  {
+    "mermaid_map_source": "webpack://LIB/node_modules/path-browserify/index.js",
+    "exact_source_content_matches": [
+      "webpack://vscode-uri/./node_modules/path-browserify/index.js"
+    ]
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/webpack/bootstrap",
+    "exact_source_content_matches": []
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/webpack/runtime/define%20property%20getters",
+    "exact_source_content_matches": []
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/webpack/runtime/hasOwnProperty%20shorthand",
+    "exact_source_content_matches": []
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/webpack/runtime/make%20namespace%20object",
+    "exact_source_content_matches": []
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/src/platform.ts",
+    "exact_source_content_matches": [
+      "webpack://vscode-uri/./src/platform.ts"
+    ]
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/src/uri.ts",
+    "exact_source_content_matches": [
+      "webpack://vscode-uri/./src/uri.ts"
+    ]
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/src/utils.ts",
+    "exact_source_content_matches": [
+      "webpack://vscode-uri/./src/utils.ts"
+    ]
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/node_modules/path-browserify/index.js",
+    "direct_path_browserify_1_0_1_exact_match": true
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/src/platform.ts",
+    "vscode_uri_3_0_8_exact_content_matches": [
+      "webpack://vscode-uri/./src/platform.ts"
+    ]
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/src/uri.ts",
+    "vscode_uri_3_0_8_exact_content_matches": [
+      "webpack://vscode-uri/./src/uri.ts"
+    ]
+  },
+  {
+    "mermaid_map_source": "webpack://LIB/src/utils.ts",
+    "vscode_uri_3_0_8_exact_content_matches": [
+      "webpack://vscode-uri/./src/utils.ts"
+    ]
+  }
+]

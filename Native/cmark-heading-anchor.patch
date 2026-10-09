@@ -1,0 +1,32 @@
+--- a/extensions/autoheaderid.c
++++ b/extensions/autoheaderid.c
+@@ -44,7 +44,10 @@
+       unsigned char *e = p + node->content.size;
+       int minus_pending = 0;
+       cmark_html_render_cr(html);
+-      cmark_strbuf_puts(html, "<a id=\"");
++      /* Keep the destination on the heading when pagination moves it. */
++      start_heading[2] = (char)('0' + node->as.heading.level);
++      cmark_strbuf_puts(html, start_heading);
++      cmark_strbuf_puts(html, " id=\"");
+       for (; p < e; p++)
+       {
+         unsigned int c = *p;
+@@ -169,16 +172,13 @@
+           minus_pending = 0;
+         }
+       }
+-      cmark_strbuf_puts(html, "\">");
+-      start_heading[2] = (char)('0' + node->as.heading.level);
+-      cmark_strbuf_puts(html, start_heading);
++      cmark_strbuf_putc(html, '"');
+       cmark_html_render_sourcepos(node, html, options);
+       cmark_strbuf_putc(html, '>');
+     } else {
+       end_heading[3] = (char)('0' + node->as.heading.level);
+       cmark_strbuf_puts(html, end_heading);
+       cmark_strbuf_puts(html, ">\n");
+-      cmark_strbuf_puts(html, "</a>");
+     }
+ }
+ 

@@ -1,0 +1,207 @@
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -47,6 +47,17 @@
+ 	int number;
+ } html_page;
+ 
++static fz_link_dest
++htdoc_target_dest(html_document *doc, float y)
++{
++	if (y >= 0)
++	{
++		int page = y / doc->html->page_h;
++		return fz_make_link_dest_xyz(0, page, 0, y - page * doc->html->page_h, 0);
++	}
++	return fz_make_link_dest_none();
++}
++
+ static void
+ htdoc_drop_document(fz_context *ctx, fz_document *doc_)
+ {
+@@ -73,12 +84,7 @@
+ 	const char *s = strchr(dest, '#');
+ 	if (s && s[1] != 0)
+ 	{
+-		float y = fz_find_html_target(ctx, doc->html, s+1);
+-		if (y >= 0)
+-		{
+-			int page = y / doc->html->page_h;
+-			return fz_make_link_dest_xyz(0, page, 0, y - page * doc->html->page_h, 0);
+-		}
++		return htdoc_target_dest(doc, fz_find_html_target(ctx, doc->html, s+1));
+ 	}
+ 
+ 	return fz_make_link_dest_none();
+@@ -94,17 +100,19 @@
+ }
+ 
+ static void
+-htdoc_update_outline(fz_context *ctx, fz_document *doc, fz_outline *node)
+-{
+-	while (node)
+-	{
+-		fz_link_dest dest = htdoc_resolve_link(ctx, doc, node->uri);
+-		node->page = dest.loc;
+-		node->x = dest.x;
+-		node->y = dest.y;
+-		htdoc_update_outline(ctx, doc, node->down);
+-		node = node->next;
+-	}
++htdoc_set_outline_target(fz_context *ctx, void *state, fz_outline *node, float y)
++{
++	fz_link_dest dest = htdoc_target_dest(state, y);
++	node->page = dest.loc;
++	node->x = dest.x;
++	node->y = dest.y;
++}
++
++static void
++htdoc_update_outline(fz_context *ctx, fz_document *doc_, fz_outline *node)
++{
++	html_document *doc = (html_document *)doc_;
++	fz_resolve_html_outline_targets(ctx, doc->html, node, htdoc_set_outline_target, doc);
+ }
+ 
+ static void
+--- a/source/html/html-outline.c
++++ b/source/html/html-outline.c
+@@ -24,6 +24,7 @@
+ #include "html-imp.h"
+ 
+ #include <string.h>
++#include <stdlib.h>
+ 
+ enum { T, R, B, L };
+ 
+@@ -222,6 +223,120 @@
+ 	return find_box_target(html->tree.root, id);
+ }
+ 
++/* One-operation target join; no retained tree or result cache. */
++typedef struct
++{
++	fz_outline *outline;
++	const char *id;
++	float y;
++	int seen;
++} html_outline_query;
++
++static size_t count_outline_queries(fz_outline *outline)
++{
++	size_t n = 0;
++	for (; outline; outline = outline->next)
++		n += 1 + count_outline_queries(outline->down);
++	return n;
++}
++
++static void fill_outline_queries(html_outline_query *queries, size_t *n, fz_outline *outline)
++{
++	for (; outline; outline = outline->next)
++	{
++		const char *fragment = outline->uri ? strchr(outline->uri, '#') : NULL;
++		queries[*n].outline = outline;
++		queries[*n].id = fragment && fragment[1] ? fragment + 1 : "";
++		queries[*n].y = -1;
++		++*n;
++		fill_outline_queries(queries, n, outline->down);
++	}
++}
++
++static int compare_outline_queries(const void *a, const void *b)
++{
++	return strcmp(((const html_outline_query *)a)->id, ((const html_outline_query *)b)->id);
++}
++
++static size_t first_outline_query(html_outline_query *queries, size_t n, const char *id)
++{
++	size_t low = 0, high = n;
++	while (low < high)
++	{
++		size_t mid = low + (high - low) / 2;
++		if (strcmp(queries[mid].id, id) < 0)
++			low = mid + 1;
++		else
++			high = mid;
++	}
++	return low;
++}
++
++static void record_outline_target(html_outline_query *queries, size_t n, const char *id, fz_html_box *box, fz_html_flow *flow)
++{
++	size_t i;
++	float y;
++	if (!id || !*id)
++		return;
++	i = first_outline_query(queries, n, id);
++	if (i == n || strcmp(queries[i].id, id) || queries[i].seen)
++		return;
++	if (!flow)
++		flow = find_first_content(box);
++	y = flow ? find_flow_top(flow) : box->s.layout.y;
++	for (; i < n && !strcmp(queries[i].id, id); ++i)
++	{
++		queries[i].y = y;
++		queries[i].seen = 1;
++	}
++}
++
++static void walk_outline_targets(html_outline_query *queries, size_t n, fz_html_box *box)
++{
++	for (; box; box = box->next)
++	{
++		record_outline_target(queries, n, box->id, box, NULL);
++		if (box->type == BOX_FLOW)
++		{
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++				record_outline_target(queries, n, flow->box->id, flow->box, flow);
++		}
++		else
++			walk_outline_targets(queries, n, box->down);
++	}
++}
++
++void
++fz_resolve_html_outline_targets(fz_context *ctx, fz_html *html, fz_outline *outline,
++	void (*set_target)(fz_context *, void *, fz_outline *, float), void *state)
++{
++	size_t n = count_outline_queries(outline), used = 0;
++	html_outline_query *queries = NULL;
++	if (!n)
++		return;
++	fz_var(queries);
++	fz_try(ctx)
++	{
++		queries = fz_calloc(ctx, n, sizeof(*queries));
++		fill_outline_queries(queries, &used, outline);
++		qsort(queries, n, sizeof(*queries), compare_outline_queries);
++		walk_outline_targets(queries, n, html->tree.root);
++		for (size_t i = 0; i < n; ++i)
++		{
++			float y = queries[i].y;
++			/* Negative/NaN early-return behavior is layer-sensitive upstream.
++			 * Preserve it through the original resolver for this ID. */
++			if (queries[i].seen && !(y >= 0))
++				y = fz_find_html_target(ctx, html, queries[i].id);
++			set_target(ctx, state, queries[i].outline, y);
++		}
++	}
++	fz_always(ctx)
++		fz_free(ctx, queries);
++	fz_catch(ctx)
++		fz_rethrow(ctx);
++}
++
+ static fz_html_flow *
+ make_flow_bookmark(fz_context *ctx, fz_html_flow *flow, float y, fz_html_flow **candidate)
+ {
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -630,6 +630,8 @@
+ fz_outline *fz_load_html_outline(fz_context *ctx, fz_html *node);
+ 
+ float fz_find_html_target(fz_context *ctx, fz_html *html, const char *id);
++void fz_resolve_html_outline_targets(fz_context *ctx, fz_html *html, fz_outline *outline,
++	void (*set_target)(fz_context *, void *, fz_outline *, float), void *state);
+ fz_link *fz_load_html_links(fz_context *ctx, fz_html *html, int page, const char *base_uri);
+ fz_html *fz_keep_html(fz_context *ctx, fz_html *html);
+ void fz_drop_html(fz_context *ctx, fz_html *html);

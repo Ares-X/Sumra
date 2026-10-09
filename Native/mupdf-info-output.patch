@@ -1,0 +1,18 @@
+diff --git a/source/tools/pdfinfo.c b/source/tools/pdfinfo.c
+--- a/source/tools/pdfinfo.c
++++ b/source/tools/pdfinfo.c
+@@ -987,8 +987,12 @@ showzugferd(fz_context *ctx, globals *glo)
+ 
+ 	fz_write_printf(ctx, out, "Embedded XML:\n");
+ 	buf = pdf_zugferd_xml(ctx, glo->doc);
+-	fz_write_buffer(ctx, out, buf);
+-	fz_drop_buffer(ctx, buf);
++	fz_try(ctx)
++		fz_write_buffer(ctx, out, buf);
++	fz_always(ctx)
++		fz_drop_buffer(ctx, buf);
++	fz_catch(ctx)
++		fz_rethrow(ctx);
+ 	fz_write_printf(ctx, out, "\n\n");
+ }
+ 

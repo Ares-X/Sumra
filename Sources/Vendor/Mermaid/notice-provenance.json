@@ -1,0 +1,923 @@
+{
+  "runtimeAssetSha256": "3a93016a73dc82ba890d919f9bbb176f3da9d98341650c0b517f2595cc68fef8",
+  "noticeFile": "Licenses/Mermaid-Dependencies.txt",
+  "noticeBytes": 109475,
+  "noticeSha256": "10638cf316e3331f325a2385f20b871e89ba2c31165e5ff57d6f995377c7860b",
+  "scope": "68 mapped package identities plus four RoughJS release-lock contributors, source headers and exact declared MIT terms; bounded notice coverage, not full release/source rebuild attestation",
+  "mappedComponentLicenses": [
+    {
+      "mappedIdentity": "@braintree+sanitize-url@7.1.0",
+      "package": "@braintree/sanitize-url",
+      "version": "7.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/@braintree/sanitize-url@7.1.0/LICENSE",
+          "bytes": 1066,
+          "sha256": "0984740e0c3d725c8044dec7edcefe1dbce180ef5a7bc710c251e19607000158",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "@chevrotain+cst-dts-gen@11.0.3",
+      "package": "@chevrotain/cst-dts-gen",
+      "version": "11.0.3",
+      "notices": [
+        {
+          "url": "https://unpkg.com/@chevrotain/cst-dts-gen@11.0.3/LICENSE.txt",
+          "bytes": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "full_published_license"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/Chevrotain/chevrotain/v11.0.3/NOTICE.txt",
+          "bytes": 138,
+          "sha256": "405a324415ccd437c5dffb6fcab4d3a5f33c6066c784e994c3d6cf8a59832e45",
+          "kind": "release_NOTICE"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "@chevrotain+gast@11.0.3",
+      "package": "@chevrotain/gast",
+      "version": "11.0.3",
+      "notices": [
+        {
+          "url": "https://unpkg.com/@chevrotain/gast@11.0.3/LICENSE.txt",
+          "bytes": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "full_published_license"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/Chevrotain/chevrotain/v11.0.3/NOTICE.txt",
+          "bytes": 138,
+          "sha256": "405a324415ccd437c5dffb6fcab4d3a5f33c6066c784e994c3d6cf8a59832e45",
+          "kind": "release_NOTICE"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "@chevrotain+regexp-to-ast@11.0.3",
+      "package": "@chevrotain/regexp-to-ast",
+      "version": "11.0.3",
+      "notices": [
+        {
+          "url": "https://unpkg.com/@chevrotain/regexp-to-ast@11.0.3/LICENSE.txt",
+          "bytes": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "full_published_license"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/Chevrotain/chevrotain/v11.0.3/NOTICE.txt",
+          "bytes": 138,
+          "sha256": "405a324415ccd437c5dffb6fcab4d3a5f33c6066c784e994c3d6cf8a59832e45",
+          "kind": "release_NOTICE"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "@chevrotain+utils@11.0.3",
+      "package": "@chevrotain/utils",
+      "version": "11.0.3",
+      "notices": [
+        {
+          "url": "https://unpkg.com/@chevrotain/utils@11.0.3/LICENSE.txt",
+          "bytes": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "full_published_license"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/Chevrotain/chevrotain/v11.0.3/NOTICE.txt",
+          "bytes": 138,
+          "sha256": "405a324415ccd437c5dffb6fcab4d3a5f33c6066c784e994c3d6cf8a59832e45",
+          "kind": "release_NOTICE"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "@iconify+utils@2.3.0",
+      "package": "@iconify/utils",
+      "version": "2.3.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/@iconify/utils@2.3.0/license.txt",
+          "bytes": 1083,
+          "sha256": "a86793ac023162ce98b91899601c15f6712f44943163c4f92a0a4bf89152b3bf",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "chevrotain-allstar@0.3.1_chevrotain@11.0.3",
+      "package": "chevrotain-allstar",
+      "version": "0.3.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/chevrotain-allstar@0.3.1/LICENSE",
+          "bytes": 1068,
+          "sha256": "1db2cfbc7ce5fa3b82699b4ac4badce8984084d25b5308ece00f5c9b1381a0a5",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "chevrotain@11.0.3",
+      "package": "chevrotain",
+      "version": "11.0.3",
+      "notices": [
+        {
+          "url": "https://raw.githubusercontent.com/Chevrotain/chevrotain/v11.0.3/LICENSE.txt",
+          "bytes": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "full_published_license"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/Chevrotain/chevrotain/v11.0.3/NOTICE.txt",
+          "bytes": 138,
+          "sha256": "405a324415ccd437c5dffb6fcab4d3a5f33c6066c784e994c3d6cf8a59832e45",
+          "kind": "release_NOTICE"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "cose-base@1.0.3",
+      "package": "cose-base",
+      "version": "1.0.3",
+      "notices": [
+        {
+          "url": "https://unpkg.com/cose-base@1.0.3/LICENSE",
+          "bytes": 1081,
+          "sha256": "5fb3cf4a14c3c5af6e473a192df8bca10c77754e3a0c6492c79fb92a76a5478a",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "cose-base@2.2.0",
+      "package": "cose-base",
+      "version": "2.2.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/cose-base@2.2.0/LICENSE",
+          "bytes": 1081,
+          "sha256": "5fb3cf4a14c3c5af6e473a192df8bca10c77754e3a0c6492c79fb92a76a5478a",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "cytoscape-cose-bilkent@4.1.0_cytoscape@3.31.0",
+      "package": "cytoscape-cose-bilkent",
+      "version": "4.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/cytoscape-cose-bilkent@4.1.0/LICENSE",
+          "bytes": 1084,
+          "sha256": "440fc58a56a12814e417d2b341da89b050da052dc75bdb235607d37ec5fe74ef",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "cytoscape-fcose@2.2.0_cytoscape@3.31.0",
+      "package": "cytoscape-fcose",
+      "version": "2.2.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/cytoscape-fcose@2.2.0/LICENSE",
+          "bytes": 1079,
+          "sha256": "2837634f403949215760fcdd2fa1ed0c64875d02099ecc8318c704b852f1421d",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "cytoscape@3.31.0",
+      "package": "cytoscape",
+      "version": "3.31.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/cytoscape@3.31.0/LICENSE",
+          "bytes": 1082,
+          "sha256": "e4b62495bacaefaf330f38f226e20d1d60d658d444998ba7406a191f96a2e701",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-array@2.12.1",
+      "package": "d3-array",
+      "version": "2.12.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-array@2.12.1/LICENSE",
+          "bytes": 1475,
+          "sha256": "0747bebeb06b10954913149be9b9a8bdf6fad3e6fdcbd9f9524e7a94c13d2cea",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-array@3.2.4",
+      "package": "d3-array",
+      "version": "3.2.4",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-array@3.2.4/LICENSE",
+          "bytes": 731,
+          "sha256": "3e6849627f74ff73c257a3ae1efb574015d94fc1035c05ec3c15805165efcbc4",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-axis@3.0.0",
+      "package": "d3-axis",
+      "version": "3.0.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-axis@3.0.0/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-brush@3.0.0",
+      "package": "d3-brush",
+      "version": "3.0.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-brush@3.0.0/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-chord@3.0.1",
+      "package": "d3-chord",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-chord@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-color@3.1.0",
+      "package": "d3-color",
+      "version": "3.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-color@3.1.0/LICENSE",
+          "bytes": 731,
+          "sha256": "faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-contour@4.0.2",
+      "package": "d3-contour",
+      "version": "4.0.2",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-contour@4.0.2/LICENSE",
+          "bytes": 731,
+          "sha256": "e51cba0e4fa1d8c078e15319868f2b90188f413f9ce9dac1043b62db32901e93",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-delaunay@6.0.4",
+      "package": "d3-delaunay",
+      "version": "6.0.4",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-delaunay@6.0.4/LICENSE",
+          "bytes": 757,
+          "sha256": "582c3022bd01942336095f92b58a90b1be624dc547d987555c6c956512dd24c1",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-dispatch@3.0.1",
+      "package": "d3-dispatch",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-dispatch@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-drag@3.0.0",
+      "package": "d3-drag",
+      "version": "3.0.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-drag@3.0.0/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-dsv@3.0.1",
+      "package": "d3-dsv",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-dsv@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "7842a82012622e5a37bfe4f6c1b67cd3bae6350716b5bf87f36cea0bdc1319dc",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-ease@3.0.1",
+      "package": "d3-ease",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-ease@3.0.1/LICENSE",
+          "bytes": 1504,
+          "sha256": "b989d9085148d21ff64a75e14462aefa06b2589a55553b07b1460c70081c7d08",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-fetch@3.0.1",
+      "package": "d3-fetch",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-fetch@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "ffdc17dc9040006bddeb891c95bfbb492e86d6bc64a4a4233666febab1be35e0",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-force@3.0.0",
+      "package": "d3-force",
+      "version": "3.0.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-force@3.0.0/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-format@3.1.0",
+      "package": "d3-format",
+      "version": "3.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-format@3.1.0/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-geo@3.1.1",
+      "package": "d3-geo",
+      "version": "3.1.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-geo@3.1.1/LICENSE",
+          "bytes": 1857,
+          "sha256": "3e3edc1224eec9c39cd26491a21304a62883c1e5b6a65c5283ccc7a6cc94baee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-hierarchy@3.1.2",
+      "package": "d3-hierarchy",
+      "version": "3.1.2",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-hierarchy@3.1.2/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-interpolate@3.0.1",
+      "package": "d3-interpolate",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-interpolate@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-path@1.0.9",
+      "package": "d3-path",
+      "version": "1.0.9",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-path@1.0.9/LICENSE",
+          "bytes": 1475,
+          "sha256": "b8265327ab678f554800e71188b1cc6b1ff57522e292d2b1c0be66f27cf328b6",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-path@3.1.0",
+      "package": "d3-path",
+      "version": "3.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-path@3.1.0/LICENSE",
+          "bytes": 731,
+          "sha256": "a09b0d6d76e768fca2085fad05743ee81ddd11946bcda160a3cf5e1081a479aa",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-polygon@3.0.1",
+      "package": "d3-polygon",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-polygon@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-quadtree@3.0.1",
+      "package": "d3-quadtree",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-quadtree@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-random@3.0.1",
+      "package": "d3-random",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-random@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-sankey@0.12.3",
+      "package": "d3-sankey",
+      "version": "0.12.3",
+      "notices": [
+        {
+          "url": "https://raw.githubusercontent.com/d3/d3-sankey/v0.12.3/LICENSE",
+          "bytes": 1471,
+          "sha256": "2bf785e778d67a4f5266cffcd4f2cc5bb98cde73791666e7efeb8002ba32dfa5",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-scale-chromatic@3.1.0",
+      "package": "d3-scale-chromatic",
+      "version": "3.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-scale-chromatic@3.1.0/LICENSE",
+          "bytes": 1423,
+          "sha256": "0986d93944902cca9af86824b6a641b4b7c2d10602fc510c433a8bcd443919fe",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-scale@4.0.2",
+      "package": "d3-scale",
+      "version": "4.0.2",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-scale@4.0.2/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-selection@3.0.0",
+      "package": "d3-selection",
+      "version": "3.0.0",
+      "notices": [
+        {
+          "url": "https://raw.githubusercontent.com/d3/d3-selection/v3.0.0/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-shape@1.3.7",
+      "package": "d3-shape",
+      "version": "1.3.7",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-shape@1.3.7/LICENSE",
+          "bytes": 1475,
+          "sha256": "7eea8533ea92bd8c32a901e89ecb0305890905bb12711449565ddff96891146d",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-shape@3.2.0",
+      "package": "d3-shape",
+      "version": "3.2.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-shape@3.2.0/LICENSE",
+          "bytes": 731,
+          "sha256": "faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-time-format@4.1.0",
+      "package": "d3-time-format",
+      "version": "4.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-time-format@4.1.0/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-time@3.1.0",
+      "package": "d3-time",
+      "version": "3.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-time@3.1.0/LICENSE",
+          "bytes": 731,
+          "sha256": "faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-timer@3.0.1",
+      "package": "d3-timer",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-timer@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-transition@3.0.1_d3-selection@3.0.0",
+      "package": "d3-transition",
+      "version": "3.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-transition@3.0.1/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3-zoom@3.0.0",
+      "package": "d3-zoom",
+      "version": "3.0.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3-zoom@3.0.0/LICENSE",
+          "bytes": 731,
+          "sha256": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "d3@7.9.0",
+      "package": "d3",
+      "version": "7.9.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/d3@7.9.0/LICENSE",
+          "bytes": 731,
+          "sha256": "3e6849627f74ff73c257a3ae1efb574015d94fc1035c05ec3c15805165efcbc4",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "dagre-d3-es@7.0.11",
+      "package": "dagre-d3-es",
+      "version": "7.0.11",
+      "notices": [
+        {
+          "url": "https://unpkg.com/dagre-d3-es@7.0.11/LICENSE.md",
+          "bytes": 1328,
+          "sha256": "d01eb84ccce437dbf5fd40853bceea0f287930920acea066597a4a25ead63858",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "dayjs@1.11.13",
+      "package": "dayjs",
+      "version": "1.11.13",
+      "notices": [
+        {
+          "url": "https://raw.githubusercontent.com/iamkun/dayjs/v1.11.13/LICENSE",
+          "bytes": 1072,
+          "sha256": "5faab7526d055651be3aab769d58897be6bd91f3d39d137f25f12dba1b31d5dc",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "debug@4.4.0_supports-color@8.1.1",
+      "package": "debug",
+      "version": "4.4.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/debug@4.4.0/LICENSE",
+          "bytes": 1139,
+          "sha256": "3a61c6c96caf5c1d9b623fb9b04c822b783dfcb78aa7e49c76a3f643e6ed7f95",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "dompurify@3.2.4",
+      "package": "dompurify",
+      "version": "3.2.4",
+      "notices": [
+        {
+          "url": "https://unpkg.com/dompurify@3.2.4/LICENSE",
+          "bytes": 27729,
+          "sha256": "1b02e03c3fb4f87d476c128f0eb9def1f5a1709d28b180465228bd41574623b7",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "internmap@2.0.3",
+      "package": "internmap",
+      "version": "2.0.3",
+      "notices": [
+        {
+          "url": "https://raw.githubusercontent.com/mbostock/internmap/v2.0.3/LICENSE",
+          "bytes": 726,
+          "sha256": "9ea8903938dab5f12c4572d60725069bec2d1b0dc3bcc210b09bae946a5ebb1f",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "js-yaml@4.1.0",
+      "package": "js-yaml",
+      "version": "4.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/js-yaml@4.1.0/LICENSE",
+          "bytes": 1084,
+          "sha256": "a07bc24468b9654ce76a547d47a2db282d07733b715db4c73a98bd63961f9550",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "katex@0.16.11",
+      "package": "katex",
+      "version": "0.16.11",
+      "notices": [
+        {
+          "url": "https://unpkg.com/katex@0.16.11/LICENSE",
+          "bytes": 1107,
+          "sha256": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "khroma@2.1.0",
+      "package": "khroma",
+      "version": "2.1.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/khroma@2.1.0/license",
+          "bytes": 1105,
+          "sha256": "66b333b0f66759a0b710459e03f7029abe17f4358114a128d2c972e642961b49",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "langium@3.3.1",
+      "package": "langium",
+      "version": "3.3.1",
+      "notices": [
+        {
+          "url": "https://raw.githubusercontent.com/eclipse-langium/langium/v3.3.1/LICENSE",
+          "bytes": 1052,
+          "sha256": "599bf70b4e55f06250571d103dbd8441e0c47cb7f858c0147ca312ce38e9ef2a",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "layout-base@1.0.2",
+      "package": "layout-base",
+      "version": "1.0.2",
+      "notices": [
+        {
+          "url": "https://unpkg.com/layout-base@1.0.2/LICENSE",
+          "bytes": 1069,
+          "sha256": "eabb762d8a95109a39c9be3247325529a5239a7aca327d909c3ccdc41f3a06bf",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "layout-base@2.0.1",
+      "package": "layout-base",
+      "version": "2.0.1",
+      "notices": [
+        {
+          "url": "https://unpkg.com/layout-base@2.0.1/LICENSE",
+          "bytes": 1069,
+          "sha256": "eabb762d8a95109a39c9be3247325529a5239a7aca327d909c3ccdc41f3a06bf",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "lodash-es@4.17.21",
+      "package": "lodash-es",
+      "version": "4.17.21",
+      "notices": [
+        {
+          "url": "https://unpkg.com/lodash-es@4.17.21/LICENSE",
+          "bytes": 1952,
+          "sha256": "f71e8ed126b46346494aad5486874cd8f0aafe95092ed67d2e3cb6110f939abc",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "marked@15.0.7",
+      "package": "marked",
+      "version": "15.0.7",
+      "notices": [
+        {
+          "url": "https://raw.githubusercontent.com/markedjs/marked/v15.0.7/LICENSE.md",
+          "bytes": 2942,
+          "sha256": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "ms@2.1.3",
+      "package": "ms",
+      "version": "2.1.3",
+      "notices": [
+        {
+          "url": "https://unpkg.com/ms@2.1.3/license.md",
+          "bytes": 1079,
+          "sha256": "1662fae9b5314d11cf51284e2dcd1f006a354f7343f08712a730fcff9a359801",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "roughjs@4.6.6_patch_hash=3543d47108cb41b68ec6a671c0e1f9d0cfe2ce524fea5b0992511ae84c3c6b64",
+      "package": "roughjs",
+      "version": "4.6.6",
+      "notices": [
+        {
+          "url": "https://unpkg.com/roughjs@4.6.6/LICENSE",
+          "bytes": 1068,
+          "sha256": "dca9a392272606ac748ac0976a2a1133f14eef841c27beaa51a844d53c56a09d",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "stylis@4.3.6",
+      "package": "stylis",
+      "version": "4.3.6",
+      "notices": [
+        {
+          "url": "https://raw.githubusercontent.com/thysultan/stylis/v4.3.6/LICENSE",
+          "bytes": 1078,
+          "sha256": "88c579c6ee44b41137a21321190d177982e5b17d4fa1b83a4a2e3ea325a8fc9a",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "ts-dedent@2.2.0",
+      "package": "ts-dedent",
+      "version": "2.2.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/ts-dedent@2.2.0/LICENSE",
+          "bytes": 1073,
+          "sha256": "eff13095d9d762c3bd9dda74370c81e2130c28f2691bc455603abf973bac25b9",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "vscode-jsonrpc@8.2.0",
+      "package": "vscode-jsonrpc",
+      "version": "8.2.0",
+      "notices": [
+        {
+          "url": "https://unpkg.com/vscode-jsonrpc@8.2.0/License.txt",
+          "bytes": 1095,
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "vscode-languageserver-textdocument@1.0.12",
+      "package": "vscode-languageserver-textdocument",
+      "version": "1.0.12",
+      "notices": [
+        {
+          "url": "https://unpkg.com/vscode-languageserver-textdocument@1.0.12/License.txt",
+          "bytes": 1095,
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "kind": "full_published_license"
+        }
+      ]
+    },
+    {
+      "mappedIdentity": "vscode-languageserver-types@3.17.5",
+      "package": "vscode-languageserver-types",
+      "version": "3.17.5",
+      "notices": [
+        {
+          "url": "https://unpkg.com/vscode-languageserver-types@3.17.5/License.txt",
+          "bytes": 1095,
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "kind": "full_published_license"
+        }
+      ]
+    }
+  ]
+}

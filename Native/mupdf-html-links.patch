@@ -1,0 +1,14 @@
+--- a/source/html/html-outline.c
++++ b/source/html/html-outline.c
+@@ -79,7 +79,10 @@
+ 					bbox.y1 -= 0.8f * flow->h;
+ 				}
+ 
+-				if (is_internal_uri(href))
++				/* Standalone file links are resolved by the host. Keep their URI
++				 * escapes until it separates the filename from the fragment.
++				 * EPUB paths and current-document fragments stay in Fitz space. */
++				if (is_internal_uri(href) && (file[0] || href[0] == '#'))
+ 				{
+ 					if (href[0] == '#')
+ 					{

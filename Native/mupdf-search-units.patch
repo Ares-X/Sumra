@@ -1,0 +1,123 @@
+--- a/source/fitz/stext-search.c
++++ b/source/fitz/stext-search.c
+@@ -1055,6 +1055,15 @@
+ 	size_t len;
+ 	int ccc;
+ 
++	/* Sumatra MatchSearchUnit: case-insensitive sharp-S is one ss unit.
++	 * Retain the source position on both letters for unit-boundary checks. */
++	if ((transform & FZ_TEXT_TRANSFORM_UPPERCASE) && (c == 0xdf || c == 0x1e9e))
++	{
++		len = transform_char(ctx, output, index, 'S', pos, transform, cache);
++		return len + transform_char(ctx, output ? output + len : NULL,
++			index ? index + len : NULL, 'S', pos, transform, cache);
++	}
++
+ 	if (transform & FZ_TEXT_TRANSFORM_DECOMPOSE)
+ 	{
+ 		uint32_t a, b;
+@@ -1285,6 +1294,7 @@
+ 
+ 	char *needle;
+ 	char *spun_needle;
++	size_t *needle_index;
+ 	void *compiled_needle; /* for regexp */
+ 
+ 	char *combined_spun_haystack;
+@@ -1381,6 +1391,8 @@
+ 		/* Spin that needle into gold (to match the haystack) */
+ 		if (search->transform == FZ_TEXT_TRANSFORM_NONE)
+ 			search->spun_needle = search->needle;
++		else if (search->finder == &simple_finder && (search->transform & FZ_TEXT_TRANSFORM_UPPERCASE))
++			search->spun_needle = transform_text_with_index(ctx, search->transform, search->needle, &search->needle_index);
+ 		else
+ 			search->spun_needle = transform_text_without_index(ctx, search->transform, search->needle);
+ 
+@@ -1406,6 +1418,8 @@
+ 	if (search->spun_needle != search->needle)
+ 		fz_free(ctx, search->spun_needle);
+ 	search->spun_needle = NULL;
++	fz_free(ctx, search->needle_index);
++	search->needle_index = NULL;
+ 	fz_free(ctx, search->needle);
+ 	search->needle = NULL;
+ }
+@@ -1656,6 +1670,63 @@
+ }
+ 
+ static int
++match_search_units(fz_context *ctx, fz_search *search, const char *p, const char *end)
++{
++	const char *n = search->spun_needle;
++
++	/* Regex retains its own matching semantics. Exact search needs no folding. */
++	if (!search->needle_index || !strchr(search->spun_needle, 'S'))
++		return 1;
++
++	while (*n && p && p <= end)
++	{
++		fz_stext_char *h = lookup_stext_position(ctx, search, p).ch;
++		size_t ni = search->needle_index[n - search->spun_needle];
++		int nc, ns;
++		int hs = h && (h->c == 0xdf || h->c == 0x1e9e);
++		const char *pn, *nn;
++		fz_chartorune(&nc, search->needle + ni);
++		ns = nc == 0xdf || nc == 0x1e9e;
++		pn = advance_one_utf8(search->combined_spun_haystack, p);
++		nn = advance_one_utf8(search->spun_needle, n);
++		if (hs || ns)
++		{
++			fz_stext_char *hn;
++			size_t nni;
++			int nnc;
++			/* Consume the same complete two-letter unit on both sides.
++			 * ss/ß is valid; s/ß and crossed units such as ßs/Sß are not. */
++			if (!pn || pn > end || !nn || !*nn)
++				return 0;
++			hn = lookup_stext_position(ctx, search, pn).ch;
++			nni = search->needle_index[nn - search->spun_needle];
++			fz_chartorune(&nnc, search->needle + nni);
++			if (hs)
++			{
++				const char *before = retreat_one_utf8(search->combined_spun_haystack, p);
++				if (hn != h || (before && lookup_stext_position(ctx, search, before).ch == h))
++					return 0;
++			}
++			else if (!hn || hn == h || hn->c == 0xdf || hn->c == 0x1e9e)
++				return 0;
++			if (ns)
++			{
++				const char *before = retreat_one_utf8(search->spun_needle, n);
++				if (nni != ni || (before && search->needle_index[before - search->spun_needle] == ni))
++					return 0;
++			}
++			else if (nni == ni || nnc == 0xdf || nnc == 0x1e9e)
++				return 0;
++			pn = advance_one_utf8(search->combined_spun_haystack, pn);
++			nn = advance_one_utf8(search->spun_needle, nn);
++		}
++		p = pn;
++		n = nn;
++	}
++	return 1;
++}
++
++static int
+ lookup_stext_seq(fz_search *search, fz_stext_position *pos)
+ {
+ 	if (pos->page == search->page[0].page) return search->page[0].seq;
+@@ -1859,6 +1930,14 @@
+ 		/* spun_begin and spun_end must now point to first and last characters of match */
+ 
+ 		spun_end = retreat_one_utf8(search->combined_spun_haystack, spun_end);
++
++		if (!match_search_units(ctx, search, spun_begin, spun_end))
++		{
++			/* A later start may match a complete unit: ss in SßS. */
++			if (direction > 0)
++				search->current_spun_pos = advance_one_utf8(search->combined_spun_haystack, spun_begin) - search->combined_spun_haystack;
++			goto restart;
++		}
+ 
+ 		/* Skip over spun characters that have no matching stext character (inserted line ends, removed spaces, etc) */
+ 		while (spun_begin < spun_end && lookup_stext_position(ctx, search, spun_begin).ch == NULL)

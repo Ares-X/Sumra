@@ -1,0 +1,12 @@
+/* English source strings are the fallback; no duplicate catalog is needed. */
+
+"Enable PDF Editing" = "Enable PDF Editing";
+"Enable Editing" = "Enable Editing";
+"Lock Editing" = "Lock Editing";
+"Unsaved Changes" = "Unsaved Changes";
+"Go to Page" = "Go to Page";
+"Search Options" = "Search Options";
+"Undo" = "Undo";
+"Redo" = "Redo";
+"Search Contents" = "Search Contents";
+"No matching chapters" = "No matching chapters";

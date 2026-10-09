@@ -1,0 +1,11 @@
+--- a/source/fitz/pool.c
++++ b/source/fitz/pool.c
+@@ -31,7 +31,7 @@
+ 	char mem[FZ_FLEXIBLE_ARRAY];
+ } fz_pool_node;
+ 
+-#define POOL_SIZE (4<<10) /* default size of pool blocks */
++#define POOL_SIZE ((4<<10)-offsetof(fz_pool_node, mem)) /* total size of pool blocks is 4 KiB */
+ #define POOL_SELF (1<<10) /* size where allocs are put into their own blocks */
+ 
+ struct fz_pool

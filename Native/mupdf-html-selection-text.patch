@@ -1,0 +1,253 @@
+diff --git a/include/mupdf/fitz/html.h b/include/mupdf/fitz/html.h
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -32,6 +32,17 @@
+ /* Resolve an HTML flow source character against the current layout. -1 for other handlers or missing source. */
+ int fz_htdoc_source_page(fz_context *ctx, fz_document *doc, uint32_t source_node, uint32_t source_offset);
+ 
++/* A selected extracted character, retaining identity for ligatures and repeated text. */
++typedef struct
++{
++	uint32_t source_node, source_offset, source_part;
++	int unicode;
++} fz_html_selection_char;
++
++/* Append semantic source text for selected extracted characters. */
++void fz_htdoc_source_selection_text(fz_context *ctx, fz_document *doc,
++	const fz_html_selection_char *chars, size_t count, fz_buffer *buffer);
++
+ /*
+ 	HTML types required
+ */
+diff --git a/source/html/html-doc.c b/source/html/html-doc.c
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -215,6 +215,146 @@
+ 	int page = (int)(flow->y / doc->html->page_h);
+ 	int last_page = fmaxf(0, ceilf(doc->html->tree.root->s.layout.b / doc->html->page_h) - 1);
+ 	return page < last_page ? page : last_page;
++}
++
++
++
++typedef struct
++{
++	fz_context *ctx;
++	const fz_html_selection_char *chars;
++	size_t count, next;
++	uint32_t first_node, last_node;
++	fz_buffer *buffer;
++	fz_html_box *last_selected_box;
++	size_t matched;
++	int emitted;
++} source_text_state;
++
++static int source_node_selected(source_text_state *state, uint32_t node)
++{
++	return state->next < state->count && state->chars[state->next].source_node == node;
++}
++
++static int source_box_has_chars(source_text_state *state, fz_html_box *box)
++{
++	fz_html_flow *first = box->u.flow.head, *last = first;
++	if (!first)
++		return 0;
++	while (last->next)
++		last = last->next;
++	while (state->next < state->count && state->chars[state->next].source_node < first->source_node)
++		++state->next;
++	return state->next < state->count &&
++		state->chars[state->next].source_node >= first->source_node &&
++		state->chars[state->next].source_node <= last->source_node;
++}
++
++static void source_text_block_newline(source_text_state *state)
++{
++	size_t len;
++	unsigned char *data;
++	len = fz_buffer_storage(state->ctx, state->buffer, &data);
++	if (!len || data[len-1] != '\n')
++		fz_append_byte(state->ctx, state->buffer, '\n');
++}
++
++static int source_text_walk(source_text_state *state, fz_html_box *box)
++{
++	for (; box; box = box->next)
++	{
++		if (box->type == BOX_FLOW)
++		{
++			int has_chars = source_box_has_chars(state, box);
++			if (has_chars && state->emitted && state->last_selected_box != box)
++				source_text_block_newline(state);
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++			{
++				uint32_t node = flow->source_node;
++				while (state->next < state->count && state->chars[state->next].source_node < node)
++					++state->next;
++				if (node > state->last_node)
++					return 1;
++				if (node < state->first_node)
++					continue;
++				if (flow->type == FLOW_WORD)
++				{
++					/* RTL overflow splitting can put a suffix before its prefix,
++					 * with both fragments retaining the same source_node. Emit
++					 * selected characters once, in source byte order. */
++					if (source_node_selected(state, node))
++					{
++						do {
++							fz_append_rune(state->ctx, state->buffer, state->chars[state->next].unicode);
++							++state->next;
++							++state->matched;
++						} while (state->next < state->count && state->chars[state->next].source_node == node);
++						state->emitted = 1;
++						state->last_selected_box = box;
++					}
++				}
++				else if (flow->type == FLOW_SPACE &&
++					((node > state->first_node && node < state->last_node) || source_node_selected(state, node)))
++				{
++					if (source_node_selected(state, node))
++					{
++						fz_append_byte(state->ctx, state->buffer, ' ');
++						do { ++state->next; ++state->matched; }
++						while (state->next < state->count && state->chars[state->next].source_node == node);
++					}
++					else
++						fz_append_byte(state->ctx, state->buffer, ' ');
++					state->emitted = 1;
++					state->last_selected_box = box;
++				}
++				else if (flow->type == FLOW_BREAK &&
++					(node > state->first_node && node < state->last_node))
++				{
++					fz_append_byte(state->ctx, state->buffer, '\n');
++				}
++				else if (flow->type == FLOW_SHYPHEN && flow->generated_hyphen && source_node_selected(state, node))
++				{
++					/* A visible automatic hyphen is a selected layout glyph, but
++					 * it has no character in the authored source. */
++					do { ++state->next; ++state->matched; }
++					while (state->next < state->count && state->chars[state->next].source_node == node);
++				}
++				else if (flow->type == FLOW_SHYPHEN && !flow->generated_hyphen &&
++					((node > state->first_node && node < state->last_node) || source_node_selected(state, node)))
++				{
++					if (source_node_selected(state, node))
++					{
++						fz_append_rune(state->ctx, state->buffer, state->chars[state->next].unicode);
++						do { ++state->next; ++state->matched; }
++						while (state->next < state->count && state->chars[state->next].source_node == node);
++					}
++					else
++						fz_append_rune(state->ctx, state->buffer, 0x00ad);
++					state->emitted = 1;
++					state->last_selected_box = box;
++				}
++				/* FLOW_SBREAK and layout-generated hyphens are not source text. */
++			}
++		}
++		if (fz_html_box_has_boxes(box) && source_text_walk(state, box->down))
++			return 1;
++	}
++	return 0;
++}
++
++void fz_htdoc_source_selection_text(fz_context *ctx, fz_document *doc_,
++	const fz_html_selection_char *chars, size_t count, fz_buffer *buffer)
++{
++	if (!doc_ || doc_->drop_document != htdoc_drop_document || !count || !chars || !buffer)
++		return;
++	html_document *doc = (html_document *)doc_;
++	if (!doc->html || chars[0].source_node == 0)
++		return;
++	source_text_state state = { ctx, chars, count, 0, chars[0].source_node,
++		chars[count-1].source_node, buffer, NULL, 0, 0 };
++	(void)source_text_walk(&state, doc->html->tree.root);
++	if (state.matched != count)
++		fz_throw(ctx, FZ_ERROR_GENERIC, "Markdown selection source could not be reconstructed");
+ }
+ 
+ static fz_outline *
+diff --git a/source/html/html-imp.h b/source/html/html-imp.h
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -582,6 +582,7 @@
+ 	unsigned int source_offset_small : 2;
+ 	unsigned int has_large_source_offset : 1;
+ 	unsigned int has_markup_lang : 1;
++	unsigned int generated_hyphen : 1;
+ 	uint32_t source_node;
+ 
+ 	float x, y, w, h;
+diff --git a/source/html/html-parse.c b/source/html/html-parse.c
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -320,6 +320,7 @@
+ 	flow->source_offset_small = 0;
+ 	flow->has_large_source_offset = 0;
+ 	flow->has_markup_lang = 0;
++	flow->generated_hyphen = 0;
+ 	flow->breaks_line = 0;
+ 	flow->box = inline_box;
+ 	(*top->s.build.flow_tail) = flow;
+@@ -344,9 +345,11 @@
+ 	(void)add_flow(ctx, pool, top, inline_box, FLOW_SBREAK, 0);
+ }
+ 
+-static void add_flow_shyphen(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box)
++static void add_flow_shyphen(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, int generated)
+ {
+-	(void)add_flow(ctx, pool, top, inline_box, FLOW_SHYPHEN, 0);
++	fz_html_flow *flow = add_flow(ctx, pool, top, inline_box, FLOW_SHYPHEN, 0);
++	if (flow)
++		flow->generated_hyphen = generated;
+ }
+ 
+ static void add_flow_word(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, const char *a, const char *b, int lang)
+@@ -491,7 +494,7 @@
+ }
+ 
+ static void
+-generate_text_run(fz_context *ctx, fz_html_box *box, fz_html_box *flow, const char *mark, const char *end, int lang, struct genstate *g)
++generate_text_run(fz_context *ctx, fz_html_box *box, fz_html_box *flow, const char *mark, const char *end, int lang, int generated_hyphens, struct genstate *g)
+ {
+ 	fz_pool *pool = g->pool;
+ 	int bsp = box->style->white_space & WS_ALLOW_BREAK_SPACE;
+@@ -508,6 +511,6 @@
+ 			if (mark != prev)
+ 				add_flow_word(ctx, pool, flow, box, mark, prev, lang);
+ 			if (box->style->hyphens != HYP_NONE)
+-				add_flow_shyphen(ctx, pool, flow, box);
++				add_flow_shyphen(ctx, pool, flow, box, generated_hyphens);
+ 			mark = text;
+ 			g->last_brk_cls = UCDN_LINEBREAK_CLASS_WJ; /* don't add sbreaks after a soft hyphen */
+@@ -548,9 +551,9 @@
+ 	{
+ 		fz_hyphenate_word(ctx, hyph, mark, size, word, sizeof word);
+-		generate_text_run(ctx, box, flow, word, word + strlen(word), lang, g);
++		generate_text_run(ctx, box, flow, word, word + strlen(word), lang, 1, g);
+ 	}
+ 	else
+ 	{
+-		generate_text_run(ctx, box, flow, mark, end, lang, g);
++		generate_text_run(ctx, box, flow, mark, end, lang, 0, g);
+ 	}
+ }
+@@ -671,14 +674,14 @@
+ 								break;
+ 							p += n;
+ 						}
+-						generate_text_run(ctx, box, flow, mark, p, lang, g);
++						generate_text_run(ctx, box, flow, mark, p, lang, 0, g);
+ 					}
+ 					mark = p;
+ 				}
+ 			}
+ 			else
+ 			{
+-				generate_text_run(ctx, box, flow, mark, text, lang, g);
++				generate_text_run(ctx, box, flow, mark, text, lang, 0, g);
+ 			}
+ 
+ 			g->at_bol = 0;

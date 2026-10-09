@@ -1,0 +1,504 @@
+diff --git a/source/pdf/pdf-write.c b/source/pdf/pdf-write.c
+index 6d144ae..66720ac 100644
+--- a/source/pdf/pdf-write.c
++++ b/source/pdf/pdf-write.c
+@@ -74,6 +74,7 @@ typedef struct
+ 	char *obj_labels[100];
+ 
+ 	int bias; /* when saving incrementally to a file with garbage before the version marker */
++	int64_t snapshot_startxref;
+ 
+ 	int crypt_object_number;
+ 	char opwd_utf8[128];
+@@ -1306,7 +1307,7 @@ static void writeobject(fz_context *ctx, pdf_document *doc, pdf_write_state *opt
+ 
+ 			if (pdf_obj_num_is_stream(ctx, doc, num))
+ 			{
+-				if (pdf_is_stream_external(ctx, obj))
++				if (!opts->do_snapshot && pdf_is_stream_external(ctx, obj))
+ 					pdf_internalize_external_stream(ctx, doc, num);
+ 
+ 				do_deflate = opts->do_compress;
+@@ -1403,11 +1404,13 @@ static void writexref(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 	{
+ 		if (opts->do_incremental)
+ 		{
+-			trailer = pdf_keep_obj(ctx, pdf_trailer(ctx, doc));
++			trailer = opts->do_snapshot ? pdf_copy_dict(ctx, pdf_trailer(ctx, doc)) : pdf_keep_obj(ctx, pdf_trailer(ctx, doc));
+ 			pdf_dict_put_int(ctx, trailer, PDF_NAME(Size), pdf_xref_len(ctx, doc));
+-			pdf_dict_put_int(ctx, trailer, PDF_NAME(Prev), doc->startxref);
++			pdf_dict_put_int(ctx, trailer, PDF_NAME(Prev), opts->do_snapshot ? opts->snapshot_startxref : doc->startxref);
+ 			pdf_dict_del(ctx, trailer, PDF_NAME(XRefStm));
+-			if (!opts->do_snapshot)
++			if (opts->do_snapshot)
++				opts->snapshot_startxref = startxref - opts->bias;
++			else
+ 				doc->startxref = startxref - opts->bias;
+ 		}
+ 		else
+@@ -1456,7 +1459,8 @@ static void writexref(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 
+ 		fz_write_printf(ctx, opts->out, "startxref\n%lu\n%%%%EOF\n", startxref - opts->bias);
+ 
+-		doc->last_xref_was_old_style = 1;
++		if (!opts->do_snapshot)
++			doc->last_xref_was_old_style = 1;
+ 	}
+ 	fz_always(ctx)
+ 	{
+@@ -1516,11 +1520,17 @@ static void writexrefstream(fz_context *ctx, pdf_document *doc, pdf_write_state
+ 	fz_var(fzbuf);
+ 	fz_try(ctx)
+ 	{
+-		num = pdf_create_object(ctx, doc);
++		/* A snapshot's xref stream belongs only to the output. Adding and
++		 * deleting it in the live xref creates a journal entry and grows the
++		 * object table on every snapshot. */
++		num = opts->do_snapshot ? pdf_xref_len(ctx, doc) : pdf_create_object(ctx, doc);
++		if (opts->do_snapshot && num > PDF_MAX_OBJECT_NUMBER)
++			fz_throw(ctx, FZ_ERROR_LIMIT, "too many objects stored in pdf");
+ 		expand_lists(ctx, opts, num);
+ 
+ 		dict = pdf_new_dict(ctx, doc, 6);
+-		pdf_update_object(ctx, doc, num, dict);
++		if (!opts->do_snapshot)
++			pdf_update_object(ctx, doc, num, dict);
+ 
+ 		to++;
+ 
+@@ -1555,8 +1565,10 @@ static void writexrefstream(fz_context *ctx, pdf_document *doc, pdf_write_state
+ 
+ 		if (opts->do_incremental)
+ 		{
+-			pdf_dict_put_int(ctx, dict, PDF_NAME(Prev), doc->startxref);
+-			if (!opts->do_snapshot)
++			pdf_dict_put_int(ctx, dict, PDF_NAME(Prev), opts->do_snapshot ? opts->snapshot_startxref : doc->startxref);
++			if (opts->do_snapshot)
++				opts->snapshot_startxref = startxref - opts->bias;
++			else
+ 				doc->startxref = startxref - opts->bias;
+ 		}
+ 
+@@ -1581,14 +1593,15 @@ static void writexrefstream(fz_context *ctx, pdf_document *doc, pdf_write_state
+ 		{
+ 			int subfrom = from;
+ 			int subto;
++			int end = opts->do_snapshot ? to - 1 : to;
+ 
+-			while (subfrom < to)
++			while (subfrom < end)
+ 			{
+-				while (subfrom < to && !pdf_xref_is_incremental(ctx, doc, subfrom))
++				while (subfrom < end && !pdf_xref_is_incremental(ctx, doc, subfrom))
+ 					subfrom++;
+ 
+ 				subto = subfrom;
+-				while (subto < to && pdf_xref_is_incremental(ctx, doc, subto))
++				while (subto < end && pdf_xref_is_incremental(ctx, doc, subto))
+ 					subto++;
+ 
+ 				if (subfrom < subto)
+@@ -1596,19 +1609,38 @@ static void writexrefstream(fz_context *ctx, pdf_document *doc, pdf_write_state
+ 
+ 				subfrom = subto;
+ 			}
++			if (opts->do_snapshot)
++			{
++				pdf_array_push_int(ctx, index, num);
++				pdf_array_push_int(ctx, index, 1);
++				fz_append_byte(ctx, fzbuf, 1);
++				fz_append_int32_be(ctx, fzbuf, startxref - opts->bias);
++				fz_append_byte(ctx, fzbuf, 0);
++			}
+ 		}
+ 		else
+ 		{
+ 			writexrefstreamsubsect(ctx, doc, opts, index, fzbuf, from, to);
+ 		}
+ 
+-		pdf_update_stream(ctx, doc, dict, fzbuf, 0);
+-
+-		writeobject(ctx, doc, opts, num, 0, 0, 1);
+-		fz_write_printf(ctx, opts->out, "startxref\n%lu\n%%%%EOF\n", startxref - opts->bias);
+-
+ 		if (opts->do_snapshot)
+-			pdf_delete_object(ctx, doc, num);
++		{
++			/* Xref streams are never encrypted. Snapshot options also forbid
++			 * compression/ASCII conversion, so write this temporary stream
++			 * directly, using the same representation as copystream. */
++			pdf_dict_put_int(ctx, dict, PDF_NAME(Length), fz_buffer_storage(ctx, fzbuf, NULL));
++			fz_write_printf(ctx, opts->out, "%d 0 obj\n", num);
++			pdf_print_obj(ctx, opts->out, dict, opts->do_tight, opts->do_ascii);
++			fz_write_string(ctx, opts->out, "\nstream\n");
++			fz_write_buffer(ctx, opts->out, fzbuf);
++			fz_write_string(ctx, opts->out, "\nendstream\nendobj\n\n");
++		}
++		else
++		{
++			pdf_update_stream(ctx, doc, dict, fzbuf, 0);
++			writeobject(ctx, doc, opts, num, 0, 0, 1);
++		}
++		fz_write_printf(ctx, opts->out, "startxref\n%lu\n%%%%EOF\n", startxref - opts->bias);
+ 	}
+ 	fz_always(ctx)
+ 	{
+@@ -1621,14 +1653,22 @@ static void writexrefstream(fz_context *ctx, pdf_document *doc, pdf_write_state
+ 		fz_rethrow(ctx);
+ 	}
+ 
+-	doc->last_xref_was_old_style = 0;
++	if (!opts->do_snapshot)
++		doc->last_xref_was_old_style = 0;
+ }
+ 
+ static void
+ dowriteobject(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, int num)
+ {
+-	pdf_xref_entry *entry = pdf_get_xref_entry_no_null(ctx, doc, num);
++	int full_snapshot = opts->do_snapshot && !opts->do_incremental;
++	pdf_xref_entry *entry = full_snapshot ? pdf_get_xref_entry_no_change(ctx, doc, num) : pdf_get_xref_entry_no_null(ctx, doc, num);
+ 	int gen = opts->gen_list ? opts->gen_list[num] : 0;
++	/* A full snapshot does not solidify sparse xrefs just to represent holes. */
++	if (!entry)
++	{
++		opts->use_list[num] = 0;
++		return;
++	}
+ 	if (entry->type == 'f')
+ 		gen = entry->gen;
+ 	if (entry->type == 'n')
+@@ -1643,9 +1683,10 @@ dowriteobject(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, int num
+ 		gen = (num == 0 ? 65535 : 0);
+ 
+ 	/* For objects in object streams, the gen number gives us the index of
+-	 * the object within the stream. */
++	 * the object within the stream. A full snapshot writes their existing
++	 * values as ordinary generation-zero objects without changing the xref. */
+ 	if (entry->type == 'o')
+-		gen = entry->gen;
++		gen = full_snapshot ? 0 : entry->gen;
+ 
+ 	if (opts->gen_list)
+ 		opts->gen_list[num] = gen;
+@@ -1653,14 +1694,14 @@ dowriteobject(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, int num
+ 	if (opts->do_garbage && !opts->use_list[num])
+ 		return;
+ 
+-	if (entry->type == 'o' && (!opts->do_incremental || pdf_xref_is_incremental(ctx, doc, num)))
++	if (entry->type == 'o' && !full_snapshot && (!opts->do_incremental || pdf_xref_is_incremental(ctx, doc, num)))
+ 	{
+ 		assert(opts->do_use_objstms);
+ 		opts->ofs_list[num] = entry->ofs;
+ 		return;
+ 	}
+ 
+-	if (entry->type == 'n')
++	if (entry->type == 'n' || (full_snapshot && entry->type == 'o'))
+ 	{
+ 		if (!opts->do_incremental || pdf_xref_is_incremental(ctx, doc, num))
+ 		{
+@@ -1937,10 +1978,11 @@ static void initialise_write_state(fz_context *ctx, pdf_document *doc, const pdf
+ 	opts->do_garbage = in_opts->do_garbage;
+ 	opts->do_clean = in_opts->do_clean;
+ 	opts->do_encrypt = in_opts->do_encrypt;
+-	opts->dont_regenerate_id = in_opts->dont_regenerate_id;
++	opts->dont_regenerate_id = in_opts->dont_regenerate_id || in_opts->do_snapshot;
+ 	opts->do_preserve_metadata = in_opts->do_preserve_metadata;
+ 	opts->do_use_objstms = in_opts->do_use_objstms;
+ 	opts->reproducible = in_opts->reproducible;
++	opts->snapshot_startxref = doc->startxref;
+ 
+ 	opts->permissions = in_opts->permissions;
+ 	memcpy(opts->opwd_utf8, in_opts->opwd_utf8, nelem(opts->opwd_utf8));
+@@ -2175,6 +2217,15 @@ int pdf_can_be_saved_incrementally(fz_context *ctx, pdf_document *doc)
+ static void
+ prepare_for_save(fz_context *ctx, pdf_document *doc, const pdf_write_options *in_opts)
+ {
++	/* A snapshot serializes the current graph without adding an edit or
++	 * discarding redo. Finish form calculations and appearance updates in
++	 * the editing operation that caused them, not while taking a snapshot. */
++	if (in_opts->do_snapshot)
++	{
++		doc->save_in_progress = 1;
++		return;
++	}
++
+ 	/* Make sure we have no pending annotation changes that need to be updated. */
+ 	if (doc->recalculate)
+ 		pdf_calculate_form(ctx, doc);
+@@ -2648,7 +2699,8 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 		ensure_initial_incremental_contents(ctx, doc->file, opts->out, doc->file_size);
+ 
+ 		/* If no changes, nothing more to write */
+-		if (!pdf_has_unsaved_changes(ctx, doc))
++		if (!pdf_has_unsaved_changes(ctx, doc) &&
++			(!in_opts->do_snapshot || doc->num_incremental_sections <= 1))
+ 		{
+ 			doc->save_in_progress = 0;
+ 			return;
+@@ -2657,7 +2709,8 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 		fz_write_string(ctx, opts->out, "\n");
+ 	}
+ 
+-	pdf_begin_operation(ctx, doc, "Save document");
++	if (!in_opts->do_snapshot)
++		pdf_begin_operation(ctx, doc, "Save document");
+ 	fz_try(ctx)
+ 	{
+ 		/* First, we do a prepass across the document to load all the objects
+@@ -2668,7 +2721,7 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 		 * Note that we can skip this step when saving incrementally, because in
+ 		 * that case we only touch new objects which we know cannot trigger a repair.
+ 		 */
+-		if (!in_opts->do_incremental)
++		if (!in_opts->do_incremental && !in_opts->do_snapshot)
+ 			pdf_check_document(ctx, doc);
+ 
+ 		xref_len = pdf_xref_len(ctx, doc);
+@@ -2713,13 +2766,11 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 		/* Stash Encrypt entry in the writer state, in case a repair pass throws away the old trailer. */
+ 		opts->crypt_obj = pdf_keep_obj(ctx, pdf_dict_get(ctx, pdf_trailer(ctx, doc), PDF_NAME(Encrypt)));
+ 
+-		/* If we're writing a snapshot, we can't be doing garbage
+-		 * collection, or linearisation, and must be writing
+-		 * incrementally. */
++		/* Snapshots do not collect or renumber the live object graph. */
+ 		assert(!opts->do_snapshot || opts->do_garbage == 0);
+ 
+ 		/* Make sure any objects hidden in compressed streams have been loaded */
+-		if (!opts->do_incremental)
++		if (!opts->do_incremental && !opts->do_snapshot)
+ 		{
+ 			pdf_ensure_solid_xref(ctx, doc, xref_len);
+ 			preloadobjstms(ctx, doc);
+@@ -2796,7 +2847,7 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 		 * afford to leave any objects in ObjStms. We might have
+ 		 * changed the objects, and we won't know to update the
+ 		 * stream. So pull all the objects into memory. */
+-		if (!opts->do_incremental)
++		if (!opts->do_incremental && !opts->do_snapshot)
+ 			unpack_objstm_objs(ctx, doc, xref_len);
+ 
+ 		if (opts->do_use_objstms)
+@@ -2824,6 +2875,11 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 				doc->xref_base = doc->num_incremental_sections - i - 1;
+ 				xref_len = pdf_xref_len(ctx, doc);
+ 
++				/* Skipped/free objects in an older increment may be live here.
++				 * Incremental writes cannot use garbage collection. */
++				for (num = 0; num < xref_len; num++)
++					opts->use_list[num] = 1;
++
+ 				writeobjects(ctx, doc, opts);
+ 
+ #ifdef DEBUG_WRITING
+@@ -2846,7 +2902,8 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 				else
+ 					writexref(ctx, doc, opts, 0, xref_len, 1, current_offset);
+ 
+-				doc->xref_sections[doc->xref_base].end_ofs = fz_tell_output(ctx, opts->out);
++				if (!opts->do_snapshot)
++					doc->xref_sections[doc->xref_base].end_ofs = fz_tell_output(ctx, opts->out);
+ 			}
+ 
+ 			doc->xref_base = 0;
+@@ -2879,7 +2936,8 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 			else
+ 				writexref(ctx, doc, opts, 0, xref_len, 1, current_offset);
+ 
+-			doc->xref_sections[0].end_ofs = fz_tell_output(ctx, opts->out);
++			if (!opts->do_snapshot)
++				doc->xref_sections[0].end_ofs = fz_tell_output(ctx, opts->out);
+ 		}
+ 
+ 		if (!in_opts->do_snapshot)
+@@ -2887,12 +2945,14 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 			complete_signatures(ctx, doc, opts);
+ 		}
+ 
+-		pdf_sync_open_pages(ctx, doc);
+-
+-		// mark incremental sections as having been saved
+-		doc->num_incremental_sections = 0;
++		if (!in_opts->do_snapshot)
++		{
++			pdf_sync_open_pages(ctx, doc);
+ 
+-		pdf_end_operation(ctx, doc);
++			/* Snapshots retain the original input and all pending increments. */
++			doc->num_incremental_sections = 0;
++			pdf_end_operation(ctx, doc);
++		}
+ 	}
+ 	fz_always(ctx)
+ 	{
+@@ -2905,7 +2965,8 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts,
+ 	}
+ 	fz_catch(ctx)
+ 	{
+-		pdf_abandon_operation(ctx, doc);
++		if (!in_opts->do_snapshot)
++			pdf_abandon_operation(ctx, doc);
+ 		fz_rethrow(ctx);
+ 	}
+ }
+@@ -2927,6 +2988,7 @@ void pdf_write_document(fz_context *ctx, pdf_document *doc, fz_output *out, cons
+ {
+ 	pdf_write_options opts_defaults = pdf_default_write_options;
+ 	pdf_write_state opts = { 0 };
++	int save_in_progress, xref_base, disallow_new_increments;
+ 
+ 	if (!doc || !out)
+ 		return;
+@@ -2934,6 +2996,8 @@ void pdf_write_document(fz_context *ctx, pdf_document *doc, fz_output *out, cons
+ 	if (!in_opts)
+ 		in_opts = &opts_defaults;
+ 
++	if (in_opts->do_incremental && !doc->file)
++		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't do incremental writes on a new document");
+ 	if (in_opts->do_incremental && doc->repair_attempted)
+ 		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't do incremental writes on a repaired file");
+ 	if (in_opts->do_incremental && in_opts->do_garbage)
+@@ -2944,8 +3008,14 @@ void pdf_write_document(fz_context *ctx, pdf_document *doc, fz_output *out, cons
+ 		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't do incremental writes when changing encryption");
+ 	if (in_opts->do_snapshot)
+ 	{
+-		if (in_opts->do_incremental == 0 ||
+-			in_opts->do_pretty ||
++		if (doc->redacted)
++			fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't snapshot a redacted document");
++		/* A full snapshot must not discover a repair that replaces the live
++		 * xref and loses edits. New documents have no input to repair; repaired
++		 * documents already reject any further repair attempt. */
++		if (!in_opts->do_incremental && doc->file && !doc->repair_attempted)
++			fz_throw(ctx, FZ_ERROR_ARGUMENT, "Full snapshots require a new or repaired document");
++		if (in_opts->do_pretty ||
+ 			in_opts->do_ascii ||
+ 			in_opts->do_compress ||
+ 			in_opts->do_compress_images ||
+@@ -2956,23 +3026,43 @@ void pdf_write_document(fz_context *ctx, pdf_document *doc, fz_output *out, cons
+ 			in_opts->do_clean ||
+ 			in_opts->do_sanitize ||
+ 			in_opts->do_appearance ||
++			in_opts->do_use_objstms ||
+ 			in_opts->do_encrypt != PDF_ENCRYPT_KEEP)
+ 			fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't use these options when snapshotting!");
+ 	}
+ 	if (pdf_has_unsaved_sigs(ctx, doc) && !fz_output_supports_stream(ctx, out))
+ 		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't write pdf that has unsaved sigs to a fz_output unless it supports fz_stream_from_output!");
+ 
+-	prepare_for_save(ctx, doc, in_opts);
+-
++	if (in_opts->do_incremental)
++		opts.bias = doc->bias;
+ 	opts.out = out;
+ 
+-	do_pdf_save_document(ctx, doc, &opts, in_opts);
++	save_in_progress = doc->save_in_progress;
++	xref_base = doc->xref_base;
++	disallow_new_increments = doc->disallow_new_increments;
++	fz_try(ctx)
++	{
++		prepare_for_save(ctx, doc, in_opts);
++		do_pdf_save_document(ctx, doc, &opts, in_opts);
++	}
++	fz_always(ctx)
++	{
++		if (in_opts->do_snapshot)
++		{
++			doc->save_in_progress = save_in_progress;
++			doc->xref_base = xref_base;
++			doc->disallow_new_increments = disallow_new_increments;
++		}
++	}
++	fz_catch(ctx)
++		fz_rethrow(ctx);
+ }
+ 
+ void pdf_save_document(fz_context *ctx, pdf_document *doc, const char *filename, const pdf_write_options *in_opts)
+ {
+ 	pdf_write_options opts_defaults = pdf_default_write_options;
+ 	pdf_write_state opts = { 0 };
++	int save_in_progress, xref_base, disallow_new_increments;
+ 
+ 	if (!doc)
+ 		return;
+@@ -2992,8 +3082,12 @@ void pdf_save_document(fz_context *ctx, pdf_document *doc, const char *filename,
+ 		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't do incremental writes when changing encryption");
+ 	if (in_opts->do_snapshot)
+ 	{
+-		if (in_opts->do_incremental == 0 ||
+-			in_opts->do_pretty ||
++		if (doc->redacted)
++			fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't snapshot a redacted document");
++		/* See pdf_write_document: never start a repair while snapshotting. */
++		if (!in_opts->do_incremental && doc->file && !doc->repair_attempted)
++			fz_throw(ctx, FZ_ERROR_ARGUMENT, "Full snapshots require a new or repaired document");
++		if (in_opts->do_pretty ||
+ 			in_opts->do_ascii ||
+ 			in_opts->do_compress ||
+ 			in_opts->do_compress_images ||
+@@ -3003,6 +3097,7 @@ void pdf_save_document(fz_context *ctx, pdf_document *doc, const char *filename,
+ 			in_opts->do_clean ||
+ 			in_opts->do_sanitize ||
+ 			in_opts->do_appearance ||
++			in_opts->do_use_objstms ||
+ 			in_opts->do_encrypt != PDF_ENCRYPT_KEEP)
+ 			fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't use these options when snapshotting!");
+ 	}
+@@ -3038,23 +3133,25 @@ void pdf_save_document(fz_context *ctx, pdf_document *doc, const char *filename,
+ 	if (in_opts->do_incremental)
+ 		opts.bias = doc->bias;
+ 
+-	prepare_for_save(ctx, doc, in_opts);
+-
+-	if (in_opts->do_incremental)
+-	{
+-		opts.out = fz_new_output_with_path(ctx, filename, 1);
+-	}
+-	else
+-	{
+-		opts.out = fz_new_output_with_path(ctx, filename, 0);
+-	}
++	save_in_progress = doc->save_in_progress;
++	xref_base = doc->xref_base;
++	disallow_new_increments = doc->disallow_new_increments;
++	fz_var(opts);
+ 	fz_try(ctx)
+ 	{
++		prepare_for_save(ctx, doc, in_opts);
++		opts.out = fz_new_output_with_path(ctx, filename, in_opts->do_incremental);
+ 		do_pdf_save_document(ctx, doc, &opts, in_opts);
+ 		fz_close_output(ctx, opts.out);
+ 	}
+ 	fz_always(ctx)
+ 	{
++		if (in_opts->do_snapshot)
++		{
++			doc->save_in_progress = save_in_progress;
++			doc->xref_base = xref_base;
++			doc->disallow_new_increments = disallow_new_increments;
++		}
+ 		fz_drop_output(ctx, opts.out);
+ 		opts.out = NULL;
+ 	}
+@@ -3066,12 +3163,16 @@ void pdf_save_document(fz_context *ctx, pdf_document *doc, const char *filename,
+ 
+ void pdf_save_snapshot(fz_context *ctx, pdf_document *doc, const char *filename)
+ {
+-	pdf_save_document(ctx, doc, filename, &pdf_snapshot_write_options);
++	pdf_write_options opts = pdf_snapshot_write_options;
++	opts.do_incremental = doc && doc->file && !doc->repair_attempted;
++	pdf_save_document(ctx, doc, filename, &opts);
+ }
+ 
+ void pdf_write_snapshot(fz_context *ctx, pdf_document *doc, fz_output *out)
+ {
+-	pdf_write_document(ctx, doc, out, &pdf_snapshot_write_options);
++	pdf_write_options opts = pdf_snapshot_write_options;
++	opts.do_incremental = doc && doc->file && !doc->repair_attempted;
++	pdf_write_document(ctx, doc, out, &opts);
+ }
+ 
+ char *

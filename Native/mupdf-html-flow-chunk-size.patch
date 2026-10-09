@@ -1,0 +1,20 @@
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -626,7 +626,7 @@
+ };
+ 
+ 
+-enum { HTML_FLOW_CHUNK_BYTES = 4096, HTML_FLOW_OFFSET_BITS = 9 };
++enum { HTML_FLOW_CHUNK_BYTES = 4088, HTML_FLOW_OFFSET_BITS = 9 };
+ #define HTML_FLOW_ESCAPE_BIT UINT32_C(0x80000000)
+ #define HTML_FLOW_BLOCK_LIMIT (UINT32_C(1) << 22)
+ 
+@@ -712,7 +712,7 @@
+ 			}
+ 		}
+ 	}
+-	/* Includes oversize, first-block4096 and normal logical-capacity exhaustion. */
++	/* Includes oversize, first-block capacity and normal logical-capacity exhaustion. */
+ 	if (tree->flow_escape_count >= HTML_FLOW_ESCAPE_BIT)
+ 		fz_throw(ctx, FZ_ERROR_LIMIT, "HTML flow escape capacity exceeded");
+ 	fz_html_directory_reserve(ctx, &tree->flow_escape, &tree->flow_escape_capacity, tree->flow_escape_count + 1);

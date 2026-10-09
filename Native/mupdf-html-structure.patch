@@ -1,0 +1,14 @@
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -3940,7 +3940,10 @@
+ static int draw_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart)
+ {
+ 	int ret = 0;
+-	int str = fz_html_tag_to_structure(box->tag);
++	/* Plain text extraction and raster devices do not consume structure tags. */
++	int str = dev && (dev->begin_structure || dev->end_structure)
++		? fz_html_tag_to_structure(box->tag)
++		: FZ_STRUCTURE_INVALID;
+ 
+ 	if (str != FZ_STRUCTURE_INVALID)
+ 		fz_begin_structure(ctx, dev, str, box->tag, 0);

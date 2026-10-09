@@ -1,0 +1,83 @@
+--- a/source/fitz/stext-search.c
++++ b/source/fitz/stext-search.c
+@@ -1735,10 +1735,46 @@
+ 	return -1;
+ }
+ 
++static int search_same_point(fz_point a, fz_point b, float tolerance)
++{
++	return fz_abs(a.x - b.x) <= tolerance && fz_abs(a.y - b.y) <= tolerance;
++}
++
++static fz_quad search_visible_source_quad(fz_stext_line *line, fz_stext_char *ch, int *substituted)
++{
++	fz_stext_char *candidate;
++	float tolerance = 0.01f + ch->size * 0.001f;
++
++	*substituted = 0;
++	if (!ch->source_node ||
++		!search_same_point(ch->quad.ll, ch->quad.lr, tolerance) ||
++		!search_same_point(ch->quad.ul, ch->quad.ur, tolerance))
++		return ch->quad;
++
++	/* No-glyph ligature continuations have distinct source positions but sit at
++	 * the preceding physical glyph's trailing edge. Limit the search to this
++	 * line and require the same HTML flow node, font, and exact glyph edge. */
++	for (candidate = line->first_char; candidate; candidate = candidate->next)
++	{
++		if (candidate == ch || candidate->source_node != ch->source_node || candidate->font != ch->font ||
++			candidate->source_offset > ch->source_offset ||
++			(candidate->source_offset == ch->source_offset && candidate->source_part >= ch->source_part) ||
++			search_same_point(candidate->quad.ll, candidate->quad.lr, tolerance) ||
++			!search_same_point(candidate->quad.lr, ch->quad.ll, tolerance) ||
++			!search_same_point(candidate->quad.ur, ch->quad.ul, tolerance))
++			continue;
++		*substituted = 1;
++		return candidate->quad;
++	}
++	return ch->quad;
++}
++
+ static void add_quad(fz_context *ctx, fz_search *search, fz_stext_position *pos, int seq)
+ {
+ 	fz_stext_line *line = pos->line;
+ 	fz_stext_char *ch = pos->ch;
++	int substituted;
++	fz_quad quad = search_visible_source_quad(line, ch, &substituted);
+ 	float vfuzz = ch->size * search->vfuzz;
+ 	float hfuzz = ch->size * search->hfuzz;
+ 
+@@ -1746,15 +1782,18 @@
+ 	if (search->match.num_quads > 0)
+ 	{
+ 		fz_search_quad *end = &search->match.quads[search->match.num_quads-1];
++		if (substituted && end->seq == seq &&
++			fz_contains_rect(fz_expand_rect(fz_rect_from_quad(end->quad), 0.01f), fz_rect_from_quad(quad)))
++			return;
+ 		if (end->seq == seq
+-			&& hdist(&line->dir, &end->quad.lr, &ch->quad.ll) < hfuzz
+-			&& vdist(&line->dir, &end->quad.lr, &ch->quad.ll) < vfuzz
+-			&& hdist(&line->dir, &end->quad.ur, &ch->quad.ul) < hfuzz
+-			&& vdist(&line->dir, &end->quad.ur, &ch->quad.ul) < vfuzz)
++			&& hdist(&line->dir, &end->quad.lr, &quad.ll) < hfuzz
++			&& vdist(&line->dir, &end->quad.lr, &quad.ll) < vfuzz
++			&& hdist(&line->dir, &end->quad.ur, &quad.ul) < hfuzz
++			&& vdist(&line->dir, &end->quad.ur, &quad.ul) < vfuzz)
+ 		{
+ 			/* Yes */
+-			end->quad.ur = ch->quad.ur;
+-			end->quad.lr = ch->quad.lr;
++			end->quad.ur = quad.ur;
++			end->quad.lr = quad.lr;
+ 			return;
+ 		}
+ 	}
+@@ -1768,7 +1807,7 @@
+ 		search->match_quads_max = newmax;
+ 	}
+ 	search->match.quads[search->match.num_quads].seq = seq;
+-	search->match.quads[search->match.num_quads++].quad = ch->quad;
++	search->match.quads[search->match.num_quads++].quad = quad;
+ }
+ 
+ static fz_search_result result_complete = { FZ_SEARCH_COMPLETE };

@@ -1,0 +1,29 @@
+--- a/source/html/epub-doc.c
++++ b/source/html/epub-doc.c
+@@ -55,6 +55,7 @@
+ 	epub_chapter **spine;
+ 	fz_outline *outline;
+ 	char *dc_title, *dc_creator;
++	int reading_direction; /* 0: absent, 1: declared LTR/default, 2: declared RTL */
+ 	epub_accelerator *accel;
+ 	uint32_t user_css_sum; /* cached checksum of current user_css */
+ 
+@@ -1030,6 +1031,9 @@
+ 
+ 		manifest = fz_xml_find_down(package, "manifest");
+ 		spine = fz_xml_find_down(package, "spine");
++		const char *direction = fz_xml_att(spine, "page-progression-direction");
++		if (direction)
++			doc->reading_direction = !fz_strcasecmp(direction, "rtl") ? 2 : 1;
+ 
+ 		if (path_from_idref(ncx, manifest, base_uri, fz_xml_att(spine, "toc"), sizeof ncx))
+ 		{
+@@ -1105,6 +1109,8 @@
+ 		return 1 + (int)fz_strlcpy(buf, doc->dc_title, size);
+ 	if (!strcmp(key, FZ_META_INFO_AUTHOR) && doc->dc_creator)
+ 		return 1 + (int)fz_strlcpy(buf, doc->dc_creator, size);
++	if (!strcmp(key, "info:ReadingDirection") && doc->reading_direction)
++		return 1 + (int)fz_strlcpy(buf, doc->reading_direction == 2 ? "rtl" : "ltr", size);
+ 	return -1;
+ }
+ 

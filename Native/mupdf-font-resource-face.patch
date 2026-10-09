@@ -1,0 +1,22 @@
+diff --git a/source/pdf/pdf-resources.c b/source/pdf/pdf-resources.c
+--- a/source/pdf/pdf-resources.c
++++ b/source/pdf/pdf-resources.c
+@@ -45,6 +45,18 @@
+ 
+ 	memset(key, 0, sizeof(*key));
+ 	fz_font_digest(ctx, item, key->digest);
++	/* A TTC file supplies distinct faces with the same file digest. PDF
++	 * resources must keep their glyphs and metrics separate. */
++	if (item->buffer && item->buffer->len >= 4 && !memcmp(item->buffer->data, "ttcf", 4))
++	{
++		unsigned char identity[20];
++		fz_md5 md5;
++		memcpy(identity, key->digest, 16);
++		fz_pack_uint32(identity + 16, item->subfont);
++		fz_md5_init(&md5);
++		fz_md5_update(&md5, identity, sizeof(identity));
++		fz_md5_final(&md5, key->digest);
++	}
+ 
+ 	key->type = type;
+ 	key->encoding = encoding;
