@@ -1,0 +1,114 @@
+--- a/source/pdf/pdf-appearance.c
++++ b/source/pdf/pdf-appearance.c
+@@ -2378,41 +2378,59 @@
+ 	return d2;
+ }
+ 
+-static int text_needs_rich_layout(fz_context *ctx, const char *s)
+-{
+-	int c, script;
+-	while (*s)
+-	{
+-		s += fz_chartorune(&c, s);
+-
+-		// base 14 fonts
+-		if (fz_windows_1252_from_unicode(c) > 0)
++static int text_needs_rich_layout(fz_context *ctx, const char *s, fz_text_language lang)
++{
++	struct text_walk_state state;
++	init_text_walk(ctx, &state, lang, NULL, s, NULL);
++	while (next_text_walk(ctx, &state))
++	{
++		int c = state.u, encoded;
++		const char *cmap_name;
++
++		// The simple writer emits BMP code points, not UTF-16 surrogate pairs.
++		if (c > 0xffff)
++			return 1;
++
++		// Validate the actual byte encoding selected by the simple writer.
++		// A replaced byte must not hide an unencodable original scalar.
++		if (state.enc < ENC_KOREAN)
++		{
++			switch (state.enc)
++			{
++			case ENC_LATIN: encoded = fz_windows_1252_from_unicode(c); break;
++			case ENC_GREEK: encoded = fz_iso8859_7_from_unicode(c); break;
++			case ENC_CYRILLIC: encoded = fz_koi8u_from_unicode(c); break;
++			default: return 1;
++			}
++			if (encoded < 0 || state.c != encoded)
++				return 1;
+ 			continue;
+-		if (fz_iso8859_7_from_unicode(c) > 0)
+-			continue;
+-		if (fz_koi8u_from_unicode(c) > 0)
+-			continue;
+-
+-		// cjk fonts
+-		script = ucdn_get_script(c);
+-		if (
+-			script == UCDN_SCRIPT_HANGUL ||
+-			script == UCDN_SCRIPT_HIRAGANA ||
+-			script == UCDN_SCRIPT_KATAKANA ||
+-			script == UCDN_SCRIPT_BOPOMOFO ||
+-			script == UCDN_SCRIPT_HAN
+-		)
+-			continue;
+-
+-		// halfwidth and fullwidth forms
+-		if (c >= 0xff01 && c <= 0xffee)
+-			continue;
+-
+-		// cjk symbols and punctuation
+-		if (c >= 0x3000 && c <= 0x303f)
+-			continue;
+-
+-		return 1;
++		}
++
++		// Keep non-CJK symbols/combining marks on their existing rich path.
++		// Their inherited writer encoding alone must not broaden simple layout.
++		if (ucdn_get_script(c) == UCDN_SCRIPT_COMMON ||
++			ucdn_get_script(c) == UCDN_SCRIPT_INHERITED)
++		{
++			if (!(c >= 0xff01 && c <= 0xffee) &&
++				!(c >= 0x3000 && c <= 0x303f) &&
++				fz_windows_1252_from_unicode(c) < 0 &&
++				fz_iso8859_7_from_unicode(c) < 0 &&
++				fz_koi8u_from_unicode(c) < 0)
++				return 1;
++		}
++
++		// Use the writer's selected encoding, including the authored language.
++		switch (state.enc)
++		{
++		case ENC_KOREAN: cmap_name = "UniKS-UTF16-H"; break;
++		case ENC_JAPANESE: cmap_name = "UniJIS-UTF16-H"; break;
++		case ENC_HANT: cmap_name = "UniCNS-UTF16-H"; break;
++		case ENC_HANS: cmap_name = "UniGB-UTF16-H"; break;
++		default: return 1;
++		}
++		if (pdf_lookup_cmap(pdf_load_system_cmap(ctx, cmap_name), c) < 0)
++			return 1;
+ 	}
+ 	return 0;
+ }
+@@ -2669,7 +2687,7 @@
+ #if FZ_ENABLE_HTML_ENGINE
+ 	ds = pdf_dict_get_text_string_opt(ctx, annot->obj, PDF_NAME(DS));
+ 	rc = pdf_dict_get_text_string_opt(ctx, annot->obj, PDF_NAME(RC));
+-	if (!rc && (ds || text_needs_rich_layout(ctx, text)))
++	if (!rc && (ds || text_needs_rich_layout(ctx, text, lang)))
+ 	{
+ 		rc = free_rc = escape_text(ctx, text);
+ 		if (!ds)
+@@ -2756,7 +2774,7 @@
+ #if FZ_ENABLE_HTML_ENGINE
+ 	ds = pdf_dict_get_text_string_opt(ctx, annot->obj, PDF_NAME(DS));
+ 	rc = pdf_dict_get_text_string_opt(ctx, annot->obj, PDF_NAME(RV));
+-	if (!rc && (ds || text_needs_rich_layout(ctx, text)))
++	if (!rc && (ds || text_needs_rich_layout(ctx, text, lang)))
+ 	{
+ 		rc = free_rc = escape_text(ctx, text);
+ 		if (!ds)

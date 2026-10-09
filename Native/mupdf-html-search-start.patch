@@ -1,0 +1,153 @@
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -235,6 +235,7 @@
+ 	fz_html_box *last_box;
+ 	size_t visited;
+ 	int emitted, last_rune, last_page, stop;
++	int seek_page, started, previous_text;
+ } html_search_source_state;
+ 
+ static int html_search_flow_page(html_search_source_state *state, const fz_html_flow *flow)
+@@ -326,14 +327,58 @@
+ 	return l < r ? -1 : l > r ? 1 : 0;
+ }
+ 
+-static void html_search_walk_box(html_search_source_state *state, fz_html_box *box)
+-{
+-	for (; box && !state->stop; box = box->next)
++/* A skipped drawing group must also preserve whether a real preceding
++ * paragraph exists. Stop at the first semantic flow; do not scan its runes. */
++static int html_search_boxes_have_text(html_search_source_state *state, fz_html_box *box, fz_html_box *after)
++{
++	for (; box && box != after; box = box->next)
++	{
++		if (((++state->visited) & 1023) == 0 && state->cancelled && state->cancelled())
++			fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
++		if (box->type == BOX_FLOW && html_search_box_has_text(box))
++			return 1;
++		if (fz_html_box_has_boxes(box) && html_search_boxes_have_text(state, box->down, NULL))
++			return 1;
++	}
++	return 0;
++}
++
++static int html_search_box_reaches_page(html_search_source_state *state, fz_html_box *box)
++{
++	for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++	{
++		if (((++state->visited) & 1023) == 0 && state->cancelled && state->cancelled())
++			fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
++		if (html_search_flow_visible(flow) &&
++			((flow->type == FLOW_WORD && *flow->content.text) ||
++			(flow->type == FLOW_SPACE && !flow->breaks_line)) &&
++			html_search_flow_page(state, flow) >= state->seek_page)
++			return 1;
++	}
++	return 0;
++}
++
++static void html_search_walk_box(html_search_source_state *state, fz_html_box *box, fz_html_box *after)
++{
++	for (; box && box != after && !state->stop; box = box->next)
+ 	{
+ 		if (((++state->visited) & 1023) == 0 && state->cancelled && state->cancelled())
+ 			fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
+ 		if (box->type == BOX_FLOW && html_search_box_has_text(box))
+ 		{
++			if (!state->started)
++			{
++				if (!html_search_box_reaches_page(state, box))
++				{
++					state->previous_text = 1;
++					continue;
++				}
++				state->started = 1;
++				/* Start a whole authored paragraph, including its real leading
++				 * separator. Never invent one before the document's first text. */
++				if (state->previous_text)
++					html_search_emit(state, '\n', 0, 0, 0, state->seek_page, 0);
++			}
+ 			if (state->emitted && state->last_box != box && state->last_rune != '\n')
+ 				html_search_emit(state, '\n', 0, 0, 0, state->last_page, 0);
+ 			for (fz_html_flow *flow = box->u.flow.head; flow && !state->stop; )
+@@ -367,11 +412,30 @@
+ 			state->last_box = box;
+ 		}
+ 		if (fz_html_box_has_boxes(box))
+-			html_search_walk_box(state, box->down);
+-	}
+-}
+-
+-void fz_htdoc_walk_search_source(fz_context *ctx, fz_document *doc_,
++		{
++			fz_html_draw_index *index = box->draw_index;
++			if (!state->started && index)
++				for (size_t i = 0; i < index->count && !state->stop; ++i)
++				{
++					fz_html_draw_group *group = &index->groups[i];
++					if (state->cancelled && state->cancelled())
++						fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
++					if (!state->started && isfinite(group->high) &&
++						group->high < state->seek_page * state->doc->html->page_h)
++					{
++						if (!state->previous_text)
++							state->previous_text = html_search_boxes_have_text(state, group->first, group->after);
++						continue;
++					}
++					html_search_walk_box(state, group->first, group->after);
++				}
++			else
++				html_search_walk_box(state, box->down, NULL);
++		}
++	}
++}
++
++static void htdoc_walk_search_source(fz_context *ctx, fz_document *doc_, int start_page,
+ 	fz_html_search_char_fn *callback, void *opaque, int (*cancelled)(void))
+ {
+ 	if (!fz_htdoc_is_markdown(ctx, doc_) || !callback)
+@@ -380,10 +444,23 @@
+ 	if (!doc->html || !doc->html->tree.root || !isfinite(doc->html->page_h) || doc->html->page_h <= 0)
+ 		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Markdown search requires a complete layout");
+ 	html_search_source_state state = { .ctx = ctx, .doc = doc, .callback = callback,
+-		.opaque = opaque, .cancelled = cancelled };
+-	html_search_walk_box(&state, doc->html->tree.root);
+-}
+-
++		.opaque = opaque, .cancelled = cancelled, .seek_page = start_page, .started = start_page < 0 };
++	html_search_walk_box(&state, doc->html->tree.root, NULL);
++}
++
++void fz_htdoc_walk_search_source(fz_context *ctx, fz_document *doc,
++	fz_html_search_char_fn *callback, void *opaque, int (*cancelled)(void))
++{
++	htdoc_walk_search_source(ctx, doc, -1, callback, opaque, cancelled);
++}
++
++void fz_htdoc_walk_search_source_from_page(fz_context *ctx, fz_document *doc, int start_page,
++	fz_html_search_char_fn *callback, void *opaque, int (*cancelled)(void))
++{
++	if (start_page < 0)
++		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Invalid Markdown search start page");
++	htdoc_walk_search_source(ctx, doc, start_page, callback, opaque, cancelled);
++}
+ 
+ 
+ typedef struct
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -44,6 +44,14 @@
+ typedef int (fz_html_search_char_fn)(fz_context *ctx, void *opaque, const fz_html_search_char *ch);
+ int fz_htdoc_is_markdown(fz_context *ctx, fz_document *doc);
+ void fz_htdoc_walk_search_source(fz_context *ctx, fz_document *doc,
++	fz_html_search_char_fn *callback, void *opaque, int (*cancelled)(void));
++/* Walk a forward-search suffix from the earliest whole authored paragraph
++ * with painted source at or after start_page. Conservative drawing bounds may
++ * skip earlier subtrees; uncertain bounds retain normal traversal. The real
++ * preceding paragraph separator is included. Callers must perform a fresh
++ * full-source search if this suffix yields no eligible match; it is not a
++ * rotated stream and must never be joined directly to the document start. */
++void fz_htdoc_walk_search_source_from_page(fz_context *ctx, fz_document *doc, int start_page,
+ 	fz_html_search_char_fn *callback, void *opaque, int (*cancelled)(void));
+ 
+ /* A selected extracted character, retaining identity for ligatures and repeated text. */

@@ -1,0 +1,109 @@
+--- a/synctex_parser.c
++++ b/synctex_parser.c
+@@ -108,4 +108,5 @@
+ #include <errno.h>
+ #include <limits.h>
++#include <xlocale.h>
+
+ #if defined(HAVE_LOCALE_H)
+@@ -1132,36 +1133,6 @@
+         }
+     }
+-    /*	At this point, the file is properly open.
+-     *  If we are in the add_quotes mode, we change the file name by removing the quotes. */
+-    if (quoteless_synctex_name) {
+-        gzclose(open.file);
+-        if (rename(open.synctex,quoteless_synctex_name)) {
+-            _synctex_error("Could not rename %s to %s, error %i\n",open.synctex,quoteless_synctex_name,errno);
+-            /*	We could not rename, reopen the file with the quoted name. */
+-            if (NULL == (open.file = gzopen(open.synctex,mode))) {
+-                /*  No luck, could not re open this file, something has happened meanwhile */
+-                if (errno != ENOENT) {
+-                    /*  The file does not exist any more, it has certainly be removed somehow
+-                     *  this is a lower level error, I can't do anything. */
+-                    _synctex_error("Could not open again %s, error %i\n",open.synctex,errno);
+-                }
+-                goto return_on_error;
+-            }
+-        } else {
+-            /*  The file has been successfully renamed */
+-            if (NULL == (open.file = gzopen(quoteless_synctex_name,mode))) {
+-                /*  Could not open this file */
+-                if (errno != ENOENT) {
+-                    /*  The file does exist, this is a lower level error, I can't do anything. */
+-                    _synctex_error("Could not open renamed %s, error %i\n",quoteless_synctex_name,errno);
+-                }
+-                goto return_on_error;
+-            }
+-            /*  The quote free file name should replace the old one:*/
+-            free(open.synctex);
+-            open.synctex = quoteless_synctex_name;
+-            quoteless_synctex_name = NULL;
+-        }
+-    }
++    /* Leaf only reads indexes; keep legacy quoted filenames unchanged. */
++    free(quoteless_synctex_name);
+     /*  The operation is successful, return the arguments by value.    */
+     open.status = SYNCTEX_STATUS_OK;
+@@ -5052,7 +5023,4 @@
+     _synctex_zs_s zs = {0,0};
+     char * endptr = NULL;
+-#ifdef HAVE_SETLOCALE
+-    char * loc = setlocale(LC_NUMERIC, NULL);
+-#endif
+     if (NULL == scanner) {
+         return (_synctex_fs_s){0,SYNCTEX_STATUS_BAD_ARGUMENT};
+@@ -5063,11 +5031,5 @@
+         return (_synctex_fs_s){0,zs.status};
+     }
+-#ifdef HAVE_SETLOCALE
+-    setlocale(LC_NUMERIC, "C");
+-#endif
+-    fs.value = strtod(SYNCTEX_CUR,&endptr);
+-#ifdef HAVE_SETLOCALE
+-    setlocale(LC_NUMERIC, loc);
+-#endif
++    fs.value = strtod_l(SYNCTEX_CUR,&endptr,LC_C_LOCALE);
+     if (endptr == SYNCTEX_CUR) {
+         _synctex_error("A float was expected.");
+@@ -5132,7 +5094,4 @@
+     _synctex_fs_s fs = {0,0};
+     char * endptr = NULL;
+-#ifdef HAVE_SETLOCALE
+-    char * loc = setlocale(LC_NUMERIC, NULL);
+-#endif
+     if (NULL == scanner) {
+         return SYNCTEX_STATUS_BAD_ARGUMENT;
+@@ -5164,11 +5123,5 @@
+     status = _synctex_match_string(scanner,"Magnification:");
+     if (status == SYNCTEX_STATUS_OK ) {
+-#ifdef HAVE_SETLOCALE
+-        setlocale(LC_NUMERIC, "C");
+-#endif
+-        scanner->unit = strtod(SYNCTEX_CUR,&endptr);
+-#ifdef HAVE_SETLOCALE
+-        setlocale(LC_NUMERIC, loc);
+-#endif
++        scanner->unit = strtod_l(SYNCTEX_CUR,&endptr,LC_C_LOCALE);
+         if (endptr == SYNCTEX_CUR) {
+             _synctex_error("bad magnification in the post scriptum, a float was expected.");
+--- a/synctex_parser_utils.c
++++ b/synctex_parser_utils.c
+@@ -132,4 +132,7 @@
+ }
+
++/* Leaf returns parser details to the caller without process-wide logging hooks. */
++extern _Thread_local char *lf_synctex_error_buffer;
++
+ SYNCTEX_ATTRIBUTE_FORMAT_PRINTF(1, 2)
+ int _synctex_error(const char * reason,...) {
+@@ -137,4 +140,9 @@
+     int result;
+     va_start (arg, reason);
++    if (lf_synctex_error_buffer) {
++        result = *lf_synctex_error_buffer ? 0 : vsnprintf(lf_synctex_error_buffer, 512, reason, arg);
++        va_end(arg);
++        return result;
++    }
+ #if defined(SYNCTEX_RECENT_WINDOWS) /* LOG_ERR is not used */
+     result = _synctex_log(0, "! SyncTeX Error : ", reason, arg);

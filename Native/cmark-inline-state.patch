@@ -1,0 +1,223 @@
+diff --git a/src/parser.h b/src/parser.h
+--- a/src/parser.h
++++ b/src/parser.h
+@@ -50,6 +50,9 @@
+   cmark_llist *syntax_extensions;
+   cmark_llist *inline_syntax_extensions;
+   cmark_ispunct_func backslash_ispunct;
++  /* Inline extension characters belong to this parser, not the process. */
++  int8_t special_chars[256];
++  int8_t skip_chars[256];
+ };
+ 
+ #ifdef __cplusplus
+diff --git a/src/inlines.h b/src/inlines.h
+--- a/src/inlines.h
++++ b/src/inlines.h
+@@ -19,8 +19,9 @@
+ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
+                                        cmark_map *refmap);
+ 
+-void cmark_inlines_add_special_character(unsigned char c, bool emphasis);
+-void cmark_inlines_remove_special_character(unsigned char c, bool emphasis);
++void cmark_inlines_init_special_characters(cmark_parser *parser);
++void cmark_inlines_add_special_character(cmark_parser *parser, unsigned char c, bool emphasis);
++void cmark_inlines_remove_special_character(cmark_parser *parser, unsigned char c, bool emphasis);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/inlines.c b/src/inlines.c
+--- a/src/inlines.c
++++ b/src/inlines.c
+@@ -58,6 +58,8 @@
+   int block_offset;
+   int column_offset;
+   cmark_map *refmap;
++  const int8_t *special_chars;
++  const int8_t *skip_chars;
+   delimiter *last_delim;
+   bracket *last_bracket;
+   bufsize_t backticks[MAXBACKTICKS + 1];
+@@ -65,8 +67,22 @@
+   bool no_link_openers;
+ } subject;
+ 
+-// Extensions may populate this.
+-static int8_t SKIP_CHARS[256];
++// Reference-label subjects use immutable CommonMark defaults.
++static const int8_t DEFAULT_SKIP_CHARS[256] = {0};
++
++// "\r\n\\`&_*[]<!"
++static const int8_t DEFAULT_SPECIAL_CHARS[256] = {
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1,
++      1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+ 
+ static CMARK_INLINE bool S_is_line_end_char(char c) {
+   return (c == '\n' || c == '\r');
+@@ -78,7 +94,7 @@
+ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent, int options);
+ 
+ static void subject_from_buf(cmark_mem *mem, int line_number, int block_offset, subject *e,
+-                             cmark_chunk *buffer, cmark_map *refmap);
++                             cmark_chunk *buffer, cmark_map *refmap, cmark_parser *parser);
+ static bufsize_t subject_find_special_char(subject *subj, int options);
+ 
+ // Create an inline with a literal string value.
+@@ -183,7 +199,7 @@
+ }
+ 
+ static void subject_from_buf(cmark_mem *mem, int line_number, int block_offset, subject *e,
+-                             cmark_chunk *chunk, cmark_map *refmap) {
++                             cmark_chunk *chunk, cmark_map *refmap, cmark_parser *parser) {
+   int i;
+   e->mem = mem;
+   e->input = *chunk;
+@@ -193,6 +209,8 @@
+   e->block_offset = block_offset;
+   e->column_offset = 0;
+   e->refmap = refmap;
++  e->special_chars = parser ? parser->special_chars : DEFAULT_SPECIAL_CHARS;
++  e->skip_chars = parser ? parser->skip_chars : DEFAULT_SKIP_CHARS;
+   e->last_delim = NULL;
+   e->last_bracket = NULL;
+   for (i = 0; i <= MAXBACKTICKS; i++) {
+@@ -426,12 +444,12 @@
+   } else {
+     before_char_pos = subj->pos - 1;
+     // walk back to the beginning of the UTF_8 sequence:
+-    while ((peek_at(subj, before_char_pos) >> 6 == 2 || SKIP_CHARS[peek_at(subj, before_char_pos)]) && before_char_pos > 0) {
++    while ((peek_at(subj, before_char_pos) >> 6 == 2 || subj->skip_chars[peek_at(subj, before_char_pos)]) && before_char_pos > 0) {
+       before_char_pos -= 1;
+     }
+     len = cmark_utf8proc_iterate(subj->input.data + before_char_pos,
+                                  subj->pos - before_char_pos, &before_char);
+-    if (len == -1 || (before_char < 256 && SKIP_CHARS[(unsigned char) before_char])) {
++    if (len == -1 || (before_char < 256 && subj->skip_chars[(unsigned char) before_char])) {
+       before_char = 10;
+     }
+   }
+@@ -450,12 +468,12 @@
+     after_char = 10;
+   } else {
+     after_char_pos = subj->pos;
+-    while (SKIP_CHARS[peek_at(subj, after_char_pos)] && after_char_pos < subj->input.len) {
++    while (subj->skip_chars[peek_at(subj, after_char_pos)] && after_char_pos < subj->input.len) {
+       after_char_pos += 1;
+     }
+     len = cmark_utf8proc_iterate(subj->input.data + after_char_pos,
+                                  subj->input.len - after_char_pos, &after_char);
+-    if (len == -1 || (after_char < 256 && SKIP_CHARS[(unsigned char) after_char])) {
++    if (len == -1 || (after_char < 256 && subj->skip_chars[(unsigned char) after_char])) {
+     after_char = 10;
+   }
+   }
+@@ -1374,20 +1392,6 @@
+   }
+ }
+ 
+-// "\r\n\\`&_*[]<!"
+-static int8_t SPECIAL_CHARS[256] = {
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1,
+-      1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+-
+ // " ' . -
+ static char SMART_PUNCT_CHARS[] = {
+       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+@@ -1407,7 +1411,7 @@
+   bufsize_t n = subj->pos + 1;
+ 
+   while (n < subj->input.len) {
+-    if (SPECIAL_CHARS[subj->input.data[n]])
++    if (subj->special_chars[subj->input.data[n]])
+       return n;
+     if (options & CMARK_OPT_SMART && SMART_PUNCT_CHARS[subj->input.data[n]])
+       return n;
+@@ -1417,16 +1421,21 @@
+   return subj->input.len;
+ }
+ 
+-void cmark_inlines_add_special_character(unsigned char c, bool emphasis) {
+-  SPECIAL_CHARS[c] = 1;
++void cmark_inlines_init_special_characters(cmark_parser *parser) {
++  memcpy(parser->special_chars, DEFAULT_SPECIAL_CHARS, sizeof(parser->special_chars));
++  memset(parser->skip_chars, 0, sizeof(parser->skip_chars));
++}
++
++void cmark_inlines_add_special_character(cmark_parser *parser, unsigned char c, bool emphasis) {
++  parser->special_chars[c] = 1;
+   if (emphasis)
+-    SKIP_CHARS[c] = 1;
+-}
+-
+-void cmark_inlines_remove_special_character(unsigned char c, bool emphasis) {
+-  SPECIAL_CHARS[c] = 0;
++    parser->skip_chars[c] = 1;
++}
++
++void cmark_inlines_remove_special_character(cmark_parser *parser, unsigned char c, bool emphasis) {
++  parser->special_chars[c] = 0;
+   if (emphasis)
+-    SKIP_CHARS[c] = 0;
++    parser->skip_chars[c] = 0;
+ }
+ 
+ static cmark_node *try_extensions(cmark_parser *parser,
+@@ -1536,7 +1545,7 @@
+                          int options) {
+   subject subj;
+   cmark_chunk content = {parent->content.ptr, parent->content.size, 0};
+-  subject_from_buf(parser->mem, parent->start_line, parent->start_column - 1 + parent->internal_offset, &subj, &content, refmap);
++  subject_from_buf(parser->mem, parent->start_line, parent->start_column - 1 + parent->internal_offset, &subj, &content, refmap, parser);
+   cmark_chunk_rtrim(&subj.input);
+ 
+   while (!is_eof(&subj) && parse_inline(parser, &subj, parent, options))
+@@ -1575,7 +1584,7 @@
+   bufsize_t matchlen = 0;
+   bufsize_t beforetitle;
+ 
+-  subject_from_buf(mem, -1, 0, &subj, input, NULL);
++  subject_from_buf(mem, -1, 0, &subj, input, NULL, NULL);
+ 
+   // parse label:
+   if (!link_label(&subj, &lab) || lab.len == 0)
+diff --git a/src/blocks.c b/src/blocks.c
+--- a/src/blocks.c
++++ b/src/blocks.c
+@@ -128,6 +128,7 @@
+ 
+   memset(parser, 0, sizeof(cmark_parser));
+   parser->mem = saved_mem;
++  cmark_inlines_init_special_characters(parser);
+ 
+   cmark_strbuf_init(parser->mem, &parser->curline, 256);
+   cmark_strbuf_init(parser->mem, &parser->linebuf, 0);
+@@ -425,9 +426,9 @@
+     for (tmp_char = ext->special_inline_chars; tmp_char; tmp_char=tmp_char->next) {
+       unsigned char c = (unsigned char)(size_t)tmp_char->data;
+       if (add)
+-        cmark_inlines_add_special_character(c, ext->emphasis);
++        cmark_inlines_add_special_character(parser, c, ext->emphasis);
+       else
+-        cmark_inlines_remove_special_character(c, ext->emphasis);
++        cmark_inlines_remove_special_character(parser, c, ext->emphasis);
+     }
+   }
+ }

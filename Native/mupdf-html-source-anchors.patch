@@ -1,0 +1,987 @@
+--- a/include/mupdf/fitz/text.h
++++ b/include/mupdf/fitz/text.h
+@@ -48,6 +48,8 @@
+ 	int gid; /* -1 for one gid to many ucs mappings */
+ 	int ucs; /* -1 for one ucs to many gid mappings */
+ 	int cid; /* CID for CJK fonts, raw character code for other fonts; or unicode for non-PDF formats. */
++	/* HTML flow identity; zero for other document engines. */
++	uint32_t source_node, source_offset;
+ } fz_text_item;
+ 
+ #define FZ_LANG_TAG2(c1,c2) ((c1-'a'+1) + ((c2-'a'+1)*27))
+--- a/include/mupdf/fitz/structured-text.h
++++ b/include/mupdf/fitz/structured-text.h
+@@ -488,6 +488,8 @@
+ 	fz_quad quad;
+ 	float size;
+ 	fz_font *font;
++	/* HTML flow identity and extracted part within one source character. */
++	uint32_t source_node, source_offset, source_part;
+ 	fz_stext_char *next;
+ };
+ 
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -28,6 +28,9 @@
+ #include "mupdf/fitz/system.h"
+ #include "mupdf/fitz/context.h"
+ #include "mupdf/fitz/document.h"
++
++/* Resolve an HTML flow source character against the current layout. -1 for other handlers or missing source. */
++int fz_htdoc_source_page(fz_context *ctx, fz_document *doc, uint32_t source_node, uint32_t source_offset);
+ 
+ /*
+ 	HTML types required
+--- a/source/fitz/text.c
++++ b/source/fitz/text.c
+@@ -124,6 +124,8 @@
+ 	span->items[span->len].ucs = ucs;
+ 	span->items[span->len].gid = gid;
+ 	span->items[span->len].cid = cid;
++	span->items[span->len].source_node = 0;
++	span->items[span->len].source_offset = 0;
+ 	span->items[span->len].x = trm.e;
+ 	span->items[span->len].y = trm.f;
+ 	span->items[span->len].adv = adv;
+--- a/source/fitz/stext-device.c
++++ b/source/fitz/stext-device.c
+@@ -137,6 +137,7 @@
+ 	fz_stext_line *lastline;
+ 	int lastbidi;
+ 	int flags;
++	uint32_t source_node, source_offset, source_part;
+ 	uint32_t color;
+ 	int last_was_fake_bold;
+ 	const fz_text *lasttext;
+@@ -443,7 +444,7 @@
+ #define NON_ACCURATE_GLYPH (-1)
+ 
+ static fz_stext_char *
+-add_char_to_line(fz_context *ctx, fz_stext_page *page, fz_stext_line *line, fz_matrix trm, fz_font *font, float size, int c, int glyph, fz_point *p, fz_point *q, int bidi, int color, int synthetic, int flags, int dev_flags)
++add_char_to_line(fz_context *ctx, fz_stext_page *page, fz_stext_line *line, fz_matrix trm, fz_font *font, float size, int c, int glyph, fz_point *p, fz_point *q, int bidi, int color, int synthetic, int flags, int dev_flags, uint32_t source_node, uint32_t source_offset, uint32_t source_part)
+ {
+ 	fz_stext_char *ch = fz_pool_alloc(ctx, page->pool, sizeof *line->first_char);
+ 	fz_point a, d;
+@@ -457,6 +458,9 @@
+ 	}
+ 
+ 	ch->c = c;
++	ch->source_node = source_node;
++	ch->source_offset = source_offset;
++	ch->source_part = source_part;
+ 	ch->argb = color;
+ 	ch->bidi = bidi;
+ 	ch->origin = *p;
+@@ -857,7 +861,7 @@
+ 	/* Don't advance pen or break lines for either no-glyph or marking non-spacing characters in a cluster */
+ 	if (cur_line && (glyph == -1 || ucdn_get_general_category(c) == UCDN_GENERAL_CATEGORY_MN))
+ 	{
+-		add_char_to_line(ctx, page, cur_line, trm, font, size, c, (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? glyph : NON_ACCURATE_GLYPH, &dev->pen, &dev->pen, bidi, dev->color, 0, flags, dev->flags);
++		add_char_to_line(ctx, page, cur_line, trm, font, size, c, (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? glyph : NON_ACCURATE_GLYPH, &dev->pen, &dev->pen, bidi, dev->color, 0, flags, dev->flags, dev->source_node, dev->source_offset, dev->source_part++);
+ 		dev->lastbidi = bidi;
+ 		dev->lastchar = c;
+ 		dev->lastline = cur_line;
+@@ -1035,9 +1039,9 @@
+ 
+ 	/* Add synthetic space */
+ 	if (c != ' ' && add_space && !(dev->flags & FZ_STEXT_INHIBIT_SPACES))
+-		add_char_to_line(ctx, page, cur_line, trm, font, size, ' ', (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? NON_ACCURATE_GLYPH_ADDED_SPACE : NON_ACCURATE_GLYPH, &dev->pen, &p, bidi, dev->color, add_space, flags, dev->flags);
+-
+-	add_char_to_line(ctx, page, cur_line, trm, font, size, c, (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? glyph : NON_ACCURATE_GLYPH, &p, &q, bidi, dev->color, 0, flags, dev->flags);
++		add_char_to_line(ctx, page, cur_line, trm, font, size, ' ', (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? NON_ACCURATE_GLYPH_ADDED_SPACE : NON_ACCURATE_GLYPH, &dev->pen, &p, bidi, dev->color, add_space, flags, dev->flags, 0, 0, 0);
++
++	add_char_to_line(ctx, page, cur_line, trm, font, size, c, (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? glyph : NON_ACCURATE_GLYPH, &p, &q, bidi, dev->color, 0, flags, dev->flags, dev->source_node, dev->source_offset, dev->source_part++);
+ 
+ 	dev->lastchar = c;
+ 	dev->lastbidi = bidi;
+@@ -1202,6 +1206,9 @@
+ 			adv = 0;
+ 
+ 		unicode = span->items[i].ucs;
++		dev->source_node = span->items[i].source_node;
++		dev->source_offset = span->items[i].source_offset;
++		dev->source_part = 0;
+ 		if (unicode == FZ_REPLACEMENT_CHARACTER)
+ 		{
+ 			if (dev->flags & FZ_STEXT_USE_CID_FOR_UNKNOWN_UNICODE)
+@@ -1264,6 +1271,7 @@
+ 	while (end < 0 || (end >= 0 && i < end))
+ 	{
+ 		int rune;
++		dev->source_node = dev->source_offset = dev->source_part = 0;
+ 		actualtext += fz_chartorune(&rune, actualtext);
+ 
+ 		if (rune == 0)
+@@ -1388,6 +1396,9 @@
+ 			adv = item->adv;
+ 		else
+ 			adv = 0;
++		dev->source_node = item->source_node;
++		dev->source_offset = item->source_offset;
++		dev->source_part = 0;
+ 
+ 		fz_add_stext_char(ctx, dev, font,
+ 			rune,
+diff --git a/source/html/html-doc.c b/source/html/html-doc.c
+index bd8193e..962925a 100644
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -177,6 +177,46 @@ htdoc_load_page(fz_context *ctx, fz_document *doc_, int chapter, int number)
+ 	return (fz_page*)page;
+ }
+ 
++static fz_html_flow *htdoc_find_source(fz_html_box *box, uint32_t source_node, uint32_t source_offset)
++{
++	for (; box; box = box->next)
++	{
++		if (box->type == BOX_FLOW)
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++			{
++				if (flow->source_node != source_node)
++					continue;
++				size_t len = flow->type == FLOW_WORD ? strlen(flow->content.text) :
++					(flow->type == FLOW_SPACE || flow->type == FLOW_SHYPHEN ? 1 : 0);
++				uint32_t flow_offset = fz_html_flow_source_offset(flow);
++				if (source_offset >= flow_offset && source_offset - flow_offset < len)
++					return flow;
++			}
++		if (fz_html_box_has_boxes(box))
++		{
++			fz_html_flow *flow = htdoc_find_source(box->down, source_node, source_offset);
++			if (flow)
++				return flow;
++		}
++	}
++	return NULL;
++}
++
++int fz_htdoc_source_page(fz_context *ctx, fz_document *doc_, uint32_t source_node, uint32_t source_offset)
++{
++	if (!doc_ || doc_->drop_document != htdoc_drop_document || !source_node)
++		return -1;
++	html_document *doc = (html_document *)doc_;
++	if (!doc->html || !isfinite(doc->html->page_h) || doc->html->page_h <= 0)
++		return -1;
++	fz_html_flow *flow = htdoc_find_source(doc->html->tree.root, source_node, source_offset);
++	if (!flow || !isfinite(flow->y) || flow->y < 0)
++		return -1;
++	int page = (int)(flow->y / doc->html->page_h);
++	int last_page = fmaxf(0, ceilf(doc->html->tree.root->s.layout.b / doc->html->page_h) - 1);
++	return page < last_page ? page : last_page;
++}
++
+ static fz_outline *
+ htdoc_load_outline(fz_context *ctx, fz_document *doc_)
+ {
+diff --git a/source/html/html-imp.h b/source/html/html-imp.h
+index 9c7122e..99f22e2 100644
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -24,6 +24,7 @@
+ #define SOURCE_HTML_IMP_H
+ 
+ #include "mupdf/fitz.h"
++#include <string.h>
+ 
+ typedef struct fz_html_font_face fz_html_font_face;
+ typedef struct fz_html_box fz_html_box;
+@@ -577,8 +578,11 @@ struct fz_html_flow
+ 	/* The script detected by the bidi code. */
+ 	unsigned int script : 8;
+ 
+-	/* Whether the markup specifies a given language. */
+-	unsigned short markup_lang;
++	/* Most source offsets are zero; small offsets fit without extra storage. */
++	unsigned int source_offset_small : 2;
++	unsigned int has_large_source_offset : 1;
++	unsigned int has_markup_lang : 1;
++	uint32_t source_node;
+ 
+ 	float x, y, w, h;
+ 	fz_html_box *box; /* for style and em */
+@@ -589,6 +593,56 @@ struct fz_html_flow
+ 	} content;
+ };
+ 
++/* Word-only metadata follows the NUL terminator. Small nonzero offsets reserve
++ * their value in bytes so a later reverse split can grow into a 4-byte offset:
++ * the split frees at least 4 - old_offset bytes from the original text. */
++static inline size_t fz_html_flow_word_size(size_t len, uint32_t source_offset, int lang)
++{
++	return offsetof(fz_html_flow, content) + len + 1 +
++		(source_offset > 3 ? sizeof(uint32_t) : source_offset) +
++		(lang != FZ_LANG_UNSET ? sizeof(uint16_t) : 0);
++}
++
++static inline uint32_t fz_html_flow_source_offset(const fz_html_flow *flow)
++{
++	uint32_t offset;
++	if (flow->type != FLOW_WORD || !flow->has_large_source_offset)
++		return flow->source_offset_small;
++	memcpy(&offset, flow->content.text + strlen(flow->content.text) + 1, sizeof(offset));
++	return offset;
++}
++
++static inline int fz_html_flow_markup_lang(const fz_html_flow *flow)
++{
++	uint16_t lang;
++	const char *tail;
++	if (flow->type != FLOW_WORD || !flow->has_markup_lang)
++		return FZ_LANG_UNSET;
++	tail = flow->content.text + strlen(flow->content.text) + 1;
++	if (flow->has_large_source_offset)
++		tail += sizeof(uint32_t);
++	memcpy(&lang, tail, sizeof(lang));
++	return lang;
++}
++
++static inline void fz_html_flow_set_word_metadata(fz_html_flow *flow, uint32_t source_offset, int lang)
++{
++	char *tail = flow->content.text + strlen(flow->content.text) + 1;
++	flow->source_offset_small = source_offset <= 3 ? source_offset : 0;
++	flow->has_large_source_offset = source_offset > 3;
++	flow->has_markup_lang = lang != FZ_LANG_UNSET;
++	if (flow->has_large_source_offset)
++	{
++		memcpy(tail, &source_offset, sizeof(source_offset));
++		tail += sizeof(source_offset);
++	}
++	if (flow->has_markup_lang)
++	{
++		uint16_t value = lang;
++		memcpy(tail, &value, sizeof(value));
++	}
++}
++
+ 
+ fz_css *fz_new_css(fz_context *ctx);
+ void fz_parse_css(fz_context *ctx, fz_css *css, const char *source, const char *file);
+diff --git a/source/html/html-layout.c b/source/html/html-layout.c
+index ebd8878..5f818dd 100644
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -340,7 +340,7 @@ static void measure_string_w(fz_context *ctx, fz_html_flow *node, hb_buffer_t *h
+ 	const char *s;
+ 	node->w = 0;
+ 	s = get_node_text(ctx, node);
+-	init_string_walker(ctx, &walker, hb_buf, node->bidi_level & 1, node->box->style->font, node->script, node->markup_lang, node->box->style->small_caps, s, 0);
++	init_string_walker(ctx, &walker, hb_buf, node->bidi_level & 1, node->box->style->font, node->script, fz_html_flow_markup_lang(node), node->box->style->small_caps, s, 0);
+ 	while (walk_string(&walker))
+ 	{
+ 		int x = 0;
+@@ -654,18 +654,25 @@ static void split_flow_at_byte_offset(fz_context *ctx, fz_pool *pool, fz_html_fl
+ 	fz_html_flow *new_flow;
+ 	char *text;
+ 	size_t len;
++	uint32_t source_offset, new_offset;
++	int lang;
+ 
+ 	assert(flow->type == FLOW_WORD);
+ 
+ 	assert(offset != 0);
+ 	text = flow->content.text + offset;
+ 	len = strlen(text);
+-	new_flow = fz_pool_alloc(ctx, pool, offsetof(fz_html_flow, content) + len+1);
++	source_offset = fz_html_flow_source_offset(flow);
++	new_offset = source_offset + offset;
++	lang = fz_html_flow_markup_lang(flow);
++	new_flow = fz_pool_alloc(ctx, pool, fz_html_flow_word_size(len, new_offset, lang));
+ 	memcpy(new_flow, flow, offsetof(fz_html_flow, content));
+ 	new_flow->next = flow->next;
+ 	flow->next = new_flow;
+ 	strcpy(new_flow->content.text, text);
++	fz_html_flow_set_word_metadata(new_flow, new_offset, lang);
+ 	*text = 0;
++	fz_html_flow_set_word_metadata(flow, source_offset, lang);
+ }
+ 
+ /* node becomes last cluster, node->next becomes the rest */
+@@ -674,20 +681,26 @@ static void split_flow_at_byte_offset_reverse(fz_context *ctx, fz_pool *pool, fz
+ 	fz_html_flow *new_flow;
+ 	char *text;
+ 	size_t len;
++	uint32_t source_offset;
++	int lang;
+ 
+ 	assert(flow->type == FLOW_WORD);
+ 
+ 	assert(offset != 0);
+ 	text = flow->content.text + offset;
+ 	len = strlen(text);
+-	new_flow = fz_pool_alloc(ctx, pool, offsetof(fz_html_flow, content) + offset+1);
++	source_offset = fz_html_flow_source_offset(flow);
++	lang = fz_html_flow_markup_lang(flow);
++	new_flow = fz_pool_alloc(ctx, pool, fz_html_flow_word_size(offset, source_offset, lang));
+ 	memcpy(new_flow, flow, offsetof(fz_html_flow, content));
+ 	new_flow->next = flow->next;
+ 	flow->next = new_flow;
+ 	memcpy(new_flow->content.text, flow->content.text, offset);
+ 	new_flow->content.text[offset] = 0;
++	fz_html_flow_set_word_metadata(new_flow, source_offset, lang);
+ 	memmove(flow->content.text, text, len);
+ 	flow->content.text[len] = 0;
++	fz_html_flow_set_word_metadata(flow, source_offset + offset, lang);
+ }
+ 
+ static void break_word_for_overflow_wrap(fz_context *ctx, fz_html_flow *node, layout_data *ld, float max_w)
+@@ -724,7 +737,7 @@ static void break_word_for_overflow_wrap(fz_context *ctx, fz_html_flow *node, la
+ 	if ((node->bidi_level & 1) == 0)
+ 	{
+ 		/* Left 2 Right */
+-		init_string_walker(ctx, &walker, hb_buf, 0 /* L2R */, node->box->style->font, node->script, node->markup_lang, node->box->style->small_caps, text, 1);
++		init_string_walker(ctx, &walker, hb_buf, 0 /* L2R */, node->box->style->font, node->script, fz_html_flow_markup_lang(node), node->box->style->small_caps, text, 1);
+ 		while (walk_string(&walker))
+ 		{
+ 			unsigned int i;
+@@ -774,7 +787,7 @@ static void break_word_for_overflow_wrap(fz_context *ctx, fz_html_flow *node, la
+ 	else
+ 	{
+ 		/* Right 2 Left */
+-		init_string_walker(ctx, &walker, hb_buf, 1 /* R2L */, node->box->style->font, node->script, node->markup_lang, node->box->style->small_caps, text, 1);
++		init_string_walker(ctx, &walker, hb_buf, 1 /* R2L */, node->box->style->font, node->script, fz_html_flow_markup_lang(node), node->box->style->small_caps, text, 1);
+ 		while (walk_string(&walker))
+ 		{
+ 			unsigned int i;
+@@ -3424,6 +3437,15 @@ find_inline_background_color(fz_context *ctx, fz_html_box *box)
+ 	return (fz_css_color){ 0, 0, 0, 0 };
+ }
+ 
++static void show_source_glyph(fz_context *ctx, fz_text *text, fz_font *font, fz_matrix trm,
++	int glyph, int unicode, fz_html_flow *node, uint32_t byte_offset, fz_html_box *box,
++	int markup_lang, uint32_t source_offset)
++{
++	fz_show_glyph(ctx, text, font, trm, glyph, unicode, 0, node->bidi_level, box->markup_dir, markup_lang);
++	text->tail->items[text->tail->len-1].source_node = node->source_node;
++	text->tail->items[text->tail->len-1].source_offset = source_offset + byte_offset;
++}
++
+ static int draw_flow_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	fz_html_flow *node;
+@@ -3491,6 +3513,8 @@ static int draw_flow_box(fz_context *ctx, fz_html_box *box, float page_top, floa
+ 				const char *s;
+ 				float x, y;
+ 				float em;
++				int markup_lang;
++				uint32_t source_offset;
+ 
+ 				if (node->type == FLOW_SPACE && node->breaks_line)
+ 					continue;
+@@ -3601,7 +3625,9 @@ static int draw_flow_box(fz_context *ctx, fz_html_box *box, float page_top, floa
+ 				trm.f = y - page_top;
+ 
+ 				s = get_node_text(ctx, node);
+-				init_string_walker(ctx, &walker, hb_buf, node->bidi_level & 1, style->font, node->script, node->markup_lang, style->small_caps, s, 0);
++				markup_lang = fz_html_flow_markup_lang(node);
++				source_offset = fz_html_flow_source_offset(node);
++				init_string_walker(ctx, &walker, hb_buf, node->bidi_level & 1, style->font, node->script, markup_lang, style->small_caps, s, 0);
+ 				while (walk_string(&walker))
+ 				{
+ 					float node_scale = node->box->s.layout.em / walker.scale;
+@@ -3639,9 +3665,9 @@ static int draw_flow_box(fz_context *ctx, fz_html_box *box, float page_top, floa
+ 							{
+ 								trm.e = x + walker.glyph_pos[i].x_offset * node_scale;
+ 								trm.f = y - walker.glyph_pos[i].y_offset * node_scale - page_top;
+-								fz_show_glyph(ctx, text, walker.font, trm,
+-										walker.glyph_info[i].codepoint, c,
+-										0, node->bidi_level, box->markup_dir, node->markup_lang);
++								show_source_glyph(ctx, text, walker.font, trm,
++										walker.glyph_info[i].codepoint, c, node, (uint32_t)(walker.start + k - s), box,
++										markup_lang, source_offset);
+ 								c = -1; /* for subsequent glyphs in x-to-many mappings */
+ 							}
+ 						}
+@@ -3649,9 +3675,9 @@ static int draw_flow_box(fz_context *ctx, fz_html_box *box, float page_top, floa
+ 						/* no glyph found (many-to-many or many-to-one mapping) */
+ 						if (c != -1)
+ 						{
+-							fz_show_glyph(ctx, text, walker.font, trm,
+-									-1, c,
+-									0, node->bidi_level, box->markup_dir, node->markup_lang);
++							show_source_glyph(ctx, text, walker.font, trm,
++									-1, c, node, (uint32_t)(walker.start + k - s), box,
++									markup_lang, source_offset);
+ 						}
+ 
+ 						k += n;
+diff --git a/source/html/html-parse.c b/source/html/html-parse.c
+index 56c15ff..c97d63f 100644
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -304,7 +304,7 @@ static void fz_drop_html_flow(fz_context *ctx, fz_html_flow *flow)
+ 	}
+ }
+ 
+-static fz_html_flow *add_flow(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, int type, int extras)
++static fz_html_flow *add_flow(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, int type, size_t extras)
+ {
+ 	size_t size = (type == FLOW_IMAGE ? sizeof(fz_html_flow) : offsetof(fz_html_flow, content) + extras);
+ 	fz_html_flow *flow;
+@@ -317,7 +317,9 @@ static fz_html_flow *add_flow(fz_context *ctx, fz_pool *pool, fz_html_box *top,
+ 	flow->type = type;
+ 	flow->expand = 0;
+ 	flow->bidi_level = 0;
+-	flow->markup_lang = 0;
++	flow->source_offset_small = 0;
++	flow->has_large_source_offset = 0;
++	flow->has_markup_lang = 0;
+ 	flow->breaks_line = 0;
+ 	flow->box = inline_box;
+ 	(*top->s.build.flow_tail) = flow;
+@@ -349,12 +351,13 @@ static void add_flow_shyphen(fz_context *ctx, fz_pool *pool, fz_html_box *top, f
+ 
+ static void add_flow_word(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, const char *a, const char *b, int lang)
+ {
+-	fz_html_flow *flow = add_flow(ctx, pool, top, inline_box, FLOW_WORD, b - a + 1);
++	fz_html_flow *flow = add_flow(ctx, pool, top, inline_box, FLOW_WORD,
++		fz_html_flow_word_size(b - a, 0, lang) - offsetof(fz_html_flow, content));
+ 	if (flow == NULL)
+ 		return;
+ 	memcpy(flow->content.text, a, b - a);
+ 	flow->content.text[b - a] = 0;
+-	flow->markup_lang = lang;
++	fz_html_flow_set_word_metadata(flow, 0, lang);
+ }
+ 
+ static void add_flow_image(fz_context *ctx, fz_pool *pool, fz_html_box *top, fz_html_box *inline_box, fz_image *img)
+@@ -374,6 +377,7 @@ fz_html_flow *fz_html_split_flow(fz_context *ctx, fz_pool *pool, fz_html_flow *f
+ 	fz_html_flow *new_flow;
+ 	char *text;
+ 	size_t len;
++	int lang;
+ 
+ 	assert(flow->type == FLOW_WORD);
+ 
+@@ -387,12 +391,16 @@ fz_html_flow *fz_html_split_flow(fz_context *ctx, fz_pool *pool, fz_html_flow *f
+ 		offset--;
+ 	}
+ 	len = strlen(text);
+-	new_flow = fz_pool_alloc(ctx, pool, offsetof(fz_html_flow, content) + len+1);
++	lang = fz_html_flow_markup_lang(flow);
++	new_flow = fz_pool_alloc(ctx, pool, fz_html_flow_word_size(len, 0, lang));
+ 	memcpy(new_flow, flow, offsetof(fz_html_flow, content));
+ 	new_flow->next = flow->next;
+ 	flow->next = new_flow;
+ 	strcpy(new_flow->content.text, text);
++	fz_html_flow_set_word_metadata(new_flow, 0, lang);
++	/* This split happens while parsing, before source IDs are assigned. */
+ 	*text = 0;
++	fz_html_flow_set_word_metadata(flow, 0, lang);
+ 	return new_flow;
+ }
+ 
+@@ -2223,6 +2231,10 @@ xml_to_boxes(fz_context *ctx,
+ 		{
+ 			g.is_fb2 = 0;
+ 			fz_parse_css(ctx, g.css, html_default_css, "<default:html>");
++			/* Markdown uses physical page margins and wraps long headings within
++			 * them. Publisher and user CSS still follow. */
++			if (flavor == FZ_HTML_FLAVOR_MARKDOWN)
++				fz_parse_css(ctx, g.css, "@page{margin:51pt 34pt}body{margin:17pt;overflow-wrap:break-word}", "<default:markdown-page>");
+ 			if (flavor == FZ_HTML_FLAVOR_EPUB_FIXED)
+ 				fz_parse_css(ctx, g.css, "@page{margin:0}html,body{margin:0}", "<default:epub-fixed>");
+ 			if (flavor == FZ_HTML_FLAVOR_MOBI)
+@@ -2555,6 +2567,22 @@ static void reserve_draw_groups(fz_context *ctx, fz_pool *pool, fz_html_box *box
+ 	}
+ }
+ 
++static void assign_source_nodes(fz_context *ctx, fz_html_box *box, uint32_t *next)
++{
++	for (; box; box = box->next)
++	{
++		if (box->type == BOX_FLOW)
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++			{
++				if (*next == UINT32_MAX)
++					fz_throw(ctx, FZ_ERROR_LIMIT, "HTML has too many flow nodes");
++				flow->source_node = ++*next;
++			}
++		if (fz_html_box_has_boxes(box))
++			assign_source_nodes(ctx, box->down, next);
++	}
++}
++
+ fz_html *
+ fz_parse_html(fz_context *ctx,
+ 	fz_html_font_set *set, fz_archive *zip, const char *base_uri, fz_buffer *buf, const char *user_css,
+@@ -2574,6 +2602,8 @@ fz_parse_html(fz_context *ctx,
+ 	{
+ 		fz_parse_html_tree(ctx, set, zip, base_uri, buf, user_css, try_xml, try_html5, &html->tree, &html->metadata, flavor, publisher_css,
+ 			&html->meta_w, &html->meta_h);
++		uint32_t source_node = 0;
++		assign_source_nodes(ctx, html->tree.root, &source_node);
+ 		reserve_draw_groups(ctx, html->tree.pool, html->tree.root);
+ 	}
+ 	fz_catch(ctx)
+diff --git a/source/pdf/pdf-device.c b/source/pdf/pdf-device.c
+index 579a0cc..3f7fac9 100644
+--- a/source/pdf/pdf-device.c
++++ b/source/pdf/pdf-device.c
+@@ -31,6 +31,7 @@
+ 
+ #define ENC_IDENTITY 0
+ #define ENC_UNICODE 1
++#define ENC_SOURCE 2
+ 
+ typedef struct pdf_device pdf_device;
+ 
+@@ -80,10 +81,19 @@ typedef struct
+ 	pdf_obj *ref;
+ } group_entry;
+ 
++typedef struct
++{
++	int gid;
++	int *ucs;
++	int ucs_len;
++} source_code;
++
+ typedef struct
+ {
+ 	fz_font *font;
+ 	int enc;
++	pdf_obj *source_font;
++	fz_list(source_code, source_codes);
+ } cid_font;
+ 
+ struct pdf_device
+@@ -382,13 +392,13 @@ pdf_dev_alpha(fz_context *ctx, pdf_device *pdev, float alpha, int stroke)
+ }
+ 
+ static int
+-pdf_dev_find_font_res(fz_context *ctx, pdf_device *pdev, fz_font *font)
++pdf_dev_find_font_res(fz_context *ctx, pdf_device *pdev, fz_font *font, int enc)
+ {
+ 	int k;
+ 
+ 	/* Check if we already had this one */
+ 	for (k = 0; k < pdev->cid_fonts_len; k++)
+-		if (pdev->cid_fonts[k].font == font)
++		if (pdev->cid_fonts[k].font == font && pdev->cid_fonts[k].enc == enc)
+ 			return k;
+ 
+ 	return -1;
+@@ -418,7 +428,7 @@ pdf_dev_add_substitute_font_res(fz_context *ctx, pdf_device *pdev, fz_font *font
+ 	int k;
+ 
+ 	/* Check if we already had this one */
+-	k = pdf_dev_find_font_res(ctx, pdev, font);
++	k = pdf_dev_find_font_res(ctx, pdev, font, ENC_UNICODE);
+ 	if (k >= 0)
+ 		return k;
+ 
+@@ -439,7 +449,7 @@ pdf_dev_add_embedded_font_res(fz_context *ctx, pdf_device *pdev, fz_font *font)
+ 	int k;
+ 
+ 	/* Check if we already had this one */
+-	k = pdf_dev_find_font_res(ctx, pdev, font);
++	k = pdf_dev_find_font_res(ctx, pdev, font, ENC_IDENTITY);
+ 	if (k >= 0)
+ 		return k;
+ 
+@@ -450,14 +460,50 @@ pdf_dev_add_embedded_font_res(fz_context *ctx, pdf_device *pdev, fz_font *font)
+ 	return pdf_dev_add_font_res_imp(ctx, pdev, font, fres, ENC_IDENTITY);
+ }
+ 
++static int
++pdf_dev_add_source_font_res(fz_context *ctx, pdf_device *pdev, fz_font *font, int force_new)
++{
++	pdf_obj *base = NULL;
++	pdf_obj *copy = NULL;
++	pdf_obj *ref = NULL;
++	int k = force_new ? -1 : pdf_dev_find_font_res(ctx, pdev, font, ENC_SOURCE);
++	if (k >= 0)
++		return k;
++
++	fz_var(base);
++	fz_var(copy);
++	fz_var(ref);
++	fz_try(ctx)
++	{
++		/* Share the embedded descendant font and its widths. Separate top-level
++		 * fonts only when one glyph needs distinct source Unicode mappings. */
++		base = pdf_add_cid_font(ctx, pdev->doc, font);
++		copy = pdf_copy_dict(ctx, base);
++		ref = pdf_add_object(ctx, pdev->doc, copy);
++		k = pdf_dev_add_font_res_imp(ctx, pdev, font, pdf_keep_obj(ctx, ref), ENC_SOURCE);
++		pdev->cid_fonts[k].source_font = pdf_keep_obj(ctx, ref);
++	}
++	fz_always(ctx)
++	{
++		pdf_drop_obj(ctx, base);
++		pdf_drop_obj(ctx, copy);
++		pdf_drop_obj(ctx, ref);
++	}
++	fz_catch(ctx)
++		fz_rethrow(ctx);
++	return k;
++}
++
+ static void
+-pdf_dev_font(fz_context *ctx, pdf_device *pdev, fz_font *font, fz_matrix trm)
++pdf_dev_font(fz_context *ctx, pdf_device *pdev, fz_font *font, fz_matrix trm, int source)
+ {
+ 	gstate *gs = CURRENT_GSTATE(pdev);
+ 	float font_size = fz_matrix_expansion(trm);
++	int source_embedded = source && !fz_font_flags(font)->ft_substitute && pdf_font_writing_supported(ctx, font);
+ 
+ 	/* If the font is unchanged, nothing to do */
+-	if (gs->font >= 0 && pdev->cid_fonts[gs->font].font == font && gs->font_size == font_size)
++	if (gs->font >= 0 && pdev->cid_fonts[gs->font].font == font && gs->font_size == font_size &&
++		(pdev->cid_fonts[gs->font].enc == ENC_SOURCE) == source_embedded)
+ 		return;
+ 
+ 	// TODO: vertical wmode
+@@ -465,7 +511,9 @@ pdf_dev_font(fz_context *ctx, pdf_device *pdev, fz_font *font, fz_matrix trm)
+ 	if (fz_font_t3_procs(ctx, font))
+ 		fz_throw(ctx, FZ_ERROR_UNSUPPORTED, "pdf device does not support type 3 fonts");
+ 
+-	if (fz_font_flags(font)->ft_substitute || !pdf_font_writing_supported(ctx, font))
++	if (source_embedded)
++		gs->font = pdf_dev_add_source_font_res(ctx, pdev, font, 0);
++	else if (fz_font_flags(font)->ft_substitute || !pdf_font_writing_supported(ctx, font))
+ 		gs->font = pdf_dev_add_substitute_font_res(ctx, pdev, font);
+ 	else
+ 		gs->font = pdf_dev_add_embedded_font_res(ctx, pdev, font);
+@@ -475,6 +523,16 @@ pdf_dev_font(fz_context *ctx, pdf_device *pdev, fz_font *font, fz_matrix trm)
+ 	fz_append_printf(ctx, gs->buf, "/F%d %g Tf\n", gs->font, gs->font_size);
+ }
+ 
++static int
++pdf_dev_span_has_source(fz_text_span *span)
++{
++	int i;
++	for (i = 0; i < span->len; ++i)
++		if (span->items[i].source_node)
++			return 1;
++	return 0;
++}
++
+ static void
+ pdf_dev_push_new_buf(fz_context *ctx, pdf_device *pdev, fz_buffer *buf, void (*on_pop)(fz_context*,pdf_device*,void*), void *on_pop_arg)
+ {
+@@ -512,6 +570,111 @@ pdf_dev_pop(fz_context *ctx, pdf_device *pdev)
+ 	return arg;
+ }
+ 
++static int
++pdf_dev_source_code(fz_context *ctx, pdf_device *pdev, fz_text_span *span, int start, int *font_index)
++{
++	fz_text_item *item = &span->items[start];
++	int end = start + 1;
++	int count = 0;
++	int i, j, k;
++	int available = -1;
++	cid_font *font;
++	source_code *entry;
++
++	/* Visual continuations must be outlined by the text-span writer. Never
++	 * create an empty ToUnicode entry that adds spurious searchable text. */
++	if (item->ucs < 0)
++		fz_throw(ctx, FZ_ERROR_UNSUPPORTED, "Shaped source glyph has no Unicode for PDF export");
++
++	/* A shaped glyph can stand for several source characters. The following
++	 * gid=-1 items carry the rest of that original sequence. */
++	while (end < span->len && !(span->items[end].gid >= 0 && span->items[end].ucs >= 0))
++		++end;
++	for (i = start; i < end; ++i)
++		if (span->items[i].ucs >= 0)
++		{
++			int ucs = span->items[i].ucs;
++			if (ucs > 0x10ffff || (ucs >= 0xd800 && ucs <= 0xdfff))
++				fz_throw(ctx, FZ_ERROR_FORMAT, "Invalid source Unicode in PDF text");
++			++count;
++		}
++
++	/* MuPDF reads ToUnicode by CID, while PDFKit reads by character code.
++	 * With Identity-H these are both the original glyph ID. Put conflicting
++	 * Unicode sequences for one glyph in separate Type0 font resources. */
++	for (k = 0; k < pdev->cid_fonts_len; ++k)
++	{
++		int conflict = 0;
++		font = &pdev->cid_fonts[k];
++		if (font->enc != ENC_SOURCE || font->font != span->font)
++			continue;
++		for (i = 0; i < font->source_codes_len; ++i)
++		{
++			entry = &font->source_codes[i];
++			if (entry->gid != item->gid)
++				continue;
++			conflict = 1;
++			if (entry->ucs_len != count)
++				continue;
++			{
++				int u = 0;
++				for (j = start; j < end; ++j)
++					if (span->items[j].ucs >= 0 && entry->ucs[u++] != span->items[j].ucs)
++						break;
++			}
++			if (j == end)
++			{
++				*font_index = k;
++				return item->gid;
++			}
++		}
++		if (!conflict && available < 0)
++			available = k;
++	}
++	if (available < 0)
++		available = pdf_dev_add_source_font_res(ctx, pdev, span->font, 1);
++	font = &pdev->cid_fonts[available];
++
++	if (item->gid < 0 || item->gid > 0xffff)
++		fz_throw(ctx, FZ_ERROR_LIMIT, "Source glyph ID exceeds PDF Identity-H code space");
++	entry = fz_push_list(ctx, font->source_codes);
++	entry->gid = item->gid;
++	entry->ucs_len = count;
++	entry->ucs = count ? fz_malloc_array(ctx, count, int) : NULL;
++	for (i = start, j = 0; i < end; ++i)
++		if (span->items[i].ucs >= 0)
++			entry->ucs[j++] = span->items[i].ucs;
++	*font_index = available;
++	return item->gid;
++}
++
++static void pdf_dev_begin_text(fz_context *ctx, pdf_device *pdev, int trm);
++
++static void
++pdf_dev_outline_source_glyph(fz_context *ctx, pdf_device *pdev, fz_text_span *span, fz_text_item *item, int stroke)
++{
++	fz_matrix trm = span->trm;
++	fz_path *path = NULL;
++	fz_var(path);
++	trm.e = item->x;
++	trm.f = item->y;
++	path = fz_outline_glyph(ctx, span->font, item->gid, trm);
++	if (!path)
++		fz_throw(ctx, FZ_ERROR_UNSUPPORTED, "Source continuation glyph has no outline for PDF export");
++	fz_try(ctx)
++	{
++		if (stroke)
++			pdf_dev_stroked_path(ctx, pdev, path);
++		else
++			pdf_dev_path(ctx, pdev, path);
++		fz_append_string(ctx, CURRENT_GSTATE(pdev)->buf, stroke ? "S\n" : "f\n");
++	}
++	fz_always(ctx)
++		fz_drop_path(ctx, path);
++	fz_catch(ctx)
++		fz_rethrow(ctx);
++}
++
+ static void
+ pdf_dev_text_span(fz_context *ctx, pdf_device *pdev, fz_text_span *span)
+ {
+@@ -523,6 +686,7 @@ pdf_dev_text_span(fz_context *ctx, pdf_device *pdev, fz_text_span *span)
+ 	int enc;
+ 	int dx, dy;
+ 	int i;
++	int text_segment_open = 1;
+ 
+ 	if (span->len == 0)
+ 		return;
+@@ -546,10 +710,39 @@ pdf_dev_text_span(fz_context *ctx, pdf_device *pdev, fz_text_span *span)
+ 	for (i = 0; i < span->len; ++i)
+ 	{
+ 		fz_text_item *it = &span->items[i];
+-		if (enc == ENC_IDENTITY && it->gid < 0)
++		if ((enc == ENC_IDENTITY || enc == ENC_SOURCE) && it->gid < 0)
+ 			continue;
+ 		if (enc == ENC_UNICODE && it->ucs < 0)
+ 			continue;
++		if (enc == ENC_SOURCE && it->ucs < 0)
++		{
++			int mode = gs->text_rendering_mode;
++			if (mode == 3) /* Invisible text has no visual continuation to paint. */
++				continue;
++			if (mode != 0 && mode != 1)
++				fz_throw(ctx, FZ_ERROR_UNSUPPORTED, "Cannot outline source continuation in PDF text clip");
++			if (text_segment_open)
++			{
++				fz_append_string(ctx, gs->buf, ">]TJ\n");
++				pdf_dev_end_text(ctx, pdev);
++				text_segment_open = 0;
++			}
++			pdf_dev_outline_source_glyph(ctx, pdev, span, it, mode == 1);
++			continue;
++		}
++		if (!text_segment_open)
++		{
++			pdf_dev_begin_text(ctx, pdev, gs->text_rendering_mode);
++			trm = span->trm;
++			trm.e = it->x;
++			trm.f = it->y;
++			tm = fz_concat(inv_tfs, trm);
++			tlm = tm;
++			inv_tm = fz_invert_matrix(tm);
++			inv_trm = fz_invert_matrix(trm);
++			fz_append_printf(ctx, gs->buf, "%M Tm\n[<", &tm);
++			text_segment_open = 1;
++		}
+ 
+ 		/* transform difference from expected pen position into font units. */
+ 		d.x = it->x - trm.e;
+@@ -583,6 +776,17 @@ pdf_dev_text_span(fz_context *ctx, pdf_device *pdev, fz_text_span *span)
+ 			fz_append_printf(ctx, gs->buf, "%02x", it->gid);
+ 		else if (enc == ENC_IDENTITY)
+ 			fz_append_printf(ctx, gs->buf, "%04x", it->gid);
++		else if (enc == ENC_SOURCE)
++		{
++			int index;
++			int code = pdf_dev_source_code(ctx, pdev, span, i, &index);
++			if (index != gs->font)
++			{
++				fz_append_printf(ctx, gs->buf, ">]TJ\n/F%d %g Tf\n[<", index, gs->font_size);
++				gs->font = index;
++			}
++			fz_append_printf(ctx, gs->buf, "%04x", code);
++		}
+ 		else if (enc == ENC_UNICODE)
+ 			fz_append_printf(ctx, gs->buf, "%04x", it->ucs);
+ 
+@@ -596,7 +800,8 @@ pdf_dev_text_span(fz_context *ctx, pdf_device *pdev, fz_text_span *span)
+ 		}
+ 	}
+ 
+-	fz_append_string(ctx, gs->buf, ">]TJ\n");
++	if (text_segment_open)
++		fz_append_string(ctx, gs->buf, ">]TJ\n");
+ }
+ 
+ static void
+@@ -796,7 +1001,7 @@ pdf_dev_fill_text(fz_context *ctx, fz_device *dev, const fz_text *text, fz_matri
+ 	for (span = text->head; span; span = span->next)
+ 	{
+ 		pdf_dev_begin_text(ctx, pdev, 0);
+-		pdf_dev_font(ctx, pdev, span->font, span->trm);
++		pdf_dev_font(ctx, pdev, span->font, span->trm, pdf_dev_span_has_source(span));
+ 		pdf_dev_text_span(ctx, pdev, span);
+ 	}
+ }
+@@ -816,7 +1021,7 @@ pdf_dev_stroke_text(fz_context *ctx, fz_device *dev, const fz_text *text, const
+ 	for (span = text->head; span; span = span->next)
+ 	{
+ 		pdf_dev_begin_text(ctx, pdev, 1);
+-		pdf_dev_font(ctx, pdev, span->font, span->trm);
++		pdf_dev_font(ctx, pdev, span->font, span->trm, pdf_dev_span_has_source(span));
+ 		pdf_dev_text_span(ctx, pdev, span);
+ 	}
+ }
+@@ -835,7 +1040,7 @@ pdf_dev_clip_text(fz_context *ctx, fz_device *dev, const fz_text *text, fz_matri
+ 	for (span = text->head; span; span = span->next)
+ 	{
+ 		pdf_dev_begin_text(ctx, pdev, 7);
+-		pdf_dev_font(ctx, pdev, span->font, span->trm);
++		pdf_dev_font(ctx, pdev, span->font, span->trm, pdf_dev_span_has_source(span));
+ 		pdf_dev_text_span(ctx, pdev, span);
+ 	}
+ }
+@@ -854,7 +1059,7 @@ pdf_dev_clip_stroke_text(fz_context *ctx, fz_device *dev, const fz_text *text, c
+ 	for (span = text->head; span; span = span->next)
+ 	{
+ 		pdf_dev_begin_text(ctx, pdev, 7);
+-		pdf_dev_font(ctx, pdev, span->font, span->trm);
++		pdf_dev_font(ctx, pdev, span->font, span->trm, pdf_dev_span_has_source(span));
+ 		pdf_dev_text_span(ctx, pdev, span);
+ 	}
+ }
+@@ -870,7 +1075,7 @@ pdf_dev_ignore_text(fz_context *ctx, fz_device *dev, const fz_text *text, fz_mat
+ 	for (span = text->head; span; span = span->next)
+ 	{
+ 		pdf_dev_begin_text(ctx, pdev, 3);
+-		pdf_dev_font(ctx, pdev, span->font, span->trm);
++		pdf_dev_font(ctx, pdev, span->font, span->trm, pdf_dev_span_has_source(span));
+ 		pdf_dev_text_span(ctx, pdev, span);
+ 	}
+ }
+@@ -1319,11 +1524,75 @@ pdf_dev_end_tile(fz_context *ctx, fz_device *dev)
+ 	pdf_dev_end_text(ctx, pdev);
+ }
+ 
++static void
++pdf_dev_append_source_unicode(fz_context *ctx, fz_buffer *buf, int ucs)
++{
++	if (ucs < 0x10000)
++		fz_append_printf(ctx, buf, "%04x", ucs);
++	else
++	{
++		ucs -= 0x10000;
++		fz_append_printf(ctx, buf, "%04x%04x", 0xd800 + (ucs >> 10), 0xdc00 + (ucs & 0x3ff));
++	}
++}
++
++static void
++pdf_dev_finish_source_font(fz_context *ctx, pdf_device *pdev, cid_font *font)
++{
++	fz_buffer *unicode = NULL;
++	int i, j, n;
++
++	fz_var(unicode);
++	fz_try(ctx)
++	{
++		unicode = fz_new_buffer(ctx, 4096);
++		fz_append_string(ctx, unicode,
++			"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
++			"/CIDSystemInfo <</Registry(Adobe)/Ordering(UCS)/Supplement 0>> def\n"
++			"/CMapName /Sumra-Source-UCS def\n/CMapType 2 def\n"
++			"1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
++		for (i = 0; i < font->source_codes_len; i += n)
++		{
++			n = fz_min(100, font->source_codes_len - i);
++			fz_append_printf(ctx, unicode, "%d beginbfchar\n", n);
++			for (j = i; j < i + n; ++j)
++			{
++				source_code *code = &font->source_codes[j];
++				int k;
++				int utf16_units = 0;
++				for (k = 0; k < code->ucs_len; ++k)
++					utf16_units += code->ucs[k] < 0x10000 ? 1 : 2;
++				if (utf16_units > 256)
++					fz_throw(ctx, FZ_ERROR_LIMIT, "Source glyph Unicode exceeds PDF CMap limit");
++				fz_append_printf(ctx, unicode, "<%04x> <", code->gid);
++				for (k = 0; k < code->ucs_len; ++k)
++					pdf_dev_append_source_unicode(ctx, unicode, code->ucs[k]);
++				fz_append_string(ctx, unicode, ">\n");
++			}
++			fz_append_string(ctx, unicode, "endbfchar\n");
++		}
++		fz_append_string(ctx, unicode,
++			"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n");
++		pdf_dict_put_drop(ctx, font->source_font, PDF_NAME(ToUnicode),
++			pdf_add_stream(ctx, pdev->doc, unicode, NULL, 0));
++	}
++	fz_always(ctx)
++	{
++		fz_drop_buffer(ctx, unicode);
++	}
++	fz_catch(ctx)
++		fz_rethrow(ctx);
++}
++
+ static void
+ pdf_dev_close_device(fz_context *ctx, fz_device *dev)
+ {
+ 	pdf_device *pdev = (pdf_device*)dev;
++	int i;
+ 	pdf_dev_end_text(ctx, pdev);
++	for (i = 0; i < pdev->cid_fonts_len; ++i)
++		if (pdev->cid_fonts[i].enc == ENC_SOURCE)
++			pdf_dev_finish_source_font(ctx, pdev, &pdev->cid_fonts[i]);
+ }
+ 
+ static void
+@@ -1339,7 +1608,14 @@ pdf_dev_drop_device(fz_context *ctx, fz_device *dev)
+ 	}
+ 
+ 	for (i = pdev->cid_fonts_len-1; i >= 0; i--)
++	{
++		int j;
++		for (j = 0; j < pdev->cid_fonts[i].source_codes_len; ++j)
++			fz_free(ctx, pdev->cid_fonts[i].source_codes[j].ucs);
++		fz_free(ctx, pdev->cid_fonts[i].source_codes);
++		pdf_drop_obj(ctx, pdev->cid_fonts[i].source_font);
+ 		fz_drop_font(ctx, pdev->cid_fonts[i].font);
++	}
+ 
+ 	for (i = pdev->groups_len - 1; i >= 0; i--)
+ 	{

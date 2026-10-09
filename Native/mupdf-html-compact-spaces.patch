@@ -1,0 +1,525 @@
+diff --git a/source/html/html-imp.h b/source/html/html-imp.h
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -486,6 +486,23 @@
+ 	fz_html_draw_group groups[FZ_FLEXIBLE_ARRAY];
+ } fz_html_draw_index;
+ 
++/* A SPACE width belongs to its inline style owner, with script and bidi parity
++ * retained because both can affect font fallback and shaping. The first record
++ * is inline in the box; additional signatures belong to the same tree pool. */
++typedef struct fz_html_space_metric
++{
++	float width;
++	uint32_t flags;
++	struct fz_html_space_metric *next;
++} fz_html_space_metric;
++
++enum
++{
++	HTML_SPACE_METRIC_KEY_MASK = 511,
++	HTML_SPACE_METRIC_PRESENT = 512,
++	HTML_SPACE_METRIC_VALID = 1024
++};
++
+ struct fz_html_box
+ {
+ 	unsigned int type : 3;
+@@ -522,6 +539,9 @@
+ 	} s;
+ 
+ 	union {
++		/* Only allocated on actual BOX_INLINE boxes. */
++		fz_html_space_metric inline_space;
++
+ 		/* Only BOX_FLOW use the following */
+ 		struct {
+ 			fz_html_flow *head;
+@@ -584,16 +604,51 @@
+ 	unsigned int has_markup_lang : 1;
+ 	unsigned int generated_hyphen : 1;
+ 	unsigned int source_no_separator_before : 1;
++	/* Compact SPACE preserves the original h write phases: zero, CSS, em. */
++	unsigned int compact_space_height_phase : 2;
+ 	uint32_t source_node;
+ 
+-	float x, y, w, h;
++	float x, y;
+ 	fz_html_box *box; /* for style and em */
+ 	fz_html_flow *next;
++	/* Inline-owned SPACE allocates only the prefix before w. */
++	float w, h;
+ 	union {
+ 		char text[1];
+ 		fz_image *image;
+ 	} content;
+ };
++
++enum
++{
++	HTML_SPACE_HEIGHT_ZERO = 0,
++	HTML_SPACE_HEIGHT_MEASURED = 1,
++	HTML_SPACE_HEIGHT_LAID_OUT = 2
++};
++
++static inline int fz_html_flow_is_compact_space(const fz_html_flow *flow)
++{
++	return flow->type == FLOW_SPACE && flow->box->type == BOX_INLINE;
++}
++
++static inline uint32_t fz_html_flow_space_key(const fz_html_flow *flow)
++{
++	return (flow->script << 1) | (flow->bidi_level & 1);
++}
++
++static inline float fz_html_flow_width(const fz_html_flow *flow)
++{
++	const fz_html_space_metric *metric;
++	uint32_t key;
++	if (!fz_html_flow_is_compact_space(flow))
++		return flow->w;
++	key = fz_html_flow_space_key(flow);
++	for (metric = &flow->box->u.inline_space; metric; metric = metric->next)
++		if ((metric->flags & HTML_SPACE_METRIC_PRESENT) &&
++			(metric->flags & HTML_SPACE_METRIC_KEY_MASK) == key)
++			return metric->width;
++	return 0;
++}
+ 
+ /* Word-only metadata follows the NUL terminator. Small nonzero offsets reserve
+  * their value in bytes so a later reverse split can grow into a 4-byte offset:
+@@ -673,6 +728,29 @@
+ float fz_from_css_number_scale(fz_css_number number, float scale);
+ int fz_css_number_defined(fz_css_number number);
+ int fz_css_number_defined_not_auto(fz_css_number number);
++
++static inline float fz_html_flow_measure_height(const fz_html_flow *flow)
++{
++	float em;
++	if (!fz_html_flow_is_compact_space(flow))
++		return flow->h;
++	em = flow->box->s.layout.em;
++	if (fz_css_number_defined(flow->box->style->leading))
++		return fz_from_css_number(flow->box->style->leading, em, em, 0);
++	return fz_from_css_number_scale(flow->box->style->line_height, em);
++}
++
++/* Geometry readers can observe a measured but not yet placed Story suffix. */
++static inline float fz_html_flow_layout_height(const fz_html_flow *flow)
++{
++	if (!fz_html_flow_is_compact_space(flow))
++		return flow->h;
++	if (flow->compact_space_height_phase == HTML_SPACE_HEIGHT_LAID_OUT)
++		return flow->box->s.layout.em;
++	if (flow->compact_space_height_phase == HTML_SPACE_HEIGHT_MEASURED)
++		return fz_html_flow_measure_height(flow);
++	return 0;
++}
+ 
+ fz_html_font_set *fz_new_html_font_set(fz_context *ctx);
+ void fz_add_html_font_face(fz_context *ctx, fz_html_font_set *set,
+diff --git a/source/html/html-parse.c b/source/html/html-parse.c
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -313,6 +313,8 @@
+ 	if (top == NULL || top->type != BOX_FLOW)
+ 		return NULL;
+ 
++	if (type == FLOW_SPACE && inline_box->type == BOX_INLINE)
++		size = offsetof(fz_html_flow, w);
+ 	flow = fz_pool_alloc(ctx, pool, size);
+ 	flow->type = type;
+ 	flow->expand = 0;
+@@ -322,6 +324,7 @@
+ 	flow->has_markup_lang = 0;
+ 	flow->generated_hyphen = 0;
+ 	flow->source_no_separator_before = 0;
++	flow->compact_space_height_phase = HTML_SPACE_HEIGHT_ZERO;
+ 	flow->breaks_line = 0;
+ 	flow->box = inline_box;
+ 	(*top->s.build.flow_tail) = flow;
+@@ -858,7 +861,7 @@
+ 	const char *href;
+ 
+ 	if (type == BOX_INLINE)
+-		box = fz_pool_alloc(ctx, g->pool, offsetof(fz_html_box, u));
++		box = fz_pool_alloc(ctx, g->pool, offsetof(fz_html_box, u) + sizeof(box->u.inline_space));
+ 	else if (type == BOX_FLOW)
+ 		box = fz_pool_alloc(ctx, g->pool, offsetof(fz_html_box, u) + sizeof(box->u.flow));
+ 	else
+@@ -2797,7 +2800,7 @@
+ 		case FLOW_ANCHOR: printf("anchor"); break;
+ 		}
+ 		printf(" script=%d", flow->script);
+-		// printf(" y=%g x=%g w=%g", flow->y, flow->x, flow->w);
++		// printf(" y=%g x=%g w=%g", flow->y, flow->x, fz_html_flow_width(flow));
+ 		if (flow->type == FLOW_IMAGE)
+ 			printf(" h=%g", flow->h);
+ 		if (flow->type == FLOW_WORD)
+diff --git a/source/html/html-layout.c b/source/html/html-layout.c
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -333,13 +333,13 @@
+ 		return "";
+ }
+ 
+-static void measure_string_w(fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf)
++static float measure_string_w(fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf)
+ {
+ 	float em = node->box->s.layout.em;
++	float width = 0;
+ 	string_walker walker;
+ 	unsigned int i;
+ 	const char *s;
+-	node->w = 0;
+ 	s = get_node_text(ctx, node);
+ 	init_string_walker(ctx, &walker, hb_buf, node->bidi_level & 1, node->box->style->font, node->script, fz_html_flow_markup_lang(node), node->box->style->small_caps, s, 0);
+ 	while (walk_string(&walker))
+@@ -347,13 +347,19 @@
+ 		int x = 0;
+ 		for (i = 0; i < walker.glyph_count; i++)
+ 			x += walker.glyph_pos[i].x_advance;
+-		node->w += x * em / walker.scale;
+-	}
++		width += x * em / walker.scale;
++	}
++	return width;
+ }
+ 
+ static void measure_string_h(fz_context *ctx, fz_html_flow *node)
+ {
+ 	float em = node->box->s.layout.em;
++	if (fz_html_flow_is_compact_space(node))
++	{
++		node->compact_space_height_phase = HTML_SPACE_HEIGHT_MEASURED;
++		return;
++	}
+ 	if (fz_css_number_defined(node->box->style->leading))
+ 		node->h = fz_from_css_number(node->box->style->leading, em, em, 0);
+ 	else
+@@ -363,26 +369,27 @@
+ 
+ static float measure_line(fz_html_flow *node, fz_html_flow *end, float *baseline)
+ {
+-	float max_a = 0, max_d = 0, h = node->h;
++	float max_a = 0, max_d = 0, h = fz_html_flow_measure_height(node);
+ 	while (node != end)
+ 	{
++		float node_h = fz_html_flow_measure_height(node);
+ 		if (node->type == FLOW_IMAGE)
+ 		{
+-			if (node->h > max_a)
+-				max_a = node->h;
++			if (node_h > max_a)
++				max_a = node_h;
+ 		}
+ 		else if (node->type != FLOW_SBREAK && node->type != FLOW_BREAK && node->type != FLOW_ANCHOR)
+ 		{
+ 			// Clamp ascender/descender to line-height size.
+ 			// TODO: This is not entirely to spec, but close enough.
+-			float s = fz_min(node->box->s.layout.em, node->h);
++			float s = fz_min(node->box->s.layout.em, node_h);
+ 			float a = s * 0.8f;
+ 			float d = s * 0.2f;
+ 			if (a > max_a) max_a = a;
+ 			if (d > max_d) max_d = d;
+ 		}
+-		if (node->h > h)
+-			h = node->h;
++		if (node_h > h)
++			h = node_h;
+ 		node = node->next;
+ 	}
+ 	*baseline = max_a + (h - max_a - max_d) / 2;
+@@ -475,7 +482,7 @@
+ 		float w;
+ 
+ 		node = reorder[i];
+-		w = node->w;
++		w = fz_html_flow_width(node);
+ 
+ 		if (node->type == FLOW_SPACE && node->breaks_line)
+ 			w = 0;
+@@ -562,7 +569,10 @@
+ 				break;
+ 			}
+ 			node->y = y + baseline + va;
+-			node->h = node->box->s.layout.em;
++			if (fz_html_flow_is_compact_space(node))
++				node->compact_space_height_phase = HTML_SPACE_HEIGHT_LAID_OUT;
++			else
++				node->h = node->box->s.layout.em;
+ 		}
+ 	}
+ 
+@@ -780,8 +790,8 @@
+ 			/* node becomes first cluster, node->next becomes the rest */
+ 			split_flow_at_byte_offset(ctx, ld->pool, node, at);
+ 			node->next->overflow_wrap = 1;
+-			measure_string_w(ctx, node, ld->hb_buf);
+-			measure_string_w(ctx, node->next, ld->hb_buf);
++			node->w = measure_string_w(ctx, node, ld->hb_buf);
++			node->next->w = measure_string_w(ctx, node->next, ld->hb_buf);
+ 			return;
+ 		}
+ 	}
+@@ -836,8 +846,8 @@
+ 			/* node becomes last cluster, node->next becomes the rest */
+ 			split_flow_at_byte_offset_reverse(ctx, ld->pool, node, at);
+ 			node->next->overflow_wrap = 1;
+-			measure_string_w(ctx, node, ld->hb_buf);
+-			measure_string_w(ctx, node->next, ld->hb_buf);
++			node->w = measure_string_w(ctx, node, ld->hb_buf);
++			node->next->w = measure_string_w(ctx, node->next, ld->hb_buf);
+ 			return;
+ 		}
+ 	}
+@@ -1017,7 +1027,7 @@
+ 		{
+ 		default:
+ 			// always same width
+-			line_w += node->w;
++			line_w += fz_html_flow_width(node);
+ 			break;
+ 
+ 		case FLOW_WORD:
+@@ -1049,7 +1059,7 @@
+ 			// zero width if broken, default width if unbroken
+ 			candidate = node;
+ 			candidate_w = line_w;
+-			line_w += node->w;
++			line_w += fz_html_flow_width(node);
+ 			break;
+ 
+ 		case FLOW_SHYPHEN:
+@@ -2125,8 +2135,8 @@
+ 	{
+ 		fz_html_flow *flow;
+ 		for (flow = box->u.flow.head; flow; flow = flow->next)
+-			if (flow->w > r_min)
+-				r_min = flow->w;
++			if (fz_html_flow_width(flow) > r_min)
++				r_min = fz_html_flow_width(flow);
+ 	}
+ 	else
+ 	{
+@@ -2157,7 +2167,7 @@
+ 		float max = 0;
+ 		for (flow = box->u.flow.head; flow; flow = flow->next)
+ 		{
+-			max += flow->w;
++			max += fz_html_flow_width(flow);
+ 			if (flow->type == FLOW_BREAK)
+ 			{
+ 				if (max > r_max)
+@@ -3039,6 +3049,12 @@
+ 			box->s.layout.x = top->s.layout.x;
+ 			box->s.layout.w = top->s.layout.w;
+ 		}
++		else if (box->type == BOX_INLINE)
++		{
++			fz_html_space_metric *metric;
++			for (metric = &box->u.inline_space; metric; metric = metric->next)
++				metric->flags &= ~HTML_SPACE_METRIC_VALID;
++		}
+ 
+ 		if (box->down)
+ 			layout_update_styles(ctx, box->down, box);
+@@ -3047,8 +3063,9 @@
+ 	}
+ }
+ 
+-/* Only the initial width pass reuses measurements. Overflow splitting and
+- * drawing still shape their current text; nothing survives a layout call. */
++/* Only the initial width pass reuses these measurements. Overflow splitting and
++ * drawing still shape their current text. Inline SPACE signatures survive but
++ * their widths are invalidated by the style pass before remeasurement. */
+ enum { WIDTH_CACHE_SIZE = 2048 };
+ typedef struct
+ {
+@@ -3058,7 +3075,7 @@
+ 	int script, language, rtl, small_caps;
+ } width_cache_entry;
+ 
+-static void measure_string_w_cached(fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf, width_cache_entry *cache)
++static float measure_string_w_cached(fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf, width_cache_entry *cache)
+ {
+ 	const char *text = get_node_text(ctx, node);
+ 	const unsigned char *p = (const unsigned char *)text;
+@@ -3069,6 +3086,7 @@
+ 	int small_caps = node->box->style->small_caps;
+ 	uint32_t hash = 2166136261u;
+ 	width_cache_entry *entry;
++	float width;
+ 
+ 	while (*p)
+ 		hash = (hash ^ *p++) * 16777619u;
+@@ -3079,15 +3097,42 @@
+ 		entry->rtl == rtl && entry->small_caps == small_caps &&
+ 		!strcmp(entry->text, text))
+ 	{
+-		node->w = entry->width;
+-		return;
+-	}
+-
+-	measure_string_w(ctx, node, hb_buf);
+-	*entry = (width_cache_entry){ text, font, em, node->w, node->script, language, rtl, small_caps };
+-}
+-
+-static void layout_update_widths(fz_context *ctx, fz_html_box *box, fz_html_box *top, hb_buffer_t *hb_buf, int no_pagination, width_cache_entry *cache)
++		return entry->width;
++	}
++
++	width = measure_string_w(ctx, node, hb_buf);
++	*entry = (width_cache_entry){ text, font, em, width, node->script, language, rtl, small_caps };
++	return width;
++}
++
++static void measure_inline_space_w(fz_context *ctx, fz_pool *pool, fz_html_flow *node, hb_buffer_t *hb_buf, width_cache_entry *cache)
++{
++	fz_html_space_metric *metric = &node->box->u.inline_space;
++	uint32_t key = fz_html_flow_space_key(node);
++
++	if (!(metric->flags & HTML_SPACE_METRIC_PRESENT))
++		metric->flags = key | HTML_SPACE_METRIC_PRESENT;
++	else
++	{
++		while ((metric->flags & HTML_SPACE_METRIC_KEY_MASK) != key)
++		{
++			if (!metric->next)
++			{
++				fz_html_space_metric *extra = fz_pool_alloc(ctx, pool, sizeof(*extra));
++				extra->flags = key | HTML_SPACE_METRIC_PRESENT;
++				metric->next = extra;
++			}
++			metric = metric->next;
++		}
++	}
++	if (!(metric->flags & HTML_SPACE_METRIC_VALID))
++	{
++		metric->width = measure_string_w_cached(ctx, node, hb_buf, cache);
++		metric->flags |= HTML_SPACE_METRIC_VALID;
++	}
++}
++
++static void layout_update_widths(fz_context *ctx, fz_pool *pool, fz_html_box *box, fz_html_box *top, hb_buffer_t *hb_buf, int no_pagination, width_cache_entry *cache)
+ {
+ 	while (box)
+ 	{
+@@ -3103,13 +3148,15 @@
+ 					node->w = node->content.image->w * (no_pagination ? 1 : 72.0f / 96.0f);
+ 					node->w = fz_from_css_number(node->box->style->width, no_pagination ? node->box->s.layout.em : top->s.layout.em, node->w, node->w);
+ 				}
++				else if (fz_html_flow_is_compact_space(node))
++					measure_inline_space_w(ctx, pool, node, hb_buf, cache);
+ 				else if (node->type == FLOW_WORD || node->type == FLOW_SPACE || node->type == FLOW_SHYPHEN)
+-					measure_string_w_cached(ctx, node, hb_buf, cache);
++					node->w = measure_string_w_cached(ctx, node, hb_buf, cache);
+ 			}
+ 		}
+ 
+ 		if (box->down)
+-			layout_update_widths(ctx, box->down, box, hb_buf, no_pagination, cache);
++			layout_update_widths(ctx, pool, box->down, box, hb_buf, no_pagination, cache);
+ 
+ 		box = box->next;
+ 	}
+@@ -3352,7 +3399,7 @@
+ 			box->s.layout.w = page_w;
+ 			layout_update_styles(ctx, box->down, box);
+ 			width_cache = fz_calloc(ctx, WIDTH_CACHE_SIZE, sizeof(*width_cache));
+-			layout_update_widths(ctx, box->down, box, ld.hb_buf, no_pagination, width_cache);
++			layout_update_widths(ctx, tree->pool, box->down, box, ld.hb_buf, no_pagination, width_cache);
+ 			layout_collapse_margins(ctx, box->down, box);
+ 		}
+ 
+@@ -3575,7 +3622,7 @@
+ 				bg = find_inline_background_color(ctx, node->box);
+ 				if (bg.a > 0)
+ 					draw_rect(ctx, dev, ctm, page_top, bg,
+-						node->x, node->y - 0.8f * node->h, node->x + node->w, node->y + 0.2f * node->h);
++						node->x, node->y - 0.8f * fz_html_flow_layout_height(node), node->x + fz_html_flow_width(node), node->y + 0.2f * fz_html_flow_layout_height(node));
+ 
+ 				line_width = fz_from_css_number(style->text_stroke_width, em, em, 0);
+ 				filling = style->text_fill_color.a != 0;
+@@ -3646,12 +3693,12 @@
+ 					if (style->text_decoration & TD_UNDERLINE)
+ 					{
+ 						fz_moveto(ctx, line, node->x, node->y + 1.5f - page_top);
+-						fz_lineto(ctx, line, node->x + node->w, node->y + 1.5f - page_top);
++						fz_lineto(ctx, line, node->x + fz_html_flow_width(node), node->y + 1.5f - page_top);
+ 					}
+ 					if (style->text_decoration & TD_LINE_THROUGH)
+ 					{
+ 						fz_moveto(ctx, line, node->x, node->y - em * 0.3f - page_top);
+-						fz_lineto(ctx, line, node->x + node->w, node->y - em * 0.3f - page_top);
++						fz_lineto(ctx, line, node->x + fz_html_flow_width(node), node->y - em * 0.3f - page_top);
+ 					}
+ 				}
+ 
+@@ -3659,7 +3706,7 @@
+ 					text = fz_new_text(ctx);
+ 
+ 				if (node->bidi_level & 1)
+-					x = node->x + node->w;
++					x = node->x + fz_html_flow_width(node);
+ 				else
+ 					x = node->x;
+ 				y = node->y;
+@@ -5063,9 +5110,9 @@
+ 			pos.href = node->box->href;
+ 			/* We only have the baseline and the em, so the bbox is a bit of a fudge. */
+ 			pos.rect.x0 = node->x;
+-			pos.rect.y0 = node->y - node->h * 0.8f;
+-			pos.rect.x1 = node->x + node->w;
+-			pos.rect.y1 = node->y + node->h * 0.2f;
++			pos.rect.y0 = node->y - fz_html_flow_layout_height(node) * 0.8f;
++			pos.rect.x1 = node->x + fz_html_flow_width(node);
++			pos.rect.y1 = node->y + fz_html_flow_layout_height(node) * 0.2f;
+ 			pos.rectangle_num = rect_num;
+ 			cb(ctx, arg, &pos);
+ 		}
+diff --git a/source/html/html-outline.c b/source/html/html-outline.c
+--- a/source/html/html-outline.c
++++ b/source/html/html-outline.c
+@@ -59,25 +59,25 @@
+ 			if (href)
+ 			{
+ 				/* Coalesce contiguous flow boxes into one link node */
+-				end = flow->x + flow->w;
++				end = flow->x + fz_html_flow_width(flow);
+ 				while (next &&
+ 					next->y == flow->y &&
+-					next->h == flow->h &&
++					fz_html_flow_layout_height(next) == fz_html_flow_layout_height(flow) &&
+ 					next->box->href == href)
+ 				{
+-					end = next->x + next->w;
++					end = next->x + fz_html_flow_width(next);
+ 					next = next->next;
+ 				}
+ 
+ 				bbox.x0 = flow->x;
+ 				bbox.y0 = flow->y - page * page_h;
+ 				bbox.x1 = end;
+-				bbox.y1 = bbox.y0 + flow->h;
++				bbox.y1 = bbox.y0 + fz_html_flow_layout_height(flow);
+ 				if (flow->type != FLOW_IMAGE)
+ 				{
+ 					/* flow->y is the baseline, adjust bbox appropriately */
+-					bbox.y0 -= 0.8f * flow->h;
+-					bbox.y1 -= 0.8f * flow->h;
++					bbox.y0 -= 0.8f * fz_html_flow_layout_height(flow);
++					bbox.y1 -= 0.8f * fz_html_flow_layout_height(flow);
+ 				}
+ 
+ 				/* Standalone file links are resolved by the host. Keep their URI
+@@ -190,7 +190,7 @@
+ 	if (node->type == FLOW_IMAGE)
+ 		return node->y;
+ 	// and everything else is the baseline
+-	return node->y - node->h * 0.8f;
++	return node->y - fz_html_flow_layout_height(node) * 0.8f;
+ }
+ 
+ static float

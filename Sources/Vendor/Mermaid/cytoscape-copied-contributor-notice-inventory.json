@@ -1,0 +1,46 @@
+[
+  {
+    "exact_published_file": {
+      "path": "cytoscape3.31.0-src-event.js",
+      "url": "https://unpkg.com/cytoscape@3.31.0/src/event.js",
+      "bytes": 2921,
+      "sha256": "5cb8280758bf91767096f0b711ae2eb3e42cbce72107196be30d6d1a28ded015"
+    },
+    "original_license_banner": "/*!\nEvent object based on jQuery events, MIT license\n\nhttps://jquery.org/license/\nhttps://tldrlegal.com/license/mit-license\nhttps://github.com/jquery/jquery/blob/master/src/event.js\n*/",
+    "notice_terms": "canonical-MIT-permission-and-disclaimer.txt",
+    "terms_verified_equal_to_exact_cytoscape_LICENSE": true
+  },
+  {
+    "exact_published_file": {
+      "path": "cytoscape3.31.0-src-core-animation-cubic-bezier.js",
+      "url": "https://unpkg.com/cytoscape@3.31.0/src/core/animation/cubic-bezier.js",
+      "bytes": 3843,
+      "sha256": "ac0c873e3efc9209efdfca1276bce21ad9d42bff4d81fa0834c698c60b2ed939"
+    },
+    "original_license_banner": "/*! Bezier curve function generator. Copyright Gaetan Renaudeau. MIT License: http://en.wikipedia.org/wiki/MIT_License */",
+    "notice_terms": "canonical-MIT-permission-and-disclaimer.txt",
+    "terms_verified_equal_to_exact_cytoscape_LICENSE": true
+  },
+  {
+    "exact_published_file": {
+      "path": "cytoscape3.31.0-src-core-animation-spring.js",
+      "url": "https://unpkg.com/cytoscape@3.31.0/src/core/animation/spring.js",
+      "bytes": 3190,
+      "sha256": "a44025d0fbdc257abd02beb46a8e3dd427dc6ba3a81804a4966f115bfb7fe103"
+    },
+    "original_license_banner": "/*! Runge-Kutta spring physics function generator. Adapted from Framer.js, copyright Koen Bok. MIT License: http://en.wikipedia.org/wiki/MIT_License */",
+    "notice_terms": "canonical-MIT-permission-and-disclaimer.txt",
+    "terms_verified_equal_to_exact_cytoscape_LICENSE": true
+  },
+  {
+    "exact_published_file": {
+      "path": "cytoscape3.31.0-src-promise.js",
+      "url": "https://unpkg.com/cytoscape@3.31.0/src/promise.js",
+      "bytes": 7591,
+      "sha256": "f12e7bfaa4eeadff9545f48668593c9e8dc1e03403b980dc8e26720d0bbdf868"
+    },
+    "original_license_banner": "/*!\nEmbeddable Minimum Strictly-Compliant Promises/A+ 1.1.1 Thenable\nCopyright (c) 2013-2014 Ralf S. Engelschall (http://engelschall.com)\nLicensed under The MIT License (http://opensource.org/licenses/MIT)\n*/",
+    "notice_terms": "canonical-MIT-permission-and-disclaimer.txt",
+    "terms_verified_equal_to_exact_cytoscape_LICENSE": true
+  }
+]

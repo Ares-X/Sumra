@@ -1,0 +1,4748 @@
+[
+  {
+    "source_index": 1,
+    "source": "../src/logger.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 293,
+    "first_mapping": {
+      "generated_line_0": 0,
+      "generated_column_0": 8153,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2768,
+    "source_sha256": "9bfb87d46baa139d03631dfda338ca99f33e04dbf5c9c25bbba76b432fa4714d"
+  },
+  {
+    "source_index": 18,
+    "source": "../src/rendering-util/icons.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 246,
+    "first_mapping": {
+      "generated_line_0": 0,
+      "generated_column_0": 21280,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3198,
+    "source_sha256": "e89d38baa1654cd187119472423565b2e2ad722729d989586306f9d86dc35739"
+  },
+  {
+    "source_index": 20,
+    "source": "../src/diagram-api/regexes.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 13,
+    "first_mapping": {
+      "generated_line_0": 5,
+      "generated_column_0": 64,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 632,
+    "source_sha256": "b0b3baa6f27d933589ac2979fbcf3069de7b2e037a784df9db08df8674769788"
+  },
+  {
+    "source_index": 21,
+    "source": "../src/errors.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 24,
+    "first_mapping": {
+      "generated_line_0": 5,
+      "generated_column_0": 250,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 147,
+    "source_sha256": "e2e1e383b2ebc8906ff55121ad6536ec194cd87b79a1ac06387e36cb54335aa5"
+  },
+  {
+    "source_index": 22,
+    "source": "../src/diagram-api/detectType.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 131,
+    "first_mapping": {
+      "generated_line_0": 5,
+      "generated_column_0": 400,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2413,
+    "source_sha256": "f1f72f2197fda408527c2431262d74e5b1b2f35e8fe2dd59628824c39aa19665"
+  },
+  {
+    "source_index": 23,
+    "source": "../src/diagrams/c4/parser/c4Diagram.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 6982,
+    "first_mapping": {
+      "generated_line_0": 6,
+      "generated_column_0": 493,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 41891,
+    "source_sha256": "36b86f6a3f5c64aedafef7dc6f7abfca3b08940815fe5244433246c5d9658d79"
+  },
+  {
+    "source_index": 24,
+    "source": "../src/assignWithDepth.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 179,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 8469,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2664,
+    "source_sha256": "572be310ef65d9756cdda2f4a58e1755dd7b25626ff31717963d3aa716d852bb"
+  },
+  {
+    "source_index": 52,
+    "source": "../src/themes/erDiagram-oldHardcodedValues.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 10,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 21302,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 321,
+    "source_sha256": "adf6a93b5cf98fedb9b9c04f9aad6c9d9424cf8111b2784d6f6ba541921eb06a"
+  },
+  {
+    "source_index": 53,
+    "source": "../src/themes/theme-helpers.js",
+    "pnpm_identity": null,
+    "mapped_segments": 31,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 21363,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 156,
+    "source_sha256": "27e2ab0edc2f78b92ad22bdc06c3c3bbd785a2098bea28b1055daad482421425"
+  },
+  {
+    "source_index": 54,
+    "source": "../src/themes/theme-base.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1949,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 21465,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 19714,
+    "source_sha256": "756929c635e42486bdf8bd72d234ccc8c50ee274f18abaa7c49a348e7ee005a7"
+  },
+  {
+    "source_index": 55,
+    "source": "../src/themes/theme-dark.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1710,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 35797,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 17725,
+    "source_sha256": "e78dd855843cfa7b53181f9a6d86dd6286cbadfd5854fe2059c633127fd57783"
+  },
+  {
+    "source_index": 56,
+    "source": "../src/themes/theme-default.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1904,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 49022,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 19357,
+    "source_sha256": "d60bf90d0894c66b2cbcaec0a1b5279cb1929555372b2476b965feb78547968b"
+  },
+  {
+    "source_index": 57,
+    "source": "../src/themes/theme-forest.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1786,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 63049,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 17838,
+    "source_sha256": "a10f26913b96f9d360719437a0f6d848e0ff7107172d50d8d7fc78ca9270f187"
+  },
+  {
+    "source_index": 58,
+    "source": "../src/themes/theme-neutral.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1531,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 76107,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 16854,
+    "source_sha256": "c62ccc1862a04a683abc02f8d568c5fd57d4977da110e188301651dda6529001"
+  },
+  {
+    "source_index": 59,
+    "source": "../src/themes/index.js",
+    "pnpm_identity": null,
+    "mapped_segments": 38,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 88205,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 718,
+    "source_sha256": "9bf90c9e56041fd151b11d3fe05eb56531497b0894cf53859b93ca197749cb68"
+  },
+  {
+    "source_index": 60,
+    "source": "../src/schemas/config.schema.yaml",
+    "pnpm_identity": null,
+    "mapped_segments": 912,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 88415,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 13353,
+    "source_sha256": "e6bf5e774a05c2d95a9435c0a69807361157150e1816ed4127669eb735fd8e2e"
+  },
+  {
+    "source_index": 61,
+    "source": "../src/defaultConfig.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 609,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 97913,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 7741,
+    "source_sha256": "2d00af5d68c489a20c96c875d5cff2abb014d888d61d465e01c8a9b0cdc7742d"
+  },
+  {
+    "source_index": 62,
+    "source": "../src/utils/sanitizeDirective.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 200,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 103059,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2033,
+    "source_sha256": "2def429e29f7d82f0ccad37535fcd7741674b8c8d018574a78e66add7a1a2ef3"
+  },
+  {
+    "source_index": 63,
+    "source": "../src/config.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 410,
+    "first_mapping": {
+      "generated_line_0": 11,
+      "generated_column_0": 104039,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 9522,
+    "source_sha256": "985b134420ea027ed9ad89f0b02751adf2c55fce9db1ad8588a45828e0047193"
+  },
+  {
+    "source_index": 66,
+    "source": "../src/diagrams/common/common.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 803,
+    "first_mapping": {
+      "generated_line_0": 272,
+      "generated_column_0": 3376,
+      "original_line_0": 31,
+      "original_column_0": 0
+    },
+    "source_bytes": 10832,
+    "source_sha256": "f8695bfef24178fdea244390777aec3a6a72b2c9763381dc46435e3578e53386"
+  },
+  {
+    "source_index": 67,
+    "source": "../src/setupGraphViewbox.js",
+    "pnpm_identity": null,
+    "mapped_segments": 182,
+    "first_mapping": {
+      "generated_line_0": 272,
+      "generated_column_0": 7181,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2342,
+    "source_sha256": "ad03574ae263ef22138f0c663e8e338d19458c34da5c995f8aa62ba28411b08e"
+  },
+  {
+    "source_index": 68,
+    "source": "../src/styles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 172,
+    "first_mapping": {
+      "generated_line_0": 272,
+      "generated_column_0": 7851,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2330,
+    "source_sha256": "6a25f485316fc25ebb596f735443cc01c8da65f4668606e7e7775bac03d49db3"
+  },
+  {
+    "source_index": 69,
+    "source": "../src/diagrams/common/commonDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 117,
+    "first_mapping": {
+      "generated_line_0": 348,
+      "generated_column_0": 84,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 859,
+    "source_sha256": "cb83451b20ab88b7dbaa931c0c9c7c9ff1aad1b3256b9937f0a0318db9f1c9a8"
+  },
+  {
+    "source_index": 70,
+    "source": "../src/diagram-api/diagramAPI.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 133,
+    "first_mapping": {
+      "generated_line_0": 349,
+      "generated_column_0": 129,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2593,
+    "source_sha256": "6771091056db8960f925a64b7cfeb1846380f79281069e28b4d81d2a392182c5"
+  },
+  {
+    "source_index": 71,
+    "source": "../src/diagrams/c4/c4Db.js",
+    "pnpm_identity": null,
+    "mapped_segments": 2329,
+    "first_mapping": {
+      "generated_line_0": 349,
+      "generated_column_0": 698,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 20544,
+    "source_sha256": "d2c4492a7dcf8432b4f9fd4883517d7f51f3390296b31db963b8f9a978a79e1d"
+  },
+  {
+    "source_index": 291,
+    "source": "../src/diagrams/common/svgDrawCommon.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 354,
+    "first_mapping": {
+      "generated_line_0": 349,
+      "generated_column_0": 126487,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3539,
+    "source_sha256": "789ed581bb80498caf78508e90576591b704e5ae04a274e018e3cedc65e61308"
+  },
+  {
+    "source_index": 292,
+    "source": "../src/diagrams/c4/svgDraw.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1968,
+    "first_mapping": {
+      "generated_line_0": 349,
+      "generated_column_0": 127874,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 34814,
+    "source_sha256": "9c7dbc42c4c66265acf93e6bfc10891c7c6c1544f2bbaa0cce74a28699dc9842"
+  },
+  {
+    "source_index": 390,
+    "source": "../src/utils.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 2151,
+    "first_mapping": {
+      "generated_line_0": 349,
+      "generated_column_0": 171890,
+      "original_line_0": 227,
+      "original_column_0": 7
+    },
+    "source_bytes": 28557,
+    "source_sha256": "5880170c3b597553b97a00f870f03c30d9be167cf0a456da74552bd9868b27d7"
+  },
+  {
+    "source_index": 391,
+    "source": "../src/diagrams/c4/c4Renderer.js",
+    "pnpm_identity": null,
+    "mapped_segments": 2119,
+    "first_mapping": {
+      "generated_line_0": 350,
+      "generated_column_0": 6120,
+      "original_line_0": 163,
+      "original_column_0": 0
+    },
+    "source_bytes": 22472,
+    "source_sha256": "da9048733c6bfa965e72b224c399dad1d921aac8fa8085411eb7e33c42db529d"
+  },
+  {
+    "source_index": 392,
+    "source": "../src/diagrams/c4/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 23,
+    "first_mapping": {
+      "generated_line_0": 350,
+      "generated_column_0": 14810,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 147,
+    "source_sha256": "5e521a98c9f1e2158729a914d7f699b6873d367ae3a31cee9b686382946df179"
+  },
+  {
+    "source_index": 393,
+    "source": "../src/diagrams/c4/c4Diagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 47,
+    "first_mapping": {
+      "generated_line_0": 354,
+      "generated_column_0": 24,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 502,
+    "source_sha256": "c97bfd8527c3e292ff5befc006f768cae72aab8334e878af93be874d438f0997"
+  },
+  {
+    "source_index": 406,
+    "source": "../src/rendering-util/handle-markdown-text.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 320,
+    "first_mapping": {
+      "generated_line_0": 440,
+      "generated_column_0": 776,
+      "original_line_0": 10,
+      "original_column_0": 0
+    },
+    "source_bytes": 3337,
+    "source_sha256": "fe6dd673ba97c9c74e0d1d142f94a6861fb82f0766f5bb80c8e09d54dcef7e01"
+  },
+  {
+    "source_index": 407,
+    "source": "../src/rendering-util/splitText.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 319,
+    "first_mapping": {
+      "generated_line_0": 443,
+      "generated_column_0": 1038,
+      "original_line_0": 5,
+      "original_column_0": 7
+    },
+    "source_bytes": 4338,
+    "source_sha256": "4dc8f19c041b568d3b5987c9363455c1a7c3cc8322b0ea35771283361539df99"
+  },
+  {
+    "source_index": 408,
+    "source": "../src/rendering-util/createText.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 760,
+    "first_mapping": {
+      "generated_line_0": 444,
+      "generated_column_0": 677,
+      "original_line_0": 14,
+      "original_column_0": 0
+    },
+    "source_bytes": 9899,
+    "source_sha256": "fbe217b13b2dd3039e6a1342dabf0fd31926d95c30db55d1a418c5d046ed2352"
+  },
+  {
+    "source_index": 409,
+    "source": "../src/rendering-util/rendering-elements/shapes/util.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 730,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 3104,
+      "original_line_0": 210,
+      "original_column_0": 7
+    },
+    "source_bytes": 8760,
+    "source_sha256": "e9e7e5d047e79bc7b7a7849556b0615d425533d0b990322b24665e11b496cad1"
+  },
+  {
+    "source_index": 410,
+    "source": "../src/rendering-util/rendering-elements/intersect/intersect-node.js",
+    "pnpm_identity": null,
+    "mapped_segments": 21,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 6081,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 103,
+    "source_sha256": "987b4083ed045303791310db8054c0e87e3581c69a4c5fd7d2a52d90dc5c55b2"
+  },
+  {
+    "source_index": 411,
+    "source": "../src/rendering-util/rendering-elements/intersect/intersect-ellipse.js",
+    "pnpm_identity": null,
+    "mapped_segments": 83,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 6183,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 523,
+    "source_sha256": "1df8dedecf96c94ba3153af8cb47e46f3a44185c6e7bdf182f0894857c97bb9f"
+  },
+  {
+    "source_index": 412,
+    "source": "../src/rendering-util/rendering-elements/intersect/intersect-circle.js",
+    "pnpm_identity": null,
+    "mapped_segments": 25,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 6424,
+      "original_line_0": 2,
+      "original_column_0": 0
+    },
+    "source_bytes": 183,
+    "source_sha256": "58184d45f4110d7d1279e3331f2ee86fc525cedee21c30e0b93430fe029093d2"
+  },
+  {
+    "source_index": 413,
+    "source": "../src/rendering-util/rendering-elements/intersect/intersect-line.js",
+    "pnpm_identity": null,
+    "mapped_segments": 183,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 6532,
+      "original_line_0": 3,
+      "original_column_0": 0
+    },
+    "source_bytes": 1945,
+    "source_sha256": "eeab38df7908218e017f3be1ab1ada8d20be1593a2783abd6cb61186e7b72dfb"
+  },
+  {
+    "source_index": 414,
+    "source": "../src/rendering-util/rendering-elements/intersect/intersect-polygon.js",
+    "pnpm_identity": null,
+    "mapped_segments": 203,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 7007,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 1675,
+    "source_sha256": "98dab96eed16749d595741cc76ec2e2fdbef183535a0e4867aec23618d28a4a5"
+  },
+  {
+    "source_index": 415,
+    "source": "../src/rendering-util/rendering-elements/intersect/intersect-rect.js",
+    "pnpm_identity": null,
+    "mapped_segments": 88,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 7628,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 719,
+    "source_sha256": "0bd9a4e020f08b5a3fa7b3be28f1558050e460a9cb5b2a00ba3b635c4785d2ca"
+  },
+  {
+    "source_index": 416,
+    "source": "../src/rendering-util/rendering-elements/intersect/index.js",
+    "pnpm_identity": null,
+    "mapped_segments": 23,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 7881,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 360,
+    "source_sha256": "ab618a059be89c6eac893cf853492d96813038de79a0db239a3f447e693687db"
+  },
+  {
+    "source_index": 417,
+    "source": "../src/rendering-util/rendering-elements/shapes/handDrawnShapeStyles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 321,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 7991,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3448,
+    "source_sha256": "3bb17cbf3029f6c98532d15820d4b925e28347626d099663a03e574d95f5ac98"
+  },
+  {
+    "source_index": 419,
+    "source": "../src/rendering-util/rendering-elements/shapes/anchor.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 141,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 37839,
+      "original_line_0": 9,
+      "original_column_0": 7
+    },
+    "source_bytes": 1569,
+    "source_sha256": "91608884938f603e5086dbc831107f9fb83971bde1470c18e1ca68bdb4e06975"
+  },
+  {
+    "source_index": 420,
+    "source": "../src/rendering-util/rendering-elements/shapes/bowTieRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 397,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 38391,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 4123,
+    "source_sha256": "412830ba817a5831b7ab1812083abf40d92e9602c0135a4001358caae2673a46"
+  },
+  {
+    "source_index": 421,
+    "source": "../src/rendering-util/rendering-elements/shapes/insertPolygonShape.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 55,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 39735,
+      "original_line_0": 2,
+      "original_column_0": 7
+    },
+    "source_bytes": 514,
+    "source_sha256": "f587eec9b4f04e29dff33613f8913b195f95b9292ec70565c22ee01c98c0a6e3"
+  },
+  {
+    "source_index": 422,
+    "source": "../src/rendering-util/rendering-elements/shapes/card.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 201,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 39998,
+      "original_line_0": 16,
+      "original_column_0": 0
+    },
+    "source_bytes": 2264,
+    "source_sha256": "6180aee67e4165e31e1a28def90f1bff21a22eb067aaab77dbdd7da6079d5a19"
+  },
+  {
+    "source_index": 423,
+    "source": "../src/rendering-util/rendering-elements/shapes/choice.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 176,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 40624,
+      "original_line_0": 7,
+      "original_column_0": 7
+    },
+    "source_bytes": 1615,
+    "source_sha256": "60eab75c793203e73314dbbe8ffb895b1a4da3965e5fcbbc0aef760ad585dfac"
+  },
+  {
+    "source_index": 424,
+    "source": "../src/rendering-util/rendering-elements/shapes/circle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 157,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 41245,
+      "original_line_0": 9,
+      "original_column_0": 0
+    },
+    "source_bytes": 1677,
+    "source_sha256": "140ba80d27c51616b53eb1292b7407d15b28292b01a2f06565756b1343d5db9c"
+  },
+  {
+    "source_index": 425,
+    "source": "../src/rendering-util/rendering-elements/shapes/crossedCircle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 273,
+    "first_mapping": {
+      "generated_line_0": 445,
+      "generated_column_0": 41883,
+      "original_line_0": 8,
+      "original_column_0": 0
+    },
+    "source_bytes": 2505,
+    "source_sha256": "b001bfd024862626945fd143d255fd1222f43cb9c4956836f3441f9e012ff8f8"
+  },
+  {
+    "source_index": 426,
+    "source": "../src/rendering-util/rendering-elements/shapes/curlyBraceLeft.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 481,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 759,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 3983,
+    "source_sha256": "25bef1c0b5bede1249e8c5e1d0e973a55b791144a960a635bb3c18b559730ed2"
+  },
+  {
+    "source_index": 427,
+    "source": "../src/rendering-util/rendering-elements/shapes/curlyBraceRight.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 479,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 2268,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 4008,
+    "source_sha256": "1a4b08111bed69140e872d3262e99a754ceed4f9a61183c5a4740ee7dce1950e"
+  },
+  {
+    "source_index": 428,
+    "source": "../src/rendering-util/rendering-elements/shapes/curlyBraces.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 666,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 3786,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 5220,
+    "source_sha256": "fb8cd4d6bae27d200566bd87f5889681dc2acd1ddf9cf94fe67f036e49b27c43"
+  },
+  {
+    "source_index": 429,
+    "source": "../src/rendering-util/rendering-elements/shapes/curvedTrapezoid.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 237,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 5718,
+      "original_line_0": 13,
+      "original_column_0": 0
+    },
+    "source_bytes": 2248,
+    "source_sha256": "432f7707721908ba50e37b07e0400bbae743927094f254dfbcde0fbc8cd5cf18"
+  },
+  {
+    "source_index": 430,
+    "source": "../src/rendering-util/rendering-elements/shapes/cylinder.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 472,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 6577,
+      "original_line_0": 52,
+      "original_column_0": 0
+    },
+    "source_bytes": 3817,
+    "source_sha256": "8b1925c63dffd7fd47eab4aa34358138114691d333601232ebd603ea87ae8581"
+  },
+  {
+    "source_index": 431,
+    "source": "../src/rendering-util/rendering-elements/shapes/dividedRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 247,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 8243,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 2036,
+    "source_sha256": "1c881b39b35196bd0f2699ccf4b20e705328ef65b86f1a9d24ed5c909a8051da"
+  },
+  {
+    "source_index": 432,
+    "source": "../src/rendering-util/rendering-elements/shapes/doubleCircle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 245,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 9104,
+      "original_line_0": 9,
+      "original_column_0": 0
+    },
+    "source_bytes": 2578,
+    "source_sha256": "fdfdd1839e5514044aa88bc4ab0dcf0dd4b16afb518e0e7c43ef405e75e00aba"
+  },
+  {
+    "source_index": 433,
+    "source": "../src/rendering-util/rendering-elements/shapes/filledCircle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 175,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 10090,
+      "original_line_0": 8,
+      "original_column_0": 7
+    },
+    "source_bytes": 1823,
+    "source_sha256": "4fc22f4a880ab15fa52c4c4283e17381f92dc5b1d4eeffcff3f337f06f7a3452"
+  },
+  {
+    "source_index": 434,
+    "source": "../src/rendering-util/rendering-elements/shapes/flippedTriangle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 225,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 10826,
+      "original_line_0": 9,
+      "original_column_0": 0
+    },
+    "source_bytes": 2111,
+    "source_sha256": "b651517956bff524da3dba9d6b43b4020ac0a1c3a2e5bdf51a25d926b31bdd01"
+  },
+  {
+    "source_index": 435,
+    "source": "../src/rendering-util/rendering-elements/shapes/forkJoin.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 210,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 11691,
+      "original_line_0": 7,
+      "original_column_0": 7
+    },
+    "source_bytes": 1967,
+    "source_sha256": "0163261388c1bc2b61d3dacd89dbc13794dd1332c2b5f79e7892614bb4f15d9d"
+  },
+  {
+    "source_index": 436,
+    "source": "../src/rendering-util/rendering-elements/shapes/halfRoundedRectangle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 236,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 12512,
+      "original_line_0": 14,
+      "original_column_0": 0
+    },
+    "source_bytes": 2349,
+    "source_sha256": "9611bf746a1834b4c1961498a2dfa49429022040ef6f8522043bf62630ce74c9"
+  },
+  {
+    "source_index": 437,
+    "source": "../src/rendering-util/rendering-elements/shapes/hexagon.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 269,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 13372,
+      "original_line_0": 26,
+      "original_column_0": 0
+    },
+    "source_bytes": 2260,
+    "source_sha256": "b5763cf13d2c40faaa43428a5668cdf89d1bbb4c982221df2190c44055b7a873"
+  },
+  {
+    "source_index": 438,
+    "source": "../src/rendering-util/rendering-elements/shapes/hourglass.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 203,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 14187,
+      "original_line_0": 8,
+      "original_column_0": 0
+    },
+    "source_bytes": 2019,
+    "source_sha256": "88bd3dcf3b055c9faf4b2c6aeef945631365d339e468f94e914ba6f1d55f6222"
+  },
+  {
+    "source_index": 439,
+    "source": "../src/rendering-util/rendering-elements/shapes/icon.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 565,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 14964,
+      "original_line_0": 9,
+      "original_column_0": 0
+    },
+    "source_bytes": 4726,
+    "source_sha256": "4a76562cbde43c92596c6be86983e2f2598af01e1f1c1e3bcae511678288ae94"
+  },
+  {
+    "source_index": 440,
+    "source": "../src/rendering-util/rendering-elements/shapes/iconCircle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 349,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 16723,
+      "original_line_0": 9,
+      "original_column_0": 0
+    },
+    "source_bytes": 3380,
+    "source_sha256": "dace2fe6fdc5d0fc4e92a373c0157c0ccd8766ce09363ebffa7e8038ec5dfea1"
+  },
+  {
+    "source_index": 441,
+    "source": "../src/rendering-util/rendering-elements/shapes/roundedRectPath.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 78,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 18031,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1139,
+    "source_sha256": "f5f3b3cb0355ee768d0656a456cc1d5f2c8d4b965e4ccb9e5e120b23f67ec33c"
+  },
+  {
+    "source_index": 442,
+    "source": "../src/rendering-util/rendering-elements/shapes/iconRounded.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 587,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 18257,
+      "original_line_0": 10,
+      "original_column_0": 0
+    },
+    "source_bytes": 4965,
+    "source_sha256": "66ba42b1e2a42815ceed004c240d4cd71ed15b30a70c81c5f03d7f33f72c27d4"
+  },
+  {
+    "source_index": 443,
+    "source": "../src/rendering-util/rendering-elements/shapes/iconSquare.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 583,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 20098,
+      "original_line_0": 10,
+      "original_column_0": 0
+    },
+    "source_bytes": 4937,
+    "source_sha256": "4ebe81ef6e64c5e5a4039971e3685fb222d91948693583ed4ef5bf6e87c992d1"
+  },
+  {
+    "source_index": 444,
+    "source": "../src/rendering-util/rendering-elements/shapes/imageSquare.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 575,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 21911,
+      "original_line_0": 8,
+      "original_column_0": 0
+    },
+    "source_bytes": 4958,
+    "source_sha256": "7e4c1bd9d05339e9901267da7d0740effbb48aee6bdba50e9a718958cf7ed7f7"
+  },
+  {
+    "source_index": 445,
+    "source": "../src/rendering-util/rendering-elements/shapes/invertedTrapezoid.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 202,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 23827,
+      "original_line_0": 23,
+      "original_column_0": 0
+    },
+    "source_bytes": 2359,
+    "source_sha256": "99f7c6cd1da9958d79430dee0b176faa4e6ac661bc2f9cfbd3e454622512c80a"
+  },
+  {
+    "source_index": 446,
+    "source": "../src/rendering-util/rendering-elements/shapes/drawRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 223,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 24500,
+      "original_line_0": 9,
+      "original_column_0": 0
+    },
+    "source_bytes": 2292,
+    "source_sha256": "4c18da36a1738f3f4a7c6563ceb641d303cc9d924a186c1f483d9ae40caf8b17"
+  },
+  {
+    "source_index": 447,
+    "source": "../src/rendering-util/rendering-elements/shapes/labelRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 94,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 25324,
+      "original_line_0": 21,
+      "original_column_0": 0
+    },
+    "source_bytes": 1777,
+    "source_sha256": "370129e18879bc997fa495cc8dd6006ee06f304b97f3d2031144b87e3a322567"
+  },
+  {
+    "source_index": 448,
+    "source": "../src/rendering-util/rendering-elements/shapes/leanLeft.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 201,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 25731,
+      "original_line_0": 8,
+      "original_column_0": 0
+    },
+    "source_bytes": 1958,
+    "source_sha256": "ea0cd4326c202adc7ccfffb37fe214279a9515204575a0c06982b2184ac44e79"
+  },
+  {
+    "source_index": 449,
+    "source": "../src/rendering-util/rendering-elements/shapes/leanRight.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 200,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 26398,
+      "original_line_0": 8,
+      "original_column_0": 0
+    },
+    "source_bytes": 1902,
+    "source_sha256": "11df4070a97efb3e09ad12af87feb7ba9ea69dfe5ef1c0fbd9cde583571435cb"
+  },
+  {
+    "source_index": 450,
+    "source": "../src/rendering-util/rendering-elements/shapes/lightningBolt.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 226,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 27064,
+      "original_line_0": 9,
+      "original_column_0": 7
+    },
+    "source_bytes": 2076,
+    "source_sha256": "ebc87041122d165f286a40b0fc24c942e2a83b94d216a7e7999f2a5bedef41ca"
+  },
+  {
+    "source_index": 451,
+    "source": "../src/rendering-util/rendering-elements/shapes/linedCylinder.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 505,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 27868,
+      "original_line_0": 58,
+      "original_column_0": 0
+    },
+    "source_bytes": 4155,
+    "source_sha256": "f5a287cc7799828a26c43b8247b2d9c1327eafd20aba21fb46c93677770ed7ad"
+  },
+  {
+    "source_index": 452,
+    "source": "../src/rendering-util/rendering-elements/shapes/linedWaveEdgedRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 322,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 29638,
+      "original_line_0": 12,
+      "original_column_0": 0
+    },
+    "source_bytes": 2589,
+    "source_sha256": "2e15804825b014b86c4f84b86118220245e3af64eaf3457b07aa0919d6ed7aba"
+  },
+  {
+    "source_index": 453,
+    "source": "../src/rendering-util/rendering-elements/shapes/multiRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 374,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 30709,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 2891,
+    "source_sha256": "bafd0fa5e9c13be195bc1409e2b5b48c5d4a8c044a3c4b5aa4c7e4723631c4fc"
+  },
+  {
+    "source_index": 454,
+    "source": "../src/rendering-util/rendering-elements/shapes/multiWaveEdgedRectangle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 405,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 31846,
+      "original_line_0": 13,
+      "original_column_0": 0
+    },
+    "source_bytes": 3384,
+    "source_sha256": "46499bd1798ece3caf8dacba61bc04a33bab11ea9161d51bd736d615e47a026f"
+  },
+  {
+    "source_index": 455,
+    "source": "../src/rendering-util/rendering-elements/shapes/note.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 192,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 33074,
+      "original_line_0": 8,
+      "original_column_0": 0
+    },
+    "source_bytes": 2016,
+    "source_sha256": "34f0020782f4e0054e20b1aa9031d472df94f4d370b06cc5fafc77e84bf5e4fc"
+  },
+  {
+    "source_index": 456,
+    "source": "../src/rendering-util/rendering-elements/shapes/question.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 248,
+    "first_mapping": {
+      "generated_line_0": 446,
+      "generated_column_0": 33898,
+      "original_line_0": 19,
+      "original_column_0": 0
+    },
+    "source_bytes": 2257,
+    "source_sha256": "5b58badc8d1211786e7c2381175c2ec08c2d437ce16f94ad140cbd0053383551"
+  },
+  {
+    "source_index": 457,
+    "source": "../src/rendering-util/rendering-elements/shapes/rectLeftInvArrow.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 248,
+    "first_mapping": {
+      "generated_line_0": 450,
+      "generated_column_0": 255,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 2109,
+    "source_sha256": "8e55bba8160ad42b5757c83141c2a4c818cd7c55bd166e3c94049212691a4500"
+  },
+  {
+    "source_index": 458,
+    "source": "../src/rendering-util/rendering-elements/createLabel.js",
+    "pnpm_identity": null,
+    "mapped_segments": 287,
+    "first_mapping": {
+      "generated_line_0": 450,
+      "generated_column_0": 1169,
+      "original_line_0": 10,
+      "original_column_0": 0
+    },
+    "source_bytes": 3224,
+    "source_sha256": "f2bdcca5168d87b90faa3879b982fe4e9dac7b00304f15c3b33bc9e6b6b6a0dd"
+  },
+  {
+    "source_index": 459,
+    "source": "../src/rendering-util/rendering-elements/shapes/rectWithTitle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 498,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 1312,
+      "original_line_0": 13,
+      "original_column_0": 0
+    },
+    "source_bytes": 4851,
+    "source_sha256": "d653394fd855fd19a757711debc97e80f2eefd717449d8a95129f498d31030a6"
+  },
+  {
+    "source_index": 460,
+    "source": "../src/rendering-util/rendering-elements/shapes/roundedRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 40,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 3292,
+      "original_line_0": 4,
+      "original_column_0": 0
+    },
+    "source_bytes": 476,
+    "source_sha256": "cbb57748059b514a5c35936d6860ab75c1f274e73a495106ae002cd3a071f300"
+  },
+  {
+    "source_index": 461,
+    "source": "../src/rendering-util/rendering-elements/shapes/shadedProcess.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 275,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 3479,
+      "original_line_0": 8,
+      "original_column_0": 0
+    },
+    "source_bytes": 2218,
+    "source_sha256": "9adb4875b7ac8c73f52a778f1eac909abf14d5bda95dd1a4c45f850e081b5b3f"
+  },
+  {
+    "source_index": 462,
+    "source": "../src/rendering-util/rendering-elements/shapes/slopedRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 242,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 4450,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 2097,
+    "source_sha256": "02c0b19fca13de04d63a31cbf7fc35a87b6535c34e91bb94649b36fb9ed6d3a4"
+  },
+  {
+    "source_index": 463,
+    "source": "../src/rendering-util/rendering-elements/shapes/squareRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 40,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 5368,
+      "original_line_0": 4,
+      "original_column_0": 0
+    },
+    "source_bytes": 468,
+    "source_sha256": "c8322b571ebdf83a832654ebef47c47fab9a6414355ad6c943bf5cbb77bdb216"
+  },
+  {
+    "source_index": 464,
+    "source": "../src/rendering-util/rendering-elements/shapes/stadium.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 183,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 5554,
+      "original_line_0": 54,
+      "original_column_0": 0
+    },
+    "source_bytes": 2657,
+    "source_sha256": "f61f6a6de3aa009771e57343a4e0677740be97ebb2746e880cb7c016ebe6e9ce"
+  },
+  {
+    "source_index": 465,
+    "source": "../src/rendering-util/rendering-elements/shapes/state.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 6244,
+      "original_line_0": 4,
+      "original_column_0": 0
+    },
+    "source_bytes": 387,
+    "source_sha256": "903be72044fd72944c16e143c267f68a38b13b57ccc6953beebb2f8461b7c181"
+  },
+  {
+    "source_index": 466,
+    "source": "../src/rendering-util/rendering-elements/shapes/stateEnd.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 175,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 6367,
+      "original_line_0": 7,
+      "original_column_0": 7
+    },
+    "source_bytes": 1722,
+    "source_sha256": "0950113ffce4159c0fd4ee9f6a0747aa8e5c209607ae449d461b798af0f8a4cc"
+  },
+  {
+    "source_index": 467,
+    "source": "../src/rendering-util/rendering-elements/shapes/stateStart.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 132,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 7070,
+      "original_line_0": 7,
+      "original_column_0": 7
+    },
+    "source_bytes": 1411,
+    "source_sha256": "22ca0c0f6b23e17d517b8df2f731a7ab0eab70f2c073f33f858c22b65521a804"
+  },
+  {
+    "source_index": 468,
+    "source": "../src/rendering-util/rendering-elements/shapes/subroutine.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 269,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 7615,
+      "original_line_0": 35,
+      "original_column_0": 0
+    },
+    "source_bytes": 2537,
+    "source_sha256": "23afca888dbc6a6c7abb3de10c715de63b3cda238256b983fe2829d88749d97e"
+  },
+  {
+    "source_index": 469,
+    "source": "../src/rendering-util/rendering-elements/shapes/taggedRect.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 270,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 8443,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 2330,
+    "source_sha256": "704237aa3ed735c4cb96940f01513b040a45e14acc05dc2222d16ab99fc5a822"
+  },
+  {
+    "source_index": 470,
+    "source": "../src/rendering-util/rendering-elements/shapes/taggedWaveEdgedRectangle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 359,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 9347,
+      "original_line_0": 13,
+      "original_column_0": 0
+    },
+    "source_bytes": 3173,
+    "source_sha256": "82cf7cac66b6ff3c2097ecf99dbaedce978a9127cfa7589fdeec52d6a6facb71"
+  },
+  {
+    "source_index": 471,
+    "source": "../src/rendering-util/rendering-elements/shapes/text.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 131,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 10552,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 1168,
+    "source_sha256": "1f9139a2b4231ce9db2ec1d3e97c8df25fd8f128f0905224e3a7f66934ab3c04"
+  },
+  {
+    "source_index": 472,
+    "source": "../src/rendering-util/rendering-elements/shapes/tiltedCylinder.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 486,
+    "first_mapping": {
+      "generated_line_0": 451,
+      "generated_column_0": 11046,
+      "original_line_0": 53,
+      "original_column_0": 0
+    },
+    "source_bytes": 4087,
+    "source_sha256": "e8b4a16a902cf88d44a63bbe4de85d736b4f96f3dcc8be63c7386d57e67e80f3"
+  },
+  {
+    "source_index": 473,
+    "source": "../src/rendering-util/rendering-elements/shapes/trapezoid.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 186,
+    "first_mapping": {
+      "generated_line_0": 457,
+      "generated_column_0": 332,
+      "original_line_0": 23,
+      "original_column_0": 0
+    },
+    "source_bytes": 2195,
+    "source_sha256": "f9c84e8ee7a8892123d40895d07ffdb1cde725f7ac4da0745dac83045b168812"
+  },
+  {
+    "source_index": 474,
+    "source": "../src/rendering-util/rendering-elements/shapes/trapezoidalPentagon.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 230,
+    "first_mapping": {
+      "generated_line_0": 457,
+      "generated_column_0": 942,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 2007,
+    "source_sha256": "d25d05248a8c714168d8a520f43e0a056ae70059bbf0d27679cb8d77d676d7b9"
+  },
+  {
+    "source_index": 475,
+    "source": "../src/rendering-util/rendering-elements/shapes/triangle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 236,
+    "first_mapping": {
+      "generated_line_0": 457,
+      "generated_column_0": 1754,
+      "original_line_0": 11,
+      "original_column_0": 0
+    },
+    "source_bytes": 2298,
+    "source_sha256": "a2909069343dbad9c02cb3dabe5ded63d7afa22dfeb9f0eb2d75921bafd8e025"
+  },
+  {
+    "source_index": 476,
+    "source": "../src/rendering-util/rendering-elements/shapes/waveEdgedRectangle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 268,
+    "first_mapping": {
+      "generated_line_0": 457,
+      "generated_column_0": 2670,
+      "original_line_0": 13,
+      "original_column_0": 0
+    },
+    "source_bytes": 2580,
+    "source_sha256": "6eab3e23895bc6bd601782011d6e646f396f0146f4603dc2d3a476be77a52142"
+  },
+  {
+    "source_index": 477,
+    "source": "../src/rendering-util/rendering-elements/shapes/waveRectangle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 258,
+    "first_mapping": {
+      "generated_line_0": 457,
+      "generated_column_0": 3637,
+      "original_line_0": 13,
+      "original_column_0": 0
+    },
+    "source_bytes": 2472,
+    "source_sha256": "6f01b31c9db19e89ab2d702810ee258daef5ec9cee945ac599a532e069034132"
+  },
+  {
+    "source_index": 478,
+    "source": "../src/rendering-util/rendering-elements/shapes/windowPane.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 299,
+    "first_mapping": {
+      "generated_line_0": 457,
+      "generated_column_0": 4513,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 2427,
+    "source_sha256": "950e82fbe1e06781cf04f186a36a6725dbf1927da0d95642fa5ceb3323e7c0e6"
+  },
+  {
+    "source_index": 479,
+    "source": "../src/rendering-util/rendering-elements/shapes/erBox.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1056,
+    "first_mapping": {
+      "generated_line_0": 459,
+      "generated_column_0": 607,
+      "original_line_0": 15,
+      "original_column_0": 0
+    },
+    "source_bytes": 11021,
+    "source_sha256": "257659de65b70b5376e7ff3af9237203d1e6b1cf4b047bdd374cc0487e8c4314"
+  },
+  {
+    "source_index": 480,
+    "source": "../src/diagrams/class/shapeUtil.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 651,
+    "first_mapping": {
+      "generated_line_0": 459,
+      "generated_column_0": 4576,
+      "original_line_0": 13,
+      "original_column_0": 0
+    },
+    "source_bytes": 7515,
+    "source_sha256": "3f8717789490df5cf7c9145633136d762882a58edbec8ff2f3f0fa61d25790a2"
+  },
+  {
+    "source_index": 481,
+    "source": "../src/rendering-util/rendering-elements/shapes/classBox.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 646,
+    "first_mapping": {
+      "generated_line_0": 459,
+      "generated_column_0": 7355,
+      "original_line_0": 12,
+      "original_column_0": 0
+    },
+    "source_bytes": 7172,
+    "source_sha256": "9258e360c1ad0830dff3f27d9f1a912e50f3237deb6fcc1cb6cf040825adb014"
+  },
+  {
+    "source_index": 482,
+    "source": "../src/rendering-util/rendering-elements/shapes/requirementBox.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 576,
+    "first_mapping": {
+      "generated_line_0": 459,
+      "generated_column_0": 9981,
+      "original_line_0": 12,
+      "original_column_0": 0
+    },
+    "source_bytes": 6712,
+    "source_sha256": "ef04c842dbf4711ab070bfad41737c2498cfebb1999e3e50d9b3eb97e6304757"
+  },
+  {
+    "source_index": 483,
+    "source": "../src/rendering-util/rendering-elements/shapes/kanbanItem.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 499,
+    "first_mapping": {
+      "generated_line_0": 459,
+      "generated_column_0": 12239,
+      "original_line_0": 22,
+      "original_column_0": 0
+    },
+    "source_bytes": 5027,
+    "source_sha256": "bda78e289624e01576e9cdcc15bd9d5acdaa707e280f6ad7a6fa16e52ff9b0fc"
+  },
+  {
+    "source_index": 484,
+    "source": "../src/rendering-util/rendering-elements/shapes.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 957,
+    "first_mapping": {
+      "generated_line_0": 459,
+      "generated_column_0": 14296,
+      "original_line_0": 507,
+      "original_column_0": 7
+    },
+    "source_bytes": 14809,
+    "source_sha256": "139e2bc7ff7cc11cadc42d342952ba4354cdaa9f72a788a4a2686e6918a5f92a"
+  },
+  {
+    "source_index": 485,
+    "source": "../src/diagrams/flowchart/flowDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 2954,
+    "first_mapping": {
+      "generated_line_0": 459,
+      "generated_column_0": 22057,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 32251,
+    "source_sha256": "afe722164b41a158a3b41b2b8d689525c6d2f17156c3aceb824445ecfab63fe9"
+  },
+  {
+    "source_index": 486,
+    "source": "../src/rendering-util/insertElementsForSize.js",
+    "pnpm_identity": null,
+    "mapped_segments": 43,
+    "first_mapping": {
+      "generated_line_0": 467,
+      "generated_column_0": 9891,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 447,
+    "source_sha256": "eb2dafd1c47affd80812a7eb520030528343a93fdbbec783e1a6a7859ebbc970"
+  },
+  {
+    "source_index": 487,
+    "source": "../src/utils/subGraphTitleMargins.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 38,
+    "first_mapping": {
+      "generated_line_0": 467,
+      "generated_column_0": 10093,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 635,
+    "source_sha256": "245ada172ff8d0c231822a585f47d6850e898de690bd0003aaa6c8eadcc17aa0"
+  },
+  {
+    "source_index": 488,
+    "source": "../src/rendering-util/rendering-elements/clusters.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1605,
+    "first_mapping": {
+      "generated_line_0": 467,
+      "generated_column_0": 10343,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 15149,
+    "source_sha256": "0b7c97fca8e37aaf23814a39ed805702a874025359be2ae4601cb70e8608d86a"
+  },
+  {
+    "source_index": 489,
+    "source": "../src/utils/lineWithOffset.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 590,
+    "first_mapping": {
+      "generated_line_0": 467,
+      "generated_column_0": 16905,
+      "original_line_0": 20,
+      "original_column_0": 0
+    },
+    "source_bytes": 7478,
+    "source_sha256": "4bb3e29a1e9959aa5c2b1fc804f9d8f8c7c2cd6c16aadd20c3d2db886cbc6c0b"
+  },
+  {
+    "source_index": 490,
+    "source": "../src/rendering-util/rendering-elements/edgeMarker.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 295,
+    "first_mapping": {
+      "generated_line_0": 467,
+      "generated_column_0": 18744,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3859,
+    "source_sha256": "92bfe576aa6c452a55f6701a213997628a395503685d7a2a001188b73eece341"
+  },
+  {
+    "source_index": 491,
+    "source": "../src/rendering-util/rendering-elements/edges.js",
+    "pnpm_identity": null,
+    "mapped_segments": 2266,
+    "first_mapping": {
+      "generated_line_0": 467,
+      "generated_column_0": 20102,
+      "original_line_0": 156,
+      "original_column_0": 0
+    },
+    "source_bytes": 19969,
+    "source_sha256": "be72d08e2ecf2de835049f27bee35636482fb9d01c436db9219bac29eb596795"
+  },
+  {
+    "source_index": 492,
+    "source": "../src/rendering-util/rendering-elements/markers.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1755,
+    "first_mapping": {
+      "generated_line_0": 470,
+      "generated_column_0": 4485,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 12661,
+    "source_sha256": "d40c04d73091fc5d3d1aba989a89737736824a9610d226738969e680dc24d7de"
+  },
+  {
+    "source_index": 493,
+    "source": "../src/rendering-util/rendering-elements/nodes.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 232,
+    "first_mapping": {
+      "generated_line_0": 473,
+      "generated_column_0": 738,
+      "original_line_0": 12,
+      "original_column_0": 0
+    },
+    "source_bytes": 2555,
+    "source_sha256": "1b4607e35a578530d4a0a86ec6a85ee1e2f46e3fd2c233b36fc62438201e170b"
+  },
+  {
+    "source_index": 494,
+    "source": "../src/internals.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 39,
+    "first_mapping": {
+      "generated_line_0": 473,
+      "generated_column_0": 1753,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1018,
+    "source_sha256": "464523060391e6ac8630f8d8c354226821e78c2dc9a2a5395786376876624320"
+  },
+  {
+    "source_index": 710,
+    "source": "../src/rendering-util/layout-algorithms/dagre/mermaid-graphlib.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1385,
+    "first_mapping": {
+      "generated_line_0": 473,
+      "generated_column_0": 73266,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 11639,
+    "source_sha256": "9d1536a54929279fccece34de4e338fbdc6f8a2069ec178931c00ab55d0905a6"
+  },
+  {
+    "source_index": 711,
+    "source": "../src/rendering-util/layout-algorithms/dagre/index.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1135,
+    "first_mapping": {
+      "generated_line_0": 473,
+      "generated_column_0": 78679,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 12118,
+    "source_sha256": "dacbf079490dc2906f929529b2f356d332f4043f1d289490a6a27aa344d4bdc7"
+  },
+  {
+    "source_index": 712,
+    "source": "../src/rendering-util/render.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 134,
+    "first_mapping": {
+      "generated_line_0": 476,
+      "generated_column_0": 4156,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2143,
+    "source_sha256": "e26ad3a33b8abf4cb158c5638dd99ab3ab252ce7eddcac470fdbbe2e14951840"
+  },
+  {
+    "source_index": 713,
+    "source": "../src/rendering-util/setupViewPortForSVG.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 131,
+    "first_mapping": {
+      "generated_line_0": 476,
+      "generated_column_0": 4904,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1342,
+    "source_sha256": "bae77e75582df927d5bd7d0ed34e3db47e52165b660446a5b849aa8282f6e0d1"
+  },
+  {
+    "source_index": 714,
+    "source": "../src/diagrams/flowchart/flowRenderer-v3-unified.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 291,
+    "first_mapping": {
+      "generated_line_0": 476,
+      "generated_column_0": 5383,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3763,
+    "source_sha256": "4456c3590afafd0b8059f7b47dfebd3e2d3201061c33a1e75c47623ce1d49570"
+  },
+  {
+    "source_index": 715,
+    "source": "../src/diagrams/flowchart/parser/flow.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 10796,
+    "first_mapping": {
+      "generated_line_0": 476,
+      "generated_column_0": 7160,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 59259,
+    "source_sha256": "39e8a84d459c0f4c1d436892079d58baf4514bd222e0107dd9475571777087d9"
+  },
+  {
+    "source_index": 716,
+    "source": "../src/diagrams/flowchart/parser/flowParser.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 34,
+    "first_mapping": {
+      "generated_line_0": 481,
+      "generated_column_0": 13278,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 395,
+    "source_sha256": "06790d8f74895b5859e81a90eb6b83e538cc40186e44c560065b42924d4d3ebe"
+  },
+  {
+    "source_index": 717,
+    "source": "../src/diagrams/flowchart/styles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 296,
+    "first_mapping": {
+      "generated_line_0": 482,
+      "generated_column_0": 33,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3893,
+    "source_sha256": "c68f52baafe47f412bf73b7309868aff20988bdb400410ccef6d85cf84107981"
+  },
+  {
+    "source_index": 718,
+    "source": "../src/diagrams/flowchart/flowDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 69,
+    "first_mapping": {
+      "generated_line_0": 628,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 828,
+    "source_sha256": "5d0cdebc2c6b8c822ad292f24e11b528b147ab6796f9a6087a1a58963b93a075"
+  },
+  {
+    "source_index": 719,
+    "source": "../src/diagrams/er/parser/erDiagram.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 5279,
+    "first_mapping": {
+      "generated_line_0": 628,
+      "generated_column_0": 382,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 33799,
+    "source_sha256": "e54096582c94bf6fc913116f2f5b852d0388d597adf8346322d54f6091112dc5"
+  },
+  {
+    "source_index": 720,
+    "source": "../src/diagrams/er/erDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 702,
+    "first_mapping": {
+      "generated_line_0": 633,
+      "generated_column_0": 4485,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 7286,
+    "source_sha256": "833a485c5db7dfb87cb7bedb93df6cc551e0ad15fcc6a119f3f72bba768f3927"
+  },
+  {
+    "source_index": 721,
+    "source": "../src/diagrams/er/erRenderer-unified.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 196,
+    "first_mapping": {
+      "generated_line_0": 633,
+      "generated_column_0": 7869,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2865,
+    "source_sha256": "4356b3546211f2f99328e0ece3ca981957ee39cf2853a3c3d5bce2670cb6f3f3"
+  },
+  {
+    "source_index": 722,
+    "source": "../src/diagrams/er/styles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 143,
+    "first_mapping": {
+      "generated_line_0": 633,
+      "generated_column_0": 8820,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1474,
+    "source_sha256": "af23f0214e610c7fae6a6881ec733db2a9c11bfee574d9c06e02955f09f49dec"
+  },
+  {
+    "source_index": 723,
+    "source": "../src/diagrams/er/erDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 32,
+    "first_mapping": {
+      "generated_line_0": 687,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 329,
+    "source_sha256": "2c0b643ed6a1d8042a9314897480f9d02fa51b7672647006b8bf6401d0d14818"
+  },
+  {
+    "source_index": 806,
+    "source": "webpack://LIB/node_modules/path-browserify/index.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1204,
+    "first_mapping": {
+      "generated_line_0": 803,
+      "generated_column_0": 9486,
+      "original_line_0": 26,
+      "original_column_0": 0
+    },
+    "source_bytes": 16166,
+    "source_sha256": "f6d60f9e7cd83f65f947cda34ef846e82706c044d9a9fa7c5b69718b13b78e28"
+  },
+  {
+    "source_index": 807,
+    "source": "webpack://LIB/webpack/bootstrap",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 803,
+      "generated_column_0": 13758,
+      "original_line_0": 1,
+      "original_column_0": 4
+    },
+    "source_bytes": 630,
+    "source_sha256": "4158dea042576a3385c74915858d23ff819d6e19839c43832e741eeee77638d6"
+  },
+  {
+    "source_index": 808,
+    "source": "webpack://LIB/webpack/runtime/define%20property%20getters",
+    "pnpm_identity": null,
+    "mapped_segments": 34,
+    "first_mapping": {
+      "generated_line_0": 803,
+      "generated_column_0": 13889,
+      "original_line_0": 1,
+      "original_column_0": 0
+    },
+    "source_bytes": 308,
+    "source_sha256": "8887a7a4ae920342bb9109b1d8e4a7deddf67d2bb59309fe935121acf0d65d6d"
+  },
+  {
+    "source_index": 809,
+    "source": "webpack://LIB/webpack/runtime/hasOwnProperty%20shorthand",
+    "pnpm_identity": null,
+    "mapped_segments": 12,
+    "first_mapping": {
+      "generated_line_0": 803,
+      "generated_column_0": 13990,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 88,
+    "source_sha256": "2fc045876ffafa261598b1d1476ffb16010e9fed737aa98bd4545e5fb2867777"
+  },
+  {
+    "source_index": 810,
+    "source": "webpack://LIB/webpack/runtime/make%20namespace%20object",
+    "pnpm_identity": null,
+    "mapped_segments": 35,
+    "first_mapping": {
+      "generated_line_0": 803,
+      "generated_column_0": 14043,
+      "original_line_0": 1,
+      "original_column_0": 0
+    },
+    "source_bytes": 274,
+    "source_sha256": "dcb6fa6d79b08ff7453817108c79154a90678e58f0ba43820f694a7311f22fd8"
+  },
+  {
+    "source_index": 811,
+    "source": "webpack://LIB/src/platform.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 39,
+    "first_mapping": {
+      "generated_line_0": 803,
+      "generated_column_0": 14216,
+      "original_line_0": 13,
+      "original_column_0": 7
+    },
+    "source_bytes": 809,
+    "source_sha256": "dac86bdbe85f542a48951e384d64cb92b60467d4f1fb128b0dd751e0efd66059"
+  },
+  {
+    "source_index": 812,
+    "source": "webpack://LIB/src/uri.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1274,
+    "first_mapping": {
+      "generated_line_0": 803,
+      "generated_column_0": 14408,
+      "original_line_0": 9,
+      "original_column_0": 0
+    },
+    "source_bytes": 20306,
+    "source_sha256": "3489642f68ab94f315c680d382d73c472a82b447ce494527c711458d64387afc"
+  },
+  {
+    "source_index": 813,
+    "source": "webpack://LIB/src/utils.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 169,
+    "first_mapping": {
+      "generated_line_0": 803,
+      "generated_column_0": 9423,
+      "original_line_0": 14,
+      "original_column_0": 22
+    },
+    "source_bytes": 4415,
+    "source_sha256": "79414fa5be3a2b55fe6c6faa5e36ab33642a421b0be89b82fc9336f92f91a96d"
+  },
+  {
+    "source_index": 860,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/chunk-7PKI6E2E.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 1598,
+    "first_mapping": {
+      "generated_line_0": 812,
+      "generated_column_0": 7624,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 62769,
+    "source_sha256": "210dda4db451a3291d2a59732f1d87e75120514db3145177e39449d3a9c7ba57"
+  },
+  {
+    "source_index": 861,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/chunk-2NYFTIL2.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 96,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 593,
+      "original_line_0": 33,
+      "original_column_0": 0
+    },
+    "source_bytes": 1280,
+    "source_sha256": "74542eb6cf3a46b848a7feda68301f39d97a4d65fe012d0508f812c184291b20"
+  },
+  {
+    "source_index": 862,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/chunk-EXZZNE6F.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 97,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 1064,
+      "original_line_0": 33,
+      "original_column_0": 0
+    },
+    "source_bytes": 1216,
+    "source_sha256": "41016db4db7731d140e5c4d50aa9f73a42ad82bdbbad89278185b25624f6883a"
+  },
+  {
+    "source_index": 863,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/chunk-V4Q32G6S.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 96,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 1522,
+      "original_line_0": 33,
+      "original_column_0": 0
+    },
+    "source_bytes": 1247,
+    "source_sha256": "9067daaae247661b13ec9f1aafdf7e4522b39c521cc074d74ca4a858a807391d"
+  },
+  {
+    "source_index": 864,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/chunk-ROXG7S4E.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 132,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 1986,
+      "original_line_0": 46,
+      "original_column_0": 0
+    },
+    "source_bytes": 1534,
+    "source_sha256": "4ff93203406ea538a6f6bf701585484a96c970b0899443298d9579ab51cfaadb"
+  },
+  {
+    "source_index": 865,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/chunk-C4OEIS7N.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 153,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 2628,
+      "original_line_0": 50,
+      "original_column_0": 0
+    },
+    "source_bytes": 1909,
+    "source_sha256": "911984b5de04773d720cfa9177059481d387fa8a2e8f51dbf23f150b93f77aa8"
+  },
+  {
+    "source_index": 866,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/chunk-2O5ZK7RR.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 96,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 3447,
+      "original_line_0": 33,
+      "original_column_0": 0
+    },
+    "source_bytes": 1228,
+    "source_sha256": "6bf044ec73e07412169da821083a8c518fea7af3e3dd0f42142522a6fa0c7111"
+  },
+  {
+    "source_index": 867,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/info-4N47QTOZ.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 15,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 3905,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 153,
+    "source_sha256": "edc9e3fefa43a4c2c9e06c028bfa3f5b77841e6cb5867c7754d46c6d718f4e98"
+  },
+  {
+    "source_index": 868,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/packet-KVYON367.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 15,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 4010,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 161,
+    "source_sha256": "322b546df92d9d22dee13be651beee9ba3fc129ca326913733f73adc1f7df46e"
+  },
+  {
+    "source_index": 869,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/pie-R6RNRRYF.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 15,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 4119,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 149,
+    "source_sha256": "38070291b9b89a5507c6d65c457cbb533b6e6bfc45e6ff22ed643a04eb10bcac"
+  },
+  {
+    "source_index": 870,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/architecture-4AB2E3PP.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 15,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 4222,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 185,
+    "source_sha256": "5b6ee166b8c43fed41baf22118f659fcc90ad5030c3bd71e3026b38525264e82"
+  },
+  {
+    "source_index": 871,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/gitGraph-O2Q2CXLX.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 15,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 4343,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 169,
+    "source_sha256": "6434255ec6385ea3d3667e8a9b6dbd205d60d12b283cccdc1ff4e52fe390e848"
+  },
+  {
+    "source_index": 872,
+    "source": "../../parser/dist/chunks/mermaid-parser.core/radar-MK3ICKWK.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 15,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 4456,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 157,
+    "source_sha256": "e46991a08e7546072a3096c450b0a2074d27dc6e39ea255e87b1517fa2f6b5e1"
+  },
+  {
+    "source_index": 873,
+    "source": "../../parser/dist/mermaid-parser.core.mjs",
+    "pnpm_identity": null,
+    "mapped_segments": 272,
+    "first_mapping": {
+      "generated_line_0": 813,
+      "generated_column_0": 4563,
+      "original_line_0": 96,
+      "original_column_0": 0
+    },
+    "source_bytes": 4818,
+    "source_sha256": "4a629216be3656173fc8f94a82106c021da76daae66d63908bce9b94380380ac"
+  },
+  {
+    "source_index": 874,
+    "source": "../src/diagrams/common/populateCommonDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 34,
+    "first_mapping": {
+      "generated_line_0": 815,
+      "generated_column_0": 92,
+      "original_line_0": 3,
+      "original_column_0": 7
+    },
+    "source_bytes": 375,
+    "source_sha256": "0ed0fd95a674e83b06e94832796051a114776bec28b4945d7d680c5e5f3cd639"
+  },
+  {
+    "source_index": 875,
+    "source": "../src/diagrams/git/gitGraphTypes.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 18,
+    "first_mapping": {
+      "generated_line_0": 815,
+      "generated_column_0": 287,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3154,
+    "source_sha256": "b023300eb4f4bcb7340f6cc741fefa5662f433e7e3a58097ec724435a06bd76a"
+  },
+  {
+    "source_index": 876,
+    "source": "../src/utils/imperativeState.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 32,
+    "first_mapping": {
+      "generated_line_0": 815,
+      "generated_column_0": 377,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 826,
+    "source_sha256": "1dae3b6d1ee20e7d2e6b6e74ed840d663d294ac5c16b531def86383432695a9a"
+  },
+  {
+    "source_index": 877,
+    "source": "../src/diagrams/git/gitGraphAst.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1744,
+    "first_mapping": {
+      "generated_line_0": 815,
+      "generated_column_0": 538,
+      "original_line_0": 65,
+      "original_column_0": 0
+    },
+    "source_bytes": 16080,
+    "source_sha256": "5b4d95dbf70262b7c7eb7f440258bf2931322b7a1cc6deefb87aa722a588d874"
+  },
+  {
+    "source_index": 878,
+    "source": "../src/diagrams/git/gitGraphParser.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 239,
+    "first_mapping": {
+      "generated_line_0": 815,
+      "generated_column_0": 9037,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 6522,
+    "source_sha256": "66a94eaeb1cdef7fc84545a55d7c858d7c2a520eb3f00d4ce949b276706d25f4"
+  },
+  {
+    "source_index": 879,
+    "source": "../src/diagrams/git/gitGraphRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 3572,
+    "first_mapping": {
+      "generated_line_0": 815,
+      "generated_column_0": 10057,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 42523,
+    "source_sha256": "88ccb7d7c8b3a5baf8e92bc31c3ac5bc38f7fd91254a43f2728442c410afb273"
+  },
+  {
+    "source_index": 880,
+    "source": "../src/diagrams/git/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 178,
+    "first_mapping": {
+      "generated_line_0": 828,
+      "generated_column_0": 653,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1781,
+    "source_sha256": "eb2b4daf511e93f3480da578db4306c4b339c9ae536813d081135c3ee52ee102"
+  },
+  {
+    "source_index": 881,
+    "source": "../src/diagrams/git/gitGraphDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 879,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 413,
+    "source_sha256": "076accdafa1178ee78686e315db4e695beb0e04c3c03a8df45f7dadd60980046"
+  },
+  {
+    "source_index": 882,
+    "source": "../src/diagrams/gantt/parser/gantt.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 3751,
+    "first_mapping": {
+      "generated_line_0": 879,
+      "generated_column_0": 166,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 28656,
+    "source_sha256": "a645a04d8b0227705dd017fc853380c7a069c52c68b3adf8eb085034159d7d80"
+  },
+  {
+    "source_index": 886,
+    "source": "../src/diagrams/gantt/ganttDb.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1986,
+    "first_mapping": {
+      "generated_line_0": 884,
+      "generated_column_0": 9962,
+      "original_line_0": 802,
+      "original_column_0": 0
+    },
+    "source_bytes": 20144,
+    "source_sha256": "42e362da0c7f776e4fcdf4200fb635a06d595eb28365e57b2295e3c8a602a016"
+  },
+  {
+    "source_index": 887,
+    "source": "../src/diagrams/gantt/ganttRenderer.js",
+    "pnpm_identity": null,
+    "mapped_segments": 2115,
+    "first_mapping": {
+      "generated_line_0": 884,
+      "generated_column_0": 18299,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 22497,
+    "source_sha256": "872bd63c050c1827884a234c4278b9beddfc30e0374c8da2d08c26ff97041a3f"
+  },
+  {
+    "source_index": 888,
+    "source": "../src/diagrams/gantt/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 392,
+    "first_mapping": {
+      "generated_line_0": 884,
+      "generated_column_0": 27142,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 4167,
+    "source_sha256": "ecd6b86d793893d45ce056b74d7eb5baeab0910acd32411c4139877e5ffec667"
+  },
+  {
+    "source_index": 889,
+    "source": "../src/diagrams/gantt/ganttDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 1135,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 419,
+    "source_sha256": "1a06ed21ddd6d62dfed7880ac4b22463daa37152e3a8be221c300852ec163adc"
+  },
+  {
+    "source_index": 890,
+    "source": "../src/diagrams/info/infoParser.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 28,
+    "first_mapping": {
+      "generated_line_0": 1135,
+      "generated_column_0": 168,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 371,
+    "source_sha256": "0cb74d28bc58dcddb33177ae7be84405106e3dde4ae66d5ee912c72b56f0e25b"
+  },
+  {
+    "source_index": 891,
+    "source": "../package.json",
+    "pnpm_identity": null,
+    "mapped_segments": 250,
+    "first_mapping": {
+      "generated_line_0": 1135,
+      "generated_column_0": 282,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 4721,
+    "source_sha256": "f967a7b60b81a17d401895fc817408e480b13ad4f7232a4bdbc606f31359563a"
+  },
+  {
+    "source_index": 892,
+    "source": "../src/diagrams/info/infoDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 25,
+    "first_mapping": {
+      "generated_line_0": 1135,
+      "generated_column_0": 4154,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 330,
+    "source_sha256": "881ed3629eb7a7c22c70b6d1190eac88389a32500f5f81beeb6bf97d92165306"
+  },
+  {
+    "source_index": 893,
+    "source": "../src/rendering-util/selectSvgElement.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 52,
+    "first_mapping": {
+      "generated_line_0": 1135,
+      "generated_column_0": 4283,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 772,
+    "source_sha256": "1bf6caa31797314b82e21fda00f09cb5210e5cb4ec8c0ed24e03b0baf66a411f"
+  },
+  {
+    "source_index": 894,
+    "source": "../src/diagrams/info/infoRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 72,
+    "first_mapping": {
+      "generated_line_0": 1135,
+      "generated_column_0": 4503,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 972,
+    "source_sha256": "4fadc6f9426d86d2b855e7977a6b91255c5985da0f948c9858f73d0fc093f780"
+  },
+  {
+    "source_index": 895,
+    "source": "../src/diagrams/info/infoDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 24,
+    "first_mapping": {
+      "generated_line_0": 1136,
+      "generated_column_0": 205,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 267,
+    "source_sha256": "83ab7e1bbab7f2b7275b83bc18edb91b63f306b06cff4b5bc8d230b93576f96d"
+  },
+  {
+    "source_index": 896,
+    "source": "../src/diagrams/pie/pieDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 137,
+    "first_mapping": {
+      "generated_line_0": 1136,
+      "generated_column_0": 331,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1635,
+    "source_sha256": "95273ca06c405d2ea496357f560be336e6d932278a0c28b04c3228ce0af8cbb1"
+  },
+  {
+    "source_index": 897,
+    "source": "../src/diagrams/pie/pieParser.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 58,
+    "first_mapping": {
+      "generated_line_0": 1136,
+      "generated_column_0": 1036,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 682,
+    "source_sha256": "0e575dc79de74fd5e27bf06e35eda9dee961f7280a9f5073a058fa55033de01e"
+  },
+  {
+    "source_index": 898,
+    "source": "../src/diagrams/pie/pieStyles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 83,
+    "first_mapping": {
+      "generated_line_0": 1136,
+      "generated_column_0": 1265,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 986,
+    "source_sha256": "4e20862bc5472a951c7e1f13120a07269a9d40e2b645e5e37bcd17c61e5dd25f"
+  },
+  {
+    "source_index": 899,
+    "source": "../src/diagrams/pie/pieRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 495,
+    "first_mapping": {
+      "generated_line_0": 1164,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 6057,
+    "source_sha256": "b8a4358f3ba4f997c6c238ac6b1d190cb64d8a0d306ab25c49a430e163dcba9a"
+  },
+  {
+    "source_index": 900,
+    "source": "../src/diagrams/pie/pieDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 1165,
+      "generated_column_0": 1607,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 311,
+    "source_sha256": "bbe16b155ced70b6bc1c1fe43a06661bec2146144c875d6aabbf88314bcf73ca"
+  },
+  {
+    "source_index": 901,
+    "source": "../src/diagrams/quadrant-chart/parser/quadrant.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 5261,
+    "first_mapping": {
+      "generated_line_0": 1165,
+      "generated_column_0": 1748,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 32386,
+    "source_sha256": "956787a4ae8245cd530b870535d982c6d95235eb2f426f77ff94036251229b7c"
+  },
+  {
+    "source_index": 902,
+    "source": "../src/diagrams/quadrant-chart/quadrantBuilder.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1380,
+    "first_mapping": {
+      "generated_line_0": 1170,
+      "generated_column_0": 3879,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 20570,
+    "source_sha256": "52a9c6e75c36b68109c2952c289f003ba3cb3b179dca91f4388a8777c5bb0419"
+  },
+  {
+    "source_index": 903,
+    "source": "../src/diagrams/quadrant-chart/utils.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 74,
+    "first_mapping": {
+      "generated_line_0": 1170,
+      "generated_column_0": 12821,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 599,
+    "source_sha256": "e60af1b212aaec0dc9f416b214f05710bfb4acb98989ebcb4807221dfe1dd06c"
+  },
+  {
+    "source_index": 904,
+    "source": "../src/diagrams/quadrant-chart/quadrantDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 514,
+    "first_mapping": {
+      "generated_line_0": 1170,
+      "generated_column_0": 13252,
+      "original_line_0": 22,
+      "original_column_0": 0
+    },
+    "source_bytes": 5131,
+    "source_sha256": "e4d69d1aa6cb71d2ebf7c77e98711807db4b8d40340fd534c0d39096967c7625"
+  },
+  {
+    "source_index": 905,
+    "source": "../src/diagrams/quadrant-chart/quadrantRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 612,
+    "first_mapping": {
+      "generated_line_0": 1170,
+      "generated_column_0": 16069,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 6194,
+    "source_sha256": "684d6c1eac6cfca2109ab84f9f2f9b99e96a2c34b4891a8a3d57bc78c701aaab"
+  },
+  {
+    "source_index": 906,
+    "source": "../src/diagrams/quadrant-chart/quadrantDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 29,
+    "first_mapping": {
+      "generated_line_0": 1171,
+      "generated_column_0": 2413,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 334,
+    "source_sha256": "d8396b046f39b328230111a57ff5d124cde02e8c3108c380e49b216c84d7978e"
+  },
+  {
+    "source_index": 907,
+    "source": "../src/diagrams/xychart/parser/xychart.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 4102,
+    "first_mapping": {
+      "generated_line_0": 1171,
+      "generated_column_0": 2565,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 29035,
+    "source_sha256": "c750e7b760349697d26495fa0255a212bda74fd31cd82d937c774a14c72fd4db"
+  },
+  {
+    "source_index": 908,
+    "source": "../src/diagrams/xychart/chartBuilder/interfaces.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 40,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 4152,
+      "original_line_0": 44,
+      "original_column_0": 7
+    },
+    "source_bytes": 3487,
+    "source_sha256": "b3f4eb9209ab381fdb2ed957f620cb49b17ca6e8dbf7e99ed346b8d060237990"
+  },
+  {
+    "source_index": 909,
+    "source": "../src/diagrams/xychart/chartBuilder/textDimensionCalculator.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 116,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 4362,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1242,
+    "source_sha256": "b49db30fc4c4d47cdc9942fcefd2570b62facdea7ecf16222c9f82ff45c6d742"
+  },
+  {
+    "source_index": 910,
+    "source": "../src/diagrams/xychart/chartBuilder/components/axis/baseAxis.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1324,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 4852,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 14382,
+    "source_sha256": "71d24c15562b0ad80e9e111c49a4ffabe1cddeafc78cd666e38b2cc9ad76466c"
+  },
+  {
+    "source_index": 911,
+    "source": "../src/diagrams/xychart/chartBuilder/components/axis/bandAxis.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 109,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 13057,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1354,
+    "source_sha256": "e7796b5847e94e358d2771e54f33a5ae444dd216eb0dbaab9dd7f156c64c9ae9"
+  },
+  {
+    "source_index": 912,
+    "source": "../src/diagrams/xychart/chartBuilder/components/axis/linearAxis.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 91,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 13606,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1285,
+    "source_sha256": "cf9ef534a30fab9460d010443f7dbe427e63967298300efefdb4427af9481aed"
+  },
+  {
+    "source_index": 913,
+    "source": "../src/diagrams/xychart/chartBuilder/components/axis/index.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 53,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 14021,
+      "original_line_0": 23,
+      "original_column_0": 7
+    },
+    "source_bytes": 1345,
+    "source_sha256": "77fcc15f439b08d7129f6cd3d426bdd7a5cb58e8d01737dd7939b9d9e86764ed"
+  },
+  {
+    "source_index": 914,
+    "source": "../src/diagrams/xychart/chartBuilder/components/chartTitle.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 211,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 14210,
+      "original_line_0": 82,
+      "original_column_0": 7
+    },
+    "source_bytes": 2790,
+    "source_sha256": "9516c3a7d7e2cb69b296aba23966004ee0f7c4e07c398e6abf62b7aaee1fc158"
+  },
+  {
+    "source_index": 915,
+    "source": "../src/diagrams/xychart/chartBuilder/components/plot/linePlot.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 130,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 15422,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1174,
+    "source_sha256": "400122aa76cd651c7357ddea9e05932c1f11ffd6879c4ab73e617fe1de61f70a"
+  },
+  {
+    "source_index": 916,
+    "source": "../src/diagrams/xychart/chartBuilder/components/plot/barPlot.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 184,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 15982,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1765,
+    "source_sha256": "93487501e99a76e67f478da7100081766f643fcdd4c48de2c6ca3485152a704b"
+  },
+  {
+    "source_index": 917,
+    "source": "../src/diagrams/xychart/chartBuilder/components/plot/index.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 193,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 16871,
+      "original_line_0": 90,
+      "original_column_0": 7
+    },
+    "source_bytes": 2475,
+    "source_sha256": "9bd5faaf96dceb038ed5665bc63c7254e745a24e1ffaf93a6d42a22fa5c2a297"
+  },
+  {
+    "source_index": 918,
+    "source": "../src/diagrams/xychart/chartBuilder/orchestrator.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 560,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 17856,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 6506,
+    "source_sha256": "626c2690fdc02ee8a38859e7fec3a3ed0fc68d39007f2b56796d37932c27f6e8"
+  },
+  {
+    "source_index": 919,
+    "source": "../src/diagrams/xychart/chartBuilder/index.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 32,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 20943,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 551,
+    "source_sha256": "f4001db57b660426d5fe1fa67bd21cd559e15ebbfb2b855368e1c3ac70c1e0b2"
+  },
+  {
+    "source_index": 920,
+    "source": "../src/diagrams/xychart/xychartDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 670,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 21091,
+      "original_line_0": 41,
+      "original_column_0": 0
+    },
+    "source_bytes": 6560,
+    "source_sha256": "99f504472e38e439c0306f7aa26dd845b1ee01a11675a0a0b757e2060ed1674f"
+  },
+  {
+    "source_index": 921,
+    "source": "../src/diagrams/xychart/xychartRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 414,
+    "first_mapping": {
+      "generated_line_0": 1176,
+      "generated_column_0": 24084,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3809,
+    "source_sha256": "4180412b5ac42389d524262c53191b732f60b52ed37faf68c55827f0bd106ac0"
+  },
+  {
+    "source_index": 922,
+    "source": "../src/diagrams/xychart/xychartDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 24,
+    "first_mapping": {
+      "generated_line_0": 1177,
+      "generated_column_0": 1354,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 312,
+    "source_sha256": "03ed056bbb56ee518a73f27f9f15b849fc4e2ccb8b4f210d411a4e3c1ad8a6fd"
+  },
+  {
+    "source_index": 923,
+    "source": "../src/diagrams/requirement/parser/requirementDiagram.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 6209,
+    "first_mapping": {
+      "generated_line_0": 1177,
+      "generated_column_0": 1480,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 36365,
+    "source_sha256": "34c7224d1b1e5834b23c7c8fe8be9a41748adb89498662a0de1d6ffab05a4009"
+  },
+  {
+    "source_index": 924,
+    "source": "../src/diagrams/requirement/requirementDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 963,
+    "first_mapping": {
+      "generated_line_0": 1182,
+      "generated_column_0": 4506,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 9759,
+    "source_sha256": "3873acf498b48a3fa04cf2ad9fc8662c06c1a87993016d8fb7a89b6631b79658"
+  },
+  {
+    "source_index": 925,
+    "source": "../src/diagrams/requirement/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 137,
+    "first_mapping": {
+      "generated_line_0": 1182,
+      "generated_column_0": 10102,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1347,
+    "source_sha256": "b099ff093cb22231890dd47a09f5c8af046421acb932fb4fabfe24aa21446643"
+  },
+  {
+    "source_index": 926,
+    "source": "../src/diagrams/requirement/requirementRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 114,
+    "first_mapping": {
+      "generated_line_0": 1240,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1462,
+    "source_sha256": "719ce8728974af0dd855d22d6e4fb75ad5e920ab1edbf1eed89e5314f2a29f88"
+  },
+  {
+    "source_index": 927,
+    "source": "../src/diagrams/requirement/requirementDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 32,
+    "first_mapping": {
+      "generated_line_0": 1240,
+      "generated_column_0": 632,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 438,
+    "source_sha256": "6124e0038c3f2b08deee0816ca3c01ae12718b2f06ba4dea48988ec5d5e3f299"
+  },
+  {
+    "source_index": 928,
+    "source": "../src/diagrams/sequence/parser/sequenceDiagram.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 6819,
+    "first_mapping": {
+      "generated_line_0": 1240,
+      "generated_column_0": 791,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 39865,
+    "source_sha256": "27696d7c44059a5b1cc7b408a7e8f79e288975c4fc9293306dd402f60fc2d64d"
+  },
+  {
+    "source_index": 929,
+    "source": "../src/diagrams/sequence/sequenceDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1828,
+    "first_mapping": {
+      "generated_line_0": 1245,
+      "generated_column_0": 4815,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 20512,
+    "source_sha256": "d282ae3d9a20fb2645cac27a04b92397ccbb27a993f12a843d51be48872b4695"
+  },
+  {
+    "source_index": 930,
+    "source": "../src/diagrams/sequence/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 228,
+    "first_mapping": {
+      "generated_line_0": 1245,
+      "generated_column_0": 14854,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2328,
+    "source_sha256": "74afaa105dd72031a057e266914bef15c3d8ac44c23cb36c2425daa318b62f09"
+  },
+  {
+    "source_index": 931,
+    "source": "../src/diagrams/sequence/svgDraw.js",
+    "pnpm_identity": null,
+    "mapped_segments": 3261,
+    "first_mapping": {
+      "generated_line_0": 1361,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 43498,
+    "source_sha256": "e588a33769a1d40950b47cccc0867a9bf98cc29c527869e75e8f1f398fdc361e"
+  },
+  {
+    "source_index": 932,
+    "source": "../src/diagrams/sequence/sequenceRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 5283,
+    "first_mapping": {
+      "generated_line_0": 1361,
+      "generated_column_0": 27700,
+      "original_line_0": 313,
+      "original_column_0": 0
+    },
+    "source_bytes": 54621,
+    "source_sha256": "16edf733ce6a6846cecc0daf801439b36937241f0741347c79637d0e998d2c6d"
+  },
+  {
+    "source_index": 933,
+    "source": "../src/diagrams/sequence/sequenceDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 62,
+    "first_mapping": {
+      "generated_line_0": 1361,
+      "generated_column_0": 51193,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 746,
+    "source_sha256": "22fe27880485887bcf203e23590fe36aeed325c0d15e175fce0032da28fabd8a"
+  },
+  {
+    "source_index": 934,
+    "source": "../src/diagrams/class/parser/classDiagram.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 7349,
+    "first_mapping": {
+      "generated_line_0": 1361,
+      "generated_column_0": 51468,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 44967,
+    "source_sha256": "67870f2ab3f301f97f324f6d03921e7d4402166a2ee0032c9975772338ced741"
+  },
+  {
+    "source_index": 935,
+    "source": "../src/diagrams/class/classTypes.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 352,
+    "first_mapping": {
+      "generated_line_0": 1366,
+      "generated_column_0": 11824,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 4874,
+    "source_sha256": "01c493150940070182183c2675dca1f86488a88518e9c8c69b1a4148a3181b41"
+  },
+  {
+    "source_index": 936,
+    "source": "../src/diagrams/class/classDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 2002,
+    "first_mapping": {
+      "generated_line_0": 1366,
+      "generated_column_0": 13456,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 22122,
+    "source_sha256": "ba7488d79e780e9434d635ddb0a1b309163fd0a43f6c42bf0f4dbec7b3d6383e"
+  },
+  {
+    "source_index": 937,
+    "source": "../src/diagrams/class/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 272,
+    "first_mapping": {
+      "generated_line_0": 1366,
+      "generated_column_0": 22842,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2815,
+    "source_sha256": "0550eab31451f1b95b162a2c9382d66751163484aa3dce56b3ece4ef6cfa2d57"
+  },
+  {
+    "source_index": 938,
+    "source": "../src/diagrams/class/classRenderer-v3-unified.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 165,
+    "first_mapping": {
+      "generated_line_0": 1524,
+      "generated_column_0": 24,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2796,
+    "source_sha256": "2e60db80e9335fc1172a0c9922b0a3f5cdd8763c0b196cf19e1d9f90772967f1"
+  },
+  {
+    "source_index": 939,
+    "source": "../src/diagrams/class/classDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 49,
+    "first_mapping": {
+      "generated_line_0": 1524,
+      "generated_column_0": 820,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 549,
+    "source_sha256": "b8b404fa0666794553b19652f9eff45bb7d533b52d0b47147dc99630445c22a4"
+  },
+  {
+    "source_index": 940,
+    "source": "../src/diagrams/class/classDiagram-v2.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 49,
+    "first_mapping": {
+      "generated_line_0": 1524,
+      "generated_column_0": 1065,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 549,
+    "source_sha256": "b8b404fa0666794553b19652f9eff45bb7d533b52d0b47147dc99630445c22a4"
+  },
+  {
+    "source_index": 941,
+    "source": "../src/diagrams/state/parser/stateDiagram.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 4724,
+    "first_mapping": {
+      "generated_line_0": 1524,
+      "generated_column_0": 1310,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 36214,
+    "source_sha256": "797e44cf898be76b46e60fb231ac05e243d909365302cb9c7335802bc9df2d22"
+  },
+  {
+    "source_index": 942,
+    "source": "../src/diagrams/state/stateCommon.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 155,
+    "first_mapping": {
+      "generated_line_0": 1529,
+      "generated_column_0": 6772,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2966,
+    "source_sha256": "e7ce1ff4f50804ba1e7422612836085b7d6f6a38df47df07aa2abae2234fe1ef"
+  },
+  {
+    "source_index": 943,
+    "source": "../src/diagrams/state/dataFetcher.js",
+    "pnpm_identity": null,
+    "mapped_segments": 810,
+    "first_mapping": {
+      "generated_line_0": 1529,
+      "generated_column_0": 7525,
+      "original_line_0": 51,
+      "original_column_0": 7
+    },
+    "source_bytes": 11201,
+    "source_sha256": "5bef2c45db4c4649239d02be90b8fcf51d8108b5dc6e7e9d1d8ae4d645486dc3"
+  },
+  {
+    "source_index": 944,
+    "source": "../src/diagrams/state/stateRenderer-v3-unified.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 169,
+    "first_mapping": {
+      "generated_line_0": 1529,
+      "generated_column_0": 10929,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2941,
+    "source_sha256": "95ec7e77863c7c2072e1fe157053a98e2996a2724112a1952544c454c0f54c08"
+  },
+  {
+    "source_index": 945,
+    "source": "../src/diagrams/state/stateDb.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1462,
+    "first_mapping": {
+      "generated_line_0": 1529,
+      "generated_column_0": 11692,
+      "original_line_0": 45,
+      "original_column_0": 0
+    },
+    "source_bytes": 19146,
+    "source_sha256": "e631cf3fc468651466e538b1b9c45d3c04cf8c0282fc7057897f0040b5a0eb95"
+  },
+  {
+    "source_index": 946,
+    "source": "../src/diagrams/state/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 407,
+    "first_mapping": {
+      "generated_line_0": 1529,
+      "generated_column_0": 18189,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 4302,
+    "source_sha256": "6469b219689dac07786e769b07774e297ec56be0cce7714d583e10f536b06a31"
+  },
+  {
+    "source_index": 947,
+    "source": "../src/diagrams/state/id-cache.js",
+    "pnpm_identity": null,
+    "mapped_segments": 58,
+    "first_mapping": {
+      "generated_line_0": 1743,
+      "generated_column_0": 24,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 260,
+    "source_sha256": "443f6b8f0d4dd134887d0b4b587b06bb7ca2d74e89bddd499514628afad903dc"
+  },
+  {
+    "source_index": 948,
+    "source": "../src/diagrams/state/shapes.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1603,
+    "first_mapping": {
+      "generated_line_0": 1743,
+      "generated_column_0": 240,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 15472,
+    "source_sha256": "26c9e98ca898a13a6efcf2ffbc3fb988fa383bad02944640e210869007f46b7c"
+  },
+  {
+    "source_index": 949,
+    "source": "../src/diagrams/state/stateRenderer.js",
+    "pnpm_identity": null,
+    "mapped_segments": 858,
+    "first_mapping": {
+      "generated_line_0": 1743,
+      "generated_column_0": 7059,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 8474,
+    "source_sha256": "200643edc05aa970d5d3f1237b55f796729fefe8a1562becf5853528b9a4ced2"
+  },
+  {
+    "source_index": 950,
+    "source": "../src/diagrams/state/stateDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 51,
+    "first_mapping": {
+      "generated_line_0": 1743,
+      "generated_column_0": 10532,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 539,
+    "source_sha256": "ac6c4ea7841cbaee4670fce63c095384653abc97fa621eb612b929db3ac3567d"
+  },
+  {
+    "source_index": 951,
+    "source": "../src/diagrams/state/stateDiagram-v2.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 51,
+    "first_mapping": {
+      "generated_line_0": 1743,
+      "generated_column_0": 10782,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 550,
+    "source_sha256": "a9a7d7dfeb638cff2739e8cc5a1028868cb948b5ba3acf97aaf665f1b9a850b5"
+  },
+  {
+    "source_index": 952,
+    "source": "../src/diagrams/user-journey/parser/journey.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 2376,
+    "first_mapping": {
+      "generated_line_0": 1743,
+      "generated_column_0": 11031,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 22737,
+    "source_sha256": "ea7baf00c15cae511301b5f3536880cc02e676373259a35f1390fe038e7e60c7"
+  },
+  {
+    "source_index": 953,
+    "source": "../src/diagrams/user-journey/journeyDb.js",
+    "pnpm_identity": null,
+    "mapped_segments": 317,
+    "first_mapping": {
+      "generated_line_0": 1748,
+      "generated_column_0": 2159,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2499,
+    "source_sha256": "3e5e36410990a47ed06bf9bc24bab75341856dd50e2fa7c645b9c182e0ff13fe"
+  },
+  {
+    "source_index": 954,
+    "source": "../src/diagrams/user-journey/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 313,
+    "first_mapping": {
+      "generated_line_0": 1748,
+      "generated_column_0": 3442,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2785,
+    "source_sha256": "0dea707d82ca97f9643aafc699f086e444f04c0bc99436b6dd51af685f27a232"
+  },
+  {
+    "source_index": 955,
+    "source": "../src/diagrams/user-journey/svgDraw.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1157,
+    "first_mapping": {
+      "generated_line_0": 1880,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 9992,
+    "source_sha256": "3a2a4a09004a59cf29f703a751f9fc3ac6bb6fc02783bdaa3d83643979f3ab12"
+  },
+  {
+    "source_index": 956,
+    "source": "../src/diagrams/user-journey/journeyRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 908,
+    "first_mapping": {
+      "generated_line_0": 1880,
+      "generated_column_0": 4703,
+      "original_line_0": 17,
+      "original_column_0": 0
+    },
+    "source_bytes": 8182,
+    "source_sha256": "ec8401c22668e5b35cf17f253f52aaa534cd49045d77686ee58a136864377942"
+  },
+  {
+    "source_index": 957,
+    "source": "../src/diagrams/user-journey/journeyDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 41,
+    "first_mapping": {
+      "generated_line_0": 1880,
+      "generated_column_0": 8453,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 430,
+    "source_sha256": "3fe1736ea83f3e23e97e4400a0dd4a501e6b9392ff4613c2acd4403c1f072aa2"
+  },
+  {
+    "source_index": 958,
+    "source": "../src/diagrams/timeline/parser/timeline.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 2441,
+    "first_mapping": {
+      "generated_line_0": 1880,
+      "generated_column_0": 8647,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 22929,
+    "source_sha256": "ded0f29a1337d3be30d14e5edfe48a3caef5f6185c84d9ed57449f81f84b30ec"
+  },
+  {
+    "source_index": 959,
+    "source": "../src/diagrams/timeline/timelineDb.js",
+    "pnpm_identity": null,
+    "mapped_segments": 268,
+    "first_mapping": {
+      "generated_line_0": 1885,
+      "generated_column_0": 2125,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2173,
+    "source_sha256": "da39064f090d1bda6ee00367c2734cd2f0e39f29dc140289e48d4feba3dea0dd"
+  },
+  {
+    "source_index": 960,
+    "source": "../src/diagrams/timeline/svgDraw.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1746,
+    "first_mapping": {
+      "generated_line_0": 1885,
+      "generated_column_0": 3282,
+      "original_line_0": 453,
+      "original_column_0": 0
+    },
+    "source_bytes": 14254,
+    "source_sha256": "6a9ba028c3305f6e449f21192f3090c7792ceadb30091f67ba956dea43dd7e39"
+  },
+  {
+    "source_index": 961,
+    "source": "../src/diagrams/timeline/timelineRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 773,
+    "first_mapping": {
+      "generated_line_0": 1885,
+      "generated_column_0": 10475,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 10214,
+    "source_sha256": "1d85a3c0409091b53824f8374cc3e0ea5c77388998ef456e41ef37fc98c57b84"
+  },
+  {
+    "source_index": 962,
+    "source": "../src/diagrams/timeline/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 214,
+    "first_mapping": {
+      "generated_line_0": 1885,
+      "generated_column_0": 13613,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1860,
+    "source_sha256": "9ca8512b8bb4ca8d52a1e23304ad08b06e43ca05ec14470c5b7b0e50bd95e434"
+  },
+  {
+    "source_index": 963,
+    "source": "../src/diagrams/timeline/timeline-definition.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 1940,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 275,
+    "source_sha256": "03f02bf46c5f9e42be893c6f3b51278978023b1b2a56d50af959206d63027b1a"
+  },
+  {
+    "source_index": 964,
+    "source": "../src/diagrams/mindmap/parser/mindmap.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 3161,
+    "first_mapping": {
+      "generated_line_0": 1940,
+      "generated_column_0": 167,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 25898,
+    "source_sha256": "41ab4ccd92b97155c3a4490f9d8b12b9cddc40800e71c485da70d846bb50041f"
+  },
+  {
+    "source_index": 965,
+    "source": "../src/diagrams/mindmap/mindmapDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 400,
+    "first_mapping": {
+      "generated_line_0": 1945,
+      "generated_column_0": 3884,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3650,
+    "source_sha256": "18057604ec81c1645a79cd65082b04d8a5f0ef97c00b7c4fac5c18b1848db227"
+  },
+  {
+    "source_index": 970,
+    "source": "../src/diagrams/mindmap/svgDraw.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1174,
+    "first_mapping": {
+      "generated_line_0": 2152,
+      "generated_column_0": 98493,
+      "original_line_0": 117,
+      "original_column_0": 0
+    },
+    "source_bytes": 8961,
+    "source_sha256": "6c5718d46adb7088ed384a97437618f22025f80cf7ac81dcad1d79e42d5edc83"
+  },
+  {
+    "source_index": 971,
+    "source": "../src/diagrams/mindmap/mindmapRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 562,
+    "first_mapping": {
+      "generated_line_0": 2185,
+      "generated_column_0": 1792,
+      "original_line_0": 18,
+      "original_column_0": 0
+    },
+    "source_bytes": 5713,
+    "source_sha256": "e97b3b5e7f5d4f2f7f61c53ef8b9167fe4326a076024fdf0ee8a9a319c478b69"
+  },
+  {
+    "source_index": 972,
+    "source": "../src/diagrams/mindmap/styles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 212,
+    "first_mapping": {
+      "generated_line_0": 2186,
+      "generated_column_0": 371,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2136,
+    "source_sha256": "a36a21083d19293507aa935fde7df1452248410120c11b18084ac2ee89634023"
+  },
+  {
+    "source_index": 973,
+    "source": "../src/diagrams/mindmap/mindmap-definition.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 2241,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 355,
+    "source_sha256": "9b113a42b8da963fb8778de0054f81176b56f5c54615b9db3fca6f7010483689"
+  },
+  {
+    "source_index": 974,
+    "source": "../src/diagrams/kanban/parser/kanban.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 3430,
+    "first_mapping": {
+      "generated_line_0": 2241,
+      "generated_column_0": 168,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 28192,
+    "source_sha256": "f2f3894723fb499cf0e0b8285439024d2f5cb8e6a2a2f521d611e0bdd41381f8"
+  },
+  {
+    "source_index": 975,
+    "source": "../src/diagrams/kanban/kanbanDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 651,
+    "first_mapping": {
+      "generated_line_0": 2246,
+      "generated_column_0": 4376,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 6580,
+    "source_sha256": "9d5027442ba03f8eb2394c8bf83d45dfc5c19bbaa599756b1d450cf77966ce72"
+  },
+  {
+    "source_index": 976,
+    "source": "../src/diagrams/kanban/kanbanRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 287,
+    "first_mapping": {
+      "generated_line_0": 2250,
+      "generated_column_0": 1533,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3530,
+    "source_sha256": "98710dc125a63f07f443b5d5ab8ebd22ccf79cebb7c4b5f2ed6ca0262ae36168"
+  },
+  {
+    "source_index": 977,
+    "source": "../src/diagrams/kanban/styles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 280,
+    "first_mapping": {
+      "generated_line_0": 2251,
+      "generated_column_0": 986,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2724,
+    "source_sha256": "987c6a69fe90f66ba889fd3ea67598bfa26f0caf29ed1f5a3da46241ee9df8bd"
+  },
+  {
+    "source_index": 978,
+    "source": "../src/diagrams/kanban/kanban-definition.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 2328,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 352,
+    "source_sha256": "fda98e4656cc1f93ae0a8ca4b3da18a14634d700e7e2ffd4dc0ab46e9ececd03"
+  },
+  {
+    "source_index": 979,
+    "source": "../src/diagrams/sankey/parser/sankey.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 2226,
+    "first_mapping": {
+      "generated_line_0": 2328,
+      "generated_column_0": 168,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 21888,
+    "source_sha256": "2251bc65aa3c1aa96448d0eb70134e3d8f075111951595b19ceefa07b4483dc2"
+  },
+  {
+    "source_index": 980,
+    "source": "../src/diagrams/sankey/sankeyDB.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 215,
+    "first_mapping": {
+      "generated_line_0": 2333,
+      "generated_column_0": 1704,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1902,
+    "source_sha256": "24916eb04e0a20f7aef6e73d544dd0f718c391a76506289c323d53c1a6472333"
+  },
+  {
+    "source_index": 997,
+    "source": "../src/rendering-util/uid.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 50,
+    "first_mapping": {
+      "generated_line_0": 2333,
+      "generated_column_0": 12807,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 308,
+    "source_sha256": "37bf9505dee7915b7d8cbdfb19b4db5b5dab65492d760e4d3cd6bcfbc49020ad"
+  },
+  {
+    "source_index": 998,
+    "source": "../src/diagrams/sankey/sankeyRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 536,
+    "first_mapping": {
+      "generated_line_0": 2333,
+      "generated_column_0": 13017,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 6596,
+    "source_sha256": "645d575f7719f5fb4f2c178200f3acc3cc96562aff66bdbb0c75a8b6c2f655a4"
+  },
+  {
+    "source_index": 999,
+    "source": "../src/diagrams/sankey/sankeyUtils.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 21,
+    "first_mapping": {
+      "generated_line_0": 2334,
+      "generated_column_0": 1178,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 291,
+    "source_sha256": "5edd06293c179d03898f9bf0ae244e12fcbdc796bb3b015550aaa65770cc73a2"
+  },
+  {
+    "source_index": 1000,
+    "source": "../src/diagrams/sankey/styles.js",
+    "pnpm_identity": null,
+    "mapped_segments": 18,
+    "first_mapping": {
+      "generated_line_0": 2335,
+      "generated_column_0": 37,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 120,
+    "source_sha256": "7bb3270193553b0af43a15e36a4b4a37a0f402cb996f899c0f4aad3a7c130f39"
+  },
+  {
+    "source_index": 1001,
+    "source": "../src/diagrams/sankey/sankeyDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 43,
+    "first_mapping": {
+      "generated_line_0": 2337,
+      "generated_column_0": 30,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 556,
+    "source_sha256": "9a936516f14221487cdc8127c0d54343ecc44d28811f9dddb936bf908630099a"
+  },
+  {
+    "source_index": 1002,
+    "source": "../src/diagrams/packet/db.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 109,
+    "first_mapping": {
+      "generated_line_0": 2337,
+      "generated_column_0": 228,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1345,
+    "source_sha256": "bcca097e1695b9ed6be2ce3359d604f621a0fcf54a808a24e11bbc6e264a79f8"
+  },
+  {
+    "source_index": 1003,
+    "source": "../src/diagrams/packet/parser.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 249,
+    "first_mapping": {
+      "generated_line_0": 2337,
+      "generated_column_0": 760,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2343,
+    "source_sha256": "8ae556f42239012b2ce865413eeada704404d5dffbd37038f31bf849d44a482e"
+  },
+  {
+    "source_index": 1004,
+    "source": "../src/diagrams/packet/renderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 317,
+    "first_mapping": {
+      "generated_line_0": 2337,
+      "generated_column_0": 1771,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3131,
+    "source_sha256": "e68e7c8fb264307239493cb7c6578dbad081e1e1faa6f651b288afa8456ee014"
+  },
+  {
+    "source_index": 1005,
+    "source": "../src/diagrams/packet/styles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 103,
+    "first_mapping": {
+      "generated_line_0": 2337,
+      "generated_column_0": 3084,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1189,
+    "source_sha256": "c0dc37a89784e1588df0fdabaa4fe5daaf8b782849a1cec69640c2a355672248"
+  },
+  {
+    "source_index": 1006,
+    "source": "../src/diagrams/packet/diagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 2360,
+      "generated_column_0": 16,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 303,
+    "source_sha256": "9b9746b82116159b8a01f55016bc520dec6e78b11104159bbea9a2071a39ef60"
+  },
+  {
+    "source_index": 1007,
+    "source": "../src/diagrams/radar/db.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 296,
+    "first_mapping": {
+      "generated_line_0": 2360,
+      "generated_column_0": 157,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3306,
+    "source_sha256": "fbfc183ad5cfdc479950bdc9ddfca4e2a7b33a7ef8742b19fbefa04bde768d1d"
+  },
+  {
+    "source_index": 1008,
+    "source": "../src/diagrams/radar/parser.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 66,
+    "first_mapping": {
+      "generated_line_0": 2360,
+      "generated_column_0": 1569,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 731,
+    "source_sha256": "2126961fb2496c7bba6449b3d08f4c33ae9bb5e7f4f86a86fb5cf8884ed07d17"
+  },
+  {
+    "source_index": 1009,
+    "source": "../src/diagrams/radar/renderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 812,
+    "first_mapping": {
+      "generated_line_0": 2360,
+      "generated_column_0": 1817,
+      "original_line_0": 120,
+      "original_column_0": 0
+    },
+    "source_bytes": 7299,
+    "source_sha256": "e89e9bd2a41029eb2884058e9fbe9942c48d225782febdc04841a9860fc7996a"
+  },
+  {
+    "source_index": 1010,
+    "source": "../src/diagrams/radar/styles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 200,
+    "first_mapping": {
+      "generated_line_0": 2360,
+      "generated_column_0": 4699,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2415,
+    "source_sha256": "e1f4dd9aace3fbbf5d0ac01d825e2ca573c67dc510ef9d531f8ed3a666345218"
+  },
+  {
+    "source_index": 1011,
+    "source": "../src/diagrams/radar/diagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 2402,
+      "generated_column_0": 16,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 303,
+    "source_sha256": "9b9746b82116159b8a01f55016bc520dec6e78b11104159bbea9a2071a39ef60"
+  },
+  {
+    "source_index": 1012,
+    "source": "../src/diagrams/block/parser/block.jison",
+    "pnpm_identity": null,
+    "mapped_segments": 5138,
+    "first_mapping": {
+      "generated_line_0": 2402,
+      "generated_column_0": 157,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 37667,
+    "source_sha256": "25b6bee3eba0c6ceda2eefaa717df485321f6fb6230080b4dcba6f7c2672fa8c"
+  },
+  {
+    "source_index": 1013,
+    "source": "../src/diagrams/block/blockDB.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 795,
+    "first_mapping": {
+      "generated_line_0": 2407,
+      "generated_column_0": 10820,
+      "original_line_0": 177,
+      "original_column_0": 7
+    },
+    "source_bytes": 8531,
+    "source_sha256": "5831a7a7f3fb2f7c68e633a16a54b474bdd6591955fac1e0aa5add207f55846f"
+  },
+  {
+    "source_index": 1014,
+    "source": "../src/diagrams/block/styles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 253,
+    "first_mapping": {
+      "generated_line_0": 2407,
+      "generated_column_0": 14338,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 3170,
+    "source_sha256": "7631e9adb647a7fd4dc9d64c91fb7dda6f9040406779bc98ec9af3ae6db61dcf"
+  },
+  {
+    "source_index": 1015,
+    "source": "../src/dagre-wrapper/markers.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1080,
+    "first_mapping": {
+      "generated_line_0": 2519,
+      "generated_column_0": 25,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 8015,
+    "source_sha256": "f797c367897557b52501fae35dc596d4f194c0e2faf51c15a8830952eaca5d93"
+  },
+  {
+    "source_index": 1016,
+    "source": "../src/diagrams/block/layout.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1089,
+    "first_mapping": {
+      "generated_line_0": 2519,
+      "generated_column_0": 5866,
+      "original_line_0": 12,
+      "original_column_0": 7
+    },
+    "source_bytes": 10212,
+    "source_sha256": "714956ec072a4071dbb5a739c956b92df4912e1c3ec80460174569d7661592e0"
+  },
+  {
+    "source_index": 1017,
+    "source": "../src/dagre-wrapper/createLabel.js",
+    "pnpm_identity": null,
+    "mapped_segments": 254,
+    "first_mapping": {
+      "generated_line_0": 2519,
+      "generated_column_0": 10600,
+      "original_line_0": 11,
+      "original_column_0": 0
+    },
+    "source_bytes": 2837,
+    "source_sha256": "95ba516f46147c329b8aa1208bf72b0455554e1338902bfdaedd677117b871df"
+  },
+  {
+    "source_index": 1018,
+    "source": "../src/dagre-wrapper/edgeMarker.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 114,
+    "first_mapping": {
+      "generated_line_0": 2519,
+      "generated_column_0": 11933,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1702,
+    "source_sha256": "f3a4d1c101e20d7d7a6a2e7285ece95dbd4f86dc9635d644c8d592dd23dba445"
+  },
+  {
+    "source_index": 1019,
+    "source": "../src/dagre-wrapper/edges.js",
+    "pnpm_identity": null,
+    "mapped_segments": 1522,
+    "first_mapping": {
+      "generated_line_0": 2519,
+      "generated_column_0": 12516,
+      "original_line_0": 134,
+      "original_column_0": 0
+    },
+    "source_bytes": 14913,
+    "source_sha256": "b2672190d59cf0fa00db72e439bd65613029357e5e4a6e87ba8cdeb78b1203e0"
+  },
+  {
+    "source_index": 1020,
+    "source": "../src/dagre-wrapper/blockArrowHelper.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 969,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 2360,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 7064,
+    "source_sha256": "39e81f2651f17d5c1becd3f1b420463bb29914c48e48d08d2a5c453b957929f5"
+  },
+  {
+    "source_index": 1021,
+    "source": "../src/dagre-wrapper/intersect/intersect-node.js",
+    "pnpm_identity": null,
+    "mapped_segments": 21,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 4388,
+      "original_line_0": 4,
+      "original_column_0": 0
+    },
+    "source_bytes": 179,
+    "source_sha256": "365dd63e9a9b2790989ddab3adc1794b905a1d3df8febcc7ebc65c33e2e85d72"
+  },
+  {
+    "source_index": 1022,
+    "source": "../src/dagre-wrapper/intersect/intersect-ellipse.js",
+    "pnpm_identity": null,
+    "mapped_segments": 83,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 4493,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 588,
+    "source_sha256": "dec4572cdad8b4773efdc36deb00cc9db01be59ceba7528fd4d5494ef4592534"
+  },
+  {
+    "source_index": 1023,
+    "source": "../src/dagre-wrapper/intersect/intersect-circle.js",
+    "pnpm_identity": null,
+    "mapped_segments": 25,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 4734,
+      "original_line_0": 7,
+      "original_column_0": 0
+    },
+    "source_bytes": 235,
+    "source_sha256": "9140b3a40f4382156bde579d1906959d04d542344d848cf468b164d9ff940b47"
+  },
+  {
+    "source_index": 1024,
+    "source": "../src/dagre-wrapper/intersect/intersect-line.js",
+    "pnpm_identity": null,
+    "mapped_segments": 183,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 4845,
+      "original_line_0": 8,
+      "original_column_0": 0
+    },
+    "source_bytes": 2034,
+    "source_sha256": "8c54c005391c0b5af305c2002bd0cc9602ae70b4ac5adb4f03bc3c4a947d16ad"
+  },
+  {
+    "source_index": 1025,
+    "source": "../src/dagre-wrapper/intersect/intersect-polygon.js",
+    "pnpm_identity": null,
+    "mapped_segments": 202,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 5327,
+      "original_line_0": 14,
+      "original_column_0": 0
+    },
+    "source_bytes": 1833,
+    "source_sha256": "e0504221e56d1604d06e3b1262df911b2715b0df5fbb056295e7c62d14c2cd5e"
+  },
+  {
+    "source_index": 1026,
+    "source": "../src/dagre-wrapper/intersect/intersect-rect.js",
+    "pnpm_identity": null,
+    "mapped_segments": 88,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 5949,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 719,
+    "source_sha256": "0bd9a4e020f08b5a3fa7b3be28f1558050e460a9cb5b2a00ba3b635c4785d2ca"
+  },
+  {
+    "source_index": 1027,
+    "source": "../src/dagre-wrapper/intersect/index.js",
+    "pnpm_identity": null,
+    "mapped_segments": 23,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 6205,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 355,
+    "source_sha256": "1b844f05b953fb7ba7a9bc08eec6a89885b257b47c52b891c6dfa5c135967f31"
+  },
+  {
+    "source_index": 1028,
+    "source": "../src/dagre-wrapper/shapes/util.js",
+    "pnpm_identity": null,
+    "mapped_segments": 420,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 6323,
+      "original_line_0": 134,
+      "original_column_0": 7
+    },
+    "source_bytes": 4412,
+    "source_sha256": "7cbf5d3b465c428c23001ce7a965574cd768f865c9724c47b10b073ab0315299"
+  },
+  {
+    "source_index": 1029,
+    "source": "../src/dagre-wrapper/shapes/note.js",
+    "pnpm_identity": null,
+    "mapped_segments": 119,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 8189,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1031,
+    "source_sha256": "2003eff4b78f0a3a562ceb844f0da90ab3a3e34208224424406e70da4e899fb6"
+  },
+  {
+    "source_index": 1030,
+    "source": "../src/dagre-wrapper/nodes.js",
+    "pnpm_identity": null,
+    "mapped_segments": 3980,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 8696,
+      "original_line_0": 520,
+      "original_column_0": 0
+    },
+    "source_bytes": 30872,
+    "source_sha256": "7618673b4483b58aac6229e43fb96ae81abba0e3a34660348e49cb3853739da8"
+  },
+  {
+    "source_index": 1031,
+    "source": "../src/diagrams/block/renderHelpers.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 625,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 23328,
+      "original_line_0": 8,
+      "original_column_0": 0
+    },
+    "source_bytes": 6688,
+    "source_sha256": "b6cb45c88cb2f634f7babbb13a14838232ed8e450d42cd8b092a086b1aab2581"
+  },
+  {
+    "source_index": 1032,
+    "source": "../src/diagrams/block/blockRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 221,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 26249,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2389,
+    "source_sha256": "11bfa75c857611f9b2bb5800f249bd59e786e8799af2c74f6b55490424d5c2c5"
+  },
+  {
+    "source_index": 1033,
+    "source": "../src/diagrams/block/blockDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 27082,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 364,
+    "source_sha256": "08ca3aaa0e9ec8775ed4a59c3ce8be0c86dbcee555f0f8a0a327fe7cc415bf09"
+  },
+  {
+    "source_index": 1034,
+    "source": "../src/diagrams/architecture/architectureTypes.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 450,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 27225,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 11412,
+    "source_sha256": "c37378d042d1b1f703b2ac21d1f5a7c531a1ef377e553cf146573b2cf5a371f6"
+  },
+  {
+    "source_index": 1035,
+    "source": "../src/diagrams/architecture/architectureDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 974,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 29033,
+      "original_line_0": 347,
+      "original_column_0": 7
+    },
+    "source_bytes": 10700,
+    "source_sha256": "3cd80213d4a20166a3ff016a4db17cc885e4f7e1047954cfdf58bb8f1ab69d2b"
+  },
+  {
+    "source_index": 1036,
+    "source": "../src/diagrams/architecture/architectureParser.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 87,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 33920,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1020,
+    "source_sha256": "2109823613ea5cde300c53dd1df96156e3ea7504bd8f0e5666e35526e5a115c9"
+  },
+  {
+    "source_index": 1037,
+    "source": "../src/diagrams/architecture/architectureStyles.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 59,
+    "first_mapping": {
+      "generated_line_0": 2522,
+      "generated_column_0": 34264,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 852,
+    "source_sha256": "62a345924376a9b2e9b9ff044afbccf44fc2bb4b3ebbab20512221159509393e"
+  },
+  {
+    "source_index": 1041,
+    "source": "../src/diagrams/architecture/architectureIcons.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 70,
+    "first_mapping": {
+      "generated_line_0": 2553,
+      "generated_column_0": 128476,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 6052,
+    "source_sha256": "8c32188821db16344fd5ad751d7877c78c654999c0b454c4d554edcde7eb9968"
+  },
+  {
+    "source_index": 1042,
+    "source": "../src/diagrams/architecture/svgDraw.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1068,
+    "first_mapping": {
+      "generated_line_0": 2553,
+      "generated_column_0": 134104,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 12420,
+    "source_sha256": "25a32d72266ef68c889cbba1792c203040ba20c6d139ddff79f2dd26e03e9761"
+  },
+  {
+    "source_index": 1043,
+    "source": "../src/diagrams/architecture/architectureRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1532,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 2441,
+      "original_line_0": 46,
+      "original_column_0": 0
+    },
+    "source_bytes": 17861,
+    "source_sha256": "b946446f1d2513e7def6d3e61e7744e2145a488e8fe9c193a50afe11fc8383ed"
+  },
+  {
+    "source_index": 1044,
+    "source": "../src/diagrams/architecture/architectureDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 27,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 8167,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 347,
+    "source_sha256": "793b81525e4f57f4c18dee29566f6fde840f27e87625a9c2ce1c026127584942"
+  },
+  {
+    "source_index": 1045,
+    "source": "../src/mermaid.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 663,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 8308,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 14113,
+    "source_sha256": "9dacdf3ecf198ce1a84a7ae9df50fde479b3857653082975713edc899910011e"
+  },
+  {
+    "source_index": 1046,
+    "source": "../src/diagrams/c4/c4Detector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 8360,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 494,
+    "source_sha256": "0572b81cc0bc3eb898049ac77a24a49a7d212669125d252324adbf3f12d5417b"
+  },
+  {
+    "source_index": 1047,
+    "source": "../src/diagrams/flowchart/flowDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 53,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 8617,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 755,
+    "source_sha256": "3503dcc2396988acf185770a1a9853f3605e5a69351cf50b4cb69cd1f1a18748"
+  },
+  {
+    "source_index": 1048,
+    "source": "../src/diagrams/flowchart/flowDetector-v2.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 65,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 8928,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 897,
+    "source_sha256": "fa61d23601ff937b519ef53a11c913f58c0b4a5a48dfde67d24fec46547b2979"
+  },
+  {
+    "source_index": 1049,
+    "source": "../src/diagrams/er/erDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 9332,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 447,
+    "source_sha256": "ca00f76687895a00a70080f533a955b98cfee98e4aecb803bd51933c3b827b8d"
+  },
+  {
+    "source_index": 1050,
+    "source": "../src/diagrams/git/gitGraphDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 9548,
+      "original_line_0": 3,
+      "original_column_0": 0
+    },
+    "source_bytes": 501,
+    "source_sha256": "d5511b76e278b6a3b2b53c7b185b220806c3e77a8422deae9c2629abec79a76d"
+  },
+  {
+    "source_index": 1051,
+    "source": "../src/diagrams/gantt/ganttDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 9769,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 449,
+    "source_sha256": "46909a6b66a967c884ea66c2fdeae34320bbf7de2541638ae318fbb275bc4fb9"
+  },
+  {
+    "source_index": 1052,
+    "source": "../src/diagrams/info/infoDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 40,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 9984,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 427,
+    "source_sha256": "ecfdc1d9f4ad95e1e5f1418c2b090be12da4e8fcdd71105fe25751e4bedd8dfc"
+  },
+  {
+    "source_index": 1053,
+    "source": "../src/diagrams/pie/pieDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 40,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 10189,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 423,
+    "source_sha256": "385cce837c02d50f688835cc1b713149931164e2c01e7f0e90392c728119d319"
+  },
+  {
+    "source_index": 1054,
+    "source": "../src/diagrams/quadrant-chart/quadrantDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 10392,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 468,
+    "source_sha256": "f9ba44542f443783696dc97eed882dc66ef085e4fe450de2db2ba88dbb9784c2"
+  },
+  {
+    "source_index": 1055,
+    "source": "../src/diagrams/xychart/xychartDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 10623,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 460,
+    "source_sha256": "f0c99c8fbbd444105748491f736bd3a1c96fffd78dbcf453396e01d62c9b3fe1"
+  },
+  {
+    "source_index": 1056,
+    "source": "../src/diagrams/requirement/requirementDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 10847,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 477,
+    "source_sha256": "ccbee75e98d046928da580b5c80923bd82468ec81b830f8700d84b5aa1e8325a"
+  },
+  {
+    "source_index": 1057,
+    "source": "../src/diagrams/sequence/sequenceDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 11084,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 465,
+    "source_sha256": "0f84b742e6dfbe6faf0f0dd6e4dbeda77572ab0089e5dcff0a97254070903ba7"
+  },
+  {
+    "source_index": 1058,
+    "source": "../src/diagrams/class/classDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 49,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 11312,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 745,
+    "source_sha256": "3b682ae5f96954de9fedb9dbaaacd5a2f8650517284aaebe807463901ef0fb10"
+  },
+  {
+    "source_index": 1059,
+    "source": "../src/diagrams/class/classDetector-V2.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 53,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 11585,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 846,
+    "source_sha256": "e795a2ee368a18a9d99bd8bb1da7967b93045c3e0557afae83a08ac352c84601"
+  },
+  {
+    "source_index": 1060,
+    "source": "../src/diagrams/state/stateDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 49,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 11896,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 702,
+    "source_sha256": "388471cc72395b3d9aead848655008e931734d3c28d48365f62c4c31e98b09e5"
+  },
+  {
+    "source_index": 1061,
+    "source": "../src/diagrams/state/stateDetector-V2.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 52,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 12169,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 626,
+    "source_sha256": "f8da7e10a20db2b31baa9a41abcbd773b187927b9c9429d135fbce9135df3bb5"
+  },
+  {
+    "source_index": 1062,
+    "source": "../src/diagrams/user-journey/journeyDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 12482,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 455,
+    "source_sha256": "584d29fceeb03276728efad7ae127a6d0ce2c3b59ea51ca6c60a049c9c4b5546"
+  },
+  {
+    "source_index": 1063,
+    "source": "../src/diagrams/error/errorRenderer.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 174,
+    "first_mapping": {
+      "generated_line_0": 2557,
+      "generated_column_0": 12701,
+      "original_line_0": 1,
+      "original_column_0": 0
+    },
+    "source_bytes": 3173,
+    "source_sha256": "ec2d8996acbe45853aa9fb0d30ddc544228ed612d29acf7fff5b54e2097034a4"
+  },
+  {
+    "source_index": 1064,
+    "source": "../src/diagrams/error/errorDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 20,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 2138,
+      "original_line_0": 3,
+      "original_column_0": 0
+    },
+    "source_bytes": 267,
+    "source_sha256": "65ec281c7f66ddb809a7edf696ab44b6345d2e8e947407c1cf58f9fef973149c"
+  },
+  {
+    "source_index": 1065,
+    "source": "../src/diagrams/flowchart/elk/detector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 59,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 2207,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 774,
+    "source_sha256": "7a29ecaa7779b95961c262bfe7f1f2d7966ce8dcd6a96c3ebc7bc006efcb4ddd"
+  },
+  {
+    "source_index": 1066,
+    "source": "../src/diagrams/timeline/detector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 2536,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 462,
+    "source_sha256": "90a282b3dc0095612d2c437810cb2165e31497554c1297ba145f761608564172"
+  },
+  {
+    "source_index": 1067,
+    "source": "../src/diagrams/mindmap/detector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 2757,
+      "original_line_0": 5,
+      "original_column_0": 0
+    },
+    "source_bytes": 458,
+    "source_sha256": "0633a13473a1d20b72eb617657500916e02450c3562ecb8e8346ee97ee0088dd"
+  },
+  {
+    "source_index": 1068,
+    "source": "../src/diagrams/kanban/detector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 2976,
+      "original_line_0": 5,
+      "original_column_0": 0
+    },
+    "source_bytes": 455,
+    "source_sha256": "b4dd23e8c9866752e250a95d7315873b46592c9d3e971370423039f542263012"
+  },
+  {
+    "source_index": 1069,
+    "source": "../src/diagrams/sankey/sankeyDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 3193,
+      "original_line_0": 2,
+      "original_column_0": 0
+    },
+    "source_bytes": 420,
+    "source_sha256": "5ab664a3ad49197748158e08911cd5a70f3d094364372642bb266f803f4fed83"
+  },
+  {
+    "source_index": 1070,
+    "source": "../src/diagrams/packet/detector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 40,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 3415,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 434,
+    "source_sha256": "a5bc3b15073a1f52d1e86028731cfc043c525b3515e6a393c18d2edbbb7fbc2d"
+  },
+  {
+    "source_index": 1071,
+    "source": "../src/diagrams/radar/detector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 40,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 3629,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 431,
+    "source_sha256": "1cc2bc3d6b3098a90c2c3c7515e7d3f0d8fc83aa65ddb8041457f3f7ae35fe48"
+  },
+  {
+    "source_index": 1072,
+    "source": "../src/diagrams/block/blockDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 3841,
+      "original_line_0": 2,
+      "original_column_0": 0
+    },
+    "source_bytes": 417,
+    "source_sha256": "47e39fa6a2a431fed96d7b0eee575f476d36e4745cb347d1a1024ce323d5a2da"
+  },
+  {
+    "source_index": 1073,
+    "source": "../src/diagrams/architecture/architectureDetector.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 42,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 4061,
+      "original_line_0": 6,
+      "original_column_0": 0
+    },
+    "source_bytes": 482,
+    "source_sha256": "6c61635c3f8b9e532083adf465c13ca31d430ee939c7821b8bc18c4ea8b2ba6c"
+  },
+  {
+    "source_index": 1074,
+    "source": "../src/diagram-api/diagram-orchestration.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 107,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 4290,
+      "original_line_0": 27,
+      "original_column_0": 0
+    },
+    "source_bytes": 3431,
+    "source_sha256": "b3a28b86a46d888ae6f4391b104f927febf7eccd55bcf0eff0a20f19a4feb6e1"
+  },
+  {
+    "source_index": 1075,
+    "source": "../src/diagram-api/loadDiagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 115,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 4914,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 1259,
+    "source_sha256": "20ec1961dd395c445da680ab6d88d6eef10ccfb48772f7ad71578dadd148e4b7"
+  },
+  {
+    "source_index": 1076,
+    "source": "../src/mermaidAPI.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 1054,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 5489,
+      "original_line_0": 5,
+      "original_column_0": 0
+    },
+    "source_bytes": 19387,
+    "source_sha256": "2cb3245e5459f2f92fd30df3ac387a4442514ef810e7d9ae66abf23d0a706913"
+  },
+  {
+    "source_index": 1082,
+    "source": "../src/accessibility.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 91,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 10028,
+      "original_line_0": 18,
+      "original_column_0": 0
+    },
+    "source_bytes": 2209,
+    "source_sha256": "29058735ef6d4ffd0ac1c026f2ae0158cbe697a03cdc0df1488d14241650e0f0"
+  },
+  {
+    "source_index": 1083,
+    "source": "../src/Diagram.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 168,
+    "first_mapping": {
+      "generated_line_0": 2558,
+      "generated_column_0": 10488,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 2335,
+    "source_sha256": "7792be12d69c6f68304885eddc88ed0c8a73bba4443d958e22864e2d323a1aeb"
+  },
+  {
+    "source_index": 1084,
+    "source": "../src/interactionDb.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 22,
+    "first_mapping": {
+      "generated_line_0": 2559,
+      "generated_column_0": 409,
+      "original_line_0": 0,
+      "original_column_0": 0
+    },
+    "source_bytes": 262,
+    "source_sha256": "b1d95571c30b341dcf1a9bcf2c185e97d5e08f3fd094b01c11e73c13aba62ded"
+  },
+  {
+    "source_index": 1085,
+    "source": "../src/diagram-api/comments.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 12,
+    "first_mapping": {
+      "generated_line_0": 2559,
+      "generated_column_0": 489,
+      "original_line_0": 5,
+      "original_column_0": 7
+    },
+    "source_bytes": 290,
+    "source_sha256": "3592fb8d68ad83644816b7cb08bc8da4faff47e43332ba446b5d45666520ed60"
+  },
+  {
+    "source_index": 1086,
+    "source": "../src/diagram-api/frontmatter.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 91,
+    "first_mapping": {
+      "generated_line_0": 2559,
+      "generated_column_0": 572,
+      "original_line_0": 1,
+      "original_column_0": 0
+    },
+    "source_bytes": 1726,
+    "source_sha256": "a21c0cdd3cfc726990cc87a2986d31399846aba3b996d835861385cdaf0d54c7"
+  },
+  {
+    "source_index": 1087,
+    "source": "../src/preprocess.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 169,
+    "first_mapping": {
+      "generated_line_0": 2559,
+      "generated_column_0": 932,
+      "original_line_0": 3,
+      "original_column_0": 0
+    },
+    "source_bytes": 2249,
+    "source_sha256": "13c4a3ad80b3f4ff7cac7640065701f9e810b6e7bb8efb90f1fa6b676dfc7a18"
+  },
+  {
+    "source_index": 1088,
+    "source": "../src/utils/base64.ts",
+    "pnpm_identity": null,
+    "mapped_segments": 33,
+    "first_mapping": {
+      "generated_line_0": 2560,
+      "generated_column_0": 659,
+      "original_line_0": 0,
+      "original_column_0": 7
+    },
+    "source_bytes": 292,
+    "source_sha256": "a122188897116f4cd3d4b63878f80348582de3d7ffecc17f66429fd3a22fddc9"
+  }
+]

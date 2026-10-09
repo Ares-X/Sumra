@@ -1,0 +1,17 @@
+# MuPDF f030eda1e472268667805f438e38cee8f1da61f8.
+# Widget creation must propagate its failure after cleanup. Returning the
+# detached, failed annotation here lets callers sign an unbound widget.
+diff --git a/source/pdf/pdf-form.c b/source/pdf/pdf-form.c
+--- a/source/pdf/pdf-form.c
++++ b/source/pdf/pdf-form.c
+@@ -1089,6 +1089,9 @@ pdf_create_signature_widget(fz_context *ctx, pdf_page *page, char *name)
+ 	{
+ 		pdf_abandon_operation(ctx, page->doc);
+-		pdf_delete_annot(ctx, page, annot);
++		fz_try(ctx) { pdf_delete_annot(ctx, page, annot); }
++		fz_always(ctx) { pdf_drop_annot(ctx, annot); }
++		fz_catch(ctx) { fz_rethrow(ctx); }
++		fz_rethrow(ctx);
+ 	}
+ 	return (pdf_annot *)annot;
+ }

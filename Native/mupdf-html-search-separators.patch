@@ -1,0 +1,181 @@
+--- a/include/mupdf/fitz/text.h
++++ b/include/mupdf/fitz/text.h
+@@ -50,6 +50,8 @@
+ 	int cid; /* CID for CJK fonts, raw character code for other fonts; or unicode for non-PDF formats. */
+ 	/* HTML flow identity; zero for other document engines. */
+ 	uint32_t source_node, source_offset;
++	/* Parsed HTML has no authored separator before this character. */
++	uint8_t source_no_separator_before;
+ } fz_text_item;
+ 
+ #define FZ_LANG_TAG2(c1,c2) ((c1-'a'+1) + ((c2-'a'+1)*27))
+--- a/include/mupdf/fitz/structured-text.h
++++ b/include/mupdf/fitz/structured-text.h
+@@ -490,6 +490,8 @@
+ 	fz_font *font;
+ 	/* HTML flow identity and extracted part within one source character. */
+ 	uint32_t source_node, source_offset, source_part;
++	/* HTML provenance; zero retains the default extraction semantics. */
++	uint8_t source_no_separator_before;
+ 	fz_stext_char *next;
+ };
+ 
+--- a/source/fitz/text.c
++++ b/source/fitz/text.c
+@@ -126,6 +126,7 @@
+ 	span->items[span->len].cid = cid;
+ 	span->items[span->len].source_node = 0;
+ 	span->items[span->len].source_offset = 0;
++	span->items[span->len].source_no_separator_before = 0;
+ 	span->items[span->len].x = trm.e;
+ 	span->items[span->len].y = trm.f;
+ 	span->items[span->len].adv = adv;
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -583,6 +583,7 @@
+ 	unsigned int has_large_source_offset : 1;
+ 	unsigned int has_markup_lang : 1;
+ 	unsigned int generated_hyphen : 1;
++	unsigned int source_no_separator_before : 1;
+ 	uint32_t source_node;
+ 
+ 	float x, y, w, h;
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -321,6 +321,7 @@
+ 	flow->has_large_source_offset = 0;
+ 	flow->has_markup_lang = 0;
+ 	flow->generated_hyphen = 0;
++	flow->source_no_separator_before = 0;
+ 	flow->breaks_line = 0;
+ 	flow->box = inline_box;
+ 	(*top->s.build.flow_tail) = flow;
+@@ -2575,12 +2576,25 @@
+ 	for (; box; box = box->next)
+ 	{
+ 		if (box->type == BOX_FLOW)
++		{
++			int adjacent = 0;
+ 			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
+ 			{
+ 				if (*next == UINT32_MAX)
+ 					fz_throw(ctx, FZ_ERROR_LIMIT, "HTML has too many flow nodes");
+ 				flow->source_node = ++*next;
+-			}
++				/* Classify once, before layout can split/reorder word nodes.
++				 * Zero-width break opportunities/anchors are not authored
++				 * separators; spaces, explicit breaks and block boundaries are. */
++				if (flow->type == FLOW_WORD || flow->type == FLOW_SHYPHEN)
++				{
++					flow->source_no_separator_before = adjacent;
++					adjacent = 1;
++				}
++				else if (flow->type == FLOW_SPACE || flow->type == FLOW_BREAK || flow->type == FLOW_IMAGE)
++					adjacent = 0;
++			}
++		}
+ 		if (fz_html_box_has_boxes(box))
+ 			assign_source_nodes(ctx, box->down, next);
+ 	}
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -3444,6 +3444,8 @@
+ 	fz_show_glyph(ctx, text, font, trm, glyph, unicode, 0, node->bidi_level, box->markup_dir, markup_lang);
+ 	text->tail->items[text->tail->len-1].source_node = node->source_node;
+ 	text->tail->items[text->tail->len-1].source_offset = source_offset + byte_offset;
++	text->tail->items[text->tail->len-1].source_no_separator_before =
++		source_offset + byte_offset != 0 || node->source_no_separator_before;
+ }
+ 
+ static int draw_flow_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+--- a/source/fitz/stext-device.c
++++ b/source/fitz/stext-device.c
+@@ -138,6 +138,7 @@
+ 	int lastbidi;
+ 	int flags;
+ 	uint32_t source_node, source_offset, source_part;
++	uint8_t source_no_separator_before;
+ 	uint32_t color;
+ 	int last_was_fake_bold;
+ 	const fz_text *lasttext;
+@@ -444,7 +445,7 @@
+ #define NON_ACCURATE_GLYPH (-1)
+ 
+ static fz_stext_char *
+-add_char_to_line(fz_context *ctx, fz_stext_page *page, fz_stext_line *line, fz_matrix trm, fz_font *font, float size, int c, int glyph, fz_point *p, fz_point *q, int bidi, int color, int synthetic, int flags, int dev_flags, uint32_t source_node, uint32_t source_offset, uint32_t source_part)
++add_char_to_line(fz_context *ctx, fz_stext_page *page, fz_stext_line *line, fz_matrix trm, fz_font *font, float size, int c, int glyph, fz_point *p, fz_point *q, int bidi, int color, int synthetic, int flags, int dev_flags, uint32_t source_node, uint32_t source_offset, uint32_t source_part, int source_no_separator_before)
+ {
+ 	fz_stext_char *ch = fz_pool_alloc(ctx, page->pool, sizeof *line->first_char);
+ 	fz_point a, d;
+@@ -461,6 +462,7 @@
+ 	ch->source_node = source_node;
+ 	ch->source_offset = source_offset;
+ 	ch->source_part = source_part;
++	ch->source_no_separator_before = source_node && (source_no_separator_before || source_part != 0);
+ 	ch->argb = color;
+ 	ch->bidi = bidi;
+ 	ch->origin = *p;
+@@ -861,7 +863,7 @@
+ 	/* Don't advance pen or break lines for either no-glyph or marking non-spacing characters in a cluster */
+ 	if (cur_line && (glyph == -1 || ucdn_get_general_category(c) == UCDN_GENERAL_CATEGORY_MN))
+ 	{
+-		add_char_to_line(ctx, page, cur_line, trm, font, size, c, (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? glyph : NON_ACCURATE_GLYPH, &dev->pen, &dev->pen, bidi, dev->color, 0, flags, dev->flags, dev->source_node, dev->source_offset, dev->source_part++);
++		add_char_to_line(ctx, page, cur_line, trm, font, size, c, (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? glyph : NON_ACCURATE_GLYPH, &dev->pen, &dev->pen, bidi, dev->color, 0, flags, dev->flags, dev->source_node, dev->source_offset, dev->source_part++, dev->source_no_separator_before);
+ 		dev->lastbidi = bidi;
+ 		dev->lastchar = c;
+ 		dev->lastline = cur_line;
+@@ -1039,9 +1041,9 @@
+ 
+ 	/* Add synthetic space */
+ 	if (c != ' ' && add_space && !(dev->flags & FZ_STEXT_INHIBIT_SPACES))
+-		add_char_to_line(ctx, page, cur_line, trm, font, size, ' ', (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? NON_ACCURATE_GLYPH_ADDED_SPACE : NON_ACCURATE_GLYPH, &dev->pen, &p, bidi, dev->color, add_space, flags, dev->flags, 0, 0, 0);
+-
+-	add_char_to_line(ctx, page, cur_line, trm, font, size, c, (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? glyph : NON_ACCURATE_GLYPH, &p, &q, bidi, dev->color, 0, flags, dev->flags, dev->source_node, dev->source_offset, dev->source_part++);
++		add_char_to_line(ctx, page, cur_line, trm, font, size, ' ', (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? NON_ACCURATE_GLYPH_ADDED_SPACE : NON_ACCURATE_GLYPH, &dev->pen, &p, bidi, dev->color, add_space, flags, dev->flags, 0, 0, 0, 0);
++
++	add_char_to_line(ctx, page, cur_line, trm, font, size, c, (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? glyph : NON_ACCURATE_GLYPH, &p, &q, bidi, dev->color, 0, flags, dev->flags, dev->source_node, dev->source_offset, dev->source_part++, dev->source_no_separator_before);
+ 
+ 	dev->lastchar = c;
+ 	dev->lastbidi = bidi;
+@@ -1208,6 +1210,7 @@
+ 		unicode = span->items[i].ucs;
+ 		dev->source_node = span->items[i].source_node;
+ 		dev->source_offset = span->items[i].source_offset;
++		dev->source_no_separator_before = span->items[i].source_no_separator_before;
+ 		dev->source_part = 0;
+ 		if (unicode == FZ_REPLACEMENT_CHARACTER)
+ 		{
+@@ -1272,6 +1275,7 @@
+ 	{
+ 		int rune;
+ 		dev->source_node = dev->source_offset = dev->source_part = 0;
++		dev->source_no_separator_before = 0;
+ 		actualtext += fz_chartorune(&rune, actualtext);
+ 
+ 		if (rune == 0)
+@@ -1398,6 +1402,7 @@
+ 			adv = 0;
+ 		dev->source_node = item->source_node;
+ 		dev->source_offset = item->source_offset;
++		dev->source_no_separator_before = item->source_no_separator_before;
+ 		dev->source_part = 0;
+ 
+ 		fz_add_stext_char(ctx, dev, font,
+--- a/source/fitz/util.c
++++ b/source/fitz/util.c
+@@ -705,7 +705,14 @@
+ 				else if (line->next)
+ 				{
+ 					/* join lines in the same block with a space */
+-					if (!*ws)
++					/* Parsed HTML knows whether this was only a visual wrap.
++					 * Retain every real character/map entry, including the last
++					 * glyph (unlike the dehyphenation JOINED flag above).
++					 * PDF/no-source text keeps its existing whitespace rules. */
++					fz_stext_char *next = line->next->first_char;
++					int source_adjacent = line->last_char && line->last_char->source_node &&
++						next && next->source_node && next->source_no_separator_before;
++					if (!*ws && !source_adjacent)
+ 						EMIT(NULL, ' ');
+ 					*ws = 1;
+ 				}

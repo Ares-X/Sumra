@@ -1,0 +1,182 @@
+--- a/source/fitz/stext-search.c
++++ b/source/fitz/stext-search.c
+@@ -969,8 +969,14 @@
+ 	size_t pos[32];
+ } transform_cache;
+ 
++typedef struct
++{
++	size_t position, bytes;
++} transform_byte_count;
++
+ static size_t
+-flush_transform_cache(fz_context *ctx, char *output, size_t *index, fz_text_transform transform, transform_cache *cache)
++flush_transform_cache(fz_context *ctx, char *output, size_t *index, fz_text_transform transform,
++	transform_cache *cache, transform_byte_count *count)
+ {
+ 	int i, j, k, n = cache->len;
+ 	char dummy[4];
+@@ -1044,13 +1050,16 @@
+ 			for (k = 0; k < j; k++, index++)
+ 				*index = cache->pos[i];
+ 		}
++		if (count && cache->pos[i] == count->position)
++			count->bytes += j;
+ 		len += j;
+ 	}
+ 	return len;
+ }
+ 
+ static size_t
+-transform_char(fz_context *ctx, char *output, size_t *index, int c, size_t pos, fz_text_transform transform, transform_cache *cache)
++transform_char(fz_context *ctx, char *output, size_t *index, int c, size_t pos,
++	fz_text_transform transform, transform_cache *cache, transform_byte_count *count)
+ {
+ 	size_t len;
+ 	int ccc;
+@@ -1059,9 +1068,9 @@
+ 	 * Retain the source position on both letters for unit-boundary checks. */
+ 	if ((transform & FZ_TEXT_TRANSFORM_UPPERCASE) && (c == 0xdf || c == 0x1e9e))
+ 	{
+-		len = transform_char(ctx, output, index, 'S', pos, transform, cache);
++		len = transform_char(ctx, output, index, 'S', pos, transform, cache, count);
+ 		return len + transform_char(ctx, output ? output + len : NULL,
+-			index ? index + len : NULL, 'S', pos, transform, cache);
++			index ? index + len : NULL, 'S', pos, transform, cache, count);
+ 	}
+ 
+ 	if (transform & FZ_TEXT_TRANSFORM_DECOMPOSE)
+@@ -1069,12 +1078,12 @@
+ 		uint32_t a, b;
+ 		if (ucdn_decompose((uint32_t)c, &a, &b))
+ 		{
+-			size_t len2 = transform_char(ctx, output, index, a, pos, transform, cache);
++			size_t len2 = transform_char(ctx, output, index, a, pos, transform, cache, count);
+ 			if (index)
+ 				index += len2;
+ 			if (output)
+ 				output += len2;
+-			len = transform_char(ctx, output, index, b, pos, transform, cache);
++			len = transform_char(ctx, output, index, b, pos, transform, cache, count);
+ 			if (index)
+ 				index += len;
+ 			if (output)
+@@ -1096,7 +1105,7 @@
+ 			len = 0;
+ 			for (i = 0; i < n; i++)
+ 			{
+-				size_t char_len = transform_char(ctx, output, index, decomp[i], pos, transform, cache);
++				size_t char_len = transform_char(ctx, output, index, decomp[i], pos, transform, cache, count);
+ 				if (index)
+ 					index += char_len;
+ 				if (output)
+@@ -1174,7 +1183,7 @@
+ 	/* So we've got a new base character. */
+ 
+ 	/* Do we have a cache to flush? */
+-	len = flush_transform_cache(ctx, output, index, transform, cache);
++	len = flush_transform_cache(ctx, output, index, transform, cache, count);
+ 	cache->len = 1;
+ 	cache->cache[0] = c;
+ 	cache->pos[0] = pos;
+@@ -1198,7 +1207,7 @@
+ 		if (c == 0)
+ 			break;
+ 
+-		len = transform_char(ctx, output, index, c, pos, transform, &cache);
++		len = transform_char(ctx, output, index, c, pos, transform, &cache, NULL);
+ 		if (index)
+ 			index += len;
+ 		if (output)
+@@ -1208,7 +1217,7 @@
+ 	}
+ 
+ 	/* Flush the cache */
+-	len = flush_transform_cache(ctx, output, index, transform, &cache);
++	len = flush_transform_cache(ctx, output, index, transform, &cache, NULL);
+ 	if (index)
+ 	{
+ 		index += len;
+@@ -1434,52 +1443,32 @@
+ fz_search_chunk_step fz_feed_search_chunker(fz_context *ctx, fz_search_chunker *chunker, int rune)
+ {
+ 	fz_search_chunk_step step = {0};
+-	transform_cache before, preview;
+-	size_t local[256], *indices = local, length, position;
++	transform_cache before;
++	transform_byte_count count;
++	size_t length, position;
+ 	int i, old_remaining = 0;
+ 	if (!chunker || chunker->position == SIZE_MAX)
+ 		fz_throw(ctx, FZ_ERROR_LIMIT, "Search source is too large");
+ 	position = ++chunker->position;
+-	before = preview = chunker->cache;
+-	length = transform_char(ctx, NULL, NULL, rune, position, chunker->transform, &preview);
+-	if (length > nelem(local))
+-		indices = fz_malloc_array(ctx, length, size_t);
+-	fz_try(ctx)
+-	{
+-		if (transform_char(ctx, NULL, indices, rune, position, chunker->transform, &chunker->cache) != length)
+-			fz_throw(ctx, FZ_ERROR_FORMAT, "Inconsistent search normalization");
+-		for (size_t emitted = 0; emitted < length; ++emitted)
+-		{
+-			if (indices[emitted] == position)
+-			{
+-				++step.normalized_current;
+-				step.keep_rune = 1;
+-			}
+-			else
+-				++step.normalized_before;
+-		}
+-		for (i = 0; i < chunker->cache.len; ++i)
+-		{
+-			if (chunker->cache.pos[i] == position)
+-				step.keep_rune = 1;
+-			else
+-				old_remaining = 1;
+-		}
+-		/* Composition can absorb a marking rune into an older base. */
+-		if (before.len == chunker->cache.len &&
+-			memcmp(before.cache, chunker->cache.cache, before.len * sizeof(before.cache[0])) != 0)
++	before = chunker->cache;
++	count.position = position;
++	count.bytes = 0;
++	length = transform_char(ctx, NULL, NULL, rune, position, chunker->transform, &chunker->cache, &count);
++	step.normalized_current = count.bytes;
++	step.normalized_before = length - count.bytes;
++	step.keep_rune = count.bytes != 0;
++	for (i = 0; i < chunker->cache.len; ++i)
++	{
++		if (chunker->cache.pos[i] == position)
+ 			step.keep_rune = 1;
+-		step.safe_before = before.len && step.normalized_before && !old_remaining;
+-	}
+-	fz_always(ctx)
+-	{
+-		if (indices != local)
+-			fz_free(ctx, indices);
+-	}
+-	fz_catch(ctx)
+-	{
+-		fz_rethrow(ctx);
+-	}
++		else
++			old_remaining = 1;
++	}
++	/* Composition can absorb a marking rune into an older base. */
++	if (before.len == chunker->cache.len &&
++		memcmp(before.cache, chunker->cache.cache, before.len * sizeof(before.cache[0])) != 0)
++		step.keep_rune = 1;
++	step.safe_before = before.len && step.normalized_before && !old_remaining;
+ 	return step;
+ }
+ 
+@@ -1488,7 +1477,7 @@
+ 	size_t length;
+ 	if (!chunker)
+ 		return 0;
+-	length = flush_transform_cache(ctx, NULL, NULL, chunker->transform, &chunker->cache);
++	length = flush_transform_cache(ctx, NULL, NULL, chunker->transform, &chunker->cache, NULL);
+ 	chunker->cache.len = 0;
+ 	return length;
+ }

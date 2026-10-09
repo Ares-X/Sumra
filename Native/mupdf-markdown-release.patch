@@ -1,0 +1,16 @@
+--- a/source/html/md.c
++++ b/source/html/md.c
+@@ -127,6 +127,13 @@
+ 
+ 		out = cmark_render_html_with_mem(document, options, cmark_parser_get_syntax_extensions(parser), mem);
+ 
++		/* The rendered string owns its bytes; release the finished parse before
++		 * allocating the copied HTML buffer. */
++		cmark_node_free(document);
++		document = NULL;
++		cmark_parser_free(parser);
++		parser = NULL;
++
+ 		buffer_out = fz_new_buffer_from_copied_data(ctx, (unsigned char *)out, strlen(out)+1);
+ 	}
+ 	fz_always(ctx)

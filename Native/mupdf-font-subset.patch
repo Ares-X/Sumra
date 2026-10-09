@@ -1,0 +1,133 @@
+diff --git a/source/fitz/subset-ttf.c b/source/fitz/subset-ttf.c
+--- a/source/fitz/subset-ttf.c
++++ b/source/fitz/subset-ttf.c
+@@ -21,6 +21,9 @@
+ // CA 94129, USA, for further information.
+ 
+ #include "mupdf/fitz.h"
++#if FZ_ENABLE_HTML_ENGINE
++#include "hb-subset.h"
++#endif
+ 
+ /*
+ 	For the purposes of this code, and to save my tiny brain from
+@@ -1914,9 +1917,78 @@
+ 	add_table(ctx, ttf, TAG("CFF "), sub);
+ }
+ 
++#if FZ_ENABLE_HTML_ENGINE
++/* Keep glyph indices: PDF content streams and CIDToGID mappings are already written. */
++static fz_buffer *
++subset_otf_cid_with_harfbuzz(fz_context *ctx, fz_buffer *orig, int *gids, int num_gids)
++{
++	hb_blob_t *blob = NULL, *subset_blob = NULL;
++	hb_face_t *face = NULL, *subset_face = NULL;
++	hb_subset_input_t *input = NULL;
++	fz_buffer *result = NULL;
++
++	if (orig->len > UINT_MAX)
++		fz_throw(ctx, FZ_ERROR_LIMIT, "OpenType font too large for HarfBuzz subsetting");
++
++	fz_var(blob);
++	fz_var(subset_blob);
++	fz_var(face);
++	fz_var(subset_face);
++	fz_var(input);
++	fz_var(result);
++
++	/* HarfBuzz allocations require MuPDF's current context under this lock. */
++	fz_hb_lock(ctx);
++	fz_try(ctx)
++	{
++		blob = hb_blob_create_or_fail((const char *)orig->data, (unsigned)orig->len,
++			HB_MEMORY_MODE_READONLY, NULL, NULL);
++		if (!blob)
++			fz_throw(ctx, FZ_ERROR_SYSTEM, "Cannot allocate OpenType font blob");
++		face = hb_face_create_or_fail(blob, 0);
++		if (!face)
++			fz_throw(ctx, FZ_ERROR_FORMAT, "Cannot read OpenType font for subsetting");
++		input = hb_subset_input_create_or_fail();
++		if (!input)
++			fz_throw(ctx, FZ_ERROR_SYSTEM, "Cannot allocate font subset input");
++		hb_subset_input_set_flags(input, HB_SUBSET_FLAGS_RETAIN_GIDS | HB_SUBSET_FLAGS_NOTDEF_OUTLINE);
++		hb_set_t *glyphs = hb_subset_input_glyph_set(input);
++		for (int i = 0; i < num_gids; ++i)
++			hb_set_add(glyphs, (hb_codepoint_t)gids[i]);
++		if (!hb_set_allocation_successful(glyphs))
++			fz_throw(ctx, FZ_ERROR_SYSTEM, "Cannot collect font subset glyphs");
++		subset_face = hb_subset_or_fail(face, input);
++		if (!subset_face)
++			fz_throw(ctx, FZ_ERROR_FORMAT, "Cannot subset OpenType CID font");
++		subset_blob = hb_face_reference_blob(subset_face);
++		unsigned len = 0;
++		const char *data = hb_blob_get_data(subset_blob, &len);
++		if (!data || !len)
++			fz_throw(ctx, FZ_ERROR_FORMAT, "Empty OpenType CID font subset");
++		result = fz_new_buffer_from_copied_data(ctx, (const unsigned char *)data, len);
++	}
++	fz_always(ctx)
++	{
++		if (subset_blob) hb_blob_destroy(subset_blob);
++		if (subset_face) hb_face_destroy(subset_face);
++		if (input) hb_subset_input_destroy(input);
++		if (face) hb_face_destroy(face);
++		if (blob) hb_blob_destroy(blob);
++		fz_hb_unlock(ctx);
++	}
++	fz_catch(ctx)
++		fz_rethrow(ctx);
++	return result;
++}
++#endif
++
+ fz_buffer *
+ fz_subset_ttf_for_gids(fz_context *ctx, fz_buffer *orig, int *gids, int num_gids, int symbolic, int cidfont)
+ {
++#if FZ_ENABLE_HTML_ENGINE
++	if (cidfont && orig->len >= 4 && !memcmp(orig->data, "OTTO", 4))
++		return subset_otf_cid_with_harfbuzz(ctx, orig, gids, num_gids);
++#endif
+ 	fz_stream *stm = fz_open_buffer(ctx, orig);
+ 	ttf_t ttf = { 0 };
+ 	fz_buffer *newbuf = NULL;
+diff --git a/source/pdf/pdf-write.c b/source/pdf/pdf-write.c
+--- a/source/pdf/pdf-write.c
++++ b/source/pdf/pdf-write.c
+@@ -3286,6 +3286,7 @@
+ 	fz_document_writer super;
+ 	pdf_document *pdf;
+ 	pdf_write_options opts;
++	int subset_fonts;
+ 	fz_output *out;
+ 
+ 	fz_rect mediabox;
+@@ -3332,6 +3333,8 @@
+ pdf_writer_close_writer(fz_context *ctx, fz_document_writer *wri_)
+ {
+ 	pdf_writer *wri = (pdf_writer*)wri_;
++	if (wri->subset_fonts)
++		pdf_subset_fonts(ctx, wri->pdf, 0, NULL);
+ 	pdf_write_document(ctx, wri->pdf, wri->out, &wri->opts);
+ 	fz_close_output(ctx, wri->out);
+ }
+@@ -3356,7 +3359,19 @@
+ 	fz_try(ctx)
+ 	{
+ 		wri = fz_new_derived_document_writer(ctx, pdf_writer, pdf_writer_begin_page, pdf_writer_end_page, pdf_writer_close_writer, pdf_writer_drop_writer);
+-		pdf_parse_write_options(ctx, &wri->opts, options);
++		/* Writer-only option: do not extend the public pdf_write_options ABI. */
++		fz_options *args = fz_new_options(ctx, options);
++		fz_try(ctx)
++		{
++			pdf_init_write_options(ctx, &wri->opts);
++			pdf_apply_write_options(ctx, &wri->opts, args);
++			fz_lookup_option_boolean(ctx, args, "subset-fonts", &wri->subset_fonts);
++			fz_throw_on_unused_options(ctx, args, "pdf");
++		}
++		fz_always(ctx)
++			fz_drop_options(ctx, args);
++		fz_catch(ctx)
++			fz_rethrow(ctx);
+ 		wri->out = out;
+ 		wri->pdf = pdf_create_document(ctx);
+ 	}

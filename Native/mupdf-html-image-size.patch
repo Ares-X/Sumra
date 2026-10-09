@@ -1,0 +1,33 @@
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -2782,10 +2782,29 @@
+ 	fz_debug_html_box(ctx, box, 0);
+ }
+ 
++static size_t
++html_box_image_size(fz_context *ctx, fz_html_box *box)
++{
++	size_t size = 0;
++	for (; box; box = box->next)
++	{
++		if (box->type == BOX_FLOW)
++		{
++			fz_html_flow *flow;
++			for (flow = box->u.flow.head; flow; flow = flow->next)
++				if (flow->type == FLOW_IMAGE)
++					size += fz_image_size(ctx, flow->content.image);
++		}
++		size += html_box_image_size(ctx, box->down);
++	}
++	return size;
++}
++
+ static size_t
+ fz_html_size(fz_context *ctx, fz_html *html)
+ {
+-	return html ? fz_pool_size(ctx, html->tree.pool) : 0;
++	/* Images are held by the flows, outside the pool allocation. */
++	return html ? fz_pool_size(ctx, html->tree.pool) + html_box_image_size(ctx, html->tree.root) : 0;
+ }
+ 
+ /* Magic to make html storable. */

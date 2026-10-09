@@ -1,0 +1,166 @@
+{
+  "mermaidVersion": "11.6.0",
+  "runtimeAsset": "Sources/Sumra/Resources/Reader/mermaid.min.js",
+  "runtimeAssetBytes": 2666850,
+  "runtimeAssetSha256": "3a93016a73dc82ba890d919f9bbb176f3da9d98341650c0b517f2595cc68fef8",
+  "publishedAssetUrl": "https://unpkg.com/mermaid@11.6.0/dist/mermaid.min.js",
+  "sourceMapUrl": "https://unpkg.com/mermaid@11.6.0/dist/mermaid.min.js.map",
+  "uncompressedMapBytes": 10484611,
+  "uncompressedMapSha256": "39e4709239a7213618a32e2201b87cb3598b592148e7621388f99a31ea8055d4",
+  "mappedSources": 1089,
+  "mappedPnpmIdentities": 68,
+  "registryDeclaredReleaseSourceCommit": "7b2083926dbe3b6280f42376a0d4195b2c72fb8e",
+  "attestationSignatureVerification": "not exercised",
+  "exactSourceRebuild": "not exercised",
+  "scope": "matching published preferred source texts and focused release build references; not a complete standalone upstream checkout",
+  "files": [
+    {
+      "file": "README.md",
+      "bytes": 1663,
+      "sha256": "74b2d6e73fb951e43c70fa1b853ab14ac70e33bc236f3e40c539453144b1b435"
+    },
+    {
+      "file": "cytoscape-copied-contributor-notice-inventory.json",
+      "bytes": 2445,
+      "sha256": "e696487d14146f02b4bc86563e3df65f7c7cde491ca92d8c4c97ba31f45c889a"
+    },
+    {
+      "file": "mapped-package-inventory.json",
+      "bytes": 17497,
+      "sha256": "183592f63bfc4eb462d1ef8b967f57682883f7c981e48024decd1c819cae05d6"
+    },
+    {
+      "file": "mapped-source-inventory.json",
+      "bytes": 499134,
+      "sha256": "a2f0be20a5b3f3117315afef86491429166a13abedd679cffb67344a8800f980"
+    },
+    {
+      "file": "mermaid.min.js.map.gz",
+      "bytes": 2336597,
+      "sha256": "df8a56834530d1460227f14c7f62c3dccbe8bd733db0cdc57132d5187bd19d7b"
+    },
+    {
+      "file": "nested-source-correspondence.json",
+      "bytes": 1811,
+      "sha256": "b5c4f3872925f5256c38603f8edc5cab5f662a392c54b39b3023ca0905c84e1e"
+    },
+    {
+      "file": "non-pnpm-source-inventory.json",
+      "bytes": 141778,
+      "sha256": "d571940e58c8b97a379c866961bc3dfbefb79fd6539c58a0289dba35e74e6d00"
+    },
+    {
+      "file": "notice-provenance.json",
+      "bytes": 28231,
+      "sha256": "4a5ca8f73d9d75e68c451e5e272700d07218e7cc6a5c5b19982a7cfff7ff44d0"
+    },
+    {
+      "file": "release-build-common.ts",
+      "bytes": 804,
+      "sha256": "8cef5862e8750dd409b84f3af56cab0027e1a06e7820866659df433eb11b8290",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/.build/common.ts"
+    },
+    {
+      "file": "release-esbuild-build.ts",
+      "bytes": 2150,
+      "sha256": "031a9f2c163320566b91cdd103032d7fc912d4931eaf5fbe42ee8699ff65be37",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/.esbuild/build.ts"
+    },
+    {
+      "file": "release-esbuild-util.ts",
+      "bytes": 3058,
+      "sha256": "2e72e4bbf7e479b3daf9bf61e24aa0779d99b4dc11c30bb77c8fa4aeea675b28",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/.esbuild/util.ts"
+    },
+    {
+      "file": "release-generateLangium.ts",
+      "bytes": 154,
+      "sha256": "34c01fe656b73922d92d3b8178a98048f0361985518578f4d385fd3d8dda95d1",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/.build/generateLangium.ts"
+    },
+    {
+      "file": "release-jisonPlugin.ts",
+      "bytes": 483,
+      "sha256": "be43cc4935d1c067bf481b380283e5e4c3483abd39554eeaba83f576938a1a70",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/.esbuild/jisonPlugin.ts"
+    },
+    {
+      "file": "release-jsonSchemaPlugin.ts",
+      "bytes": 1241,
+      "sha256": "2a5272159211ab16b1406b44b0b19f66ef9b9804a6de79f059d1c465ecc4a355",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/.esbuild/jsonSchemaPlugin.ts"
+    },
+    {
+      "file": "release-mermaid-package.json",
+      "bytes": 4721,
+      "sha256": "f967a7b60b81a17d401895fc817408e480b13ad4f7232a4bdbc606f31359563a",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/packages/mermaid/package.json"
+    },
+    {
+      "file": "release-mermaid-tsconfig.json",
+      "bytes": 354,
+      "sha256": "7ae7254f81cc87499300f1848212c7b2570969db6cf497ad677064b4c66c800c",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/packages/mermaid/tsconfig.json"
+    },
+    {
+      "file": "release-node-version.txt",
+      "bytes": 8,
+      "sha256": "c989649ac5c541692f22f2e41f5fbc34927c02bf1644e5dcca46bb4c88281f87",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/.node-version"
+    },
+    {
+      "file": "release-parser-package.json",
+      "bytes": 1046,
+      "sha256": "978dab10996bf9b047235b1d50be06ed1af3532b900a93b88aad3c2e651ece24",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/packages/parser/package.json"
+    },
+    {
+      "file": "release-parser-tsconfig.json",
+      "bytes": 258,
+      "sha256": "ce2c1b89d8801b180865b190b25262f24260ba5d5b2b99b6672e76ddd0fd2edc",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/packages/parser/tsconfig.json"
+    },
+    {
+      "file": "release-pnpm-workspace.yaml",
+      "bytes": 110,
+      "sha256": "decceccfb0fe8375594a250d7a778961fc8265cba2a195bc3c2ca5bb647684fd",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/pnpm-workspace.yaml"
+    },
+    {
+      "file": "release-root-package.json",
+      "bytes": 5142,
+      "sha256": "753ae10022ff2b8a2b5a42fc2f4fd3a0a327443d6efea2fb75240af616a6ad7a",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/package.json"
+    },
+    {
+      "file": "release-root-tsconfig.json",
+      "bytes": 10398,
+      "sha256": "d956850ecd4ae4ea237055225f1d7167f4eeedd511d5972c998c08e7c32b2bfa",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/tsconfig.json"
+    },
+    {
+      "file": "release-roughjs.patch",
+      "bytes": 348,
+      "sha256": "3543d47108cb41b68ec6a671c0e1f9d0cfe2ce524fea5b0992511ae84c3c6b64",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/patches/roughjs.patch"
+    },
+    {
+      "file": "release-source-pnpm-lock.yaml",
+      "bytes": 699742,
+      "sha256": "eea2fcfdf0c8f4b9e1962b8b313c7a20b2a30598147de8a1e648ad070a697528",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/pnpm-lock.yaml"
+    },
+    {
+      "file": "release-workflow.yml",
+      "bytes": 1417,
+      "sha256": "2766c3c3e4df9d25293db4e7d5ff3b1d231d281c860f88098ce1bbb2ec592b82",
+      "url": "https://raw.githubusercontent.com/mermaid-js/mermaid/7b2083926dbe3b6280f42376a0d4195b2c72fb8e/.github/workflows/release.yml"
+    },
+    {
+      "file": "roughjs-prebundled-notice-inventory.json",
+      "bytes": 4081,
+      "sha256": "a5dcf031baa6d0b8986a25f7c58158bfc8ee96527a37a20b7c09daed12ce2c03"
+    }
+  ],
+  "noticeCoverage": "68 mapped identities + four RoughJS release-lock contributors; full terms and source headers retained; historical origins/unique URI and generated-runtime versions not completely attested"
+}

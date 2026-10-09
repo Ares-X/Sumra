@@ -1,0 +1,998 @@
+--- a/source/html/epub-doc.c
++++ b/source/html/epub-doc.c
+@@ -56,6 +56,7 @@
+ 	fz_outline *outline;
+ 	char *dc_title, *dc_creator;
+ 	int reading_direction; /* 0: absent, 1: declared LTR/default, 2: declared RTL */
++	int fixed_chapters, reflow_chapters;
+ 	epub_accelerator *accel;
+ 	uint32_t user_css_sum; /* cached checksum of current user_css */
+ 
+@@ -75,6 +76,7 @@
+ 	epub_document *doc;
+ 	char *path;
+ 	int number;
++	int fixed_layout;
+ };
+ 
+ struct epub_page
+@@ -211,6 +213,11 @@
+ {
+ 	epub_accelerator *acc = doc->accel;
+ 
++	/* A fixed spine item is one author canvas. Counting must not parse
++	 * every XHTML resource merely to open or navigate the publication. */
++	if (ch->fixed_layout)
++		return 1;
++
+ 	ensure_accelerator(ctx, doc);
+ 
+ 	if (ch->number < acc->num_chapters && acc->pages_in_chapter[ch->number] != -1)
+@@ -248,7 +255,9 @@
+ 				fz_drop_html(ctx, html);
+ 				if (y >= 0)
+ 				{
+-					int page = y / ph;
++					int page = ch->fixed_layout ? 0 : y / ph;
++					if (ch->fixed_layout)
++						y = fz_clamp(y, 0, ph);
+ 					return fz_make_link_dest_xyz(i, page, 0, y - page * ph, 0);
+ 				}
+ 			}
+@@ -299,7 +308,7 @@
+ 
+ #define MAGIC_ACCELERATOR 0xacce1e7a
+ #define MAGIC_ACCEL_EPUB  0x62755065
+-#define ACCEL_VERSION     0x00010001
++#define ACCEL_VERSION     0x00010002
+ 
+ static void epub_load_accelerator(fz_context *ctx, epub_document *doc, fz_stream *accel)
+ {
+@@ -392,7 +401,7 @@
+ accelerate_chapter(fz_context *ctx, epub_document *doc, epub_chapter *ch, fz_html *html)
+ {
+ 	epub_accelerator *acc = doc->accel;
+-	int p = count_laid_out_pages(html);
++	int p = ch->fixed_layout ? 1 : count_laid_out_pages(html);
+ 
+ 	if (ch->number < acc->num_chapters)
+ 	{
+@@ -432,7 +441,7 @@
+ }
+ 
+ static epub_chapter *
+-epub_load_chapter(fz_context *ctx, epub_document *doc, const char *path, int i)
++	epub_load_chapter(fz_context *ctx, epub_document *doc, const char *path, int i)
+ {
+ 	epub_chapter *ch;
+ 
+@@ -440,6 +449,7 @@
+ 	fz_try(ctx)
+ 	{
+ 		ch->path = Memento_label(fz_strdup(ctx, path), "chapter_path");
++		ch->doc = doc;
+ 		ch->number = i;
+ 	}
+ 	fz_catch(ctx)
+@@ -470,7 +480,10 @@
+ 	if (!buf)
+ 		buf = fz_new_buffer_from_printf(ctx, "<html><body><p><i>ERROR: cannot find chapter %<</i></p></body></html>", ch->path);
+ 	fz_try(ctx)
+-		html = fz_parse_html(ctx, doc->set, zip, base_uri, buf, doc->super.user_css, 1, 1, FZ_HTML_FLAVOR_DEFAULT, doc->super.publisher_css);
++		html = fz_parse_html(ctx, doc->set, zip, base_uri, buf,
++			ch->fixed_layout ? NULL : doc->super.user_css, 1, 1,
++			ch->fixed_layout ? FZ_HTML_FLAVOR_EPUB_FIXED : FZ_HTML_FLAVOR_DEFAULT,
++			ch->fixed_layout ? 1 : doc->super.publisher_css);
+ 	fz_always(ctx)
+ 		fz_drop_buffer(ctx, buf);
+ 	fz_catch(ctx)
+@@ -569,7 +582,7 @@
+ 		p = fz_lookup_html_bookmark(ctx, html, mark);
+ 		fz_drop_html(ctx, html);
+ 		if (p != -1)
+-			return fz_make_location(i, p);
++			return fz_make_location(i, ch->fixed_layout ? 0 : p);
+ 	}
+ 	return fz_make_location(-1, -1);
+ }
+@@ -587,6 +600,8 @@
+ 		fz_throw(ctx, FZ_ERROR_ARGUMENT, "invalid page number: %d", number);
+ 
+ 	ch = doc->spine[chapter];
++	if (ch->fixed_layout && number != 0)
++		fz_throw(ctx, FZ_ERROR_ARGUMENT, "fixed EPUB chapter has only one page");
+ 
+ 	page = fz_new_derived_page(ctx, epub_page, doc_);
+ 	fz_try(ctx)
+@@ -606,6 +621,15 @@
+ 	}
+ 
+ 	return (fz_page*)page;
++}
++
++int
++fz_is_epub_chapter_fixed(fz_context *ctx, fz_document *doc_, int chapter)
++{
++	epub_document *doc = (epub_document *)doc_;
++	if (!doc_ || doc_->load_page != epub_load_page)
++		return 0;
++	return chapter >= 0 && chapter < doc->spine_len && doc->spine[chapter]->fixed_layout;
+ }
+ 
+ static void
+@@ -897,6 +921,25 @@
+ 	return NULL;
+ }
+ 
++/* OPF property lists and metadata text use whitespace-separated tokens. */
++static int
++has_property(const char *properties, const char *name)
++{
++	size_t n = strlen(name);
++	if (!properties)
++		return 0;
++	while (*properties)
++	{
++		const char *end;
++		properties += strspn(properties, " \t\r\n");
++		end = properties + strcspn(properties, " \t\r\n");
++		if ((size_t)(end - properties) == n && !strncmp(properties, name, n))
++			return 1;
++		properties = end;
++	}
++	return 0;
++}
++
+ static fz_buffer *
+ read_container_and_prefix(fz_context *ctx, fz_archive *zip, char *prefix, size_t prefix_len)
+ {
+@@ -955,7 +998,7 @@
+ 	char ncx[2048], s[2048];
+ 	char *prefixed_full_path = NULL;
+ 	size_t prefix_len;
+-	int i;
++	int i, fixed_layout = 0;
+ 
+ 	fz_var(buf);
+ 	fz_var(encryption_xml);
+@@ -1027,6 +1070,13 @@
+ 		{
+ 			doc->dc_title = Memento_label(find_metadata(ctx, metadata, "title"), "epub_title");
+ 			doc->dc_creator = Memento_label(find_metadata(ctx, metadata, "creator"), "epub_creator");
++			fz_xml *meta;
++			for (meta = fz_xml_find_down(metadata, "meta"); meta; meta = fz_xml_find_next(meta, "meta"))
++			{
++				const char *property = fz_xml_att(meta, "property");
++				if (property && !strcmp(property, "rendition:layout") && !fz_xml_att(meta, "refines"))
++					fixed_layout = has_property(fz_xml_text(fz_xml_down(meta)), "pre-paginated");
++			}
+ 		}
+ 
+ 		manifest = fz_xml_find_down(package, "manifest");
+@@ -1050,7 +1100,13 @@
+ 		while (itemref)
+ 		{
+ 			if (path_from_idref(s, manifest, base_uri, fz_xml_att(itemref, "idref"), sizeof s))
++			{
++				const char *properties = fz_xml_att(itemref, "properties");
++				if (has_property(properties, "rendition:layout-pre-paginated") &&
++					has_property(properties, "rendition:layout-reflowable"))
++					fz_throw(ctx, FZ_ERROR_FORMAT, "conflicting EPUB chapter layout properties");
+ 				++i;
++			}
+ 			itemref = fz_xml_find_next(itemref, "itemref");
+ 		}
+ 		doc->spine_len = i;
+@@ -1063,9 +1119,17 @@
+ 		{
+ 			if (path_from_idref(s, manifest, base_uri, fz_xml_att(itemref, "idref"), sizeof s))
+ 			{
++				const char *properties = fz_xml_att(itemref, "properties");
++				int fixed = has_property(properties, "rendition:layout-pre-paginated");
++				int reflow = has_property(properties, "rendition:layout-reflowable");
+ 				fz_try(ctx)
+ 				{
+ 					doc->spine[i] = epub_load_chapter(ctx, doc, s, i);
++					doc->spine[i]->fixed_layout = fixed || (!reflow && fixed_layout);
++					if (doc->spine[i]->fixed_layout)
++						++doc->fixed_chapters;
++					else
++						++doc->reflow_chapters;
+ 					i++;
+ 				}
+ 				fz_catch(ctx)
+@@ -1111,6 +1175,9 @@
+ 		return 1 + (int)fz_strlcpy(buf, doc->dc_creator, size);
+ 	if (!strcmp(key, "info:ReadingDirection") && doc->reading_direction)
+ 		return 1 + (int)fz_strlcpy(buf, doc->reading_direction == 2 ? "rtl" : "ltr", size);
++	if (!strcmp(key, "info:EPUBLayout"))
++		return 1 + (int)fz_strlcpy(buf, doc->fixed_chapters ?
++			(doc->reflow_chapters ? "mixed" : "fixed") : "reflowable", size);
+ 	return -1;
+ }
+ 
+@@ -1179,6 +1246,7 @@
+ 		doc->set = fz_new_html_font_set(ctx);
+ 		epub_load_accelerator(ctx, doc, accel);
+ 		epub_parse_header(ctx, doc);
++		doc->super.is_reflowable = doc->reflow_chapters > 0;
+ 	}
+ 	fz_catch(ctx)
+ 	{
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -360,6 +360,7 @@
+ 
+ 	float page_w, page_h;
+ 	float meta_w, meta_h;
++	int fixed_layout;
+ 	float layout_w, layout_h, layout_em;
+ 	float page_margin[4];
+ 	fz_html_metadata metadata;
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -2035,6 +2035,67 @@
+ 		*meta_h = fz_atoi(p + 7);
+ }
+ 
++static int viewport_space(int c)
++{
++	return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f';
++}
++
++static void parse_fixed_meta_viewport(fz_context *ctx, const char *viewport, float *meta_w, float *meta_h)
++{
++	const char *p = viewport;
++	int width_seen = 0, height_seen = 0;
++
++	while (p && *p)
++	{
++		const char *key, *key_end, *value, *value_end;
++		char *end;
++		float number;
++		int width, height;
++
++		while (viewport_space(*p) || *p == ',' || *p == ';')
++			++p;
++		if (!*p)
++			break;
++		key = p;
++		while (*p && !viewport_space(*p) && *p != '=' && *p != ',' && *p != ';')
++			++p;
++		key_end = p;
++		while (viewport_space(*p))
++			++p;
++		if (*p != '=')
++			fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB has malformed meta viewport");
++		++p;
++		while (viewport_space(*p))
++			++p;
++		value = p;
++		while (*p && !viewport_space(*p) && *p != ',' && *p != ';')
++			++p;
++		value_end = p;
++		width = key_end - key == 5 && !fz_strncasecmp(key, "width", 5);
++		height = key_end - key == 6 && !fz_strncasecmp(key, "height", 6);
++		if (!width && !height)
++			continue;
++
++		number = fz_strtof(value, &end);
++		if (value == value_end || end != value_end || !isfinite(number) || number <= 0)
++			fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB requires positive numeric viewport width and height");
++		if (width)
++		{
++			if (width_seen++)
++				fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB has duplicate viewport width");
++			*meta_w = number;
++		}
++		else
++		{
++			if (height_seen++)
++				fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB has duplicate viewport height");
++			*meta_h = number;
++		}
++	}
++	if (!width_seen || !height_seen)
++		fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB requires meta viewport width and height");
++}
++
+ static void
+ append_xml_text(fz_context *ctx, fz_buffer *buf, fz_xml *node)
+ {
+@@ -2162,6 +2223,8 @@
+ 		{
+ 			g.is_fb2 = 0;
+ 			fz_parse_css(ctx, g.css, html_default_css, "<default:html>");
++			if (flavor == FZ_HTML_FLAVOR_EPUB_FIXED)
++				fz_parse_css(ctx, g.css, "@page{margin:0}html,body{margin:0}", "<default:epub-fixed>");
+ 			if (flavor == FZ_HTML_FLAVOR_MOBI)
+ 				fz_parse_css(ctx, g.css, mobi_default_css, "<default:mobi>");
+ 			/* Our markdown overrides count as the publisher_css for md files. */
+@@ -2266,10 +2329,10 @@
+ 		}
+ 		else
+ 		{
++			head = fz_xml_find(root, "html");
++			head = fz_xml_find_down(head, "head");
+ 			if (metadata)
+ 			{
+-				head = fz_xml_find(root, "html");
+-				head = fz_xml_find_down(head, "head");
+ 				node = fz_xml_find_down(head, "title");
+ 				metadata->title = collect_text(ctx, g.pool, node);
+ 			}
+@@ -2278,10 +2341,12 @@
+ 			move_background_color_up(ctx, &g, tree->root);
+ 
+ 			// Parse meta viewport size.
+-			if (publisher_css && meta_w && meta_h)
++			if ((publisher_css || flavor == FZ_HTML_FLAVOR_EPUB_FIXED) && meta_w && meta_h)
+ 			{
+ 				node = fz_xml_find_down_match(head, "meta", "name", "viewport");
+-				if (node)
++				if (flavor == FZ_HTML_FLAVOR_EPUB_FIXED)
++					parse_fixed_meta_viewport(ctx, node ? fz_xml_att(node, "content") : NULL, meta_w, meta_h);
++				else if (node)
+ 				{
+ 					viewport = fz_xml_att(node, "content");
+ 					if (viewport)
+@@ -2499,6 +2564,7 @@
+ 
+ 	html->meta_w = 0;
+ 	html->meta_h = 0;
++	html->fixed_layout = flavor == FZ_HTML_FLAVOR_EPUB_FIXED;
+ 
+ 	html->layout_w = 0;
+ 	html->layout_h = 0;
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -576,6 +576,8 @@
+ 	fz_pool *pool;
+ 
+ 	float page[4];
++	/* Keep the containing canvas for positioning without inserting page breaks. */
++	int no_pagination;
+ 	/* The ancestor trbl is the trbl for the last positioned
+ 	 * node we have walked though. Boxes with "absolute" positioning
+ 	 * will be positioned relative to this. Initially this will be the
+@@ -613,7 +615,7 @@
+ 	float page_h = ld->page[B] - ld->page[T];
+ 	float page_top = ld->page[T];
+ 	line_h = measure_line(a, b, &baseline);
+-	if (page_h > 0)
++	if (!ld->no_pagination && page_h > 0)
+ 	{
+ 		avail = page_h - fmodf(box->s.layout.b - page_top, page_h);
+ 		/* If the line is larger than the available space skip to the start
+@@ -936,27 +938,28 @@
+ 		{
+ 			float xs = 1, ys = 1, s;
+ 			float aspect = 1;
++			float image_em = ld->no_pagination ? node->box->s.layout.em : top->s.layout.em;
+ 			float max_w = ld->bounds[R] - ld->bounds[L]; // current block content box width
+-			float max_h = ld->page[B] - ld->page[T]; // page height (excluding page margins)
++			float max_h = ld->no_pagination ? ld->bounds[B] - ld->bounds[T] : ld->page[B] - ld->page[T];
+ 
+ 			/* NOTE: We ignore the image DPI here, since most images in EPUB files have bogus values. */
+-			node->w = node->content.image->w * 72.0f / 96.0f;
+-			node->h = node->content.image->h * 72.0f / 96.0f;
++			node->w = node->content.image->w * (ld->no_pagination ? 1 : 72.0f / 96.0f);
++			node->h = node->content.image->h * (ld->no_pagination ? 1 : 72.0f / 96.0f);
+ 			aspect = node->h ? node->w / node->h : 0;
+ 
+ 			if (node->box->style->width.unit != N_AUTO)
+-				node->w = fz_from_css_number(node->box->style->width, top->s.layout.em, max_w, node->w);
++				node->w = fz_from_css_number(node->box->style->width, image_em, max_w, node->w);
+ 			if (node->box->style->height.unit != N_AUTO)
+-				node->h = fz_from_css_number(node->box->style->height, top->s.layout.em, max_h, node->h);
++				node->h = fz_from_css_number(node->box->style->height, image_em, max_h, node->h);
+ 			if (node->box->style->width.unit == N_AUTO && node->box->style->height.unit != N_AUTO)
+ 				node->w = node->h * aspect;
+ 			if (node->box->style->width.unit != N_AUTO && node->box->style->height.unit == N_AUTO)
+ 				node->h = (aspect == 0) ? 0 : (node->w / aspect);
+ 
+ 			/* Shrink image to fit on one page if needed */
+-			if (max_w > 0 && node->w > max_w)
++			if (!ld->no_pagination && max_w > 0 && node->w > max_w)
+ 				xs = max_w / node->w;
+-			if (max_h > 0 && node->h > max_h)
++			if (!ld->no_pagination && max_h > 0 && node->h > max_h)
+ 				ys = max_h / node->h;
+ 			s = fz_min(xs, ys);
+ 			node->w = node->w * s;
+@@ -1069,7 +1072,15 @@
+ 			if (box->markup_dir == FZ_BIDI_RTL)
+ 				indent = 0;
+ 
+-			if (flush_line(ctx, box, ld, break_w, line_align, indent, line, break_at, restart))
++			/* Oversized fixed-canvas images are allowed to overflow. The
++			 * synthetic soft break before an image must not create an empty
++			 * first line merely because that image cannot fit the canvas. */
++			int empty_soft_line = ld->no_pagination && candidate &&
++				candidate->type == FLOW_SBREAK && break_w == 0;
++			for (fz_html_flow *scan = line; empty_soft_line && scan != break_at; scan = scan->next)
++				if (scan->type != FLOW_SBREAK && scan->type != FLOW_ANCHOR)
++					empty_soft_line = 0;
++			if (!empty_soft_line && flush_line(ctx, box, ld, break_w, line_align, indent, line, break_at, restart))
+ 				return;
+ 
+ 			line = break_at;
+@@ -1114,7 +1125,10 @@
+ {
+ 	float page_h = ld->page[B] - ld->page[T];
+ 	float page_top = ld->page[T];
+-	float avail = page_h - fmodf(start_b - page_top, page_h);
++	float avail;
++	if (ld->no_pagination)
++		return start_b + spacing;
++	avail = page_h - fmodf(start_b - page_top, page_h);
+ 	if (spacing > avail)
+ 	{
+ 		*eop = 1;
+@@ -1130,6 +1144,9 @@
+ 	float page_top = ld->page[T];
+ 	float avail;
+ 	int side; /* 0 = right, 1 = left */
++
++	if (ld->no_pagination)
++		return 0;
+ 
+ 	/* If we are skipping, nothing to do! */
+ 	if (WE_ARE_SKIPPING(restart))
+@@ -1251,6 +1268,7 @@
+ 	const float *border = box->u.block.border;
+ 	const float *padding = box->u.block.padding;
+ 	float auto_w, auto_h;
++	float reference_w, reference_h;
+ 	fz_html_restarter *restart = ld->restart;
+ 	int eop = 0;
+ 
+@@ -1277,10 +1295,18 @@
+ 	}
+ 
+ 	/* Now calculate the bounds for any sub blocks. */
++	reference_w = ld->bounds[R] - ld->bounds[L];
++	reference_h = ld->bounds[B] - ld->bounds[T];
++	if (ld->no_pagination && (box->style->position == POS_FIXED || box->style->position == POS_ABSOLUTE))
++	{
++		const float *containing = box->style->position == POS_FIXED ? ld->page : ld->ancestor;
++		reference_w = containing[R] - containing[L];
++		reference_h = containing[B] - containing[T];
++	}
+ 	pd->has_width = fz_css_number_defined_not_auto(box->style->width);
+-	pd->width = fz_from_css_number(box->style->width, em, ld->bounds[R] - ld->bounds[L], 0);
++	pd->width = fz_from_css_number(box->style->width, em, reference_w, 0);
+ 	pd->has_height = fz_css_number_defined_not_auto(box->style->height);
+-	pd->height = fz_from_css_number(box->style->height, em, ld->bounds[B] - ld->bounds[T], 0);
++	pd->height = fz_from_css_number(box->style->height, em, reference_h, 0);
+ 
+ 	/* Adjust horizontally for Width and spacings */
+ 	auto_w = ld->bounds[R] - ld->bounds[L] - (margin[L] + margin[R] + border[L] + border[R] + padding[L] + padding[R]);
+@@ -1326,10 +1352,10 @@
+ 	TRBLCPY(ld->ancestor, ld->bounds);
+ 
+ 	/* Calculate insets. */
+-	pd->inset[T] = fz_from_css_number(box->style->inset[T], em, em, 0);
+-	pd->inset[R] = fz_from_css_number(box->style->inset[R], em, em, 0);
+-	pd->inset[B] = fz_from_css_number(box->style->inset[B], em, em, 0);
+-	pd->inset[L] = fz_from_css_number(box->style->inset[L], em, em, 0);
++	pd->inset[T] = fz_from_css_number(box->style->inset[T], em, ld->no_pagination ? reference_h : em, 0);
++	pd->inset[R] = fz_from_css_number(box->style->inset[R], em, ld->no_pagination ? reference_w : em, 0);
++	pd->inset[B] = fz_from_css_number(box->style->inset[B], em, ld->no_pagination ? reference_h : em, 0);
++	pd->inset[L] = fz_from_css_number(box->style->inset[L], em, ld->no_pagination ? reference_w : em, 0);
+ 
+ 	switch (box->style->position)
+ 	{
+@@ -1356,7 +1382,7 @@
+ 			else
+ 			{
+ 				/* Left and bounds right determine the box. */
+-				ld->bounds[R] = page[R] - pd->inset[L];
++				ld->bounds[R] = page[R] - pd->inset[ld->no_pagination ? R : L];
+ 			}
+ 		}
+ 		else
+@@ -1385,7 +1411,7 @@
+ 			else
+ 			{
+ 				/* Top and Bottom determine the box. */
+-				ld->bounds[B] = page[B] - pd->inset[T];
++				ld->bounds[B] = page[B] - pd->inset[ld->no_pagination ? B : T];
+ 			}
+ 		}
+ 		else
+@@ -1418,7 +1444,7 @@
+ 			else
+ 			{
+ 				/* Left and right determine the box. */
+-				ld->bounds[R] = pd->ancestor[R] - pd->inset[L];
++				ld->bounds[R] = pd->ancestor[R] - pd->inset[ld->no_pagination ? R : L];
+ 			}
+ 		}
+ 		else
+@@ -1447,7 +1473,7 @@
+ 			else
+ 			{
+ 				/* Top and Bottom determine the box. */
+-				ld->bounds[B] = pd->ancestor[B] - pd->inset[T];
++				ld->bounds[B] = pd->ancestor[B] - pd->inset[ld->no_pagination ? B : T];
+ 			}
+ 		}
+ 		else
+@@ -1592,7 +1618,7 @@
+ 		{
+ 			if (fz_css_number_defined_not_auto(box->style->height))
+ 			{
+-				float h = fz_from_css_number(box->style->height, em, em, 0);
++				float h = ld->no_pagination ? pd->height : fz_from_css_number(box->style->height, em, em, 0);
+ 				/* Top and Height determine the box. */
+ 				box->s.layout.b = box->s.layout.y + h;
+ 			}
+@@ -2705,7 +2731,7 @@
+ 			 * Unless the row was at the very start of the page, in which case it'll overflow instead.
+ 			 * FIXME: Don't overflow, draw twice with offset to break it abruptly at the page border!
+ 			 */
+-			if (ld->page[B] != ld->page[T])
++			if (!ld->no_pagination && ld->page[B] != ld->page[T])
+ 			{
+ 				float page_h = ld->page[B] - ld->page[T];
+ 				float avail = page_h - fmodf(row->s.layout.y - ld->page[T], page_h);
+@@ -3007,7 +3033,7 @@
+ 	}
+ }
+ 
+-static void layout_update_widths(fz_context *ctx, fz_html_box *box, fz_html_box *top, hb_buffer_t *hb_buf)
++static void layout_update_widths(fz_context *ctx, fz_html_box *box, fz_html_box *top, hb_buffer_t *hb_buf, int no_pagination)
+ {
+ 	while (box)
+ 	{
+@@ -3020,8 +3046,8 @@
+ 				if (node->type == FLOW_IMAGE)
+ 				{
+ 					/* start with "native" size (only used for table width calculations) */
+-					node->w = node->content.image->w * 72.0f / 96.0f;
+-					node->w = fz_from_css_number(node->box->style->width, top->s.layout.em, node->w, node->w);
++					node->w = node->content.image->w * (no_pagination ? 1 : 72.0f / 96.0f);
++					node->w = fz_from_css_number(node->box->style->width, no_pagination ? node->box->s.layout.em : top->s.layout.em, node->w, node->w);
+ 				}
+ 				else if (node->type == FLOW_WORD || node->type == FLOW_SPACE || node->type == FLOW_SHYPHEN)
+ 					measure_string_w(ctx, node, hb_buf);
+@@ -3029,7 +3055,7 @@
+ 		}
+ 
+ 		if (box->down)
+-			layout_update_widths(ctx, box->down, box, hb_buf);
++			layout_update_widths(ctx, box->down, box, hb_buf, no_pagination);
+ 
+ 		box = box->next;
+ 	}
+@@ -3214,8 +3240,8 @@
+ 	}
+ }
+ 
+-void
+-fz_restartable_layout_html(fz_context *ctx, fz_html_tree *tree, float start_x, float start_y, float page_w, float page_h, float em, fz_html_restarter *restart)
++static void
++restartable_layout_html(fz_context *ctx, fz_html_tree *tree, float start_x, float start_y, float page_w, float page_h, float em, fz_html_restarter *restart, int no_pagination)
+ {
+ 	int unlocked = 0;
+ 	layout_data ld = { 0 };
+@@ -3250,6 +3276,7 @@
+ 		fz_hb_unlock(ctx);
+ 
+ 		ld.restart = restart;
++		ld.no_pagination = no_pagination;
+ 		ld.page[T] = start_y;
+ 		ld.page[R] = start_x + page_w;
+ 		ld.page[B] = start_y + page_h;
+@@ -3268,7 +3295,7 @@
+ 			box->s.layout.x = start_x;
+ 			box->s.layout.w = page_w;
+ 			layout_update_styles(ctx, box->down, box);
+-			layout_update_widths(ctx, box->down, box, ld.hb_buf);
++			layout_update_widths(ctx, box->down, box, ld.hb_buf, no_pagination);
+ 			layout_collapse_margins(ctx, box->down, box);
+ 		}
+ 
+@@ -3289,29 +3316,46 @@
+ }
+ 
+ void
++fz_restartable_layout_html(fz_context *ctx, fz_html_tree *tree, float start_x, float start_y, float page_w, float page_h, float em, fz_html_restarter *restart)
++{
++	restartable_layout_html(ctx, tree, start_x, start_y, page_w, page_h, em, restart, 0);
++}
++
++void
+ fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em)
+ {
+ 	/* Override requested page size if the meta viewport defines a width or height */
+-	w = fz_max(w, html->meta_w);
+-	h = fz_max(h, html->meta_h);
++	if (html->fixed_layout)
++	{
++		if (!isfinite(html->meta_w) || !isfinite(html->meta_h) || html->meta_w <= 0 || html->meta_h <= 0)
++			fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB requires positive viewport width and height");
++		w = html->meta_w;
++		h = html->meta_h;
++		em = 16;
++	}
++	else
++	{
++		w = fz_max(w, html->meta_w);
++		h = fz_max(h, html->meta_h);
++	}
+ 
+ 	/* If we're already laid out to the specifications we need,
+ 	 * nothing to do. */
+ 	if (html->layout_w == w && html->layout_h == h && html->layout_em == em)
+ 		return;
+ 
+-	html->page_margin[T] = fz_from_css_number(html->tree.root->style->margin[T], em, em, 0);
+-	html->page_margin[B] = fz_from_css_number(html->tree.root->style->margin[B], em, em, 0);
+-	html->page_margin[L] = fz_from_css_number(html->tree.root->style->margin[L], em, em, 0);
+-	html->page_margin[R] = fz_from_css_number(html->tree.root->style->margin[R], em, em, 0);
++	html->page_margin[T] = fz_from_css_number(html->tree.root->style->margin[T], em, html->fixed_layout ? h : em, 0);
++	html->page_margin[B] = fz_from_css_number(html->tree.root->style->margin[B], em, html->fixed_layout ? h : em, 0);
++	html->page_margin[L] = fz_from_css_number(html->tree.root->style->margin[L], em, html->fixed_layout ? w : em, 0);
++	html->page_margin[R] = fz_from_css_number(html->tree.root->style->margin[R], em, html->fixed_layout ? w : em, 0);
+ 
+ 	html->page_w = w - html->page_margin[L] - html->page_margin[R];
+-	if (html->page_w <= 72)
++	if (!html->fixed_layout && html->page_w <= 72)
+ 		html->page_w = 72; /* enforce a minimum page size! */
+ 	if (h > 0)
+ 	{
+ 		html->page_h = h - html->page_margin[T] - html->page_margin[B];
+-		if (html->page_h <= 72)
++		if (!html->fixed_layout && html->page_h <= 72)
+ 			html->page_h = 72; /* enforce a minimum page size! */
+ 	}
+ 	else
+@@ -3320,7 +3364,10 @@
+ 		html->page_h = 0;
+ 	}
+ 
+-	fz_restartable_layout_html(ctx, &html->tree, 0, 0, html->page_w, html->page_h, em, NULL);
++	if (html->fixed_layout && (!isfinite(html->page_w) || !isfinite(html->page_h) || html->page_w <= 0 || html->page_h <= 0))
++		fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB page margins leave no content canvas");
++
++	restartable_layout_html(ctx, &html->tree, 0, 0, html->page_w, html->page_h, em, NULL, html->fixed_layout);
+ 	update_draw_groups(html->tree.root, 1);
+ 
+ 	if (h == 0)
+@@ -3377,7 +3424,7 @@
+ 	return (fz_css_color){ 0, 0, 0, 0 };
+ }
+ 
+-static int draw_flow_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart)
++static int draw_flow_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	fz_html_flow *node;
+ 	fz_text *text = NULL;
+@@ -3428,12 +3475,12 @@
+ 
+ 			if (node->type == FLOW_IMAGE)
+ 			{
+-				if (node->y >= page_bot || node->y + node->h <= page_top)
++				if (!no_pagination && (node->y >= page_bot || node->y + node->h <= page_top))
+ 					continue;
+ 			}
+ 			else
+ 			{
+-				if (node->y > page_bot || node->y < page_top)
++				if (!no_pagination && (node->y > page_bot || node->y < page_top))
+ 					continue;
+ 			}
+ 
+@@ -3920,7 +3967,7 @@
+ 	return NULL;
+ }
+ 
+-static void draw_list_mark(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, int n)
++static void draw_list_mark(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, int n, int no_pagination)
+ {
+ 	fz_font *font;
+ 	fz_text *text;
+@@ -3949,7 +3996,7 @@
+ 		y = box->s.layout.y + a + (h - a - d) / 2;
+ 	}
+ 
+-	if (y > page_bot || y < page_top)
++	if (!no_pagination && (y > page_bot || y < page_top))
+ 		return;
+ 
+ 	format_list_number(ctx, box->style->list_style_type, n, buf, sizeof buf);
+@@ -3991,10 +4038,10 @@
+ 		fz_rethrow(ctx);
+ }
+ 
+-static int draw_block_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart);
+-static int draw_table_row(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart);
+-
+-static int draw_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart)
++static int draw_block_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination);
++static int draw_table_row(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination);
++
++static int draw_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	int ret = 0;
+ 	/* Plain text extraction and raster devices do not consume structure tags. */
+@@ -4010,7 +4057,7 @@
+ 	case BOX_TABLE_ROW:
+ 		if (restart && restart->end == box)
+ 			ret = 1;
+-		else if (draw_table_row(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart))
++		else if (draw_table_row(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 			ret = 1;
+ 		break;
+ 	case BOX_TABLE:
+@@ -4018,11 +4065,11 @@
+ 	case BOX_BLOCK:
+ 		if (restart && restart->end == box)
+ 			ret = 1;
+-		else if (draw_block_box(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart))
++		else if (draw_block_box(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 			ret = 1;
+ 		break;
+ 	case BOX_FLOW:
+-		if (draw_flow_box(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart))
++		if (draw_flow_box(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 			ret = 1;
+ 		break;
+ 	}
+@@ -4457,10 +4504,10 @@
+ 		draw_border(ctx, dev, ctm, box, L, x0, y0, x1, y1);
+ }
+ 
+-static int draw_box_children(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart)
++static int draw_box_children(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	fz_html_draw_index *index = fz_html_box_has_boxes(box) ? box->draw_index : NULL;
+-	if (index && !restart && !(dev && (dev->begin_structure || dev->end_structure)))
++	if (index && !no_pagination && !restart && !(dev && (dev->begin_structure || dev->end_structure)))
+ 	{
+ 		for (size_t i = 0; i < index->count; ++i)
+ 		{
+@@ -4468,18 +4515,18 @@
+ 			if (group->low > page_bot || group->high < page_top)
+ 				continue;
+ 			for (fz_html_box *child = group->first; child != group->after; child = child->next)
+-				if (draw_box(ctx, child, page_top, page_bot, dev, ctm, hb_buf, restart))
++				if (draw_box(ctx, child, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 					return 1;
+ 		}
+ 	}
+ 	else
+ 		for (fz_html_box *child = box->down; child; child = child->next)
+-			if (draw_box(ctx, child, page_top, page_bot, dev, ctm, hb_buf, restart))
++			if (draw_box(ctx, child, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination))
+ 				return 1;
+ 	return 0;
+ }
+ 
+-static int draw_block_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart)
++static int draw_block_box(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	float x0, y0, x1, y1;
+ 
+@@ -4495,7 +4542,7 @@
+ 	x1 = box->s.layout.x + box->s.layout.w + padding[R];
+ 	y1 = box->s.layout.b + padding[B];
+ 
+-	if (y0 > page_bot || y1 < page_top)
++	if (!no_pagination && (y0 > page_bot || y1 < page_top))
+ 		return 0;
+ 
+ 	/* If we're skipping, is this the place we should restart? */
+@@ -4532,11 +4579,11 @@
+ 			do_borders(ctx, dev, ctm, page_top, box, suppress);
+ 
+ 			if (box->list_item)
+-				draw_list_mark(ctx, box, page_top, page_bot, dev, ctm, box->list_item);
+-		}
+-	}
+-
+-	stopped = draw_box_children(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart);
++				draw_list_mark(ctx, box, page_top, page_bot, dev, ctm, box->list_item, no_pagination);
++		}
++	}
++
++	stopped = draw_box_children(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination);
+ 
+ 	if (box->style->visibility == V_VISIBLE && restart && restart->start == NULL)
+ 	{
+@@ -4563,14 +4610,14 @@
+ 	return stopped;
+ }
+ 
+-static int draw_table_row(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart)
++static int draw_table_row(fz_context *ctx, fz_html_box *box, float page_top, float page_bot, fz_device *dev, fz_matrix ctm, hb_buffer_t *hb_buf, fz_html_restarter *restart, int no_pagination)
+ {
+ 	/* Table rows don't draw background colors or borders */
+ 
+ 
+ 	float y0 = box->s.layout.y;
+ 	float y1 = box->s.layout.b;
+-	if (y0 > page_bot || y1 < page_top)
++	if (!no_pagination && (y0 > page_bot || y1 < page_top))
+ 		return 0;
+ 
+ 	/* If we're skipping, is this the place we should restart? */
+@@ -4585,11 +4632,11 @@
+ 	if (restart && restart->end == box)
+ 		return 1;
+ 
+-	return draw_box_children(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart);
+-}
+-
+-void
+-fz_draw_restarted_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html_box *top, float page_top, float page_bot, fz_html_restarter *restart)
++	return draw_box_children(ctx, box, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination);
++}
++
++static void
++draw_restarted_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html_box *top, float page_top, float page_bot, fz_html_restarter *restart, int no_pagination)
+ {
+ 	hb_buffer_t *hb_buf = NULL;
+ 	int unlocked = 0;
+@@ -4604,7 +4651,7 @@
+ 		fz_hb_unlock(ctx);
+ 		unlocked = 1;
+ 
+-		draw_box_children(ctx, top, page_top, page_bot, dev, ctm, hb_buf, restart);
++		draw_box_children(ctx, top, page_top, page_bot, dev, ctm, hb_buf, restart, no_pagination);
+ 	}
+ 	fz_always(ctx)
+ 	{
+@@ -4620,10 +4667,49 @@
+ }
+ 
+ void
++fz_draw_restarted_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html_box *top, float page_top, float page_bot, fz_html_restarter *restart)
++{
++	draw_restarted_html(ctx, dev, ctm, top, page_top, page_bot, restart, 0);
++}
++
++void
+ fz_draw_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page)
+ {
+ 	float page_top = page * html->page_h;
+ 	float page_bot = (page + 1) * html->page_h;
++
++	if (html->fixed_layout)
++	{
++		fz_path *clip;
++		int clipped = 0;
++
++		if (page != 0)
++			return;
++		fz_var(clipped);
++		clip = fz_new_path(ctx);
++		fz_try(ctx)
++		{
++			/* The author viewport includes any authored @page margins. */
++			fz_rectto(ctx, clip, 0, 0, html->meta_w, html->meta_h);
++			fz_clip_path(ctx, dev, clip, 0, ctm, fz_infinite_rect);
++			clipped = 1;
++			draw_rect(ctx, dev, ctm, 0, html->tree.root->style->background_color,
++				0, 0, html->meta_w, html->meta_h);
++			ctm = fz_pre_translate(ctm, html->page_margin[L], html->page_margin[T]);
++			/* Page culling would discard overflow whose children or glyphs
++			 * still intersect the viewport. Let the device clip the canvas. */
++			draw_restarted_html(ctx, dev, ctm, html->tree.root, 0, html->page_h, NULL, 1);
++		}
++		fz_always(ctx)
++		{
++			fz_drop_path(ctx, clip);
++			if (clipped)
++				fz_pop_clip(ctx, dev);
++		}
++		fz_catch(ctx)
++			fz_rethrow(ctx);
++		return;
++	}
+ 
+ 	draw_rect(ctx, dev, ctm, 0, html->tree.root->style->background_color,
+ 			0, 0,
+--- a/source/html/html-outline.c
++++ b/source/html/html-outline.c
+@@ -37,7 +37,7 @@
+ 	return 1;
+ }
+ 
+-static fz_link *load_link_flow(fz_context *ctx, fz_html_flow *flow, fz_link *head, int page, float page_h, const char *dir, const char *file)
++static fz_link *load_link_flow(fz_context *ctx, fz_html_flow *flow, fz_link *head, int page, float page_h, int fixed_layout, const char *dir, const char *file)
+ {
+ 	fz_link *link;
+ 	fz_html_flow *next;
+@@ -53,7 +53,7 @@
+ 	while (flow)
+ 	{
+ 		next = flow->next;
+-		if (flow->y >= page_y0 && flow->y <= page_y1)
++		if (fixed_layout || (flow->y >= page_y0 && flow->y <= page_y1))
+ 		{
+ 			href = flow->box->href;
+ 			if (href)
+@@ -116,14 +116,14 @@
+ 	return head;
+ }
+ 
+-static fz_link *load_link_box(fz_context *ctx, fz_html_box *box, fz_link *head, int page, float page_h, const char *dir, const char *file)
+-{
+-	while (box)
+-	{
+-		if (box->type == BOX_FLOW)
+-			head = load_link_flow(ctx, box->u.flow.head, head, page, page_h, dir, file);
++static fz_link *load_link_box(fz_context *ctx, fz_html_box *box, fz_link *head, int page, float page_h, int fixed_layout, const char *dir, const char *file)
++{
++	while (box)
++	{
++		if (box->type == BOX_FLOW)
++			head = load_link_flow(ctx, box->u.flow.head, head, page, page_h, fixed_layout, dir, file);
+ 		if (box->down)
+-			head = load_link_box(ctx, box->down, head, page, page_h, dir, file);
++			head = load_link_box(ctx, box->down, head, page, page_h, fixed_layout, dir, file);
+ 		box = box->next;
+ 	}
+ 	return head;
+@@ -132,11 +132,13 @@
+ fz_link *
+ fz_load_html_links(fz_context *ctx, fz_html *html, int page, const char *file)
+ {
+-	fz_link *link, *head;
++	fz_link *link, *head, **tail;
+ 	char dir[2048];
+ 	fz_dirname(dir, file, sizeof dir);
+ 
+-	head = load_link_box(ctx, html->tree.root, NULL, page, html->page_h, dir, file);
++	if (html->fixed_layout && page != 0)
++		return NULL;
++	head = load_link_box(ctx, html->tree.root, NULL, page, html->page_h, html->fixed_layout, dir, file);
+ 
+ 	for (link = head; link; link = link->next)
+ 	{
+@@ -145,6 +147,22 @@
+ 		link->rect.x1 += html->page_margin[L];
+ 		link->rect.y0 += html->page_margin[T];
+ 		link->rect.y1 += html->page_margin[T];
++	}
++	if (html->fixed_layout)
++	{
++		fz_rect canvas = fz_make_rect(0, 0, html->meta_w, html->meta_h);
++		for (tail = &head; (link = *tail) != NULL; )
++		{
++			link->rect = fz_intersect_rect(link->rect, canvas);
++			if (fz_is_empty_rect(link->rect))
++			{
++				*tail = link->next;
++				link->next = NULL;
++				fz_drop_link(ctx, link);
++			}
++			else
++				tail = &link->next;
++		}
+ 	}
+ 
+ 	return head;
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -41,7 +41,8 @@
+ 	FZ_HTML_FLAVOR_DEFAULT = 0,
+ 	FZ_HTML_FLAVOR_MOBI = 1,
+ 	FZ_HTML_FLAVOR_MARKDOWN = 2,
+-	FZ_HTML_FLAVOR_FICTIONBOOK2 = 3
++	FZ_HTML_FLAVOR_FICTIONBOOK2 = 3,
++	FZ_HTML_FLAVOR_EPUB_FIXED = 4
+ } fz_html_flavor;
+ 
+ typedef struct fz_htdoc_format
+@@ -60,4 +61,7 @@
+ /* Retained converted HTML for the existing HTML-based handler; NULL for other documents. */
+ fz_buffer *fz_htdoc_source_document(fz_context *ctx, fz_document *doc);
+ 
++/* Chapter layout declared by EPUB metadata; false for other document handlers. */
++int fz_is_epub_chapter_fixed(fz_context *ctx, fz_document *doc, int chapter);
++
+ #endif /* MUPDF_FITZ_HTML_H */

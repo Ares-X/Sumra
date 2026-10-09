@@ -1,0 +1,28 @@
+--- a/extensions/autoheaderid.c
++++ b/extensions/autoheaderid.c
+@@ -75,7 +75,7 @@
+             if (p+1 >= e)
+               goto bad;
+             c = ((p[0] & 0x1F)<<6) + (p[1] & 0x3f);
+-            p += 2;
++            p += 1;
+           }
+           else
+             goto bad;
+@@ -144,14 +144,14 @@
+           c = '-';
+         }
+ 
+-        /* C is now 0 or a 7 bit value. */
++        /* C is now a Unicode scalar or an ASCII slug character. */
+         if (c == '-')
+           minus_pending = 1;
+         else if (c)
+         {
+           if (minus_pending)
+             cmark_strbuf_putc(html, '-');
+-          cmark_strbuf_putc(html, c);
++          cmark_utf8proc_encode_char(c, html);
+           minus_pending = 0;
+         }
+       }

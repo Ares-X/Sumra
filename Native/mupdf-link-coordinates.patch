@@ -1,0 +1,113 @@
+diff --git a/source/pdf/pdf-link.c b/source/pdf/pdf-link.c
+index 3d36b40..2abfb86 100644
+--- a/source/pdf/pdf-link.c
++++ b/source/pdf/pdf-link.c
+@@ -127,17 +127,38 @@ populate_destination(fz_context *ctx, pdf_document *doc, pdf_obj *dest, int is_r
+ 	case FZ_LINK_DEST_FIT_H:
+ 	case FZ_LINK_DEST_FIT_BH:
+ 		p = fz_transform_point_xy(0, arg1v, ctm);
+-		destination->y = arg1 ? p.y : NAN;
++		if (ctm.a == 0 && ctm.d == 0)
++		{
++			destination->type = type == PDF_NAME(FitH) ? FZ_LINK_DEST_FIT_V : FZ_LINK_DEST_FIT_BV;
++			destination->x = arg1 ? p.x : NAN;
++		}
++		else
++			destination->y = arg1 ? p.y : NAN;
+ 		break;
+ 	case FZ_LINK_DEST_FIT_V:
+ 	case FZ_LINK_DEST_FIT_BV:
+ 		p = fz_transform_point_xy(arg1v, 0, ctm);
+-		destination->x = arg1 ? p.x : NAN;
++		if (ctm.a == 0 && ctm.d == 0)
++		{
++			destination->type = type == PDF_NAME(FitV) ? FZ_LINK_DEST_FIT_H : FZ_LINK_DEST_FIT_BH;
++			destination->y = arg1 ? p.y : NAN;
++		}
++		else
++			destination->x = arg1 ? p.x : NAN;
+ 		break;
+ 	case FZ_LINK_DEST_XYZ:
+ 		p = fz_transform_point_xy(arg1v, arg2v, ctm);
+-		destination->x = arg1 ? p.x : NAN;
+-		destination->y = arg2 ? p.y : NAN;
++		/* Match pdf_new_dest_from_link: a quarter turn swaps missing axes. */
++		if (ctm.a == 0 && ctm.d == 0)
++		{
++			destination->x = arg2 ? p.x : NAN;
++			destination->y = arg1 ? p.y : NAN;
++		}
++		else
++		{
++			destination->x = arg1 ? p.x : NAN;
++			destination->y = arg2 ? p.y : NAN;
++		}
+ 		destination->zoom = arg3 ? (arg3v > 0 ? (arg3v * 100) : NAN) : NAN;
+ 		break;
+ 	case FZ_LINK_DEST_FIT_R:
+@@ -1341,34 +1362,35 @@ pdf_new_dest_from_link(fz_context *ctx, pdf_document *doc, const char *uri, int
+ 			case FZ_LINK_DEST_FIT:
+ 				pdf_array_push(ctx, dest, PDF_NAME(Fit));
+ 				break;
+-			case FZ_LINK_DEST_FIT_H:
+-				p = fz_transform_point_xy(0, val.y, invctm);
+-				pdf_array_push(ctx, dest, PDF_NAME(FitH));
+-				if (isnan(p.y))
+-					pdf_array_push(ctx, dest, PDF_NULL);
+-				else
+-					pdf_array_push_real(ctx, dest, p.y);
++			case FZ_LINK_DEST_FIT_B:
++				pdf_array_push(ctx, dest, PDF_NAME(FitB));
+ 				break;
++			case FZ_LINK_DEST_FIT_H:
+ 			case FZ_LINK_DEST_FIT_BH:
+ 				p = fz_transform_point_xy(0, val.y, invctm);
+-				pdf_array_push(ctx, dest, PDF_NAME(FitBH));
+-				if (isnan(p.y))
++				if (invctm.a == 0 && invctm.d == 0)
++				{
++					pdf_array_push(ctx, dest, val.type == FZ_LINK_DEST_FIT_H ? PDF_NAME(FitV) : PDF_NAME(FitBV));
++					p.y = p.x;
++				}
++				else
++					pdf_array_push(ctx, dest, val.type == FZ_LINK_DEST_FIT_H ? PDF_NAME(FitH) : PDF_NAME(FitBH));
++				if (isnan(val.y))
+ 					pdf_array_push(ctx, dest, PDF_NULL);
+ 				else
+ 					pdf_array_push_real(ctx, dest, p.y);
+ 				break;
+ 			case FZ_LINK_DEST_FIT_V:
+-				p = fz_transform_point_xy(val.x, 0, invctm);
+-				pdf_array_push(ctx, dest, PDF_NAME(FitV));
+-				if (isnan(p.x))
+-					pdf_array_push(ctx, dest, PDF_NULL);
+-				else
+-					pdf_array_push_real(ctx, dest, p.x);
+-				break;
+ 			case FZ_LINK_DEST_FIT_BV:
+ 				p = fz_transform_point_xy(val.x, 0, invctm);
+-				pdf_array_push(ctx, dest, PDF_NAME(FitBV));
+-				if (isnan(p.x))
++				if (invctm.a == 0 && invctm.d == 0)
++				{
++					pdf_array_push(ctx, dest, val.type == FZ_LINK_DEST_FIT_V ? PDF_NAME(FitH) : PDF_NAME(FitBH));
++					p.x = p.y;
++				}
++				else
++					pdf_array_push(ctx, dest, val.type == FZ_LINK_DEST_FIT_V ? PDF_NAME(FitV) : PDF_NAME(FitBV));
++				if (isnan(val.x))
+ 					pdf_array_push(ctx, dest, PDF_NULL);
+ 				else
+ 					pdf_array_push_real(ctx, dest, p.x);
+@@ -1444,6 +1466,11 @@ pdf_resolve_link_dest(fz_context *ctx, pdf_document *doc, const char *uri)
+ 	char *desturi = NULL;
+ 	pdf_obj *destobj = NULL;
+ 
++	/* The outline loader also calls us for external URIs. Their page numbers
++	 * and coordinates belong to another document, never this page tree. */
++	if (fz_is_external_link(ctx, uri))
++		return dest;
++
+ 	fz_var(needle);
+ 	fz_var(name);
+ 	fz_var(desturi);

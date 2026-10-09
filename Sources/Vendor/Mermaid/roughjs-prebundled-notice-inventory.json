@@ -1,0 +1,82 @@
+[
+  {
+    "package": "hachure-fill",
+    "version": "0.5.2",
+    "full_license": {
+      "path": "hachure-fill0.5.2-LICENSE",
+      "url": "https://unpkg.com/hachure-fill@0.5.2/LICENSE",
+      "bytes": 1068,
+      "sha256": "5e807b516a9be9229ed459880bf353a336e2d947867247290680d437017be391"
+    },
+    "npm_release_gitHead": "56a2762171b1294d643501e8d14f120db6b27bd7",
+    "exact_build_lock_entry": {
+      "version": "0.5.2",
+      "resolved": "https://registry.npmjs.org/hachure-fill/-/hachure-fill-0.5.2.tgz",
+      "integrity": "sha512-3GKBOn+m2LX9iq+JC1064cSFprJY4jL1jCXTcpnfER5HYE2l/4EfWSGzkPa/ZDBmYI0ZOEj5VHV/eKnPGkHuOg=="
+    },
+    "build_lock_url": "https://raw.githubusercontent.com/rough-stuff/rough/56a2762171b1294d643501e8d14f120db6b27bd7/package-lock.json",
+    "corresponding_mermaid_release_lock": "Sources/Vendor/Mermaid/release-source-pnpm-lock.yaml",
+    "evidence_boundary": "exact npm release gitHead build metadata; not an independently rebuilt prebundle"
+  },
+  {
+    "package": "path-data-parser",
+    "version": "0.1.0",
+    "full_license": {
+      "path": "path-data-parser0.1.0-LICENSE",
+      "url": "https://unpkg.com/path-data-parser@0.1.0/LICENSE",
+      "bytes": 1068,
+      "sha256": "e9754a00aebde654e80f40bcf41dab667d6a41dfbbd2912bcf14fb07d468bf71"
+    },
+    "npm_release_gitHead": "56a2762171b1294d643501e8d14f120db6b27bd7",
+    "exact_build_lock_entry": {
+      "version": "0.1.0",
+      "resolved": "https://registry.npmjs.org/path-data-parser/-/path-data-parser-0.1.0.tgz",
+      "integrity": "sha512-NOnmBpt5Y2RWbuv0LMzsayp3lVylAHLPUTut412ZA3l+C4uw4ZVkQbjShYCQ8TCpUMdPapr4YjUqLYD6v68j+w=="
+    },
+    "build_lock_url": "https://raw.githubusercontent.com/rough-stuff/rough/56a2762171b1294d643501e8d14f120db6b27bd7/package-lock.json",
+    "corresponding_mermaid_release_lock": "Sources/Vendor/Mermaid/release-source-pnpm-lock.yaml",
+    "evidence_boundary": "exact npm release gitHead build metadata; not an independently rebuilt prebundle"
+  },
+  {
+    "package": "points-on-curve",
+    "version": "0.2.0",
+    "full_license": {
+      "path": "points-on-curve0.2.0-LICENSE",
+      "url": "https://unpkg.com/points-on-curve@0.2.0/LICENSE",
+      "bytes": 1068,
+      "sha256": "e9754a00aebde654e80f40bcf41dab667d6a41dfbbd2912bcf14fb07d468bf71"
+    },
+    "npm_release_gitHead": "56a2762171b1294d643501e8d14f120db6b27bd7",
+    "exact_build_lock_entry": {
+      "version": "0.2.0",
+      "resolved": "https://registry.npmjs.org/points-on-curve/-/points-on-curve-0.2.0.tgz",
+      "integrity": "sha512-0mYKnYYe9ZcqMCWhUjItv/oHjvgEsfKvnUTg8sAtnHr3GVy7rGkXCb6d5cSyqrWqL4k81b9CPg3urd+T7aop3A=="
+    },
+    "build_lock_url": "https://raw.githubusercontent.com/rough-stuff/rough/56a2762171b1294d643501e8d14f120db6b27bd7/package-lock.json",
+    "corresponding_mermaid_release_lock": "Sources/Vendor/Mermaid/release-source-pnpm-lock.yaml",
+    "evidence_boundary": "exact npm release gitHead build metadata; not an independently rebuilt prebundle"
+  },
+  {
+    "package": "points-on-path",
+    "version": "0.2.1",
+    "full_license": {
+      "path": "points-on-path0.2.1-LICENSE",
+      "url": "https://unpkg.com/points-on-path@0.2.1/LICENSE",
+      "bytes": 1062,
+      "sha256": "b6fc1f7f1d96a48bc97176f3dcef959e364c5c17ba44167511de421500a86c6c"
+    },
+    "npm_release_gitHead": "56a2762171b1294d643501e8d14f120db6b27bd7",
+    "exact_build_lock_entry": {
+      "version": "0.2.1",
+      "resolved": "https://registry.npmjs.org/points-on-path/-/points-on-path-0.2.1.tgz",
+      "integrity": "sha512-25ClnWWuw7JbWZcgqY/gJ4FQWadKxGWk+3kR/7kD0tCaDtPPMj7oHu2ToLaVhfpnHrZzYby2w6tUA0eOIuUg8g==",
+      "dependencies": {
+        "path-data-parser": "0.1.0",
+        "points-on-curve": "0.2.0"
+      }
+    },
+    "build_lock_url": "https://raw.githubusercontent.com/rough-stuff/rough/56a2762171b1294d643501e8d14f120db6b27bd7/package-lock.json",
+    "corresponding_mermaid_release_lock": "Sources/Vendor/Mermaid/release-source-pnpm-lock.yaml",
+    "evidence_boundary": "exact npm release gitHead build metadata; not an independently rebuilt prebundle"
+  }
+]

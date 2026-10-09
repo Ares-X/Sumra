@@ -1,0 +1,21 @@
+--- a/source/html/md.c
++++ b/source/html/md.c
+@@ -49,4 +49,4 @@
+ 
+-static void
+-register_plugins(fz_context *ctx)
++void
++fz_register_markdown_plugins(fz_context *ctx)
+ {
+@@ -66,3 +66,5 @@
+ 			cmark_plugin_registration_once = 1;
+-			atexit(cmark_release_plugins);
++			// Like Sumatra MarkdownToc.cpp, keep extensions for the process.
++			// Exit can overlap parsers borrowing them; this macOS engine has TLS
++			// and remains loaded across dlclose, so registration stays once-only.
+ 		}
+@@ -105,3 +107,3 @@
+ 
+-		register_plugins(ctx);
++		fz_register_markdown_plugins(ctx);
+ 

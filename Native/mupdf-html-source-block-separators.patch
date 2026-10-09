@@ -1,0 +1,42 @@
+--- a/source/fitz/util.c
++++ b/source/fitz/util.c
+@@ -729,6 +729,17 @@
+ 			else if (join_line)
+ 			{
+ 				/* No whitespace, no linebreak. */
++			}
++			else if (block->next && block->next->type == FZ_STEXT_BLOCK_TEXT &&
++				block->u.t.last_line && block->u.t.last_line->last_char &&
++				block->u.t.last_line->last_char->source_node &&
++				block->next->u.t.first_line && block->next->u.t.first_line->first_char &&
++				block->next->u.t.first_line->first_char->source_node &&
++				block->next->u.t.first_line->first_char->source_no_separator_before)
++			{
++				/* Font/line geometry can split one HTML flow into text blocks.
++				 * Only directly adjacent, source-confirmed continuations join;
++				 * authored paragraphs, images and no-source PDF keep separators. */
+ 			}
+ 			else if (flatten & FZ_TEXT_FLATTEN_KEEP_PARAGRAPHS)
+ 			{
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -2586,7 +2586,18 @@
+ 				/* Classify once, before layout can split/reorder word nodes.
+ 				 * Zero-width break opportunities/anchors are not authored
+ 				 * separators; spaces, explicit breaks and block boundaries are. */
+-				if (flow->type == FLOW_WORD || flow->type == FLOW_SHYPHEN)
++				if (((flow->type == FLOW_WORD && *flow->content.text) || flow->type == FLOW_SPACE ||
++					flow->type == FLOW_BREAK || flow->type == FLOW_IMAGE || flow->type == FLOW_SHYPHEN) &&
++					(flow->box->style->visibility != V_VISIBLE ||
++					((flow->type == FLOW_WORD || flow->type == FLOW_SPACE || flow->type == FLOW_SHYPHEN) &&
++					flow->box->style->text_fill_color.a == 0 && flow->box->style->text_stroke_color.a == 0)))
++				{
++					/* Unpainted content leaves a layout gap. In particular, a
++					 * hidden first word must not join this paragraph's first
++					 * visible word to the preceding paragraph. */
++					adjacent = 0;
++				}
++				else if (flow->type == FLOW_WORD || flow->type == FLOW_SHYPHEN)
+ 				{
+ 					flow->source_no_separator_before = adjacent;
+ 					adjacent = 1;

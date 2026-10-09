@@ -1,0 +1,377 @@
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -31,6 +31,20 @@
+ 
+ /* Resolve an HTML flow source character against the current layout. -1 for other handlers or missing source. */
+ int fz_htdoc_source_page(fz_context *ctx, fz_document *doc, uint32_t source_node, uint32_t source_offset);
++
++/* Visit Markdown's parsed source text in authored order after layout. Page is
++	derived from the owning flow fragment, so callers need not inspect empty
++	physical pages to search the document. Source offsets are UTF-8 byte offsets. */
++typedef struct fz_html_search_char
++{
++	int unicode, page, paintable;
++	uint32_t source_node, source_offset, source_part;
++} fz_html_search_char;
++/* Return nonzero to stop the walk after the current character. */
++typedef int (fz_html_search_char_fn)(fz_context *ctx, void *opaque, const fz_html_search_char *ch);
++int fz_htdoc_is_markdown(fz_context *ctx, fz_document *doc);
++void fz_htdoc_walk_search_source(fz_context *ctx, fz_document *doc,
++	fz_html_search_char_fn *callback, void *opaque, int (*cancelled)(void));
+ 
+ /* A selected extracted character, retaining identity for ligatures and repeated text. */
+ typedef struct
+--- a/include/mupdf/fitz/structured-text.h
++++ b/include/mupdf/fitz/structured-text.h
+@@ -458,7 +458,9 @@
+ 
+ typedef enum fz_stext_line_flags
+ {
+-	FZ_STEXT_LINE_FLAGS_JOINED = 1
++	FZ_STEXT_LINE_FLAGS_JOINED = 1,
++	/* This semantic stream has no authored separator after this line. */
++	FZ_STEXT_LINE_FLAGS_NO_TRAILING_SEPARATOR = 2
+ } fz_stext_line_flags;
+ 
+ /**
+@@ -1058,6 +1060,25 @@
+ */
+ fz_search *fz_new_search(fz_context *ctx, const char *needle, fz_search_options options);
+ 
++/* Count MuPDF-normalized bytes while building bounded source-text chunks.
++	The same transform as fz_new_search decides which source runes may be omitted
++	without changing the haystack. A safe_before boundary leaves no composition
++	or collapsed-whitespace state crossing the boundary. */
++typedef struct fz_search_chunker fz_search_chunker;
++typedef struct fz_search_chunk_step
++{
++	size_t normalized_before, normalized_current;
++	int keep_rune, safe_before;
++} fz_search_chunk_step;
++size_t fz_search_needle_bytes(const fz_search *search);
++fz_search_chunker *fz_new_search_chunker(fz_context *ctx, const fz_search *search);
++fz_search_chunk_step fz_feed_search_chunker(fz_context *ctx, fz_search_chunker *chunker, int rune);
++size_t fz_finish_search_chunker(fz_context *ctx, fz_search_chunker *chunker);
++void fz_drop_search_chunker(fz_context *ctx, fz_search_chunker *chunker);
++
++/* Return the painted glyph for a source-backed ligature continuation. */
++fz_quad fz_search_source_quad(fz_stext_line *line, fz_stext_char *ch);
++
+ typedef enum fz_search_reason
+ {
+ 	/* Ran out of stext to search. Please feed me some more. */
+--- a/source/fitz/stext-search.c
++++ b/source/fitz/stext-search.c
+@@ -1409,6 +1409,95 @@
+ 	return search;
+ }
+ 
++struct fz_search_chunker
++{
++	fz_text_transform transform;
++	transform_cache cache;
++	size_t position;
++};
++
++size_t fz_search_needle_bytes(const fz_search *search)
++{
++	return search && search->spun_needle ? strlen(search->spun_needle) : 0;
++}
++
++fz_search_chunker *fz_new_search_chunker(fz_context *ctx, const fz_search *search)
++{
++	fz_search_chunker *chunker;
++	if (!search)
++		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Missing search for chunker");
++	chunker = fz_malloc_struct(ctx, fz_search_chunker);
++	chunker->transform = search->transform;
++	return chunker;
++}
++
++fz_search_chunk_step fz_feed_search_chunker(fz_context *ctx, fz_search_chunker *chunker, int rune)
++{
++	fz_search_chunk_step step = {0};
++	transform_cache before, preview;
++	size_t local[256], *indices = local, length, position;
++	int i, old_remaining = 0;
++	if (!chunker || chunker->position == SIZE_MAX)
++		fz_throw(ctx, FZ_ERROR_LIMIT, "Search source is too large");
++	position = ++chunker->position;
++	before = preview = chunker->cache;
++	length = transform_char(ctx, NULL, NULL, rune, position, chunker->transform, &preview);
++	if (length > nelem(local))
++		indices = fz_malloc_array(ctx, length, size_t);
++	fz_try(ctx)
++	{
++		if (transform_char(ctx, NULL, indices, rune, position, chunker->transform, &chunker->cache) != length)
++			fz_throw(ctx, FZ_ERROR_FORMAT, "Inconsistent search normalization");
++		for (size_t emitted = 0; emitted < length; ++emitted)
++		{
++			if (indices[emitted] == position)
++			{
++				++step.normalized_current;
++				step.keep_rune = 1;
++			}
++			else
++				++step.normalized_before;
++		}
++		for (i = 0; i < chunker->cache.len; ++i)
++		{
++			if (chunker->cache.pos[i] == position)
++				step.keep_rune = 1;
++			else
++				old_remaining = 1;
++		}
++		/* Composition can absorb a marking rune into an older base. */
++		if (before.len == chunker->cache.len &&
++			memcmp(before.cache, chunker->cache.cache, before.len * sizeof(before.cache[0])) != 0)
++			step.keep_rune = 1;
++		step.safe_before = before.len && step.normalized_before && !old_remaining;
++	}
++	fz_always(ctx)
++	{
++		if (indices != local)
++			fz_free(ctx, indices);
++	}
++	fz_catch(ctx)
++	{
++		fz_rethrow(ctx);
++	}
++	return step;
++}
++
++size_t fz_finish_search_chunker(fz_context *ctx, fz_search_chunker *chunker)
++{
++	size_t length;
++	if (!chunker)
++		return 0;
++	length = flush_transform_cache(ctx, NULL, NULL, chunker->transform, &chunker->cache);
++	chunker->cache.len = 0;
++	return length;
++}
++
++void fz_drop_search_chunker(fz_context *ctx, fz_search_chunker *chunker)
++{
++	fz_free(ctx, chunker);
++}
++
+ static void
+ drop_needle(fz_context *ctx, fz_search *search)
+ {
+@@ -1769,6 +1858,12 @@
+ 	return ch->quad;
+ }
+ 
++fz_quad fz_search_source_quad(fz_stext_line *line, fz_stext_char *ch)
++{
++	int substituted;
++	return search_visible_source_quad(line, ch, &substituted);
++}
++
+ static void add_quad(fz_context *ctx, fz_search *search, fz_stext_position *pos, int seq)
+ {
+ 	fz_stext_line *line = pos->line;
+--- a/source/fitz/util.c
++++ b/source/fitz/util.c
+@@ -693,7 +693,11 @@
+ 					*ws = inhibit_space_after_line_break(ch->c);
+ 				}
+ 
+-				if (join_line)
++				if (line->flags & FZ_STEXT_LINE_FLAGS_NO_TRAILING_SEPARATOR)
++				{
++					/* A search chunk boundary is not an authored separator. */
++				}
++				else if (join_line)
+ 				{
+ 					/* No whitespace, no linebreak. */
+ 				}
+@@ -718,7 +722,11 @@
+ 				}
+ 			}
+ 
+-			if (join_line)
++			if (block->u.t.last_line && (block->u.t.last_line->flags & FZ_STEXT_LINE_FLAGS_NO_TRAILING_SEPARATOR))
++			{
++				/* The next chunk continues this logical text stream. */
++			}
++			else if (join_line)
+ 			{
+ 				/* No whitespace, no linebreak. */
+ 			}
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -215,6 +215,173 @@
+ 	int page = (int)(flow->y / doc->html->page_h);
+ 	int last_page = fmaxf(0, ceilf(doc->html->tree.root->s.layout.b / doc->html->page_h) - 1);
+ 	return page < last_page ? page : last_page;
++}
++
++int fz_htdoc_is_markdown(fz_context *ctx, fz_document *doc_)
++{
++	if (!doc_ || doc_->drop_document != htdoc_drop_document)
++		return 0;
++	html_document *doc = (html_document *)doc_;
++	return doc->format && doc->format->flavor == FZ_HTML_FLAVOR_MARKDOWN;
++}
++
++typedef struct
++{
++	fz_context *ctx;
++	html_document *doc;
++	fz_html_search_char_fn *callback;
++	void *opaque;
++	int (*cancelled)(void);
++	fz_html_box *last_box;
++	size_t visited;
++	int emitted, last_rune, last_page, stop;
++} html_search_source_state;
++
++static int html_search_flow_page(html_search_source_state *state, const fz_html_flow *flow)
++{
++	float y = flow->y;
++	if (!isfinite(y) || y < 0)
++		fz_throw(state->ctx, FZ_ERROR_FORMAT, "Markdown search has no laid out source position");
++	int page = (int)(y / state->doc->html->page_h);
++	int last = fmaxf(0, ceilf(state->doc->html->tree.root->s.layout.b / state->doc->html->page_h) - 1);
++	return page < last ? page : last;
++}
++
++static void html_search_emit(html_search_source_state *state, int rune, uint32_t node,
++	uint32_t offset, uint32_t part, int page, int paintable)
++{
++	fz_html_search_char ch = { rune, page, paintable, node, offset, part };
++	if (((++state->visited) & 1023) == 0 && state->cancelled && state->cancelled())
++		fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
++	state->stop = state->callback(state->ctx, state->opaque, &ch);
++	state->emitted = 1;
++	state->last_rune = rune;
++	state->last_page = page;
++}
++
++static int html_search_flow_visible(fz_html_flow *flow)
++{
++	const fz_css_style *style = flow->box->style;
++	if (style->visibility != V_VISIBLE)
++		return 0;
++	if (flow->type == FLOW_WORD || flow->type == FLOW_SPACE || flow->type == FLOW_SHYPHEN)
++		return style->text_fill_color.a != 0 || style->text_stroke_color.a != 0;
++	return 1;
++}
++
++static void html_search_emit_flow(html_search_source_state *state, fz_html_flow *flow)
++{
++	/* draw_flow_box uses the flow's own inline style. A visible descendant of
++	 * a hidden ancestor can still paint, while hidden sibling flows cannot. */
++	if (!html_search_flow_visible(flow))
++	{
++		/* Visibility leaves the inline box's width in layout. Do not join the
++		 * visible text on its two sides into an invented word. */
++		if (state->emitted && state->last_rune != ' ' && state->last_rune != '\n' &&
++			((flow->type == FLOW_WORD && *flow->content.text) || flow->type == FLOW_SPACE ||
++			flow->type == FLOW_BREAK || flow->type == FLOW_IMAGE || flow->type == FLOW_SHYPHEN))
++			html_search_emit(state, ' ', 0, 0, 0, state->last_page, 0);
++		return;
++	}
++	if (flow->type == FLOW_WORD)
++	{
++		const char *text = flow->content.text;
++		uint32_t base = fz_html_flow_source_offset(flow);
++		int page = html_search_flow_page(state, flow);
++		for (size_t offset = 0; text[offset] && !state->stop; )
++		{
++			int rune, bytes = fz_chartorune(&rune, text + offset);
++			if (offset > UINT32_MAX - base)
++				fz_throw(state->ctx, FZ_ERROR_LIMIT, "Markdown source offset is too large");
++			html_search_emit(state, rune, flow->source_node, base + (uint32_t)offset, 0, page, 1);
++			offset += bytes;
++		}
++	}
++	else if (flow->type == FLOW_SPACE || flow->type == FLOW_BREAK || flow->type == FLOW_IMAGE ||
++		(flow->type == FLOW_SHYPHEN && !flow->generated_hyphen))
++	{
++		int rune = flow->type == FLOW_BREAK ? '\n' : flow->type == FLOW_SHYPHEN ? 0xad : ' ';
++		html_search_emit(state, rune, flow->type == FLOW_IMAGE ? 0 : flow->source_node,
++			fz_html_flow_source_offset(flow), 0, html_search_flow_page(state, flow),
++			flow->type == FLOW_SPACE && !flow->breaks_line);
++	}
++}
++
++static int html_search_box_has_text(fz_html_box *box)
++{
++	for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
++		if (html_search_flow_visible(flow) &&
++			((flow->type == FLOW_WORD && *flow->content.text) || flow->type == FLOW_SPACE ||
++			flow->type == FLOW_BREAK || flow->type == FLOW_IMAGE ||
++			(flow->type == FLOW_SHYPHEN && !flow->generated_hyphen)))
++			return 1;
++	return 0;
++}
++
++static int html_search_flow_compare(const void *a, const void *b)
++{
++	const fz_html_flow *left = *(fz_html_flow *const *)a;
++	const fz_html_flow *right = *(fz_html_flow *const *)b;
++	uint32_t l = fz_html_flow_source_offset(left), r = fz_html_flow_source_offset(right);
++	return l < r ? -1 : l > r ? 1 : 0;
++}
++
++static void html_search_walk_box(html_search_source_state *state, fz_html_box *box)
++{
++	for (; box && !state->stop; box = box->next)
++	{
++		if (((++state->visited) & 1023) == 0 && state->cancelled && state->cancelled())
++			fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
++		if (box->type == BOX_FLOW && html_search_box_has_text(box))
++		{
++			if (state->emitted && state->last_box != box && state->last_rune != '\n')
++				html_search_emit(state, '\n', 0, 0, 0, state->last_page, 0);
++			for (fz_html_flow *flow = box->u.flow.head; flow && !state->stop; )
++			{
++				fz_html_flow *end = flow->next;
++				size_t count = 1;
++				while (end && flow->source_node && end->source_node == flow->source_node)
++				{
++					++count;
++					end = end->next;
++				}
++				if (count == 1)
++					html_search_emit_flow(state, flow);
++				else
++				{
++					fz_html_flow **parts = fz_malloc_array(state->ctx, count, fz_html_flow *);
++					fz_try(state->ctx)
++					{
++						fz_html_flow *part = flow;
++						for (size_t i = 0; i < count; ++i, part = part->next)
++							parts[i] = part;
++						qsort(parts, count, sizeof(*parts), html_search_flow_compare);
++						for (size_t i = 0; i < count && !state->stop; ++i)
++							html_search_emit_flow(state, parts[i]);
++					}
++					fz_always(state->ctx) { fz_free(state->ctx, parts); }
++					fz_catch(state->ctx) { fz_rethrow(state->ctx); }
++				}
++				flow = end;
++			}
++			state->last_box = box;
++		}
++		if (fz_html_box_has_boxes(box))
++			html_search_walk_box(state, box->down);
++	}
++}
++
++void fz_htdoc_walk_search_source(fz_context *ctx, fz_document *doc_,
++	fz_html_search_char_fn *callback, void *opaque, int (*cancelled)(void))
++{
++	if (!fz_htdoc_is_markdown(ctx, doc_) || !callback)
++		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Document has no Markdown search source");
++	html_document *doc = (html_document *)doc_;
++	if (!doc->html || !doc->html->tree.root || !isfinite(doc->html->page_h) || doc->html->page_h <= 0)
++		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Markdown search requires a complete layout");
++	html_search_source_state state = { .ctx = ctx, .doc = doc, .callback = callback,
++		.opaque = opaque, .cancelled = cancelled };
++	html_search_walk_box(&state, doc->html->tree.root);
+ }
+ 
+ 

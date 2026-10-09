@@ -1,0 +1,38 @@
+diff --git a/source/fitz/load-jxr.c b/source/fitz/load-jxr.c
+index f0cf071..bc35066 100644
+--- a/source/fitz/load-jxr.c
++++ b/source/fitz/load-jxr.c
+@@ -258,6 +258,8 @@ jxr_decode_block(jxr_image_t image, int mx, int my, int *data)
+ 		{
+ 			if ((mx + x) < info->width)
+ 			{
++				/* Color-only streams do not write the pixmap alpha component. */
++				p[n1 - 1] = 255;
+ 				jxr_unpack_sample(ctx, info, image, data, p);
+ 				p += n1;
+ 			}
+@@ -321,10 +323,15 @@ jxr_read_image(fz_context *ctx, const unsigned char *data, int size, struct info
+ 		if (rc < 0)
+ 			fz_throw(ctx, FZ_ERROR_LIBRARY, "cannot read jxr image container: %s", jxr_error_string(rc));
+ 
++		if (jxrc_image_count(container) < 1)
++			fz_throw(ctx, FZ_ERROR_FORMAT, "jxr container has no image");
++
+ 		info->xres = jxrc_width_resolution(container, 0);
+ 		info->yres = jxrc_height_resolution(container, 0);
+ 		info->width = jxrc_image_width(container, 0);
+ 		info->height = jxrc_image_height(container, 0);
++		if (info->width <= 0 || info->height <= 0 || info->width > INT_MAX / 5)
++			fz_throw(ctx, FZ_ERROR_FORMAT, "invalid jxr image dimensions");
+ 
+ 		info->format = (int) jxrc_image_pixelformat(container, 0);
+ 
+@@ -360,6 +367,8 @@ jxr_read_image(fz_context *ctx, const unsigned char *data, int size, struct info
+ 			image_band = jxrc_image_band_presence(container, 0);
+ 			alpha_offset = jxrc_alpha_offset(container, 0);
+ 			alpha_band = jxrc_alpha_band_presence(container, 0);
++			if (image_offset >= (unsigned)size || alpha_offset >= (unsigned)size)
++				fz_throw(ctx, FZ_ERROR_FORMAT, "invalid jxr image offset");
+ 
+ 			image = jxr_create_input();
+ 

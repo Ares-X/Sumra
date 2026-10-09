@@ -1,0 +1,29 @@
+# MuPDF f030eda1e472268667805f438e38cee8f1da61f8.
+# A combo box stores its export value in /V. Render the corresponding /Opt
+# display string in its appearance; retain /V for editable custom entries.
+diff --git a/source/pdf/pdf-appearance.c b/source/pdf/pdf-appearance.c
+--- a/source/pdf/pdf-appearance.c
++++ b/source/pdf/pdf-appearance.c
+@@ -2884,9 +2884,21 @@ pdf_write_ch_widget_appearance(fz_context *ctx, pdf_annot *annot, fz_buffer *buf,
+ 	int ff = pdf_field_flags(ctx, annot->obj);
+ 	if (ff & PDF_CH_FIELD_IS_COMBO)
+ 	{
++		const char *value = pdf_field_value(ctx, annot->obj);
++		const char *display = value;
++		int i, n = pdf_choice_field_option_count(ctx, annot->obj);
++		for (i = 0; value && i < n; ++i)
++		{
++			const char *export = pdf_choice_field_option(ctx, annot->obj, 1, i);
++			if (export && !strcmp(value, export))
++			{
++				display = pdf_choice_field_option(ctx, annot->obj, 0, i);
++				break;
++			}
++		}
+ 		/* TODO: Pop-down arrow */
+ 		pdf_write_tx_widget_appearance(ctx, annot, buf, rect, bbox, matrix, res,
+-			pdf_field_value(ctx, annot->obj), 0);
++			display, 0);
+ 	}
+ 	else
+ 	{

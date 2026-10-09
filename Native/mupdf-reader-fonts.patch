@@ -1,0 +1,36 @@
+diff --git a/source/fitz/font-table.h b/source/fitz/font-table.h
+--- a/source/fitz/font-table.h
++++ b/source/fitz/font-table.h
+@@ -80,7 +80,9 @@
+ #endif
+ 
+ #ifndef TOFU_NOTO
++#ifndef SUMRA_READER_FONTS
+ FONT(urw,	NimbusBoxes_Regular_cff,	"Nimbus Boxes",		ANY_SCRIPT,	FZ_LANG_UNSET,	NO_SUBFONT,	REGULAR)
++#endif
+ 
+ FONT(noto,	NotoSerif_Regular_otf,	"Noto Serif",	UCDN_SCRIPT_LATIN,	FZ_LANG_UNSET,	NO_SUBFONT,	SERIF)
+ ALIAS(noto,	NotoSerif_Regular_otf,	"Noto Serif",	UCDN_SCRIPT_GREEK,	FZ_LANG_UNSET,	NO_SUBFONT,	SERIF)
+@@ -89,6 +91,13 @@
+ ALIAS(noto,	NotoSerif_Regular_otf,	"Noto Serif",	UCDN_SCRIPT_INHERITED,	FZ_LANG_UNSET,	NO_SUBFONT,	SERIF)
+ ALIAS(noto,	NotoSerif_Regular_otf,	"Noto Serif",	UCDN_SCRIPT_UNKNOWN,	FZ_LANG_UNSET,	NO_SUBFONT,	SERIF)
+ 
++#ifdef SUMRA_READER_FONTS
++/* Sumatra's compact reader set keeps the default EPUB faces. Other scripts
++ * are supplied by installed system fonts through the existing callbacks. */
++FONT(noto,	NotoSans_Regular_otf,	"Noto Sans",	UCDN_SCRIPT_LATIN,	FZ_LANG_UNSET,	NO_SUBFONT,	REGULAR)
++#endif
++
++#ifndef SUMRA_READER_FONTS
+ FONT(noto,	NotoNastaliqUrdu_Regular_otf,	"Noto Nastaliq Urdu",	UCDN_SCRIPT_ARABIC,	FZ_LANG_ur,	NO_SUBFONT,	SERIF)
+ ALIAS(noto,	NotoNastaliqUrdu_Regular_otf,	"Noto Nastaliq Urdu",	UCDN_SCRIPT_ARABIC,	FZ_LANG_urd,	NO_SUBFONT,	SERIF)
+ FONT(noto,	NotoNaskhArabic_Regular_otf,	"Noto Nastaliq Urdu",	UCDN_SCRIPT_ARABIC,	FZ_LANG_UNSET,	NO_SUBFONT,	SERIF)
+@@ -268,6 +277,8 @@
+ 
+ #undef DEFNOTO
+ 
++#endif /* !SUMRA_READER_FONTS */
++
+ #ifndef TOFU_SYMBOL
+ FONT(noto,	NotoSansMath_Regular_otf,	"Noto Sans Math",	MUPDF_SCRIPT_MATH,	FZ_LANG_UNSET,	NO_SUBFONT,		REGULAR)
+ FONT(noto,	NotoMusic_Regular_otf,		"Noto Music",		MUPDF_SCRIPT_MUSIC,	FZ_LANG_UNSET,	NO_SUBFONT,		REGULAR)
