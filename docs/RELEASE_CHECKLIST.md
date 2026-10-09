@@ -1,4 +1,4 @@
-# Current work toward public release
+# Release implementation and validation
 
 ## Objective and order
 
@@ -25,7 +25,8 @@ returned to Home. That private app measured 31,353,085 logical bytes (about
 29.90 MiB). Final 855 scope and evidence are retained internally.
 
 Candidate **856 completed personal signing and a local archive**, with strict/deep
-verification and actual GUI startup/export. GitHub publication remains pending.
+verification and actual GUI startup/export. Public distribution uses
+[GitHub Releases](https://github.com/Ares-X/Sumra/releases/latest).
 Candidate **857 completed the native interface refresh**: Home hides reading controls
 and the document sidebar, the reader has a single compact toolbar, format covers
 are integrated, and Home uses a 120–200-point flexible search field with content
@@ -136,24 +137,19 @@ modifier-only Shift toggle. This is an observation limit, not a confirmed Sumra
 failure or an added release gate. macOS27.0.1 is the local runtime; macOS13
 execution is not verified. VoiceOver remains user-deferred.
 
-## Finish and deliver
+## Distribution
 
-1. The integrated855 optimized build and changed GUI print/export workflows
-   are complete. Reuse unchanged PDF editing and large-Markdown evidence. Recheck
-   only changed behavior or a concrete failure; test counts are not a release policy.
-2. The 856 personally signed app is locally archived and verified; the key decision
-   is complete. The 857 UI checks and demo screenshots are complete; refresh the
-   final app/source archives, notices and hashes for the changed UI and documentation.
-   No Swift/native source changed in 856; reuse unchanged document-engine evidence
-   for 857 rather than repeating every engine check.
-   Confirm the advertised macOS support with available runtime
-   evidence; macOS 13 execution is still unverified. Existing font, license and
-   component evidence should be reused where it matches.
-3. The final key decision is complete: the user authorized one personal certificate
-   for Linnet, Sumra and future projects. The Linnet signing thread prepared that
-   identity; Sumra uses its exact certificate fingerprint and shared Keychain.
-   Complete the public delivery path. Updates require their actual feed/installation checks only
-   if offered in this release.
+The integrated print/export and 857 UI workflows are complete. Unchanged PDF
+editing, document engines and large-Markdown evidence are reused; only changed
+behavior or a concrete failure calls for another check. Test counts are not a
+release policy. macOS 13 is the deployment target and remains unverified at runtime.
+
+The user selected one personal certificate for Linnet, Sumra and future projects.
+The signed release uses its exact fingerprint and shared Keychain, with current
+app resources/notices and matching corresponding source. Each release supplies
+the app ZIP, source archive, provenance and SHA-256 sums. Receipt correspondence
+does not claim independent build reproducibility. The installation instructions
+describe the self-signed, nonnotarized app; this release offers no update feed.
 
 Source coverage lives in [implementation status](IMPLEMENTATION_STATUS.md),
 [UI inventory](SUMATRA_UI_PARITY.md) and [engine inventory](SUMATRA_ENGINE_PARITY.md).

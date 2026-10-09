@@ -1,7 +1,7 @@
 # Release readiness
 
-The [current work list](RELEASE_CHECKLIST.md) owns the remaining functional work,
-current build/runtime evidence and signing/archive status. It replaces the
+The [validation record](RELEASE_CHECKLIST.md) owns the completed functional work,
+build/runtime evidence and signing/archive scope. It replaces the
 repeated intermediate-candidate narratives previously maintained here.
 
 The existing reader functions and owners are recorded in [implementation status](IMPLEMENTATION_STATUS.md),
@@ -29,7 +29,8 @@ Runtime library validation. It is not used by default for Developer ID builds.
 This certificate is self-signed; it does not provide Developer ID,
 notarization or Gatekeeper acceptance. Candidate 856 completed signing with this
 identity, strict/deep bundle verification, GUI startup and HTML/form/frame PDF
-export. Its archive is local; GitHub publication is still pending.
+export. That historical archive is local. Public app and corresponding-source
+downloads use [GitHub Releases](https://github.com/Ares-X/Sumra/releases/latest).
 
 Candidate 857 completed the native interface refresh: Home hides document reading
 controls and the document sidebar; the reader uses one compact toolbar. Format
@@ -41,8 +42,9 @@ light/dark appearance and contents search. Four screenshots use only the origina
 tests and 17 packaging tests passed. Normal opening uses Launch Services with
 `LSMultipleInstancesProhibited`; the development launcher no longer requests a
 new instance. Three obsolete test apps were stopped and retired; one current
-preview remains. This UI work reuses unchanged document-engine evidence. Its
-personal-signature and public archive refresh remain to be completed.
+preview remains. This UI work reuses unchanged document-engine evidence. Public
+artifacts use this source revision, refreshed app/notices and the same personal
+identity; their exact hashes and correspondence are supplied with each release.
 
 Historical runtime measurements and the before-edit narrative snapshot remain
 in internal records retained locally, outside the public documentation.
