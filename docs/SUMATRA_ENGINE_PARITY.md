@@ -18,7 +18,7 @@ implemented scope, not additional speculative release requirements.
 | DjVu, image/comic archives, image folders and multi-frame images | DjVuLibre, libarchive, ImageIO and native JPEG XL/JPEG XR paths. | Solid seek cost, archive-password variants, OS codecs, JXL 8-bit/HDR display and uncommon real files. |
 | PostScript/EPS | Optional external Ghostscript conversion. | Availability, converted-container Save a Copy and output inspection. |
 
-Core dispatch and sniffing live in [Sources/SumraCore](../Sources/SumraCore), the GUI reader in [Sources/Sumra](../Sources/Sumra), and native adapters in [Native](../Native). The [format table in the English README](../README.en.md#supported-formats) describes user-visible routes.
+Core dispatch and sniffing live in [Sources/SumraCore](../Sources/SumraCore), the GUI reader in [Sources/Sumra](../Sources/Sumra), and native adapters in [Native](../Native). The [format table in the README](../README.md#supported-formats) describes user-visible routes.
 
 ## PDF document behavior
 
