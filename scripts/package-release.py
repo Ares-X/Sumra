@@ -15,7 +15,7 @@ import tarfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT_FILES = ("LICENSE", "THIRD_PARTY.md", "README.md", "README.en.md", "Package.swift", "Package.resolved", "AGENTS.md", ".gitignore")
+PROJECT_FILES = ("LICENSE", "THIRD_PARTY.md", "README.md", "README.zh-CN.md", "Package.swift", "Package.resolved", "AGENTS.md", ".gitignore")
 PROJECT_DIRS = ("Sources", "Tests", "Native", "scripts", "Assets", "Licenses", "docs")
 SKIP = {".git", ".DS_Store", "__pycache__", ".serena", ".swiftpm"}
 PRODUCT_SUFFIXES = {".o", ".a", ".so", ".dylib", ".pyc", ".pyo"}
