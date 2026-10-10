@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bundle runtime dylibs and generate Info.plist for the local app."""
 import plistlib
+import json
 import os
 import re
 import shutil
@@ -18,10 +19,11 @@ licenses.mkdir(parents=True, exist_ok=True)
 identity = os.environ.get("SUMRA_CODE_SIGN_IDENTITY", "-")
 keychain = os.environ.get("SUMRA_CODE_SIGN_KEYCHAIN", "")
 timestamp = os.environ.get("SUMRA_CODE_SIGN_TIMESTAMP", "")
-version = os.environ.get("SUMRA_VERSION", "0.2.0")
-build_version = os.environ.get("SUMRA_BUILD_VERSION", "2")
-update_feed = os.environ.get("SUMRA_UPDATE_FEED_URL", "")
-update_key = os.environ.get("SUMRA_UPDATE_PUBLIC_KEY", "")
+version = os.environ.get("SUMRA_VERSION", "0.2.1")
+build_version = os.environ.get("SUMRA_BUILD_VERSION", "3")
+updates = json.loads((root / "Assets/Updates.json").read_text())
+update_feed = os.environ.get("SUMRA_UPDATE_FEED_URL", updates["feed_url"])
+update_key = os.environ.get("SUMRA_UPDATE_PUBLIC_KEY", updates["public_key"])
 if bool(update_feed) != bool(update_key):
     raise RuntimeError("Set SUMRA_UPDATE_FEED_URL and SUMRA_UPDATE_PUBLIC_KEY together.")
 shutil.copy(root / "LICENSE", licenses / "Sumra-AGPL-3.0.txt")

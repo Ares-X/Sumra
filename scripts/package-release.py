@@ -148,7 +148,7 @@ def app_metadata(app):
         if separator and key in fields:
             signing.setdefault(key, []).append(value)
     return {
-        "info_plist": {key: info.get(key) for key in ("CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion", "LSMinimumSystemVersion")},
+        "info_plist": {key: info.get(key) for key in ("CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion", "LSMinimumSystemVersion", "SUFeedURL", "SUPublicEDKey", "SUEnableAutomaticChecks")},
         "architectures": subprocess.check_output(["lipo", "-archs", str(app / "Contents/MacOS/Sumra")], text=True).strip().split(),
         "signature": signing,
         "gatekeeper_public_acceptance": "not_exercised",
