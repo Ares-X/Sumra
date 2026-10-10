@@ -1,12 +1,12 @@
-# Sumra — Lightweight PDF Reader for macOS
+# Sumra — A Lightweight Reader for macOS
 
-**A free, open-source PDF, ebook and comic reader inspired by SumatraPDF.**
+**A simple, open-source reader with broad format support, focused on reading.**
 
 English · [简体中文](README.zh-CN.md)
 
 [Download](https://github.com/Ares-X/Sumra/releases/latest) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Sumra/issues)
 
-Sumra is a native macOS PDF reader and an alternative to [SumatraPDF](https://www.sumatrapdfreader.org/) for Mac users. The focus is the same: fast response, a small footprint and straightforward document reading.
+Sumra is a lightweight reader for multiple formats, built natively for macOS. Inspired by [SumatraPDF](https://www.sumatrapdfreader.org/), it focuses on fast response, a small footprint and a straightforward reading experience.
 
 Open PDFs, ebooks, comics, images and Markdown in one app. Sumra reuses document engines including MuPDF and adapts parts of SumatraPDF's document handling. Its interface is rebuilt for macOS with SwiftUI and AppKit, using native windows, tabs, menus and system dialogs.
 
