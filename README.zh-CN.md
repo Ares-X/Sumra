@@ -37,6 +37,8 @@ PDF、电子书、漫画、图片和 Markdown，用同一个应用打开。Sumra
 
 公开构建使用维护者的个人自签名身份 **Ares-X Code Signing**。它不是 Apple Developer ID 签名，也未经 Apple 公证，因此首次打开可能需要上述确认。安装提示可参考 [Apple 的说明](https://support.apple.com/zh-cn/102445)。
 
+**更新**：v0.2.0 需要从 GitHub Releases 手动下载安装。0.2.1 正在准备应用内更新功能：通过 **Sumra → 检查更新** 下载并安装新版，或在设置中启用自动检查。待 0.2.1 或更新版本发布后，先手动安装一次即可启用。更新在你确认后安装。
+
 ## 阅读与文档工具
 
 - **直接打开文件**：从 Finder 打开、拖入窗口，或从首页和最近文件继续阅读；支持多个窗口与 macOS 标签页。
@@ -92,4 +94,4 @@ Sumra 是图形应用，文件打开、文档工具与打印均通过界面操�
 
 新编写的 Sumra 代码采用 **[AGPL-3.0-or-later](LICENSE)**。上游与移植组件保留各自的许可及版权声明，详见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-感谢 [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf)、[MuPDF](https://mupdf.com/) 及其他上游项目。Sumra 是独立的 macOS 项目，并非 SumatraPDF 官方 macOS 版本，也不承诺与其全部功能完全一致。
+感谢 [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf)、[MuPDF](https://mupdf.com/) 及其他上游项目。Sumra 是独立开发的项目，并非 SumatraPDF 官方版本。功能覆盖与现有差异见 [SumatraPDF 对标说明](docs/SUMATRA_PARITY.md)。

@@ -37,6 +37,8 @@ Installation:
 
 Public builds use the maintainer's personal self-signed identity, **Ares-X Code Signing**. This is not an Apple Developer ID signature, and the app is not notarized by Apple, so the first launch may require that confirmation. See [Apple's installation guidance](https://support.apple.com/en-us/102445) for details.
 
+**Updates**: v0.2.0 requires manual installation from GitHub Releases. In-app updates are being prepared for 0.2.1: **Sumra → Check for Updates**, with automatic checks available in Settings. Install 0.2.1 or later manually when available to enable this feature. Updates install after your confirmation.
+
 ## Reading and document tools
 
 - **Open files directly**: use Finder, drag files into a window, or continue from the home screen and recent files. Multiple windows and macOS tabs are supported.
