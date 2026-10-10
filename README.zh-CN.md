@@ -1,23 +1,23 @@
-# Sumra
+# Sumra — 轻量级 macOS PDF 阅读器
 
-**以 SumatraPDF 为标杆的原生 macOS 文档阅读器。**
+**以 SumatraPDF 为标杆，免费开源的 PDF、电子书与漫画阅读器。**
 
 [English](README.md) · 简体中文
 
 [下载最新版](https://github.com/Ares-X/Sumra/releases/latest) · [支持格式](#支持的格式) · [从源码构建](#从源码构建) · [反馈问题](https://github.com/Ares-X/Sumra/issues)
 
-Sumra 希望成为 macOS 上与 [SumatraPDF](https://www.sumatrapdfreader.org/) 对应的阅读器，围绕同样的目标构建：响应快、体积小、阅读操作直接。
+Sumra 是原生 macOS PDF 阅读器，为 Mac 用户提供 [SumatraPDF](https://www.sumatrapdfreader.org/) 的替代选择，围绕同样的目标构建：响应快、体积小、阅读操作直接。
 
 PDF、电子书、漫画、图片和 Markdown，用同一个应用打开。Sumra 复用 MuPDF 等文档引擎，并移植 SumatraPDF 的部分文档处理实现；界面与交互通过 SwiftUI 和 AppKit 为 macOS 重新构建，使用原生窗口、标签页、菜单与系统对话框。
 
-![浅色阅读界面，展示原创阅读笔记与目录](docs/images/reader-light.png)
+![Sumra macOS 阅读器的浅色界面，展示 Markdown 阅读笔记与目录](docs/images/reader-light.png)
 
 <details>
 <summary>更多截图：最近文件与深色阅读界面</summary>
 
 ![Sumra 浅色首页，显示最近阅读的文档](docs/images/home-light.png)
 
-![深色阅读界面](docs/images/reader-dark.png)
+![Sumra macOS 文档阅读器的深色界面](docs/images/reader-dark.png)
 
 </details>
 
