@@ -149,7 +149,8 @@ The signed release uses its exact fingerprint and shared Keychain, with current
 app resources/notices and matching corresponding source. Each release supplies
 the app ZIP, source archive, provenance and SHA-256 sums. Receipt correspondence
 does not claim independent build reproducibility. The installation instructions
-describe the self-signed, nonnotarized app; this release offers no update feed.
+describe the self-signed, nonnotarized app. Version 0.2.0 has no update feed;
+0.2.1 enables Sparkle delivery as described in [online updates](ONLINE_UPDATES.md).
 
 Source coverage lives in [implementation status](IMPLEMENTATION_STATUS.md),
 [UI inventory](SUMATRA_UI_PARITY.md) and [engine inventory](SUMATRA_ENGINE_PARITY.md).
