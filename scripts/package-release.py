@@ -305,12 +305,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", type=Path, help="Write source inventory JSON without creating archives")
     parser.add_argument("--app", type=Path, help="Verified candidate .app to archive")
+    parser.add_argument("--app-archive", type=Path, help="Reuse an already signed app ZIP on the same filesystem")
     parser.add_argument("--output", type=Path, help="New output directory; existing directories are refused")
     parser.add_argument("--source-receipt", type=Path, help="Frozen full source inventory JSON")
     parser.add_argument("--build-receipt", type=Path, help="Frozen successful build gate JSON")
     args = parser.parse_args()
     if bool(args.app) != bool(args.output):
         parser.error("--app and --output must be supplied together")
+    if args.app_archive and not args.app:
+        parser.error("--app-archive requires --app and --output")
     if bool(args.source_receipt) != bool(args.build_receipt):
         parser.error("--source-receipt and --build-receipt must be supplied together")
     if args.source_receipt and not args.app:
@@ -363,7 +366,10 @@ def main():
     verify_source_archive(source_tar, provenance["files"], symlinks)
     version = provenance["app_metadata"]["info_plist"]["CFBundleShortVersionString"]
     app_zip = args.output / f"Sumra-{version}-macOS-arm64.zip"
-    archive_app(app, app_zip)
+    if args.app_archive:
+        os.link(args.app_archive.resolve(strict=True), app_zip)
+    else:
+        archive_app(app, app_zip)
     verify_app_archive(app_zip, app.name, provenance["app_files"], provenance["app_symlinks"],
                        provenance["app_modes"], provenance["app_directories"])
     manifest = args.output / "provenance.json"

@@ -24,7 +24,9 @@ key for future releases. See [Sparkle's setup](https://sparkle-project.org/docum
 1. Increase `SUMRA_VERSION` and `SUMRA_BUILD_VERSION` and build/sign the app with
    the existing personal certificate. Sparkle compares the increasing build number.
 2. Create the normal release ZIP and corresponding-source artifacts using
-   `scripts/package-release.py`.
+   `scripts/package-release.py`. If the ZIP has already been signed and tested,
+   pass `--app-archive path/to/the.zip` to reuse its exact bytes on the same
+   filesystem, without recompressing or signing it again.
 3. Run `python3 scripts/generate-appcast.py path/to/Sumra-VERSION-macOS-arm64.zip`.
    For a preview, add `--channel prerelease`. This invokes the pinned upstream
    `generate_appcast`, signs the ZIP using Keychain, and preserves existing feed
