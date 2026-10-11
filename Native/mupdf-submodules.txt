@@ -1,0 +1,11 @@
+thirdparty/brotli
+thirdparty/cmark-gfm
+thirdparty/freetype
+thirdparty/gumbo-parser
+thirdparty/harfbuzz
+thirdparty/jbig2dec
+thirdparty/lcms2
+thirdparty/libjpeg
+thirdparty/mujs
+thirdparty/openjpeg
+thirdparty/zlib

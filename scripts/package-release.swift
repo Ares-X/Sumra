@@ -223,6 +223,7 @@ func inventory() throws -> ([String: SourceInput], [String: String], [String: An
     var files = [String: SourceInput](), origins = [[String: Any]](), revisions = [String: String](), links = [(URL, String)]()
     let skip: Set<String> = [".git", ".DS_Store", "__pycache__", ".serena", ".swiftpm"]
     let products: Set<String> = ["o", "a", "so", "dylib", "pyc", "pyo"]
+    let mupdfSubmodules = Set(try String(contentsOf: root.appendingPathComponent("Native/mupdf-submodules.txt"), encoding: .utf8).split(separator: "\n").map(String.init))
     func add(_ path: URL, _ destination: String) throws {
         let kind = try attributes(path)[.type] as! FileAttributeType
         if kind == .typeSymbolicLink { links.append((path, destination)) }
@@ -250,7 +251,10 @@ func inventory() throws -> ([String: SourceInput], [String: String], [String: An
             let parts = entry.split(separator: "\t", maxSplits: 1), metadata = parts[0].split(separator: " "), name = String(parts[1])
             guard metadata[2] == "0" else { try fail("Unmerged source input: \(directory.appendingPathComponent(name).path)") }
             if name.split(separator: "/").contains(where: { skip.contains(String($0)) }) { continue }
-            if metadata[0] == "160000" { try repository(directory.appendingPathComponent(name), destination + "/" + name, String(metadata[1])) }
+            if metadata[0] == "160000" {
+                if destination == "build/deps/mupdf" && !mupdfSubmodules.contains(name) { continue }
+                try repository(directory.appendingPathComponent(name), destination + "/" + name, String(metadata[1]))
+            }
             else { try add(directory.appendingPathComponent(name), destination + "/" + name) }
         }
     }

@@ -17,6 +17,10 @@ existing skcms revision. Its source now uses the same pinned-Git approach as
 MuPDF, through Google's official mirror. The revision and source file contents
 remain unchanged. Corresponding-source exports retain its revision marker.
 
+Clean builds also use `Native/mupdf-submodules.txt` for both fetching and source
+packaging. It contains the modules actually compiled into Sumra's MuPDF library;
+unused OCR, office-export, barcode and upstream viewer modules are omitted.
+
 ## Signing setup
 
 Configure these encrypted Secrets in **Ares-X/Sumra** once:
