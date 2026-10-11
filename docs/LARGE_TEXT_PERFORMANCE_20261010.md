@@ -689,6 +689,33 @@ content-free timing now separates AX task scheduling, native region extraction
 and main-thread snapshot publication from canvas drawing. Focused accessibility
 regressions pass; no new public release or resolution of that anomaly is claimed.
 
+### First-open scrollbar feedback investigation (2026-10-12)
+
+Two fresh-process runs of signed diagnostic source `6f58ad87` used the same
+original B04 passage records and restored narrow window (770 by 861 pt clip).
+Continuous AX observation painted the first canvas in 2.390 seconds. Opening
+without post-click AX observation painted in 3.399 seconds; native AX publication
+followed the canvas by 13.606/13.076 milliseconds respectively. Native visible
+text extraction and main-thread AX snapshot building each took milliseconds.
+The quiet run's eventual AX check was delayed by orchestration; its native phase
+timestamps, rather than that late request, determine these timings.
+
+The quiet run exposed a real startup feedback loop: 2,925 viewport configurations
+preceded its first canvas, alternating between the barless 785 by 861 pt frame
+and the 770 by 846 pt clip with both legacy scrollbars. It requested 78 renders,
+compared with three in the observation run. Both retained the saved passage;
+physical footprint settled at 502.1/503.3 MiB and lifetime peaks were
+744.2/745.4 MiB. A single comparison does not establish that AX polling causes
+the difference, or assign this loop as the original 13.528-second cause.
+
+The continuous viewport now owns its scrollbar axes: a natural width-fit canvas
+uses only vertical scrolling, while custom zoom retains horizontal panning.
+Mounted cells no longer reapply generic scrollbar settings to that owner.
+The first-mount regression failed on the previous behavior because a needless
+horizontal bar reduced reading height. Initial geometry, continuous reading,
+mode-position and prediction checks pass after the change. Signed original-book
+verification of this fix is pending; the historical anomaly remains open.
+
 ### User manual resize feedback (2026-10-11)
 
 For the requested normal-app manual window-edge drag check on the original

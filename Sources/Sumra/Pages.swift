@@ -3130,7 +3130,11 @@ private struct WindowScale: NSViewRepresentable {
             let saved = pending ?? position()
             owner = value
             arranging = true
-            ReaderScrollbars.apply(to: self, mode: value.state.scrollbarMode)
+            // Natural width-fit never needs a horizontal bar. Reserving both
+            // axes before fitting makes legacy autohiding alternate between
+            // the full frame and the smaller clip while the canvas mounts.
+            ReaderScrollbars.apply(to: self, mode: value.state.scrollbarMode,
+                horizontal: !value.continuousReflow || value.state.fit == "custom")
             let state = value.state, viewport = value.liveResizeViewport ?? contentView.bounds.size
             let next = LayoutKey(viewport: viewport, count: state.count,
                 generation: state.chapterLayout?.generation ?? 0, revision: state.renderRevision, rotation: state.rotation,
@@ -3908,7 +3912,8 @@ struct NativeReadingAccessibilitySnapshot {
                 guard state?.document?.id == documentID, let document = scroll?.documentView else { return nil }
                 return Canvas.selectionScreenBounds(in: document)
             }
-            ReaderScrollbars.apply(to: scroll, mode: state.scrollbarMode)
+            // The continuous viewport owns its scrollbar axes and geometry.
+            if !(scroll is RasterViewport.Scroll) { ReaderScrollbars.apply(to: scroll, mode: state.scrollbarMode) }
             if page == state.page {
                 state.readerFocusView = view
                 if state.contentsNeedsFocusTransfer, let window = view.window {
@@ -5232,7 +5237,7 @@ struct NativeReadingAccessibilitySnapshot {
             guard window != nil, let scroll = enclosingScrollView else { return }
             if let state, case .pages(let current) = state.document?.content, current === pages {
                 state.readerScrollView = scroll
-                ReaderScrollbars.apply(to: scroll, mode: state.scrollbarMode)
+                if !(scroll is RasterViewport.Scroll) { ReaderScrollbars.apply(to: scroll, mode: state.scrollbarMode) }
             }
             scroll.contentView.postsBoundsChangedNotifications = true
             scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in

@@ -166,6 +166,16 @@ final class ReaderInitialLayoutTests: XCTestCase {
             let bounds = try await pages.bounds(0)
             let clip = try XCTUnwrap(state.readerScrollView?.contentView.safeAreaRect.size)
             let expected = RasterReader.pageSize(in: clip, spread: spread, continuous: flow == "continuous")
+            if flow == "continuous", mode == "shown" {
+                // A width-fitted natural chapter needs only the vertical bar.
+                // A horizontal bar steals reading height and feeds a different
+                // clip size back into its already fitted canvas.
+                XCTAssertEqual(clip.height, host.bounds.height, accuracy: 0.01)
+                let scroll = try XCTUnwrap(state.readerScrollView)
+                let document = try XCTUnwrap(scroll.documentView)
+                XCTAssertLessThanOrEqual(document.frame.width, clip.width + 0.01)
+                XCTAssertFalse(scroll.hasHorizontalScroller)
+            }
             XCTAssertEqual(bounds.width, expected.width, accuracy: 0.01, "\(flow) \(spread) \(mode)")
             XCTAssertEqual(revision, initialPageSize == expected ? 1 : 2, "\(flow) \(spread) \(mode) may relayout only for an actual viewport change")
             XCTAssertEqual(publications.count, 1, "The mounted reader must receive its final geometry in the first publication")

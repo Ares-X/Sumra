@@ -419,6 +419,32 @@ final class NativeContinuousReaderTests: XCTestCase {
         XCTAssertEqual(finalRevision, revision, "A settled clip must not start another native reflow")
         XCTAssertEqual(state.renderRevision, renderedRevision, "A settled clip must not rebuild the visible surface")
         XCTAssertTrue(RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: 0)))
+
+        // Width-fit owns one scrolling axis, while explicit zoom must still
+        // allow panning across an enlarged natural chapter.
+        func waitForWidth(_ enlarged: Bool) async throws {
+            let deadline = Date().addingTimeInterval(5)
+            repeat {
+                paint()
+                if let canvas = state.readerFocusView,
+                   (canvas.bounds.width > scroll.contentView.bounds.width + 1) == enlarged,
+                   state.command.action == .none,
+                   RasterReader.pageIsRendered(in: canvas, pages: pages, location: .init(page: 0)) { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Natural chapter did not settle after changing fit")
+        }
+        state.setZoom(2); state.send(.none)
+        try await waitForWidth(true)
+        XCTAssertTrue(scroll.hasHorizontalScroller)
+        let clip = scroll.contentView
+        clip.scroll(to: clip.constrainBoundsRect(clip.bounds.offsetBy(dx: 100, dy: 0)).origin)
+        scroll.reflectScrolledClipView(clip)
+        XCTAssertGreaterThan(clip.bounds.minX, 0, "Explicit zoom must retain horizontal panning")
+        state.setFit("width"); state.send(.none)
+        try await waitForWidth(false)
+        XCTAssertFalse(scroll.hasHorizontalScroller)
+        XCTAssertEqual(clip.bounds.minX, 0, accuracy: 0.5)
         XCTAssertNil(state.error)
     }
 }
