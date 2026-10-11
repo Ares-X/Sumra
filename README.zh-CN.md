@@ -1,19 +1,23 @@
+![Sumra — 轻量、免费开源的 macOS 阅读器](docs/images/sumra-brand.png)
+
 # Sumra — 轻量、纯粹的 macOS 阅读器
 
-**支持多种格式，专注阅读，免费开源。**
+**电子书、漫画、图片、Markdown 与 PDF，一个原生应用，专注阅读。**
 
 [English](README.md) · 简体中文
 
-[下载最新版](https://github.com/Ares-X/Sumra/releases/latest) · [支持格式](#支持的格式) · [从源码构建](#从源码构建) · [反馈问题](https://github.com/Ares-X/Sumra/issues)
+[下载 Mac 版](https://github.com/Ares-X/Sumra/releases/latest) · [阅读功能](#阅读与文档工具) · [支持格式](#支持的格式) · [快速开始](#快速开始) · [从源码构建](#从源码构建)
 
-Sumra 是原生 macOS 多格式阅读器，借鉴 [SumatraPDF](https://www.sumatrapdfreader.org/) 的阅读理念，围绕同样的目标构建：响应快、体积小、阅读体验简洁直接。
+Sumra 是免费开源的多格式文档阅读器，面向 **macOS 13 及更新版本的 Apple Silicon Mac**。从 Finder 打开 EPUB 小说、CBZ 漫画、图片文件夹、Markdown 笔记或 PDF，在熟悉的 Mac 界面里阅读；目录、搜索、书签和阅读位置记录帮你找到想读的内容。
 
-PDF、电子书、漫画、图片和 Markdown，用同一个应用打开。Sumra 复用 MuPDF 等文档引擎，并移植 SumatraPDF 的部分文档处理实现；界面与交互通过 SwiftUI 和 AppKit 为 macOS 重新构建，使用原生窗口、标签页、菜单与系统对话框。
+Sumra 借鉴 [SumatraPDF](https://www.sumatrapdfreader.org/) 的简洁阅读理念，复用 MuPDF 和 SumatraPDF 的部分文档处理实现；界面与交互通过 SwiftUI 和 AppKit 为 macOS 重新构建，使用原生窗口、标签页、菜单与系统对话框。
 
 ![Sumra macOS 阅读器的浅色界面，展示 Markdown 阅读笔记与目录](docs/images/reader-light.png)
 
 <details>
-<summary>更多截图：最近文件与深色阅读界面</summary>
+<summary>更多截图：双页阅读、最近文件与深色界面</summary>
+
+![Sumra 展示原创 Markdown 演示文档的双页阅读布局与目录侧边栏](docs/images/reader-two-pages.png)
 
 ![Sumra 浅色首页，显示最近阅读的文档](docs/images/home-light.png)
 
@@ -25,7 +29,7 @@ PDF、电子书、漫画、图片和 Markdown，用同一个应用打开。Sumra
 
 ## 下载与安装
 
-从[最新版下载页](https://github.com/Ares-X/Sumra/releases/latest)获取应用 ZIP。同一发行版提供对应源码和 SHA-256 摘要。
+从[最新版下载页](https://github.com/Ares-X/Sumra/releases/latest)获取应用 ZIP，其中包含完整的 **Sumra.app** 和文档引擎，解压后即可移入应用程序文件夹。同一发行版提供对应源码和 SHA-256 摘要。PostScript 与 EPS 需要另行安装下方注明的 Ghostscript。
 
 当前发行目标为 **Apple Silicon（arm64）**，最低系统目标为 **macOS 13**，适用于各代 Apple Silicon 机型。打包时会检查应用、引擎及更新辅助程序的 ARM 架构、最低系统和依赖路径。实际 GUI 已在 macOS 27.0.1 验证，macOS 13 的实机兼容性尚未验证。
 
@@ -93,7 +97,7 @@ open dist/Sumra.app
 
 如尚未安装 CMake，可通过现有包管理器安装；使用 Homebrew 时为 `brew install cmake`。优化构建使用 `./scripts/build-app.sh --release`，构建并启动开发实例使用 `./scripts/run-dev.sh`。本地构建默认采用临时签名，不会自动发布。
 
-Sumra 是图形应用，文件打开、文档工具与打印均通过界面操作。依赖来源、版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)；实现进展见[开发说明](docs/IMPLEMENTATION_STATUS.md)。
+Sumra 是图形应用，文件打开、文档工具与打印均通过界面操作。依赖来源、版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)；实现进展见[开发说明](docs/IMPLEMENTATION_STATUS.md)。遇到问题或有功能建议，可在 GitHub [提交反馈](https://github.com/Ares-X/Sumra/issues)。
 
 ## 许可与致谢
 

@@ -1,19 +1,23 @@
-# Sumra — A Lightweight Reader for macOS
+![Sumra — a lightweight, open-source reader for macOS](docs/images/sumra-brand.png)
 
-**A simple, open-source reader with broad format support, focused on reading.**
+# Sumra — A Lightweight macOS Reader
+
+**Ebooks, comics, images, Markdown and PDF. One native app, focused on reading.**
 
 English · [简体中文](README.zh-CN.md)
 
-[Download](https://github.com/Ares-X/Sumra/releases/latest) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Sumra/issues)
+[Download for Mac](https://github.com/Ares-X/Sumra/releases/latest) · [Reading features](#reading-and-document-tools) · [Supported formats](#supported-formats) · [Get started](#get-started) · [Build from source](#build-from-source)
 
-Sumra is a lightweight reader for multiple formats, built natively for macOS. Inspired by [SumatraPDF](https://www.sumatrapdfreader.org/), it focuses on fast response, a small footprint and a straightforward reading experience.
+Sumra is a free, open-source document reader for **macOS 13 and later on Apple Silicon**. Open an EPUB novel, a CBZ comic, a folder of images, Markdown notes or a PDF from Finder, and read them in a familiar Mac interface. Contents, search, bookmarks and reading positions help you find your place.
 
-Open PDFs, ebooks, comics, images and Markdown in one app. Sumra reuses document engines including MuPDF and adapts parts of SumatraPDF's document handling. Its interface is rebuilt for macOS with SwiftUI and AppKit, using native windows, tabs, menus and system dialogs.
+Inspired by [SumatraPDF](https://www.sumatrapdfreader.org/), Sumra keeps the reading experience simple. It reuses MuPDF and parts of SumatraPDF's document handling, with a native SwiftUI and AppKit interface for windows, tabs, menus and system dialogs.
 
 ![Sumra for macOS displaying Markdown reading notes and contents in light mode](docs/images/reader-light.png)
 
 <details>
-<summary>More screenshots: recent files and dark mode</summary>
+<summary>More screenshots: two-page reading, recent files and dark mode</summary>
+
+![Sumra showing the original Markdown demo in a two-page spread with the contents sidebar](docs/images/reader-two-pages.png)
 
 ![Sumra home in light mode, with recently read documents](docs/images/home-light.png)
 
@@ -25,7 +29,7 @@ Screenshots use the repository's [original demo document](docs/demos/Reading-Not
 
 ## Download and install
 
-Download the app ZIP from the [latest release page](https://github.com/Ares-X/Sumra/releases/latest). The same release provides corresponding source and SHA-256 checksums.
+Download the app ZIP from the [latest release page](https://github.com/Ares-X/Sumra/releases/latest). It contains the complete **Sumra.app**, including its document engines, ready to move into Applications. The same release provides corresponding source and SHA-256 checksums. PostScript and EPS require the separately installed Ghostscript noted below.
 
 The current distribution target is **Apple Silicon (arm64)**, with a minimum system target of **macOS 13**. Packaging checks every bundled executable and library for ARM support, the system target and resolved runtime dependencies. The GUI has been exercised on macOS 27.0.1; compatibility on a physical Mac running macOS 13 has not yet been verified.
 
@@ -93,7 +97,7 @@ open dist/Sumra.app
 
 If CMake is missing, install it with your existing package manager; with Homebrew, use `brew install cmake`. Use `./scripts/build-app.sh --release` for an optimized build, or `./scripts/run-dev.sh` to build and launch a development instance. Local builds are ad-hoc signed by default and do not publish a release.
 
-Sumra is a graphical application: file opening, document tools and printing are operated through its interface. See [THIRD_PARTY.md](THIRD_PARTY.md) for dependency sources, versions and licenses, and the [development notes](docs/IMPLEMENTATION_STATUS.md) for implementation progress.
+Sumra is a graphical application: file opening, document tools and printing are operated through its interface. See [THIRD_PARTY.md](THIRD_PARTY.md) for dependency sources, versions and licenses, and the [development notes](docs/IMPLEMENTATION_STATUS.md) for implementation progress. [Report a bug or request a feature](https://github.com/Ares-X/Sumra/issues) on GitHub.
 
 ## License and acknowledgments
 
