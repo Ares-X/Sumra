@@ -1,0 +1,172 @@
+name: Sumra release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Build a draft candidate or publish the accepted candidate
+        required: true
+        type: choice
+        options: [candidate, publish]
+      source_revision:
+        description: Full source commit SHA
+        required: true
+        type: string
+      version:
+        description: Version declared by scripts/bundle.swift
+        required: true
+        type: string
+      accepted_manifest_sha256:
+        description: SHA256SUMS digest of the GUI-accepted candidate (publish only)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sumra-release
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    if: inputs.mode == 'candidate'
+    runs-on: macos-15
+    permissions:
+      contents: write
+    env:
+      SOURCE_REVISION: ${{ inputs.source_revision }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_revision }}
+          persist-credentials: false
+
+      - name: Verify the requested source and version
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+          declared_version="$(sed -n 's/^let version = .*?? "\([^"]*\)"$/\1/p' scripts/bundle.swift)"
+          test "$declared_version" = "$VERSION"
+
+      - name: Import the existing app and update signing keys
+        env:
+          SIGNING_P12_BASE64: ${{ secrets.SUMRA_CODE_SIGNING_P12_BASE64 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.SUMRA_CODE_SIGNING_P12_PASSWORD }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SUMRA_SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$SIGNING_P12_BASE64"
+          test -n "$SIGNING_P12_PASSWORD"
+          test -n "$SPARKLE_PRIVATE_KEY"
+          signing_root="$RUNNER_TEMP/sumra-signing"
+          mkdir "$signing_root"
+          printf '%s' "$SIGNING_P12_BASE64" | base64 -D > "$signing_root/identity.p12"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$signing_root/sparkle-key"
+          keychain="$signing_root/release.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$signing_root/identity.p12" -k "$keychain" -P "$SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          {
+            echo "SUMRA_CODE_SIGN_KEYCHAIN=$keychain"
+            echo "SUMRA_SPARKLE_PRIVATE_KEY_FILE=$signing_root/sparkle-key"
+          } >> "$GITHUB_ENV"
+
+      - name: Build and package the candidate once
+        env:
+          SUMRA_CODE_SIGN_IDENTITY: 066AF413DC67F84BD8C2EA06B5CF0BAA14E5CAFD
+          SUMRA_CODE_SIGN_TIMESTAMP: none
+          SUMRA_CODE_SIGN_ENTITLEMENTS: ${{ github.workspace }}/Assets/Community.entitlements
+          SUMRA_BUILD_SOURCE_RECEIPT: ${{ runner.temp }}/source-inputs.json
+        run: |
+          set -euo pipefail
+          ./scripts/build-app.sh --release
+          swift scripts/package-release.swift --record-build "$RUNNER_TEMP/build-receipt.json" \
+            --source-receipt "$SUMRA_BUILD_SOURCE_RECEIPT" --app dist/Sumra.app
+          swift scripts/package-release.swift --app dist/Sumra.app --output "$RUNNER_TEMP/sumra-release" \
+            --source-receipt "$SUMRA_BUILD_SOURCE_RECEIPT" --build-receipt "$RUNNER_TEMP/build-receipt.json"
+          swift scripts/generate-appcast.swift "$RUNNER_TEMP/sumra-release/Sumra-$VERSION-macOS-arm64.zip" \
+            --output "$RUNNER_TEMP/sumra-release/appcast.xml"
+          cd "$RUNNER_TEMP/sumra-release"
+          shasum -a 256 appcast.xml >> SHA256SUMS
+
+      - name: Stage the exact candidate in a draft Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          candidate_tag="sumra-candidate/v$VERSION-$SOURCE_REVISION"
+          gh release create "$candidate_tag" "$RUNNER_TEMP/sumra-release/"* \
+            --draft --target "$SOURCE_REVISION" --title "Sumra $VERSION candidate" \
+            --notes-file "docs/releases/$VERSION.md"
+          {
+            echo "Candidate: $candidate_tag"
+            echo "Source: $SOURCE_REVISION"
+            echo "Accepted-manifest input after GUI validation:"
+            shasum -a 256 "$RUNNER_TEMP/sumra-release/SHA256SUMS"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          set -euo pipefail
+          signing_root="$RUNNER_TEMP/sumra-signing"
+          if [ -f "$signing_root/release.keychain-db" ]; then
+            security delete-keychain "$signing_root/release.keychain-db"
+          fi
+          rm -rf "$signing_root"
+
+  publish:
+    if: inputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_REVISION: ${{ inputs.source_revision }}
+      VERSION: ${{ inputs.version }}
+      ACCEPTED_MANIFEST: ${{ inputs.accepted_manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_revision }}
+          persist-credentials: false
+
+      - name: Verify and publish the GUI-accepted candidate bytes
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$ACCEPTED_MANIFEST" =~ ^[0-9a-f]{64}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+          candidate_tag="sumra-candidate/v$VERSION-$SOURCE_REVISION"
+          gh release view "$candidate_tag" --json isDraft,targetCommitish | \
+            jq -e --arg revision "$SOURCE_REVISION" '.isDraft == true and .targetCommitish == $revision'
+          mkdir "$RUNNER_TEMP/sumra-release"
+          gh release download "$candidate_tag" --dir "$RUNNER_TEMP/sumra-release"
+          cd "$RUNNER_TEMP/sumra-release"
+          test "$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" = "$ACCEPTED_MANIFEST"
+          sha256sum -c SHA256SUMS
+          jq -e '.project_revision == env.SOURCE_REVISION and .app_metadata.info_plist.CFBundleShortVersionString == env.VERSION' provenance.json
+          gh release edit "$candidate_tag" --tag "v$VERSION" --target "$SOURCE_REVISION" \
+            --title "Sumra $VERSION" --draft=false --latest
+
+      - name: Update the feed after the Release is public
+        run: |
+          set -euo pipefail
+          feed_sha="$(gh api "repos/$GH_REPO/contents/appcast.xml?ref=main" --jq .sha)"
+          base64 -w 0 "$RUNNER_TEMP/sumra-release/appcast.xml" > "$RUNNER_TEMP/feed-base64"
+          jq -n --arg message "Publish Sumra $VERSION update feed" --arg sha "$feed_sha" \
+            --rawfile content "$RUNNER_TEMP/feed-base64" \
+            '{message:$message,sha:$sha,branch:"main",content:$content}' > "$RUNNER_TEMP/feed-request.json"
+          gh api --method PUT "repos/$GH_REPO/contents/appcast.xml" \
+            --input "$RUNNER_TEMP/feed-request.json" --jq .commit.sha

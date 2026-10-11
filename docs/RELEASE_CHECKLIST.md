@@ -32,6 +32,13 @@ The October 11 cleanup removes project Python tooling, the unused partial-engine
 build branch and unneeded reader wrappers; see [the cleanup record](DEFENSE_CLEANUP.md#october-11-follow-up).
 The candidate notes below retain their historical build and observation scopes.
 
+Formal release packaging and publication now use [GitHub Actions](RELEASE_ACTIONS.md),
+following Linnet's draft-candidate flow. The maintainer validates the downloaded
+Action-built app; publication reuses those exact files. The Action stages the
+app, corresponding source, provenance, checksums and signed feed, then makes the
+Release public before updating the feed. Local signing remains useful for GUI
+development checks.
+
 Candidate **855 completed browser print/export through a live WebKit snapshot
 and MuPDF**, including the preview lifecycle repair. Its optimized build took
 45.36 seconds; actual GUI Export PDF and Print → Save as PDF passed, and QA

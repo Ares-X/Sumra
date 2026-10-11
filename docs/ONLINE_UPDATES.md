@@ -15,9 +15,10 @@ both to empty strings makes an unconfigured development bundle.
 The macOS app and Sparkle helpers keep the shared **Ares-X Code Signing**
 certificate. Sparkle's archive signature uses the personal **Ares-X** account
 in the login Keychain, service `https://sparkle-project.org`. This is an Ed25519
-update key, not another macOS signing certificate. Private material remains
-in Keychain; only its public half is stored in this repository. Preserve this
-key for future releases. See [Sparkle's setup](https://sparkle-project.org/documentation/).
+update key, not another macOS signing certificate. Local signing uses Keychain;
+the release Action uses the same key from an encrypted repository Secret.
+Only its public half is stored in this repository. Preserve this key for future
+releases. See [Sparkle's setup](https://sparkle-project.org/documentation/).
 
 For local maintainer signing, `SUMRA_CODE_SIGN_PASSWORD_FILE` can point to an
 existing protected Keychain password file. `SUMRA_CODE_SIGN_UNLOCK_KEYCHAIN`
@@ -31,22 +32,17 @@ user search list.
 
 ## Publishing the next update
 
-1. Increase `SUMRA_VERSION` and `SUMRA_BUILD_VERSION` and build/sign the app with
-   the existing personal certificate. Sparkle compares the increasing build number.
-2. Create the normal release ZIP and corresponding-source artifacts using
-   `swift scripts/package-release.swift`. If the ZIP has already been signed and tested,
-   pass `--app-archive path/to/the.zip` to reuse its exact bytes on the same
-   filesystem, without recompressing or signing it again.
-3. Run `swift scripts/generate-appcast.swift path/to/Sumra-VERSION-macOS-arm64.zip`.
-   For a preview, add `--channel prerelease`. This invokes the pinned upstream
-   `generate_appcast`, signs the ZIP using Keychain, and preserves existing feed
-   items. It generates no delta archives.
-4. Review and commit `appcast.xml`; publish the GitHub Release and its signed ZIP
-   before merging the feed update into `main`. The feed then references a
-   downloadable release. Preview releases use the same feed and are excluded
-   for users of the stable channel.
-5. Verify the anonymous feed and enclosure URL, then use the previous configured
-   build to check, download, install and relaunch the new build.
+Follow [the Action release procedure](RELEASE_ACTIONS.md): build a draft from the
+exact source commit, download and validate that app, then publish the accepted
+files and update the feed. Sparkle compares the increasing default build number
+in `scripts/bundle.swift`.
+
+The Action invokes the pinned upstream `generate_appcast` through
+`scripts/generate-appcast.swift`, passing `SUMRA_SPARKLE_PRIVATE_KEY_FILE` from
+its temporary signing directory. Local maintainer invocation uses the existing
+Keychain account. The generator preserves existing feed items and generates no
+delta archives. `--channel prerelease` remains available for local preview feed
+generation; stable users exclude that channel.
 
 The appcast is release metadata rather than an input to the compiled app.
 Updating it does not require another application build. Application signing is

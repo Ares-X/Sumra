@@ -194,9 +194,19 @@ func appMetadata(_ app: URL) throws -> [String: Any] {
     let keys = ["CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion", "LSMinimumSystemVersion", "SUFeedURL", "SUPublicEDKey", "SUEnableAutomaticChecks"]
     return ["info_plist": Dictionary(uniqueKeysWithValues: keys.map { ($0, info[$0] ?? NSNull()) }), "architectures": try text(["lipo", "-archs", app.appendingPathComponent("Contents/MacOS/Sumra").path]).split(separator: " ").map(String.init), "signature": signing, "gatekeeper_public_acceptance": "not_exercised"]
 }
-func validateFrozenReceipts(_ sourcePath: URL, _ buildPath: URL, _ manifest: [String: Any], _ bundle: [String: Any], _ metadata: [String: Any]) throws -> [String: Any] {
-    let source = try json(sourcePath), build = try json(buildPath), sourceHash = try digest(sourcePath)
+func validateFrozenSource(_ sourcePath: URL, _ manifest: [String: Any]) throws -> [String: Any] {
+    let source = try json(sourcePath)
     for key in ["origins", "files", "symlinks", "project_revision", "source_build_match"] { if !equal(source[key], manifest[key]) { try fail("Frozen source receipt does not match current allowlisted source: \(key)") } }
+    return source
+}
+func recordBuild(_ destination: URL, _ sourcePath: URL, _ manifest: [String: Any], _ app: URL) throws {
+    _ = try validateFrozenSource(sourcePath, manifest)
+    _ = try run(["codesign", "--verify", "--deep", "--strict", app.path])
+    let sourceHash = try digest(sourcePath)
+    try writeJSON(["source_inputs_sha256": sourceHash, "final_source_inputs_sha256": sourceHash, "build_exit": 0, "project_revision": manifest["project_revision"]!, "recorded_at": ISO8601DateFormatter().string(from: Date()), "bundle": try appInventory(app), "metadata": try appMetadata(app)], to: destination, exclusive: true)
+}
+func validateFrozenReceipts(_ sourcePath: URL, _ buildPath: URL, _ manifest: [String: Any], _ bundle: [String: Any], _ metadata: [String: Any]) throws -> [String: Any] {
+    let source = try validateFrozenSource(sourcePath, manifest), build = try json(buildPath), sourceHash = try digest(sourcePath)
     guard build["source_inputs_sha256"] as? String == sourceHash, build["final_source_inputs_sha256"] as? String == sourceHash else { try fail("Build receipt does not bind to the supplied frozen source receipt") }
     guard (build["build_exit"] as? NSNumber)?.intValue == 0 else { try fail("Build receipt reports an unsuccessful build") }
     guard equal(build["bundle"], bundle) else { try fail("Current app does not match frozen build receipt: bundle inventory") }
@@ -246,6 +256,7 @@ func inventory() throws -> ([String: SourceInput], [String: String], [String: An
     }
     for name in ["LICENSE", "THIRD_PARTY.md", "README.md", "README.zh-CN.md", "Package.swift", "Package.resolved", ".gitignore"] { try add(root.appendingPathComponent(name), name) }
     for name in ["Sources", "Tests", "Native", "scripts", "Assets", "Licenses", "docs"] { try tree(root.appendingPathComponent(name), name) }
+    if fm.fileExists(atPath: root.appendingPathComponent(".github/workflows").path) { try tree(root.appendingPathComponent(".github/workflows"), ".github/workflows") }
     try repository(root.appendingPathComponent("build/deps/mupdf"), "build/deps/mupdf", "f030eda1e472268667805f438e38cee8f1da61f8")
     try repository(root.appendingPathComponent("build/deps/mupdf/thirdparty/jpegxr"), "build/deps/mupdf/thirdparty/jpegxr", "71ff24a9eb9a5c8dd70e1fd97a5316e06b0b0791")
     let pin = (try json(root.appendingPathComponent("Package.resolved"))["pins"] as! [[String: Any]]).first { $0["identity"] as? String == "sparkle" }!
@@ -376,17 +387,21 @@ source is in upstream/Sparkle; SwiftPM resolves the existing pinned binary frame
     try sums.write(to: output.appendingPathComponent("SHA256SUMS"), atomically: false, encoding: .utf8)
 }
 func packageMain() throws {
-    let known: Set<String> = ["--inventory", "--app", "--app-archive", "--output", "--source-receipt", "--build-receipt"]
+    let known: Set<String> = ["--inventory", "--app", "--app-archive", "--output", "--source-receipt", "--build-receipt", "--record-build"]
     var arguments = [String: URL](); let args = Array(CommandLine.arguments.dropFirst()); var index = 0
     while index < args.count {
-        if args[index] == "--help" || args[index] == "-h" { print("Usage: package-release.swift [--inventory FILE] [--app APP --output NEW_DIRECTORY] [--app-archive ZIP] [--source-receipt JSON --build-receipt JSON]\nInventory and archive the release app and corresponding source; never sign or publish."); return }
+        if args[index] == "--help" || args[index] == "-h" { print("Usage: package-release.swift [--inventory FILE] [--app APP --output NEW_DIRECTORY] [--app-archive ZIP] [--source-receipt JSON --build-receipt JSON]\n       package-release.swift --record-build FILE --source-receipt JSON --app APP\nInventory and archive the release app and corresponding source; never sign or publish."); return }
         guard known.contains(args[index]), index + 1 < args.count else { try fail("Unknown option or missing value: \(args[index])") }
         arguments[args[index]] = URL(fileURLWithPath: args[index + 1]); index += 2
     }
-    let appArgument = arguments["--app"], output = arguments["--output"], sourceReceipt = arguments["--source-receipt"], buildReceipt = arguments["--build-receipt"]
-    guard (appArgument == nil) == (output == nil) else { try fail("--app and --output must be supplied together") }
+    let appArgument = arguments["--app"], output = arguments["--output"], sourceReceipt = arguments["--source-receipt"], buildReceipt = arguments["--build-receipt"], recordDestination = arguments["--record-build"]
+    if recordDestination != nil {
+        guard appArgument != nil, sourceReceipt != nil, output == nil, buildReceipt == nil, arguments["--app-archive"] == nil, arguments["--inventory"] == nil else { try fail("--record-build requires --source-receipt and --app only") }
+    } else {
+        guard (appArgument == nil) == (output == nil) else { try fail("--app and --output must be supplied together") }
+        guard (sourceReceipt == nil) == (buildReceipt == nil) else { try fail("--source-receipt and --build-receipt must be supplied together") }
+    }
     guard arguments["--app-archive"] == nil || appArgument != nil else { try fail("--app-archive requires --app and --output") }
-    guard (sourceReceipt == nil) == (buildReceipt == nil) else { try fail("--source-receipt and --build-receipt must be supplied together") }
     guard sourceReceipt == nil || appArgument != nil else { try fail("frozen receipts require --app and --output") }
     let (files, links, source) = try inventory(); var provenance = source
     provenance["status"] = "nonnotarized-release-artifacts"; provenance["redistribution_audit"] = "bounded_review_no_demonstrated_missing_inputs"; provenance["source_build_match"] = "not_attested"
@@ -394,9 +409,15 @@ func packageMain() throws {
     let bytes = (provenance["files"] as! [String: [String: Any]]).values.reduce(Int64(0)) { $0 + ($1["bytes"] as! NSNumber).int64Value }
     print("Allowlisted \(files.count) source files, \(links.count) relative links; \(bytes) bytes.")
     if let destination = arguments["--inventory"] { try writeJSON(provenance, to: destination, exclusive: true) }
-    guard let output, let appArgument else { return }
+    guard let appArgument else { return }
     let app = appArgument.resolvingSymlinksInPath()
     guard app.pathExtension == "app", fm.fileExists(atPath: app.appendingPathComponent("Contents/MacOS/Sumra").path) else { try fail("Expected a packaged Sumra.app") }
+    if let recordDestination, let sourceReceipt {
+        try recordBuild(recordDestination, sourceReceipt, provenance, app)
+        print("Recorded verified build receipt in \(recordDestination.path).")
+        return
+    }
+    guard let output else { return }
     _ = try run(["codesign", "--verify", "--deep", "--strict", app.path])
     let candidate = try appInventory(app), metadata = try appMetadata(app)
     provenance.merge(candidate) { _, new in new }; provenance["app_metadata"] = metadata

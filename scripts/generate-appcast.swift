@@ -1,5 +1,5 @@
 #!/usr/bin/env swift
-// Generate release metadata with the pinned Sparkle tool and personal Keychain.
+// Generate release metadata with the pinned Sparkle tool and existing update key.
 import Foundation
 let fm = FileManager.default
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -39,7 +39,9 @@ func main() throws {
     try fm.linkItem(at: archive, to: stage.appendingPathComponent(archive.lastPathComponent))
     let feed = stage.appendingPathComponent("appcast.xml"), existing = root.appendingPathComponent("appcast.xml")
     if fm.fileExists(atPath: existing.path) { try fm.copyItem(at: existing, to: feed) }
-    var command = ["--account", config["keychain_account"] as! String, "--maximum-deltas", "0",
+    let signing = ProcessInfo.processInfo.environment["SUMRA_SPARKLE_PRIVATE_KEY_FILE"].map { ["--ed-key-file", $0] }
+        ?? ["--account", config["keychain_account"] as! String]
+    var command = signing + ["--maximum-deltas", "0",
         "--download-url-prefix", "https://github.com/Ares-X/Sumra/releases/download/v\(version)/",
         "--link", "https://github.com/Ares-X/Sumra/releases", "-o", feed.path]
     if let channel { command += ["--channel", channel] }

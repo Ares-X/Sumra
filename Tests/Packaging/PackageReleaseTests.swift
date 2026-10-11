@@ -137,7 +137,25 @@ func packagingTests() throws {
     source.removeValue(forKey: "status"); source.removeValue(forKey: "redistribution_audit"); try writeJSON(source, to: sourcePath)
     build["source_inputs_sha256"] = try digest(sourcePath); build["final_source_inputs_sha256"] = try digest(sourcePath); try writeJSON(build, to: buildPath)
     _ = try validateFrozenReceipts(sourcePath, buildPath, source, snapshot, metadata); checks += 1
+    let signedApp = temporary.appendingPathComponent("Signed.app"), signedExecutable = signedApp.appendingPathComponent("Contents/MacOS/Sumra")
+    try fm.createDirectory(at: signedExecutable.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try fm.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: signedExecutable)
+    let info: [String: Any] = ["CFBundleIdentifier": "com.sumra.packaging-test", "CFBundleExecutable": "Sumra", "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.2.0", "CFBundleVersion": "1"]
+    try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: signedApp.appendingPathComponent("Contents/Info.plist"))
+    _ = try run(["codesign", "--force", "--sign", "-", signedApp.path])
+    let recordedPath = temporary.appendingPathComponent("recorded-build.json")
+    try recordBuild(recordedPath, sourcePath, source, signedApp)
+    let recorded = try json(recordedPath)
+    try expect(recorded["project_revision"] as? String == "abc123" && recorded["build_exit"] as? Int == 0 && recorded["recorded_at"] as? String != nil, "recorded successful build and revision")
+    try expect(recorded["source_inputs_sha256"] as? String == digest(sourcePath) && recorded["final_source_inputs_sha256"] as? String == digest(sourcePath), "recorded build binds frozen source")
+    _ = try validateFrozenReceipts(sourcePath, recordedPath, source, try appInventory(signedApp), try appMetadata(signedApp)); checks += 1
     var changedSource = source; changedSource["files"] = ["run.sh": ["sha256": String(repeating: "0", count: 64)]]
+    let rejectedRecord = temporary.appendingPathComponent("rejected-build.json")
+    try rejected("recording changed source") { try recordBuild(rejectedRecord, sourcePath, changedSource, signedApp) }
+    try expect(!fm.fileExists(atPath: rejectedRecord.path), "changed source creates no build receipt")
+    try Data("changed".utf8).write(to: signedExecutable)
+    try rejected("recording invalid app signature") { try recordBuild(rejectedRecord, sourcePath, source, signedApp) }
+    try expect(!fm.fileExists(atPath: rejectedRecord.path), "invalid signature creates no build receipt")
     try rejected("changed source receipt") { _ = try validateFrozenReceipts(sourcePath, buildPath, changedSource, snapshot, metadata) }
     try Data("changed".utf8).write(to: executable)
     try rejected("changed app bytes") { _ = try validateFrozenReceipts(sourcePath, buildPath, source, try appInventory(app), metadata) }

@@ -11,6 +11,11 @@ for option in "$@"; do
 done
 # Compile native engines; CHM renderer modules are vendored in Resources.
 ./scripts/build-engines.sh
+# Freeze the inputs used by an Action-built release after native source preparation.
+if [ -n "${SUMRA_BUILD_SOURCE_RECEIPT:-}" ]; then
+    swift package resolve
+    swift scripts/package-release.swift --inventory "$SUMRA_BUILD_SOURCE_RECEIPT"
+fi
 # Run the unified checks separately with scripts/check-source.sh.
 BUILD_FLAGS=(-c "$BUILD_CONFIGURATION")
 if [ "$BUILD_CONFIGURATION" = release ]; then BUILD_FLAGS+=(-Xswiftc -Osize -Xlinker -dead_strip); fi
