@@ -34,7 +34,8 @@ Configure these encrypted Secrets in **Ares-X/Sumra** once:
 The app identity remains SHA-1 `066AF413DC67F84BD8C2EA06B5CF0BAA14E5CAFD`.
 The update public key remains in `Assets/Updates.json`. Neither private key
 enters the repository, app or corresponding-source archive. The Action imports
-the app identity into a temporary Keychain and removes all signing material
+the app identity into a temporary Keychain on the disposable runner's search
+list, verifies a small signing operation before compilation, and removes all signing material
 when the job ends. Distribution remains self-signed and nonnotarized.
 
 ## Candidate and publication

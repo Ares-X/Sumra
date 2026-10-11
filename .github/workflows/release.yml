@@ -37,6 +37,7 @@ jobs:
     env:
       SOURCE_REVISION: ${{ inputs.source_revision }}
       VERSION: ${{ inputs.version }}
+      SUMRA_CODE_SIGN_IDENTITY: 066AF413DC67F84BD8C2EA06B5CF0BAA14E5CAFD
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,6 +75,11 @@ jobs:
           security unlock-keychain -p "$keychain_password" "$keychain"
           security import "$signing_root/identity.p12" -k "$keychain" -P "$SIGNING_P12_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          cp /usr/bin/true "$signing_root/key-test"
+          codesign --force --sign "$SUMRA_CODE_SIGN_IDENTITY" --keychain "$keychain" \
+            --options runtime --timestamp=none "$signing_root/key-test"
+          codesign --verify --strict "$signing_root/key-test"
           {
             echo "SUMRA_CODE_SIGN_KEYCHAIN=$keychain"
             echo "SUMRA_SPARKLE_PRIVATE_KEY_FILE=$signing_root/sparkle-key"
@@ -81,7 +87,6 @@ jobs:
 
       - name: Build and package the candidate once
         env:
-          SUMRA_CODE_SIGN_IDENTITY: 066AF413DC67F84BD8C2EA06B5CF0BAA14E5CAFD
           SUMRA_CODE_SIGN_TIMESTAMP: none
           SUMRA_CODE_SIGN_ENTITLEMENTS: ${{ github.workspace }}/Assets/Community.entitlements
           SUMRA_BUILD_SOURCE_RECEIPT: ${{ runner.temp }}/source-inputs.json
