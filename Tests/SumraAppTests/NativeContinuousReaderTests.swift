@@ -133,6 +133,47 @@ final class NativeContinuousReaderTests: XCTestCase {
         XCTAssertNil(state.error)
     }
 
+    func testQueuedFiniteRenderDoesNotRasterizeTheReplacementNaturalChapter() async throws {
+        let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("queued-mode-render.md")
+        try String(repeating: "A queued page render belongs to the pagination that requested it.\n\n", count: 2_000)
+            .write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+        let viewport = CGSize(width: 620, height: 400), location = PageLocation(page: 7)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light", pageSize: viewport)
+        let finite = try await pages.render(location, viewport: viewport, scale: 1, columns: 2,
+            rotation: 0, fit: "width", zoom: 1)
+        XCTAssertNotNil(finite.image)
+        XCTAssertEqual(finite.bounds.height, viewport.height)
+
+        // Hold the actor after the replacement native layout, so the outgoing
+        // finite request arrives before the UI can commit its new surface.
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        let replacement = Task.detached {
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+                pageSize: CGSize(width: viewport.width, height: 0))
+            await pages.holdRenderingForResize(entered, until: release)
+        }
+        defer { release.signal(); withExtendedLifetime(directory) {} }
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+        let queued = DispatchSemaphore(value: 0)
+        let outgoing = Task.detached {
+            queued.signal()
+            return try await pages.render(location, viewport: viewport, scale: 1, columns: 2,
+                rotation: 0, fit: "width", zoom: 1)
+        }
+        XCTAssertEqual(queued.wait(timeout: .now() + 5), .success)
+        release.signal()
+        try await replacement.value
+        do {
+            _ = try await outgoing.value
+            XCTFail("A superseded finite request must not rasterize the entire natural chapter")
+        } catch is CancellationError {}
+        let natural = try await pages.render(.init(page: 0), viewport: viewport, scale: 1, columns: 1,
+            rotation: 0, fit: "width", zoom: 1, viewportOnly: true)
+        XCTAssertNil(natural.image)
+        XCTAssertGreaterThan(natural.bounds.height, 10_000)
+    }
+
     @MainActor
     func testResizeKeepsPaintedTextWhileReplacementRenderingWaits() async throws {
         let engine = try NativeFile.libraryURL(for: .mupdf)

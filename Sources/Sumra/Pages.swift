@@ -902,6 +902,15 @@ actor Pages {
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
                 maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false) async throws -> RenderedPage {
+        try Task.checkCancellation()
+        // This location request belongs to a mounted reader surface. Native
+        // reflow can finish before that surface is replaced, leaving its
+        // queued finite render pointing at the new natural chapter.
+        if document.native?.reflowable == true, let style = document.style,
+           viewportOnly != (style.pageSize.height == 0) {
+            NativeReadingPerformance.mark("render-superseded", pages: self, revision: layoutRevision, page: location.page)
+            throw CancellationError()
+        }
         // The reference chapter must be prepared before projecting this request.
         if uniform { _ = try document.bounds(0) }
         return try await render(index(location), viewport: viewport, scale: scale, columns: columns, rotation: rotation,
@@ -3647,6 +3656,9 @@ private struct WindowScale: NSViewRepresentable {
                     renderedStyle = result.pdfStyle
                     pixelWidth = result.pixelWidth; tileResolution = result.tileResolution; renderedID = request
                     measure?(result.bounds, result.content, result.referenceWidth)
+                } catch is CancellationError {
+                    // The actor can supersede this surface before SwiftUI
+                    // cancels its task. Keep its painted output until handoff.
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
             }
             .onDisappear { image = nil }
