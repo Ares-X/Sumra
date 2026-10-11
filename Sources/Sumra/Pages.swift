@@ -925,7 +925,8 @@ actor Pages {
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
                 maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false) async throws -> RenderedPage {
         let started = DispatchTime.now().uptimeNanoseconds
-        NativeReadingPerformance.mark("render-actor-entry", pages: self, revision: layoutRevision, page: page)
+        NativeReadingPerformance.mark("render-actor-entry", pages: self, revision: layoutRevision, page: page,
+                                      size: viewport, flags: viewportOnly ? 8 : 0)
         defer { NativeReadingPerformance.mark("render-actor-return", pages: self, revision: layoutRevision, page: page, started: started) }
         let cancellation = try renderCancellation(page)
         return try await withTaskCancellationHandler {
@@ -1924,6 +1925,12 @@ private struct RasterScrollRequest: Equatable {
             if state.isNativeReflow, let position { scrollRequest = .init(position) }
         }
         .onChange(of: state.reflowable) { reflowable in
+            if reflowable {
+                // AppKit can finish choosing its scroller style while native
+                // preparation runs. Use that width when mounting the reader.
+                viewport = ReaderScrollbars.initialReadingViewport(in: viewportFrame,
+                    mode: state.scrollbarMode, continuous: state.continuousReflow)
+            }
             if reflowable, initialBounds == nil, reflowPageSize.width > 0, viewport.height > 0 {
                 estimatedBounds = CGRect(origin: .zero, size: Self.pageSize(in: viewport, spread: state.spread && !state.presentation && !state.continuousReflow))
             }
@@ -3139,6 +3146,9 @@ private struct WindowScale: NSViewRepresentable {
             let targetRow = PageRows.range(page: target, count: next.count, spread: next.spread,
                 cover: next.cover, landscape: next.landscape).lowerBound
             let changed = key != next || (ReadingZoom.usesContent(next.fit) && pending != nil && contentPage != targetRow)
+            NativeReadingPerformance.mark("viewport-configure", pages: value.pages, revision: state.renderRevision,
+                                          page: state.page, size: viewport,
+                                          flags: (changed ? 1 : 0) | (value.liveResizeViewport == nil ? 0 : 2) | (value.continuousReflow ? 8 : 0))
             if changed {
                 cancelPrediction()
                 if key?.revision != next.revision { measured.removeAll() }
@@ -3631,7 +3641,12 @@ private struct WindowScale: NSViewRepresentable {
             }
             .task(id: renderID) {
                 let documentID = state.document?.id, request = renderID
-                NativeReadingPerformance.mark("render-request", pages: pages, revision: state.renderRevision, page: index)
+                NativeReadingPerformance.mark("render-request", pages: pages, revision: state.renderRevision, page: index,
+                                              size: viewport, flags: continuousReflow ? 8 : 0)
+                if let displaySize {
+                    NativeReadingPerformance.mark("render-display-size", pages: pages, revision: state.renderRevision,
+                                                  page: index, size: displaySize)
+                }
                 do {
                     let result = try await renderResult()
                     guard !Task.isCancelled, documentID == state.document?.id, request == renderID else { return }
@@ -3659,6 +3674,8 @@ private struct WindowScale: NSViewRepresentable {
                     pixelWidth = result.pixelWidth; tileResolution = result.tileResolution; renderedID = request
                     measure?(result.bounds, result.content, result.referenceWidth)
                 } catch is CancellationError {
+                    NativeReadingPerformance.mark("render-cancelled", pages: pages, revision: state.renderRevision,
+                                                  page: index, size: viewport)
                     // The actor can supersede this surface before SwiftUI
                     // cancels its task. Keep its painted output until handoff.
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }

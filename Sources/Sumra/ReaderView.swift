@@ -431,9 +431,10 @@ struct ReaderView: View {
                         let legacyPages = initial.nativePassage == nil && bookmark.map { $0.count != 1 } == true
                         let continuous = state.flow == "continuous" && !state.presentation
                         let initialViewport = ReaderScrollbars.initialReadingViewport(in: viewport.size, mode: state.scrollbarMode, continuous: continuous)
-                        let initialPageSize = legacyPages ? nil : RasterReader.pageSize(in: initialViewport,
+                        let pageSize = RasterReader.pageSize(in: initialViewport,
                             spread: state.spread && !state.presentation,
                             continuous: continuous)
+                        let initialPageSize = legacyPages ? nil : pageSize
                         let flags = (initial.nativePassage == nil ? 0 : 1) | (legacyPages ? 2 : 0)
                             | (bookmark?.count == 1 ? 4 : 0) | (continuous ? 8 : 0)
                         let layoutStarted = DispatchTime.now().uptimeNanoseconds
@@ -446,16 +447,31 @@ struct ReaderView: View {
                             textZoom: pages.isMarkdown ? state.zoom : 1,
                             pageSize: initialPageSize, viewport: initialViewport)
                         NativeReadingPerformance.mark("relayout-return", pages: pages, revision: state.renderRevision, started: layoutStarted, persistent: true, flags: flags)
+                        if pages.isPDF, state.useDocumentOpenAction, let page = try await pages.pdfInitialPage() { initial.page = page }
+                        let restoreStarted = DispatchTime.now().uptimeNanoseconds
+                        NativeReadingPerformance.mark("prepare-restore-entry", pages: pages, persistent: true, flags: flags)
+                        var restored = try await pages.restore(initial, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme,
+                            viewport: initialViewport)
+                        NativeReadingPerformance.mark("prepare-restore-return", pages: pages, started: restoreStarted, persistent: true)
+                        let finalViewport = ReaderScrollbars.initialReadingViewport(in: viewport.size,
+                            mode: state.scrollbarMode, continuous: continuous)
+                        let finalPageSize = RasterReader.pageSize(in: finalViewport,
+                            spread: state.spread && !state.presentation, continuous: continuous)
+                        if legacyPages || finalPageSize != pageSize {
+                            // Resolve the saved source before publishing the
+                            // final viewport geometry, including scrollbar changes.
+                            let changed = try await pages.relayout(
+                                fontSize: state.fontSize, lineHeight: state.lineHeight,
+                                margin: state.margin, font: state.font, theme: state.resolvedTheme,
+                                userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS, pageMargins: state.pageMargins,
+                                textZoom: pages.isMarkdown ? state.zoom : 1,
+                                pageSize: finalPageSize, readingPosition: restored, viewport: finalViewport)
+                            if changed != nil { restored = await pages.layoutPosition }
+                        }
                         let outlineStarted = DispatchTime.now().uptimeNanoseconds
                         NativeReadingPerformance.mark("prepare-outline-entry", pages: pages, persistent: true)
                         let prepared = try await pages.prepare()
                         NativeReadingPerformance.mark("prepare-outline-return", pages: pages, started: outlineStarted, persistent: true)
-                        if pages.isPDF, state.useDocumentOpenAction, let page = try await pages.pdfInitialPage() { initial.page = page }
-                        let restoreStarted = DispatchTime.now().uptimeNanoseconds
-                        NativeReadingPerformance.mark("prepare-restore-entry", pages: pages, persistent: true, flags: flags)
-                        let restored = try await pages.restore(initial, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme,
-                            viewport: initialViewport)
-                        NativeReadingPerformance.mark("prepare-restore-return", pages: pages, started: restoreStarted, persistent: true)
                         let geometryStarted = DispatchTime.now().uptimeNanoseconds
                         NativeReadingPerformance.mark("prepare-geometry-entry", pages: pages, persistent: true)
                         let count = await pages.count

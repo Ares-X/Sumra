@@ -625,6 +625,32 @@ Two further fresh processes, including the canonical normal app, painted the
 first canvas in 2.450/2.351 seconds. The unexplained initial observation remains
 in the record; no OS cause or universal timing guarantee is inferred.
 
+### Post-update first-open investigation (2026-10-11)
+
+A private signed diagnostic candidate adds content-free timing for source loading,
+native decoding, initial viewport delivery, layout, restoration and publication.
+An actual Sparkle installation from 0.2.1, followed by opening original B04,
+painted its first canvas 3.032 seconds after the load request: source opening took
+0.197 seconds and native layout took 1.851 seconds. The saved 100-character
+passage remained visible. Physical footprint settled at 506.6 MiB, with a lifetime
+peak of 760.2 MiB. A fresh-process dense accessibility-observation run and a
+direct Recent Documents open also retained the original passage.
+
+Mounted-window regression testing reproduced a separate legacy-position defect:
+an old finite bookmark without a source passage published finite pages before
+reflowing to the requested continuous viewport. Initial preparation now resolves
+that old location and completes the requested geometry before publishing the
+first canvas. If AppKit's scrollbar preference changes during that work, the
+first published geometry uses the resulting viewport width. Stable viewport
+inputs retain one native layout; legacy geometry or an actual width change needs
+two layouts, with one publication and preserved source coordinates.
+
+These observations do not explain the original 13.528-second first open. Its
+pre-update position and reader-stage trace were not retained, so the legacy
+defect cannot be assigned as its cause. The first-open investigation remains
+open; non-reproduction is not a resolution, and this follow-up is not a new
+public release.
+
 ### User manual resize feedback (2026-10-11)
 
 For the requested normal-app manual window-edge drag check on the original
