@@ -259,6 +259,7 @@ func inventory() throws -> ([String: SourceInput], [String: String], [String: An
     if fm.fileExists(atPath: root.appendingPathComponent(".github/workflows").path) { try tree(root.appendingPathComponent(".github/workflows"), ".github/workflows") }
     try repository(root.appendingPathComponent("build/deps/mupdf"), "build/deps/mupdf", "f030eda1e472268667805f438e38cee8f1da61f8")
     try repository(root.appendingPathComponent("build/deps/mupdf/thirdparty/jpegxr"), "build/deps/mupdf/thirdparty/jpegxr", "71ff24a9eb9a5c8dd70e1fd97a5316e06b0b0791")
+    try repository(root.appendingPathComponent("build/deps/skcms-96d9171c94b937a1b5f0293de7309ac16311b722"), "build/deps/skcms-96d9171c94b937a1b5f0293de7309ac16311b722", "96d9171c94b937a1b5f0293de7309ac16311b722")
     let pin = (try json(root.appendingPathComponent("Package.resolved"))["pins"] as! [[String: Any]]).first { $0["identity"] as? String == "sparkle" }!
     let state = pin["state"] as! [String: String]
     try repository(root.appendingPathComponent(".build/checkouts/Sparkle"), "upstream/Sparkle", state["revision"]!)
@@ -319,7 +320,7 @@ Run from Sumra-source on macOS with the build prerequisites listed in README.md:
 - `./scripts/build-app.sh --release` builds and packages the GUI app.
 - `./scripts/check-source.sh` runs the unified source and test checks.
 
-MuPDF and JPEGXR have no Git metadata in this export. Matching
+MuPDF, JPEGXR and skcms have no Git metadata in this export. Matching
 `.sumra-source-revision` markers tell the existing build script to use the
 included source and recursive submodules without checking out over them.
 Archive-source dependencies retain their verified `.leaf-source` markers.

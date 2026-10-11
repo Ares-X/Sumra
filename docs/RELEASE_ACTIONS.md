@@ -12,6 +12,11 @@ It adds no application dependency. The macOS runner builds arm64 with the
 existing macOS 13 deployment target. Runtime acceptance still records the
 macOS version actually exercised.
 
+The first clean Action build exposed changing Gitiles archive bytes for the
+existing skcms revision. Its source now uses the same pinned-Git approach as
+MuPDF, through Google's official mirror. The revision and source file contents
+remain unchanged. Corresponding-source exports retain its revision marker.
+
 ## Signing setup
 
 Configure these encrypted Secrets in **Ares-X/Sumra** once:

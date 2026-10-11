@@ -20,7 +20,17 @@ source_archive djvulibre-3.5.30 https://mirror.nju.edu.cn/gentoo/distfiles/be/dj
 source_archive chmlib-0.40 https://web.archive.org/web/20260414144043id_/https://www.jedrea.com/chmlib/chmlib-0.40.tar.gz 512148ed1ca86dea051ebcf62e6debbb00edfdd9720cde28f6ed98071d3a9617 1
 source_archive libjxl-0.12.0 https://codeload.github.com/libjxl/libjxl/tar.gz/refs/tags/v0.12.0 03e9be69a30be4011f559da75328b6d7cea8ad921fabfbd551ce10bf45cdc992 1
 source_archive highway-457c891775a7397bdb0376bb1031e6e027af1c48 https://codeload.github.com/google/highway/tar.gz/457c891775a7397bdb0376bb1031e6e027af1c48 5124b0501c98d9930dbb065bfa1a5bbbd59ce0f12facb7e1e33aaef01a5f1f1a 1
-source_archive skcms-96d9171c94b937a1b5f0293de7309ac16311b722 https://skia.googlesource.com/skcms/+archive/96d9171c94b937a1b5f0293de7309ac16311b722.tar.gz 1c75cf468451115e0fa0c23e82d4e74fb966d09cb5302b2884e43f1914753afd 0
+# Gitiles regenerates different archive bytes for this same commit. Fetch the
+# fixed commit from Google's official mirror, as with MuPDF's pinned sources.
+SKCMS_REV=96d9171c94b937a1b5f0293de7309ac16311b722
+SKCMS="$DEPS/skcms-$SKCMS_REV"
+if [ ! -e "$SKCMS/.git" ] && [ -f "$SKCMS/.sumra-source-revision" ]; then
+    [ "$(cat "$SKCMS/.sumra-source-revision")" = "$SKCMS_REV" ] || { echo "Unexpected exported skcms revision." >&2; exit 1; }
+else
+    if [ ! -d "$SKCMS/.git" ]; then git init -q "$SKCMS"; git -C "$SKCMS" remote add origin https://github.com/google/skcms.git; fi
+    if ! git -C "$SKCMS" cat-file -e "$SKCMS_REV^{commit}" 2>/dev/null; then git -C "$SKCMS" fetch --depth 1 origin "$SKCMS_REV"; fi
+    git -C "$SKCMS" checkout -q --detach "$SKCMS_REV"
+fi
 source_archive convertlit-1.8 https://mirror.nju.edu.cn/gentoo/distfiles/d0/clit18src.zip d70a85f5b945104340d56f48ec17bcf544e3bb3c35b1b3d58d230be699e557ba 0
 source_archive libtommath-1.3.0 https://github.com/libtom/libtommath/releases/download/v1.3.0/ltm-1.3.0.tar.xz 296272d93435991308eb73607600c034b558807a07e829e751142e65ccfa9d08 1
 DJVU="$DEPS/djvulibre-3.5.30"; CHM="$DEPS/chmlib-0.40"; JXL="$DEPS/libjxl-0.12.0"
