@@ -2132,6 +2132,9 @@ private extension ReaderState {
               markdownRenderer requestedRenderer: MarkdownRenderer? = nil,
               retainedMarkdownPreference: MarkdownRenderer? = nil,
               rememberMarkdownPreference: Bool = false) {
+        let loadStarted = DispatchTime.now().uptimeNanoseconds
+        NativeReadingPerformance.mark("load-entry", persistent: true)
+        defer { NativeReadingPerformance.mark("load-dispatched", revision: generation, started: loadStarted, persistent: true) }
         persist()
         if !reloading { markdownPositions = [:] }
         generation &+= 1
@@ -2152,7 +2155,12 @@ private extension ReaderState {
         status = reloading ? L("Reloading…") : String(format: L("Opening %@…"), url.lastPathComponent)
 
         loading = Task {
+            NativeReadingPerformance.mark("load-task-entry", revision: currentGeneration, started: loadStarted, persistent: true)
+            defer { NativeReadingPerformance.mark("load-task-return", revision: currentGeneration, started: loadStarted, persistent: true) }
             let worker = Task.detached(priority: .userInitiated) {
+                let workerStarted = DispatchTime.now().uptimeNanoseconds
+                NativeReadingPerformance.mark("load-worker-entry", revision: currentGeneration, persistent: true)
+                defer { NativeReadingPerformance.mark("load-worker-return", revision: currentGeneration, started: workerStarted, persistent: true) }
                 var opened = try ReadingDocument.open(url, password: requestPassword, deferReflowLayout: true,
                                                        markdownRenderer: openingRenderer)
                 if opened.markdownRenderer != nil, let retainedMarkdownPreference {
@@ -2167,6 +2175,7 @@ private extension ReaderState {
                     operation: { try await worker.value },
                     onCancel: { worker.cancel() }
                 )
+                NativeReadingPerformance.mark("load-main-resume", revision: currentGeneration, started: loadStarted, persistent: true)
                 var firstPageBounds: CGRect?
                 if !reloading, UserDefaults.standard.bool(forKey: "pageAspectLayout") {
                     switch opened.content {
@@ -2179,6 +2188,8 @@ private extension ReaderState {
 
                 // Normalize persisted PDFKit coordinates before publishing the
                 // replacement. In-memory native requests never enter this path.
+                let savedStateStarted = DispatchTime.now().uptimeNanoseconds
+                NativeReadingPerformance.mark("load-saved-state-entry", revision: currentGeneration, persistent: true)
                 var restoredPosition: ReadingPosition?
                 if !reloading {
                     let data = UserDefaults.standard.bool(forKey: "disableReadingState") || !openingHistory ? nil : UserDefaults.standard.data(forKey: "position:" + opened.url.path)
@@ -2198,6 +2209,8 @@ private extension ReaderState {
                         guard !Task.isCancelled, currentGeneration == generation else { return }
                     }
                 }
+                NativeReadingPerformance.mark("load-saved-state-return", revision: currentGeneration, started: savedStateStarted, persistent: true,
+                                              flags: restoredPosition?.nativePassage == nil ? 0 : 1)
 
                 // Editing remains available while the replacement loads. Commit a
                 // form field and protect only edits made after the initial decision.
@@ -2245,6 +2258,8 @@ private extension ReaderState {
                 } else if reloading, case .browser(let source) = document?.content, source is MarkupSource {
                     reloadedPosition = filePosition
                 } else { reloadedPosition = nil }
+                let publicationStarted = DispatchTime.now().uptimeNanoseconds
+                NativeReadingPerformance.mark("load-publication-entry", revision: currentGeneration, persistent: true)
                 persist()
                 if !reloading {
                     if document != nil { ReaderWindows.rememberClosed(self) }
@@ -2273,6 +2288,7 @@ private extension ReaderState {
                 let restorePDFEditing = reloading && pdfEditingEnabled
                 resetDocumentTransientState()
                 document = opened
+                NativeReadingPerformance.mark("load-document-published", revision: currentGeneration, started: publicationStarted, persistent: true)
                 if opened.markdownRenderer == .paged { zoomLimit = configuredZoomMaximum }
                 if changedMarkdownRenderer {
                     location = ReadingPosition(); page = 0; zoom = 1; fit = "page"; flow = "paged"
@@ -2296,6 +2312,7 @@ private extension ReaderState {
                 loading = nil
                 watchFile(opened.url)
                 if restorePDFEditing { setPDFEditingEnabled(true) }
+                NativeReadingPerformance.mark("load-publication-return", revision: currentGeneration, started: publicationStarted, persistent: true)
                 if !reloading { ReaderFiles.recordOpen(opened, recordsHistory: recordsHistory) }
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }

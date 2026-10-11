@@ -7,14 +7,16 @@ import ImageIO
 import OSLog
 import SumraCore
 
-// Content-free local diagnostics. Debug events are streamed only when requested;
-// the monotonic clock keeps actor waiting, native work and drawing comparable.
+// Content-free local diagnostics. Sparse opening stages persist at default level;
+// rendering stays debug. The monotonic clock compares waiting, work and drawing.
 enum NativeReadingPerformance {
     private static let logger = Logger(subsystem: "com.leaf.reader", category: "native-reading")
-    static func mark(_ stage: String, pages: Pages? = nil, revision: Int = -1, page: Int = -1, started: UInt64? = nil, size: CGSize = .zero) {
+    // Initial-prepare flags: 1 = source passage, 2 = legacy finite geometry,
+    // 4 = single-page bookmark, 8 = continuous flow. No document text is logged.
+    static func mark(_ stage: String, pages: Pages? = nil, revision: Int = -1, page: Int = -1, started: UInt64? = nil, size: CGSize = .zero, persistent: Bool = false, flags: Int = 0) {
         let now = DispatchTime.now().uptimeNanoseconds
         let owner = pages.map { UInt(bitPattern: ObjectIdentifier($0)) } ?? 0
-        logger.debug("\(stage, privacy: .public) monotonic_ns=\(now, privacy: .public) owner=\(owner, privacy: .public) revision=\(revision, privacy: .public) page=\(page, privacy: .public) duration_ns=\(started.map { now &- $0 } ?? 0, privacy: .public) width=\(Double(size.width), privacy: .public) height=\(Double(size.height), privacy: .public)")
+        logger.log(level: persistent ? .default : .debug, "\(stage, privacy: .public) monotonic_ns=\(now, privacy: .public) owner=\(owner, privacy: .public) revision=\(revision, privacy: .public) page=\(page, privacy: .public) duration_ns=\(started.map { now &- $0 } ?? 0, privacy: .public) width=\(Double(size.width), privacy: .public) height=\(Double(size.height), privacy: .public) flags=\(flags, privacy: .public)")
     }
 }
 

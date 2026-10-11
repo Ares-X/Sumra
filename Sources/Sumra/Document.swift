@@ -308,8 +308,8 @@ struct ReadingDocument: Identifiable {
     static func open(_ url: URL, password: String? = nil, deferReflowLayout: Bool = false,
                      markdownRenderer requestedRenderer: MarkdownRenderer? = nil) throws -> ReadingDocument {
         let started = DispatchTime.now().uptimeNanoseconds
-        NativeReadingPerformance.mark("source-open-entry")
-        defer { NativeReadingPerformance.mark("source-open-return", started: started) }
+        NativeReadingPerformance.mark("source-open-entry", persistent: true)
+        defer { NativeReadingPerformance.mark("source-open-return", started: started, persistent: true) }
         try Task.checkCancellation()
 
         if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {

@@ -337,9 +337,12 @@ final class NativeFile {
             pdfSource = try PDFSource(url, expected: sourceCheckpoint)
         }
         let path = try Self.libraryURL(for: engine)
+        let loaderStarted = DispatchTime.now().uptimeNanoseconds
+        NativeReadingPerformance.mark("native-loader-entry", persistent: true)
         guard let library = dlopen(path.path, RTLD_LOCAL | RTLD_NOW) else {
             throw ReadError("Cannot load \(engine.rawValue): \(dlerror().map { String(cString: $0) } ?? "unknown loader error")")
         }
+        NativeReadingPerformance.mark("native-loader-return", started: loaderStarted, persistent: true)
         do {
             func required<T>(_ name: String, _: T.Type) throws -> T {
                 guard let pointer = dlsym(library, name) else { throw ReadError("Incompatible \(engine.rawValue) engine: \(name)") }
@@ -364,6 +367,8 @@ final class NativeFile {
             var opened: UnsafeMutableRawPointer?
             var installed = false
             defer { if !installed, let opened { close(opened) } }
+            let decodeStarted = DispatchTime.now().uptimeNanoseconds
+            NativeReadingPerformance.mark("native-decode-entry", persistent: true)
             if engine == .mupdf {
                 let opener = deferReflowLayout && deferMarkdownMetadata ? "lf_open_classified_deferred" : "lf_open_classified"
                 let open = try required(opener, OpenClassified.self)
@@ -381,6 +386,7 @@ final class NativeFile {
                 let open = try required("lf_open", Open.self)
                 opened = open(url.path, &error)
             }
+            NativeReadingPerformance.mark("native-decode-return", started: decodeStarted, persistent: true)
             guard let document = opened else { throw Self.failure(error, "Cannot decode this file") }
             typealias CheckedCount = @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<CChar>) -> Int32
             let count: Int

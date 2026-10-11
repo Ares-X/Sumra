@@ -546,6 +546,9 @@ enum ReaderFiles {
     }
     static func recordOpen(_ document: ReadingDocument, recordsHistory: Bool, at date: Date = Date()) {
         guard recordsHistory, !UserDefaults.standard.bool(forKey: "disableHistory"), document.sourceTemporary == nil else { return }
+        let started = DispatchTime.now().uptimeNanoseconds
+        NativeReadingPerformance.mark("history-record-entry", persistent: true)
+        defer { NativeReadingPerformance.mark("history-record-return", started: started, persistent: true) }
         let url = document.url
         var records = history
         let key = identity(url.path), aliases = records.keys.filter { identity($0) == key }
@@ -555,7 +558,10 @@ enum ReaderFiles {
         let pinned = Set(Self.pinned.map(identity))
         let unpinned = records.keys.filter { !pinned.contains(identity($0)) }.sorted { records[$0]!.lastOpened > records[$1]!.lastOpened }
         for path in unpinned.dropFirst(1000) { records.removeValue(forKey: path) }
+        let recentStarted = DispatchTime.now().uptimeNanoseconds
+        NativeReadingPerformance.mark("history-recent-entry", persistent: true)
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        NativeReadingPerformance.mark("history-recent-return", started: recentStarted, persistent: true)
         saveHistory(records)
     }
     static func clearHistory() {

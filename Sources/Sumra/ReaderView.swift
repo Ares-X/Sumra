@@ -421,8 +421,8 @@ struct ReaderView: View {
                 .task(id: initialNativeViewport?.document) {
                     guard let viewport = initialNativeViewport, viewport.document == document.id else { return }
                     let started = DispatchTime.now().uptimeNanoseconds
-                    NativeReadingPerformance.mark("prepare-request", pages: pages, revision: state.renderRevision)
-                    defer { NativeReadingPerformance.mark("prepare-return", pages: pages, revision: state.renderRevision, started: started) }
+                    NativeReadingPerformance.mark("prepare-request", pages: pages, revision: state.renderRevision, persistent: true)
+                    defer { NativeReadingPerformance.mark("prepare-return", pages: pages, revision: state.renderRevision, started: started, persistent: true) }
                     do {
                         var initial = state.currentPosition
                         let bookmark = initial.anchor.flatMap(ChapterTable.bookmarkLocation)
@@ -434,28 +434,46 @@ struct ReaderView: View {
                         let initialPageSize = legacyPages ? nil : RasterReader.pageSize(in: initialViewport,
                             spread: state.spread && !state.presentation,
                             continuous: continuous)
-                        NativeReadingPerformance.mark("relayout-request", pages: pages, revision: state.renderRevision)
+                        let flags = (initial.nativePassage == nil ? 0 : 1) | (legacyPages ? 2 : 0)
+                            | (bookmark?.count == 1 ? 4 : 0) | (continuous ? 8 : 0)
+                        let layoutStarted = DispatchTime.now().uptimeNanoseconds
+                        NativeReadingPerformance.mark("relayout-request", pages: pages, revision: state.renderRevision,
+                                                      size: initialPageSize ?? CGSize(width: 420, height: 595), persistent: true, flags: flags)
                         _ = try await pages.relayout(
                             fontSize: state.fontSize, lineHeight: state.lineHeight,
                             margin: state.margin, font: state.font, theme: state.resolvedTheme,
                             userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS, pageMargins: state.pageMargins,
                             textZoom: pages.isMarkdown ? state.zoom : 1,
                             pageSize: initialPageSize, viewport: initialViewport)
-                        NativeReadingPerformance.mark("relayout-return", pages: pages, revision: state.renderRevision)
+                        NativeReadingPerformance.mark("relayout-return", pages: pages, revision: state.renderRevision, started: layoutStarted, persistent: true, flags: flags)
+                        let outlineStarted = DispatchTime.now().uptimeNanoseconds
+                        NativeReadingPerformance.mark("prepare-outline-entry", pages: pages, persistent: true)
                         let prepared = try await pages.prepare()
+                        NativeReadingPerformance.mark("prepare-outline-return", pages: pages, started: outlineStarted, persistent: true)
                         if pages.isPDF, state.useDocumentOpenAction, let page = try await pages.pdfInitialPage() { initial.page = page }
+                        let restoreStarted = DispatchTime.now().uptimeNanoseconds
+                        NativeReadingPerformance.mark("prepare-restore-entry", pages: pages, persistent: true, flags: flags)
                         let restored = try await pages.restore(initial, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme,
                             viewport: initialViewport)
+                        NativeReadingPerformance.mark("prepare-restore-return", pages: pages, started: restoreStarted, persistent: true)
+                        let geometryStarted = DispatchTime.now().uptimeNanoseconds
+                        NativeReadingPerformance.mark("prepare-geometry-entry", pages: pages, persistent: true)
                         let count = await pages.count
                         let chapterLayout = await pages.chapterLayout
                         try await pages.seedImageBounds(page: restored.page, uniform: state.uniformPageWidth)
                         let zoomLimit = try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
                         let landscape = try await pages.landscapePages(rotation: state.rotation)
                         let pdfInfo = pages.isPDF ? try await pages.pdfInfo() : nil
+                        NativeReadingPerformance.mark("prepare-geometry-return", pages: pages, started: geometryStarted, persistent: true)
+                        let boundsStarted = DispatchTime.now().uptimeNanoseconds
+                        NativeReadingPerformance.mark("prepare-bounds-entry", pages: pages, page: restored.page, persistent: true)
                         let initialBounds = try await pages.bounds(restored.page)
+                        NativeReadingPerformance.mark("prepare-bounds-return", pages: pages, page: restored.page, started: boundsStarted, size: initialBounds.size, persistent: true)
                         guard !Task.isCancelled,
                               case .pages(let current)? = state.document?.content,
                               current === pages else { return }
+                        let publicationStarted = DispatchTime.now().uptimeNanoseconds
+                        NativeReadingPerformance.mark("prepare-publication-entry", pages: pages, revision: state.renderRevision, persistent: true)
                         initialNativeCanvas = (document.id, initialBounds, restored)
                         state.outline = prepared.outline
                         if pages.isPDF { state.useDocumentOpenAction = false }
@@ -471,7 +489,7 @@ struct ReaderView: View {
                         if pages.isPDF { state.persist() }
                         else { state.updatePosition(restored) }
                         state.renderRevision += 1
-                        NativeReadingPerformance.mark("prepare-publish", pages: pages, revision: state.renderRevision, page: state.page)
+                        NativeReadingPerformance.mark("prepare-publish", pages: pages, revision: state.renderRevision, page: state.page, started: publicationStarted, persistent: true)
                     } catch {
                         guard !Task.isCancelled, state.document?.id == document.id else { return }
                         state.error = error.localizedDescription
@@ -502,14 +520,20 @@ struct ReaderInitialViewport: NSViewRepresentable {
         private func measureAfterLayout() {
             guard !delivered, !scheduled, window != nil else { return }
             scheduled = true
+            let scheduledAt = DispatchTime.now().uptimeNanoseconds
+            NativeReadingPerformance.mark("initial-viewport-scheduled", persistent: true)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                NativeReadingPerformance.mark("initial-viewport-entry", started: scheduledAt, persistent: true)
                 self.scheduled = false
                 guard !self.delivered, let window = self.window else { return }
+                let layoutStarted = DispatchTime.now().uptimeNanoseconds
                 window.contentView?.layoutSubtreeIfNeeded()
+                NativeReadingPerformance.mark("initial-viewport-layout-return", started: layoutStarted, size: self.bounds.size, persistent: true)
                 guard !self.bounds.isEmpty else { return }
                 self.delivered = true
                 self.measured(self.bounds.size)
+                NativeReadingPerformance.mark("initial-viewport-delivered", started: scheduledAt, size: self.bounds.size, persistent: true)
             }
         }
     }
