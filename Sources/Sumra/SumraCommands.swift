@@ -56,6 +56,13 @@ struct SumraCommands: Commands {
 
     var body: some Commands {
         let _ = language
+        applicationCommands
+        readingCommands
+        documentTools
+    }
+
+    @CommandsBuilder
+    private var applicationCommands: some Commands {
         CommandGroup(replacing: .help) {
             Button(L("Sumra Help")) { ReaderHelp.showManual() }
             Button(L("Keyboard Shortcuts")) { ReaderHelp.showShortcuts() }
@@ -109,6 +116,10 @@ struct SumraCommands: Commands {
                 .disabled(state?.hasTextSelection != true)
             Menu(L("Search Selection")) { buttons([.searchGoogle, .searchBing, .searchWikipedia, .searchScholar, .translateGoogle, .translateDeepL]) }
         }
+    }
+
+    @CommandsBuilder
+    private var readingCommands: some Commands {
         CommandGroup(after: .toolbar) {
             buttons([.contents, .thumbnails, .navigateThumbnail, .bookmarks, .bookmarksWindow, .annotations, .toolbar, .fullscreen, .presentation, .palette, .ai])
             Menu(L("Contents")) {
@@ -166,7 +177,6 @@ struct SumraCommands: Commands {
             Menu(L("Bookmarks")) { buttons([.bookmark, .bookmarkToggle, .bookmarkNext, .bookmarkPrevious, .bookmarkSort]) }
             Menu(L("Read Aloud")) { buttons([.speak, .speakFromTop, .speakFromCursor, .speakSelection, .pauseSpeaking, .continueSpeaking, .stopSpeaking]) }
         }
-        documentTools
     }
 
     @CommandsBuilder

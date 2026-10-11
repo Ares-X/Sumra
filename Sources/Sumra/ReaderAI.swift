@@ -43,10 +43,14 @@ enum ReaderAIProvider: String, CaseIterable, Identifiable, Sendable {
             // resume has no --sandbox/--cd flags. Its process cwd and the
             // supported config override supply the same read-only boundary.
             let command = sessionID == nil ? ["exec", "-C", directory.path, "--sandbox", "read-only"] : ["exec", "resume"]
-            return command + ["--json", "--skip-git-repo-check"]
-                + (overrides + (sessionID == nil ? [] : ["sandbox_mode=\"read-only\""]) + (disabledMCP.map { [$0] } ?? [])).flatMap { ["-c", $0] }
-                + (model.isEmpty ? [] : ["--model", model])
-                + (sessionID.map { [$0, "-"] } ?? ["-"])
+            var configuration = overrides
+            if sessionID != nil { configuration.append("sandbox_mode=\"read-only\"") }
+            if let disabledMCP { configuration.append(disabledMCP) }
+            var arguments = command + ["--json", "--skip-git-repo-check"]
+            arguments += configuration.flatMap { ["-c", $0] }
+            if !model.isEmpty { arguments += ["--model", model] }
+            arguments += sessionID.map { [$0, "-"] } ?? ["-"]
+            return arguments
         case .claude:
             return ["-p", "--verbose", "--safe-mode", "--output-format", "stream-json",
                     "--include-partial-messages", "--effort", effort,

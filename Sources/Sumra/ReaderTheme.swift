@@ -40,7 +40,12 @@ struct ReaderTheme: Identifiable {
         func component(_ value: CGFloat) -> UInt32 { UInt32((min(1, max(0, value)) * 255).rounded()) }
         return component(rgb.redComponent) << 16 | component(rgb.greenComponent) << 8 | component(rgb.blueComponent)
     }
-    var dark: Bool { 0.2126 * Double((background >> 16) & 255) + 0.7152 * Double((background >> 8) & 255) + 0.0722 * Double(background & 255) < 128 }
+    var dark: Bool {
+        let red = Double((background >> 16) & 255)
+        let green = Double((background >> 8) & 255)
+        let blue = Double(background & 255)
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue < 128
+    }
     var css: String {
         let fg = String(format: "#%06x", text), bg = String(format: "#%06x", background), href = String(format: "#%06x", link)
         return "*{color:\(fg) !important;background-color:transparent !important;} html,body{background-color:\(bg) !important;color:\(fg) !important;} a,a *{color:\(href) !important;}"
