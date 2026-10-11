@@ -19,15 +19,25 @@ update key, not another macOS signing certificate. Private material remains
 in Keychain; only its public half is stored in this repository. Preserve this
 key for future releases. See [Sparkle's setup](https://sparkle-project.org/documentation/).
 
+For local maintainer signing, `SUMRA_CODE_SIGN_PASSWORD_FILE` can point to an
+existing protected Keychain password file. `SUMRA_CODE_SIGN_UNLOCK_KEYCHAIN`
+selects the Keychain containing the private key; it defaults to
+`SUMRA_CODE_SIGN_KEYCHAIN`. The bundler unlocks it only for signing and restores
+its locked state afterward. Certificate selection still uses
+`SUMRA_CODE_SIGN_IDENTITY`; neither passwords nor private keys enter the app or
+source package. A certificate and its matching key may reside in different
+Keychains, in which case omit `SUMRA_CODE_SIGN_KEYCHAIN` to use the existing
+user search list.
+
 ## Publishing the next update
 
 1. Increase `SUMRA_VERSION` and `SUMRA_BUILD_VERSION` and build/sign the app with
    the existing personal certificate. Sparkle compares the increasing build number.
 2. Create the normal release ZIP and corresponding-source artifacts using
-   `scripts/package-release.py`. If the ZIP has already been signed and tested,
+   `swift scripts/package-release.swift`. If the ZIP has already been signed and tested,
    pass `--app-archive path/to/the.zip` to reuse its exact bytes on the same
    filesystem, without recompressing or signing it again.
-3. Run `python3 scripts/generate-appcast.py path/to/Sumra-VERSION-macOS-arm64.zip`.
+3. Run `swift scripts/generate-appcast.swift path/to/Sumra-VERSION-macOS-arm64.zip`.
    For a preview, add `--channel prerelease`. This invokes the pinned upstream
    `generate_appcast`, signs the ZIP using Keychain, and preserves existing feed
    items. It generates no delta archives.

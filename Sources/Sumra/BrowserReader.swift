@@ -322,6 +322,7 @@ struct BrowserReader: NSViewRepresentable {
         if let job = coordinator.printJob { coordinator.finishPrint(job, restore: false) }
         else if let revision = coordinator.command { coordinator.completeCommand(revision) }
         coordinator.clearRangeHighlights()
+        if let monitor = coordinator.wheelMonitor { NSEvent.removeMonitor(monitor); coordinator.wheelMonitor = nil }
         coordinator.active = false
         if let markup = coordinator.markup { Task { await markup.cancelOutline() } }
         if coordinator.state.browserView === view { coordinator.state.browserView = nil }
@@ -353,6 +354,9 @@ struct BrowserReader: NSViewRepresentable {
         var outline = [ContentsItem]()
         var readyHandler: ((Error?) -> Void)?
         var textInputFocused = false
+        var wheelMonitor: Any?
+        var wheelTurnedPage = false
+        var wheelTargetScrollable = false
         var interactionKey = ""
         var readerError: Error?
         var pending: [ReaderCommand] = []
@@ -379,7 +383,8 @@ struct BrowserReader: NSViewRepresentable {
             let size = state.fontSize * (usesTextZoom ? zoom : 1)
             return ["text": "\(state.font)|\(size)|\(state.lineHeight)|\(state.margin)|\(state.resolvedTheme)",
                 "zoom": pageZoom(zoom), "userCSS": state.effectiveUserCSS,
-                "useDocumentCSS": state.useDocumentCSS, "pageMargins": state.pageMargins?.values ?? []]
+                "useDocumentCSS": state.useDocumentCSS, "pageMargins": state.pageMargins?.values ?? [],
+                "flow": state.flow, "spread": state.spread, "rtl": state.rtl]
         }
 
         init(state: ReaderState, source: any BrowserSource) {
@@ -411,6 +416,26 @@ struct BrowserReader: NSViewRepresentable {
             view.pageZoom = pageZoom(state.zoom)
             view.navigationDelegate = self
             state.browserView = view
+            wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self, weak view] event in
+                guard let self, let view, self.isCurrent, self.ready,
+                      self.state.flow == "paged" || self.state.spread,
+                      event.window === view.window, let window = view.window, window.attachedSheet == nil,
+                      view.bounds.contains(view.convert(event.locationInWindow, from: nil)),
+                      event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+                      !self.textInputFocused, !self.wheelTargetScrollable else { return event }
+                if event.phase.contains(.began) || event.phase.contains(.mayBegin) ||
+                    (event.phase.isEmpty && event.momentumPhase.isEmpty) { self.wheelTurnedPage = false }
+                if !event.momentumPhase.isEmpty { return self.wheelTurnedPage ? nil : event }
+                if event.phase.contains(.ended) || event.phase.contains(.cancelled) { return event }
+                guard !self.wheelTurnedPage else { return nil }
+                let horizontal = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+                let delta = horizontal ? event.scrollingDeltaX : event.scrollingDeltaY
+                guard delta != 0 else { return event }
+                let direction = (delta < 0 ? 1 : -1) * (horizontal && self.state.rtl ? -1 : 1)
+                self.wheelTurnedPage = true
+                self.state.send(.turnPages(direction))
+                return nil
+            }
             return view
         }
 
@@ -909,7 +934,7 @@ struct BrowserReader: NSViewRepresentable {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard isCurrent, message.frameInfo.request.url?.host == "book",
                   let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
-            if !message.frameInfo.isMainFrame, !["selection", "inputFocus", "navigate", "external", "copy", "readAloud", "status", "error", "keyboardMode"].contains(type) { return }
+            if !message.frameInfo.isMainFrame, !["selection", "inputFocus", "navigate", "external", "copy", "readAloud", "status", "error", "keyboardMode", "wheelTarget"].contains(type) { return }
             switch type {
             case "layoutLimit":
                 guard ready, state.document?.markdownRenderer != nil, let markup, markup.markdown,
@@ -967,6 +992,7 @@ struct BrowserReader: NSViewRepresentable {
                 let selected = body["selected"] as? Bool == true
                 if state.hasSelection != selected { state.hasSelection = selected }
             case "inputFocus": textInputFocused = body["focused"] as? Bool ?? false
+            case "wheelTarget": wheelTargetScrollable = body["scrollable"] as? Bool ?? false
             case "copy":
                 if let text = body["text"] as? String {
                     NSPasteboard.general.clearContents()

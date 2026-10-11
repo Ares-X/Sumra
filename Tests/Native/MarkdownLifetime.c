@@ -170,7 +170,8 @@ static cause convert(fz_context *ctx, fz_buffer *input)
     copy_calls = 0;
     fz_try(ctx)
     {
-        result = fz_md_to_html(ctx, NULL, input, NULL, NULL);
+        int try_xml = 0;
+        result = fz_md_to_html(ctx, NULL, input, NULL, NULL, &try_xml);
         check(result && result->len == boundary_size &&
             !memcmp(result->data, boundary_copy, boundary_size),
             "Fitz output retains every byte after all cmark storage is released");

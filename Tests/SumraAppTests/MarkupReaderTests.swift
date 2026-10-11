@@ -167,6 +167,7 @@ final class MarkupReaderTests: XCTestCase {
         let coordinator = BrowserReader.Coordinator(state: state, source: source)
         state.font = "system"; state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32; state.theme = "light"
         state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
+        state.flow = "continuous"; state.spread = false
         let view = coordinator.makeView(frame: CGRect(x: 0, y: 0, width: viewportWidth, height: 500), position: position)
         let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = view
@@ -555,6 +556,7 @@ final class MarkupReaderTests: XCTestCase {
             """], opened: "Book.html")
         _ = try await evaluate("""
             window.originalBody = document.body.innerHTML;
+            window.originalColor = getComputedStyle(document.getElementById('query')).color;
             window.Highlight = undefined;
             await window.leafCommand({name:'find',text:'needle'});
             """, view)
@@ -573,10 +575,11 @@ final class MarkupReaderTests: XCTestCase {
         let fidelity = try await evaluate("""
             return {unchanged:document.body.innerHTML === window.originalBody,
                 color:getComputedStyle(document.getElementById('query')).color,
+                originalColor:window.originalColor,
                 padding:getComputedStyle(document.getElementById('query')).paddingTop};
             """, view) as? [String: Any]
         XCTAssertEqual(fidelity?["unchanged"] as? Bool, true)
-        XCTAssertEqual(fidelity?["color"] as? String, "rgb(1, 2, 3)")
+        XCTAssertEqual(fidelity?["color"] as? String, try XCTUnwrap(fidelity?["originalColor"] as? String))
         XCTAssertEqual(fidelity?["padding"] as? String, "18px")
         XCTAssertNil(coordinator.rangeHighlightView?.hitTest(.zero))
         state.closeFind(); try await completeCurrentCommand(state, coordinator, view)

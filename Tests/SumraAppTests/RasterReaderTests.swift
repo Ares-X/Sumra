@@ -10,6 +10,412 @@ import XCTest
 
 final class RasterReaderTests: XCTestCase {
     @MainActor
+    func testMarkdownCountWaitsForSelectedPassagePaintOnExistingAndNewPages() async throws {
+        try await assertMarkdownCountWaitsForPaint(flow: "paged")
+        try await assertMarkdownCountWaitsForPaint(flow: "continuous")
+    }
+
+    @MainActor
+    private func assertMarkdownCountWaitsForPaint(flow: String) async throws {
+        try requireMuPDF()
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("Paint-before-count.md")
+        let paragraphs = (0..<100).map { index in
+            "Paragraph \(index): " + (index == 0 ? "OPENPAINT OTHERPAINT" : index >= 50 ? "LATEPAINT" : "PASSAGE") + " preserves the selected passage before scanning the document."
+        }
+        try paragraphs.joined(separator: "\n\n").write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .pages(pages), markdownPreference: .paged, markdownRenderer: .paged)
+        state.reflowable = true; state.searchable = true; state.automaticLayout = false
+        state.flow = flow; state.fit = "page"; state.zoom = 1; state.spread = false; state.cover = false
+        state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32; state.font = "system"; state.theme = "light"
+        state.trimEmptyMargins = false; state.uniformPageWidth = false
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+            userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 620, height: flow == "continuous" ? 0 : 400))
+        state.count = await pages.count; state.chapterLayout = await pages.chapterLayout
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 620, height: 400),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
+        func paint() {
+            host.layoutSubtreeIfNeeded()
+            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+        }
+        func wait(painting: Bool, _ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if painting { paint() }
+                if condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Markdown passage did not settle")
+        }
+        try await wait(painting: true) {
+            RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
+        }
+        for (query, count) in [("OPENPAINT", 1), ("OTHERPAINT", 1), ("LATEPAINT", 50)] {
+            let revision = state.renderRevision, previousTarget = state.selectedSearchTarget
+            // AppKit may redraw even an unordered window. Detach the reader
+            // while finding so a visible window paint cannot occur yet.
+            window.contentView = nil
+            state.send(.find(query))
+            try await wait(painting: false) {
+                state.selectedSearchTarget != nil && state.selectedSearchTarget != previousTarget
+            }
+            _ = await pages.count // Let decoder work ahead of a scan finish.
+            XCTAssertTrue(state.searchResults.isEmpty, "Counting must await selected highlight paint: \(query)")
+            XCTAssertTrue(state.searchCounting)
+            if query == "OTHERPAINT" { XCTAssertEqual(state.renderRevision, revision, "A same-page query needs no new render revision") }
+            window.contentView = host
+            paint()
+            try await wait(painting: true) { state.searchResults.count == count && !state.searchCounting }
+            if query == "LATEPAINT", flow == "paged" { XCTAssertGreaterThan(state.page, 0) }
+            XCTAssertNotNil(state.selectedSearchTarget)
+        }
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testFiniteEPUBFindPublishesBeforeWholeBookLayoutAndRestartsAfterViewportReflow() async throws {
+        try requireMuPDF()
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), state = ReaderState(recordsHistory: false)
+        let input = try epubFixture(in: directory.url, chapters: 40, paragraphs: 30)
+        let pages = try Pages(input, format: .book, deferReflowLayout: true)
+        _ = try await pages.relayout(fontSize: state.fontSize, lineHeight: state.lineHeight, margin: state.margin,
+            font: state.font, theme: state.resolvedTheme, userCSS: state.effectiveUserCSS,
+            pageSize: CGSize(width: 720, height: 600))
+        let firstPageMatches = try await pages.matches("Chapter 0 keeps", location: .init(chapter: 0, page: 0))
+        XCTAssertFalse(firstPageMatches.isEmpty)
+        XCTAssertEqual(firstPageMatches.first?.location, PageLocation(chapter: 0, page: 0))
+        let partialLayout = await pages.chapterLayout
+        XCTAssertFalse(partialLayout.complete, "Searching the current chapter must leave unvisited chapters unpaginated")
+        state.document = ReadingDocument(url: input, content: .pages(pages)); state.reflowable = true
+        state.flow = "paged"; state.fit = "page"; state.spread = false; state.cover = false
+        state.automaticLayout = false; state.freePan = false; state.uniformPageWidth = false
+        state.trimEmptyMargins = false; state.landscapeAsSpread = false; state.rtl = false
+        state.scrollbarMode = "hidden"
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 720, height: 600), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer {
+            state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+            withExtendedLifetime(directory) {}
+        }
+        func wait(_ condition: () async throws -> Bool, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(15)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if try await condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Incremental EPUB search did not settle", line: line)
+        }
+        try await wait { state.readerFocusView != nil }
+        // A viewport change resets chapter pagination before the pending find.
+        // The first current-chapter hit must not wait for the remaining book.
+        state.showFind = true
+        window.setContentSize(CGSize(width: 720, height: 420))
+        state.send(.find("Chapter 0 keeps"))
+        try await wait {
+            state.selectedSearchTarget != nil && RasterReader.highlightedMatch(in: state.readerFocusView) != nil &&
+                state.searchResults.count == 30 && !state.searchCounting
+        }
+        XCTAssertEqual(state.pageLocation(state.page).chapter, 0)
+        // Opening an inline find bar or switching to facing pages changes the
+        // finite viewport. A recount alone must not leave an unselected 0/N.
+        state.spread = true
+        window.setContentSize(CGSize(width: 720, height: 380))
+        try await wait {
+            try await pages.bounds(state.page).width < 400 && state.selectedSearchTarget != nil &&
+                RasterReader.highlightedMatch(in: state.readerFocusView) != nil &&
+                state.searchResults.count == 30 && !state.searchCounting
+        }
+        XCTAssertEqual(state.pageLocation(state.page).chapter, 0)
+        state.send(.find("Chapter 39 keeps", backwards: true))
+        try await wait {
+            state.pageLocation(state.page).chapter == 39 && state.searchResults.count == 30 &&
+                state.selectedSearchTarget != nil && !state.searchCounting &&
+                RasterReader.highlightedMatch(in: state.readerFocusView) != nil
+        }
+        let lastTarget = state.selectedSearchTarget
+        state.send(.find("Chapter 39 keeps", backwards: true))
+        try await wait { state.selectedSearchTarget != lastTarget && state.pageLocation(state.page).chapter == 39 }
+        // A common query reaches the bounded count without requiring every
+        // chapter to have been painted. Navigation still retains its own hit.
+        state.send(.find("keeps"))
+        try await wait { state.searchResults.count == 999 && state.searchCountCapped && !state.searchCounting }
+        XCTAssertNotNil(state.selectedSearchTarget)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testEPUBViewportReflowRetainsFindQueryAndRecountsUnpaintedChapters() async throws {
+        try requireMuPDF()
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), state = ReaderState(recordsHistory: false)
+        let input = try epubFixture(in: directory.url, chapters: 3, paragraphs: 20)
+        let pages = try Pages(input, format: .book)
+        state.fontSize = 17; state.lineHeight = 1.4; state.margin = 32; state.font = "serif"; state.theme = "light"
+        state.flow = "paged"; state.fit = "actual"; state.spread = false; state.cover = false
+        state.automaticLayout = false; state.freePan = false; state.uniformPageWidth = false
+        state.trimEmptyMargins = false; state.landscapeAsSpread = false; state.rtl = false
+        state.scrollbarMode = "hidden"; state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light", userCSS: state.effectiveUserCSS)
+        state.document = ReadingDocument(url: input, content: .pages(pages)); state.reflowable = true
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 720, height: 600), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer {
+            state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+            withExtendedLifetime(directory) {}
+        }
+        func waitFor(_ condition: () async throws -> Bool, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+                if try await condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Find after viewport reflow did not settle", line: line)
+        }
+        try await waitFor { try await pages.bounds(0).size == CGSize(width: 720, height: 600) && state.readerFocusView != nil }
+        let query = "Chapter 2 keeps"
+        state.send(.find(query))
+        try await waitFor { state.searchResults.count == 20 && !state.searchCounting && state.selectedSearchTarget != nil }
+        // Return to the first chapter so the query's matches are all in an
+        // unpainted later chapter when the find bar reduces the reader height.
+        state.send(.page(0))
+        try await waitFor { state.page == 0 }
+        window.setContentSize(CGSize(width: 720, height: 420))
+        try await waitFor {
+            let size = try await pages.bounds(0).size
+            return size == CGSize(width: 720, height: 420) && state.searchResults.count == 20 && !state.searchCounting
+        }
+        XCTAssertEqual(state.findQuery, query)
+        XCTAssertTrue(state.chapterLayout?.complete == true, "The result count must include chapters not yet painted after reflow")
+        state.findNext()
+        try await waitFor {
+            guard let target = state.selectedSearchTarget else { return false }
+            return state.searchResults.contains { $0.target == target } && state.pageLocation(state.page).chapter == 2 &&
+                RasterReader.highlightedMatch(in: state.readerFocusView) != nil && !state.searchCounting
+        }
+        XCTAssertEqual(state.searchResults.count, 20)
+        let targets = state.searchResults.map(\.target), selectedTarget = state.selectedSearchTarget
+        let countText = state.searchCountText
+        let highlight = try XCTUnwrap(RasterReader.highlightedMatch(in: state.readerFocusView))
+        let layoutRevision = await pages.layoutRevision, commandRevision = state.command.revision
+        // Apply unchanged typography through the real queue. The explicit next
+        // command proves the no-op style has finished, without using its last
+        // published action as a busy indicator.
+        state.send(.style); state.send(.none)
+        try await waitFor { state.command.revision > commandRevision && state.command.action == .none }
+        let unchangedRevision = await pages.layoutRevision
+        XCTAssertEqual(unchangedRevision, layoutRevision)
+        XCTAssertEqual(state.findQuery, query)
+        XCTAssertEqual(state.searchResults.map(\.target), targets)
+        XCTAssertEqual(state.selectedSearchTarget, selectedTarget)
+        XCTAssertEqual(state.searchCountText, countText)
+        XCTAssertEqual(RasterReader.highlightedMatch(in: state.readerFocusView), highlight)
+        XCTAssertFalse(state.searchCounting, "A redundant style must retain its completed count without starting a new scan")
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testEPUBLiveResizeKeepsPaintedLayoutThenReflowsOnceAtTheSamePassage() async throws {
+        try requireMuPDF()
+        _ = NSApplication.shared
+        for flow in ["paged", "continuous"] {
+            let continuous = flow == "continuous"
+            let directory = try TemporaryDirectory(), state = ReaderState(recordsHistory: false)
+            let input = try epubFixture(in: directory.url, chapters: 3, paragraphs: 100)
+            let pages = try Pages(input, format: .book)
+            state.fontSize = 17; state.lineHeight = 1.4; state.margin = 32; state.font = "serif"; state.theme = "light"
+            state.flow = flow; state.fit = "actual"; state.spread = false; state.cover = false
+            state.automaticLayout = false; state.freePan = false; state.uniformPageWidth = false
+            state.trimEmptyMargins = false; state.landscapeAsSpread = false; state.rtl = false
+            state.scrollbarMode = "hidden"; state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light", userCSS: state.effectiveUserCSS)
+            state.document = ReadingDocument(url: input, content: .pages(pages)); state.reflowable = true
+            _ = state.applyChapterLayout(await pages.chapterLayout)
+            let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 720, height: 600),
+                styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            defer {
+                state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+                withExtendedLifetime(directory) {}
+            }
+            func paint() {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+            }
+            func waitFor(_ condition: () async throws -> Bool, line: UInt = #line) async throws {
+                let deadline = Date().addingTimeInterval(10)
+                repeat {
+                    paint()
+                    if try await condition() { return }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                } while Date() < deadline && state.error == nil
+                XCTFail(state.error ?? "Live resize did not settle in \(flow) mode", line: line)
+            }
+            try await waitFor {
+                let size = try await pages.bounds(0).size
+                return size.width == 720 && (continuous ? size.height > 600 : size.height == 600) && state.readerFocusView != nil
+            }
+            _ = try await pages.ensureFullLayout()
+            try await waitFor { state.chapterLayout?.complete == true }
+            let target = PageLocation(chapter: 1, page: continuous ? 0 : 2)
+            state.send(.restore(.init(page: state.pageNumber(target), x: 0, y: continuous ? 600 : 0, anchor: "1:\(target.page)")))
+            try await waitFor {
+                state.pageLocation(state.page) == target && (!continuous || abs((state.currentPosition.y ?? 0) - 600) < 1) &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
+            }
+            paint()
+            let original = state.currentPosition, originalLocation = state.pageLocation(state.page)
+            let originalSize = try await pages.bounds(originalLocation).size
+            let canvas = try XCTUnwrap(state.readerFocusView), revision = await pages.layoutRevision
+            let originalCanvasHeight = canvas.bounds.height
+            let count = state.count
+            let reference = try NativeFile(input, engine: .mupdf)
+            _ = try reference.relayout(fontSize: 17, lineHeight: 1.4, font: "serif", theme: "light",
+                userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 720, height: continuous ? 0 : 600))
+            let bookmark = try XCTUnwrap(reference.passage(try reference.page(originalLocation),
+                at: CGPoint(x: original.x ?? 0, y: original.y ?? 0)))
+
+            NotificationCenter.default.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+            for size in [CGSize(width: 660, height: 560), CGSize(width: 520, height: 500), CGSize(width: 380, height: 460)] {
+                window.setContentSize(size)
+                for _ in 0..<4 { paint(); try await Task.sleep(nanoseconds: 10_000_000) }
+                let actualSize = try await pages.bounds(originalLocation).size
+                let actualRevision = await pages.layoutRevision
+                XCTAssertEqual(actualSize, originalSize, "The gesture must keep the readable layout in \(flow) mode")
+                XCTAssertEqual(actualRevision, revision, "Intermediate window sizes must not reflow the document")
+                XCTAssertEqual(state.count, count)
+                XCTAssertEqual(state.pageLocation(state.page), originalLocation)
+                XCTAssertTrue(state.readerFocusView === canvas, "The existing painted page must survive the gesture")
+                XCTAssertEqual(canvas.bounds.height, originalCanvasHeight, "The painted chapter must keep its natural height during the gesture")
+                XCTAssertTrue(RasterReader.pageIsRendered(in: canvas, pages: pages, location: originalLocation))
+            }
+            NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+            try await waitFor {
+                let size = try await pages.bounds(0).size, currentRevision = await pages.layoutRevision
+                return size.width == 380 && (continuous ? size.height > 460 : size.height == 460) && currentRevision == revision + 1
+            }
+            _ = try reference.relayout(fontSize: 17, lineHeight: 1.4, font: "serif", theme: "light",
+                userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 380, height: continuous ? 0 : 460))
+            let expected = try XCTUnwrap(reference.position(for: bookmark))
+            let expectedLocation = try reference.location(expected.page)
+            try await waitFor {
+                state.pageLocation(state.page) == expectedLocation &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: expectedLocation)
+            }
+            for _ in 0..<4 { paint(); try await Task.sleep(nanoseconds: 10_000_000) }
+            let finalRevision = await pages.layoutRevision
+            XCTAssertEqual(finalRevision, revision + 1, "The native end event must cause exactly one reflow")
+            XCTAssertEqual(state.pageLocation(state.page), expectedLocation, "The same source passage must remain visible")
+            if continuous {
+                XCTAssertEqual(state.currentPosition.y ?? 0, expected.y ?? 0, accuracy: 1, "Continuous reflow must retain the viewport's source glyph inside the natural chapter")
+                let finalSize = try await pages.bounds(expectedLocation).size
+                let passage = try XCTUnwrap(reference.passage(expected.page,
+                    at: CGPoint(x: state.currentPosition.x ?? 0, y: state.currentPosition.y ?? 0)))
+                XCTAssertEqual(passage.source, bookmark.source)
+                NotificationCenter.default.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+                window.setContentSize(CGSize(width: 380, height: 600))
+                for _ in 0..<4 { paint(); try await Task.sleep(nanoseconds: 10_000_000) }
+                NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+                try await waitFor {
+                    state.readerScrollView?.contentView.bounds.height == 600 &&
+                    RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: expectedLocation)
+                }
+                let heightOnlyRevision = await pages.layoutRevision, heightOnlySize = try await pages.bounds(expectedLocation).size
+                XCTAssertEqual(heightOnlyRevision, finalRevision, "A continuous height-only resize must not reflow the native document")
+                XCTAssertEqual(heightOnlySize, finalSize)
+                XCTAssertEqual(state.pageLocation(state.page), expectedLocation)
+                let heightOnlyPassage = try XCTUnwrap(reference.passage(expected.page,
+                    at: CGPoint(x: state.currentPosition.x ?? 0, y: state.currentPosition.y ?? 0)))
+                XCTAssertEqual(heightOnlyPassage.source, passage.source, "Changing the visible chapter height must retain the source passage")
+            }
+            XCTAssertEqual(state.fontSize, 17)
+            XCTAssertNil(state.error)
+        }
+    }
+
+    @MainActor
+    func testEPUBUsesTheWindowViewportAndAllReadingModes() async throws {
+        try requireMuPDF()
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), state = ReaderState(recordsHistory: false)
+        let input = try epubFixture(in: directory.url, chapters: 3, paragraphs: 100)
+        let pages = try Pages(input, format: .book)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light", userCSS: ReaderTheme.all[0].css)
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.reflowable = true; state.searchable = true
+        state.fontSize = 17; state.lineHeight = 1.4; state.font = "serif"; state.theme = "light"
+        state.flow = "paged"; state.fit = "page"; state.spread = false; state.cover = false
+        state.automaticLayout = false; state.freePan = false; state.uniformPageWidth = false
+        state.trimEmptyMargins = false; state.landscapeAsSpread = false; state.rtl = false
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 720, height: 600), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        let defaults = UserDefaults.standard
+        let oldFlow = defaults.object(forKey: "flow"), oldSpread = defaults.object(forKey: "spread")
+        defer {
+            state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+            defaults.set(oldFlow, forKey: "flow"); defaults.set(oldSpread, forKey: "spread")
+            withExtendedLifetime(directory) {}
+        }
+        func waitFor(_ condition: () async throws -> Bool, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+                if try await condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Viewport layout did not settle", line: line)
+        }
+        try await waitFor {
+            let size = try await pages.bounds(0).size
+            return size == CGSize(width: 720, height: 600) && state.readerFocusView != nil
+        }
+        _ = try await pages.ensureFullLayout()
+        let wideCount = await pages.count
+        window.setContentSize(CGSize(width: 380, height: 600))
+        try await waitFor { try await pages.bounds(0).size == CGSize(width: 380, height: 600) }
+        _ = try await pages.ensureFullLayout()
+        let narrowCount = await pages.count
+        XCTAssertGreaterThan(narrowCount, wideCount)
+        XCTAssertEqual(state.fontSize, 17, "Window resizing changes wrapping rather than the requested text size")
+        window.setContentSize(CGSize(width: 720, height: 600))
+        try await waitFor { try await pages.bounds(0).size == CGSize(width: 720, height: 600) }
+        ReaderMenuCommand.twoPages.run(state)
+        try await waitFor { try await pages.bounds(0).size == CGSize(width: 358, height: 600) && state.visiblePages.count == 2 }
+        XCTAssertEqual(state.flow, "paged")
+        state.turn(1)
+        try await waitFor { state.page >= 2 && state.readerFocusView != nil }
+        ReaderMenuCommand.paged.run(state)
+        try await waitFor { try await pages.bounds(0).size == CGSize(width: 720, height: 600) && state.visiblePages.count == 1 }
+        ReaderMenuCommand.continuous.run(state)
+        try await waitFor {
+            guard let scroll = state.readerScrollView, let document = scroll.documentView else { return false }
+            return state.flow == "continuous" && document.frame.height > scroll.contentView.bounds.height
+        }
+        let scroll = try XCTUnwrap(state.readerScrollView), previous = scroll.contentView.bounds.minY
+        state.scroll(.down, amount: .page)
+        try await waitFor { scroll.contentView.bounds.minY > previous }
+        XCTAssertFalse(state.spread)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
     func testRasterContentFitAndRTLKeyboardCommandsTurnPagesThroughTheExistingReader() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory(), state = ReaderState()
@@ -148,7 +554,7 @@ final class RasterReaderTests: XCTestCase {
                 if condition() { return }
                 try await Task.sleep(nanoseconds: 10_000_000)
             } while Date() < deadline && state.error == nil
-            _ = try XCTUnwrap(condition() ? true : nil, "Initial reader layout failed: \(state.error ?? state.currentPosition.anchor ?? String(state.page))", line: line)
+            _ = try XCTUnwrap(condition() ? true : nil, "Initial reader layout failed: \(state.error ?? state.currentPosition.anchor ?? String(state.page)); table=\(String(describing: state.chapterLayout)), revision=\(state.renderRevision)", line: line)
         }
         for target in [PageLocation(chapter: 0, page: 0), PageLocation(chapter: 20, page: 1)] {
             state.font = "system"; state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32
@@ -156,29 +562,46 @@ final class RasterReaderTests: XCTestCase {
             state.fit = target.chapter == 0 ? "actual" : "custom"; state.zoom = target.chapter == 0 ? 1 : 3
             state.spread = false; state.cover = false; state.automaticLayout = false
             state.freePan = false; state.uniformPageWidth = false; state.trimEmptyMargins = false
+            state.scrollbarMode = "hidden"; state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
             var initial = state.currentPosition
             initial.page = 0; initial.anchor = "\(target.chapter):\(target.page)"
+            initial.nativePassage = nil // This case restores a legacy chapter/page record.
             initial.x = target.chapter == 0 ? 0 : 7; initial.y = target.chapter == 0 ? 0 : 40
+            let reference = try NativeFile(input, engine: .mupdf, deferReflowLayout: true)
+            _ = try reference.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light", userCSS: state.effectiveUserCSS)
+            let originalPage = try reference.page(target)
+            let source = try XCTUnwrap(reference.passage(originalPage, at: CGPoint(x: initial.x ?? 0, y: initial.y ?? 0)))
             let previousDocument = state.document?.id
             state.openWithoutHistory(input, at: initial)
             try await waitFor { state.document?.id != previousDocument && !state.busy && state.count > 0 && state.readerScrollView != nil && state.readerFocusView != nil }
             try await waitFor { state.chapterLayout?.complete == true }
+            guard case .pages(let pages) = try XCTUnwrap(state.document).content else { return XCTFail("Expected EPUB reader") }
+            try await waitFor {
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
+            }
+            let bounds = try await pages.bounds(state.pageLocation(state.page))
+            _ = try reference.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light", userCSS: state.effectiveUserCSS, pageSize: CGSize(width: bounds.width, height: 0))
+            let expected = try XCTUnwrap(reference.position(for: source))
+            let expectedLocation = try reference.location(expected.page)
+            // A legacy bookmark above the first glyph can resolve above the
+            // natural chapter; the native viewport clamps that point at zero.
+            let expectedY = max(0, expected.y ?? 0)
             for _ in 0..<5 {
                 try await Task.sleep(nanoseconds: 20_000_000); paint()
-                XCTAssertEqual(state.pageLocation(state.page), target, "The first geometry report must not replace the requested chapter")
-                XCTAssertEqual(state.location.x ?? 0, initial.x ?? 0, accuracy: 1)
-                XCTAssertEqual(state.location.y ?? 0, initial.y ?? 0, accuracy: 1)
+                XCTAssertEqual(state.pageLocation(state.page), expectedLocation, "Opening must retain the source passage through window reflow")
+                XCTAssertEqual(state.location.x ?? 0, expected.x ?? 0, accuracy: 1)
+                XCTAssertEqual(state.location.y ?? 0, expectedY, accuracy: 1)
             }
             let canvas = try XCTUnwrap(state.readerFocusView), scroll = try XCTUnwrap(state.readerScrollView)
-            guard case .pages(let pages) = try XCTUnwrap(state.document).content else { return XCTFail("Expected EPUB reader") }
-            let bounds = try await pages.bounds(target)
             let actual = canvas.convert(scroll.contentView.bounds.origin, from: scroll.contentView)
             if canvas.bounds.width > scroll.contentView.bounds.width {
-                XCTAssertEqual(actual.x * bounds.width / canvas.bounds.width, initial.x ?? 0, accuracy: 1)
+                XCTAssertEqual(actual.x * bounds.width / canvas.bounds.width, expected.x ?? 0, accuracy: 1)
             } else {
                 XCTAssertEqual(actual.x, (canvas.bounds.width - scroll.contentView.bounds.width) / 2, accuracy: 1, "A page narrower than the viewport must stay centered")
             }
-            XCTAssertEqual(actual.y * bounds.height / canvas.bounds.height, initial.y ?? 0, accuracy: 1, "The actual native page must retain its restored offset")
+            XCTAssertEqual(actual.y * bounds.height / canvas.bounds.height, expectedY, accuracy: 1, "The actual native page must show the restored source point")
+            XCTAssertEqual(expectedLocation, PageLocation(chapter: target.chapter, page: 0), "The saved paged source must arrive in its natural chapter")
+            XCTAssertGreaterThan(bounds.height, scroll.contentView.bounds.height)
         }
     }
 
@@ -241,13 +664,16 @@ final class RasterReaderTests: XCTestCase {
         _ = NSApplication.shared
         let input = try htmlFixture(String(repeating: "<p>A visible paragraph for scrolling through recycled page views.</p>", count: 300))
         let pages = try Pages(input, format: .html)
-        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light")
-        let state = ReaderState(), table = await pages.chapterLayout
+        let state = ReaderState()
         state.document = ReadingDocument(url: input, content: .pages(pages)); state.reflowable = true
-        state.applyChapterLayout(table)
+        state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32; state.font = "system"; state.theme = "light"
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                     userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 480, height: 0))
+        state.applyChapterLayout(await pages.chapterLayout)
         state.flow = "continuous"; state.fit = "actual"; state.zoom = 1
         state.spread = false; state.rotation = 0; state.freePan = false; state.trimEmptyMargins = false
         state.automaticLayout = false; state.uniformPageWidth = false
+        state.scrollbarMode = "hidden"
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 480, height: 400), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
@@ -268,9 +694,13 @@ final class RasterReaderTests: XCTestCase {
             } while Date() < deadline
             _ = try XCTUnwrap(condition() ? true : nil, "The native raster view did not reach its requested position (page \(state.page), y \(state.readerScrollView?.contentView.bounds.minY ?? -1))", line: line)
         }
-        try await waitFor { state.readerScrollView != nil }
+        try await waitFor {
+            state.readerScrollView != nil && RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
+        }
         let scroll = try XCTUnwrap(state.readerScrollView), clip = scroll.contentView
         let pageHeight = try await pages.bounds(0).height
+        XCTAssertEqual(state.count, 1, "A continuous HTML document is one natural chapter")
+        XCTAssertGreaterThan(pageHeight, clip.bounds.height)
         func actualOffset() -> CGFloat? {
             guard let canvas = state.readerFocusView, canvas.bounds.height > 0 else { return nil }
             return canvas.convert(clip.bounds.origin, from: clip).y * pageHeight / canvas.bounds.height
@@ -292,26 +722,39 @@ final class RasterReaderTests: XCTestCase {
             XCTAssertGreaterThan(target, clip.bounds.height)
             NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
             clip.scroll(to: NSPoint(x: 0, y: target)); scroll.reflectScrolledClipView(clip)
-            try await waitFor { state.page > 0 && clip.bounds.minY > clip.bounds.height }
+            try await waitFor {
+                state.page == 0 && clip.bounds.minY > clip.bounds.height && (actualOffset() ?? 0) > clip.bounds.height &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: 0))
+            }
             XCTAssertTrue(dragSource.enclosingScrollView === scroll, "The active drag/selection source must survive leaving the viewport")
             window.makeFirstResponder(nil)
             for _ in 0..<5 {
                 try await Task.sleep(nanoseconds: 20_000_000); paint()
                 XCTAssertGreaterThan(clip.bounds.minY, clip.bounds.height, "Rendering a recycled page must not restore the first page")
+                XCTAssertEqual(clip.bounds.minY, target, accuracy: 1, "Once consumed, a navigation request must not replay when new chapter tiles appear")
             }
             let page = state.page
             let restoreRevision = state.command.revision + 2
             state.send(.restore(.init(page: page, y: 40))); state.send(.none)
-            try await waitFor { state.command.revision >= restoreRevision && state.command.action == .none && state.page == page && abs((actualOffset() ?? -1) - 40) < 1 }
+            try await waitFor {
+                state.command.revision >= restoreRevision && state.command.action == .none && state.page == page && abs((actualOffset() ?? -1) - 40) < 1 &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: page))
+            }
             for zoom in [1.2, 0.85, 1.5] {
                 let zoomRevision = state.command.revision + 2
                 state.setZoom(zoom); state.send(.none)
                 paint()
-                try await waitFor { state.command.revision >= zoomRevision && state.command.action == .none && state.page == page && abs((actualOffset() ?? -1) - 40) < 1 }
+                try await waitFor {
+                    state.command.revision >= zoomRevision && state.command.action == .none && state.page == page && abs((actualOffset() ?? -1) - 40) < 1 &&
+                    RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: page))
+                }
             }
             NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
             clip.scroll(to: .zero); scroll.reflectScrolledClipView(clip)
-            try await waitFor { state.page == 0 }
+            try await waitFor {
+                state.page == 0 && abs(actualOffset() ?? -1) < 1 &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: 0))
+            }
         }
 
     }
@@ -1408,7 +1851,8 @@ final class RasterReaderTests: XCTestCase {
             columns: 1, rotation: 0, fit: "custom", zoom: 64, maximumZoom: 64)
         XCTAssertGreaterThan(high.pixelWidth, 16384)
         XCTAssertGreaterThan(high.tileResolution, 0)
-        XCTAssertLessThan(high.image.bytesPerRow * high.image.height, 16 * 1024 * 1024,
+        let highImage = try XCTUnwrap(high.image)
+        XCTAssertLessThan(highImage.bytesPerRow * highImage.height, 16 * 1024 * 1024,
             "The high-zoom placeholder must not allocate a full high-resolution page")
         let visible = CGRect(x: bounds.minX + 210, y: bounds.minY + 200, width: 8, height: 6)
         let highTiles = RasterLayout.tiles(bounds: bounds, pixelWidth: high.pixelWidth, resolution: high.tileResolution, visible: visible)
@@ -1481,7 +1925,7 @@ final class RasterReaderTests: XCTestCase {
         catch is CancellationError {} catch { throw error }
         let next = try await pages.render(0, viewport: CGSize(width: 420, height: 595), scale: 1,
             columns: 1, rotation: 0, fit: "actual", zoom: 1)
-        XCTAssertEqual(next.image.width, 420)
+        XCTAssertEqual(try XCTUnwrap(next.image).width, 420)
         let tile = try await pages.image(PageLocation(page: 0), width: 420,
             region: CGRect(x: 0, y: 0, width: 64, height: 48))
         XCTAssertEqual(tile.width, 64); XCTAssertEqual(tile.height, 48)

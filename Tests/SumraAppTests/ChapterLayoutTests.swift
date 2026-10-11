@@ -110,7 +110,8 @@ final class ChapterLayoutTests: XCTestCase {
         let oldTable = try await pages.ensureFullLayout()
         XCTAssertGreaterThan(oldTable.pageCount(0), 2)
         let location = PageLocation(chapter: 0, page: oldTable.pageCount(0) / 2)
-        let position = try await pages.position(location, x: 7, y: 11)
+        var position = try await pages.position(location, x: 7, y: 11)
+        position.nativePassage = nil // Legacy reading records store only chapter progress.
         let saved = try bookmark(position)
         _ = try await layout(pages, size: 30)
         let restored = try await pages.restore(position), newTable = await pages.chapterLayout

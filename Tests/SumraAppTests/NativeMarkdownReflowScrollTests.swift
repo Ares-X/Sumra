@@ -7,11 +7,87 @@ import XCTest
 
 @MainActor
 final class NativeMarkdownReflowScrollTests: XCTestCase {
+    func testInitialNaturalRestoreUsesVisiblePassageAtMarginsAndLineBoundaries() async throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = directory.url.appendingPathComponent("InitialViewport.md")
+        try (0..<80).map { "Visible paragraph \($0): 中文 English text wraps across its reading line.\n\n" }.joined()
+            .write(to: input, atomically: true, encoding: .utf8)
+        let viewport = CGSize(width: 620, height: 160)
+        for boundary in [0, 1, 2] {
+            let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                         pageSize: CGSize(width: viewport.width, height: 0))
+            let words = try await pages.words(0)
+            let first = try XCTUnwrap(words.first { $0.source != nil && !$0.text.allSatisfy(\.isWhitespace) })
+            let later = try XCTUnwrap(words.first { $0.source != nil && !$0.text.allSatisfy(\.isWhitespace)
+                && $0.bounds.minY > first.bounds.maxY })
+            let y: Double = boundary == 0 ? 0 : Double(later.bounds.minY + (boundary == 2 ? later.bounds.height / 2 : 0))
+            if boundary == 0 {
+                XCTAssertGreaterThan(first.bounds.minY, 0, "This case begins above text in the top margin")
+                XCTAssertLessThan(first.bounds.minY, viewport.height)
+            }
+            let fullPage = try await pages.position(page: 0, x: 0, y: y)
+            let expected = try XCTUnwrap(fullPage.nativePassage)
+            let initial = try await pages.restore(.init(page: 0, x: 0, y: y), viewport: viewport)
+            XCTAssertEqual(initial.nativePassage?.source, expected.source,
+                           "Visible text must select the same source at a margin, line top or partially visible line")
+            XCTAssertEqual(initial.x, 0)
+            XCTAssertEqual(try XCTUnwrap(initial.y), y, accuracy: 0.001)
+            for zoom in [1.5, 1.0] {
+                _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light", textZoom: zoom)
+                let restored = try await pages.restore(initial, viewport: viewport)
+                XCTAssertEqual(restored.nativePassage?.source, expected.source,
+                               "Initial viewport capture must remain the source owner after typography reflow")
+            }
+        }
+    }
+
+    func testInitialNaturalRestoreKeepsPixelsWhenViewportContainsOnlyArtworkOrBlankPaper() async throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 16, pixelsHigh: 640,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 64, bitsPerPixel: 32))
+        let pixels = try XCTUnwrap(bitmap.bitmapData)
+        for offset in stride(from: 0, to: 64 * 640, by: 4) {
+            pixels[offset] = 90; pixels[offset + 1] = 120; pixels[offset + 2] = 180; pixels[offset + 3] = 255
+        }
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            .write(to: directory.url.appendingPathComponent("artwork.png"))
+        let viewport = CGSize(width: 620, height: 120)
+        for artwork in [false, true] {
+            let input = directory.url.appendingPathComponent(artwork ? "Artwork.md" : "Blank.md")
+            let body = "Text after the authored area.\n\n" + String(repeating: "Further body text.\n\n", count: 40)
+            try ((artwork ? "![](artwork.png)\n\n" : "") + body)
+                .write(to: input, atomically: true, encoding: .utf8)
+            let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+            let css = artwork ? "img { width: 400pt; height: 640pt; }" : "body { padding-top: 640pt; }"
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                         userCSS: css, pageSize: CGSize(width: viewport.width, height: 0))
+            let words = try await pages.words(0)
+            let first = try XCTUnwrap(words.first { $0.source != nil && !$0.text.allSatisfy(\.isWhitespace) })
+            XCTAssertGreaterThan(first.bounds.minY, viewport.height, "The complete initial viewport must precede body text")
+            let restored = try await pages.restore(.init(page: 0, x: 0, y: 10), viewport: viewport)
+            XCTAssertNil(restored.nativePassage, "An initial artwork or blank viewport must not acquire distant body text")
+            XCTAssertEqual(restored.page, 0)
+            XCTAssertEqual(restored.x, 0)
+            XCTAssertEqual(restored.y, 10)
+            let reported = try await pages.position(page: 0, x: 0, y: 10, viewport: viewport)
+            XCTAssertNil(reported.nativePassage)
+            XCTAssertEqual(reported.x, restored.x)
+            XCTAssertEqual(reported.y, restored.y)
+        }
+    }
+
     func testFittingPageRoundtripRetainsPassageAfterScrollReports() async throws {
         try await withReader(flow: "paged") { state, pages, host in
             let original = try XCTUnwrap(state.currentPosition.nativePassage)
             let originalPage = state.page
             let originalText = try await pages.text(originalPage)
+            let initialWords = try await pages.words(originalPage)
+            XCTAssertTrue(initialWords.contains { $0.source == original.source },
+                          "The captured viewport passage must belong to the finite page being displayed")
             for zoom in [1.5, 1.0] {
                 let revision = state.renderRevision
                 if zoom == 1 { state.setActualSize() } else { state.setZoom(zoom) }
@@ -353,28 +429,41 @@ final class NativeMarkdownReflowScrollTests: XCTestCase {
         try (text ?? (0..<400).map { "Boundary paragraph \(String(format: "%06d", $0)).\n\n" }.joined())
             .write(to: input, atomically: true, encoding: .utf8)
         let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
-        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light")
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: input, content: .pages(pages), markdownPreference: .paged, markdownRenderer: .paged)
         state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32; state.font = "system"; state.theme = "light"
         state.zoom = 1; state.fit = fit; state.flow = flow; state.spread = false; state.cover = false
         state.trimEmptyMargins = false; state.uniformPageWidth = false; state.automaticLayout = false
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                     userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 900, height: flow == "continuous" ? 0 : viewportHeight))
         state.reflowable = true; state.count = await pages.count; state.chapterLayout = await pages.chapterLayout
-        let target = state.count / 2
-        state.updatePosition(.init(page: target))
+        if flow == "continuous" {
+            let bounds = try await pages.bounds(0)
+            state.updatePosition(try await pages.position(page: 0, y: Double(bounds.height / 2)))
+        } else {
+            let target = state.count / 2
+            state.updatePosition(.init(page: target))
+        }
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 900, height: viewportHeight), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
         try await wait(host, state: state) {
-            RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(target)) && state.currentPosition.nativePassage != nil
+            RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page)) && state.currentPosition.nativePassage != nil
         }
         try await settle(host)
         try await body(state, pages, host)
     }
 
     private func settle(_ host: NSView) async throws {
-        for _ in 0..<30 { host.layoutSubtreeIfNeeded(); try await Task.sleep(nanoseconds: 10_000_000) }
+        for _ in 0..<30 { paintViewport(host); try await Task.sleep(nanoseconds: 10_000_000) }
+    }
+
+    private func paintViewport(_ host: NSView) {
+        host.layoutSubtreeIfNeeded()
+        if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+        }
     }
 
     private func highlightedMatch(_ state: ReaderState) -> RasterMatch? {
@@ -391,7 +480,7 @@ final class NativeMarkdownReflowScrollTests: XCTestCase {
                       until predicate: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(15)
         while !predicate(), state.error == nil, Date() < deadline {
-            host.layoutSubtreeIfNeeded(); try await Task.sleep(nanoseconds: 10_000_000)
+            paintViewport(host); try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertNil(state.error, file: file, line: line)
         XCTAssertTrue(predicate(), "Timed out waiting for mounted Markdown reader; page=\(state.page), target=\(state.selectedSearchTarget ?? "nil"), count=\(state.searchCountText), capped=\(state.searchCountCapped)", file: file, line: line)

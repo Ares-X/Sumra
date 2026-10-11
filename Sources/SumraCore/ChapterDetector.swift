@@ -30,7 +30,7 @@ public enum ChapterDetector{
     private static func scan(_ text:String,chapters:Bool)->(lines:[Int],chapters:[DetectedChapter]){
         let value=text as NSString
         var offsets=[0],end=0,contentsEnd=0,line=0,previousBlank=true
-        var candidates:[(Int,String,Int)]=[]
+        var candidates:[(Int,String,Int,Bool)]=[]
         while end<value.length{
             if Task.isCancelled{return([],[])}
             let start=end
@@ -43,12 +43,17 @@ public enum ChapterDetector{
                 if first != NSNotFound{
                     let last=value.rangeOfCharacter(from:titleCharacters,options:.backwards,range:raw)
                     let title=value.substring(with:NSRange(location:first,length:NSMaxRange(last)-first))
-                    // Stop after 81 graphemes; a long prose line need not be counted in full.
-                    if title.index(title.startIndex,offsetBy:81,limitedBy:title.endIndex)==nil,!endsLikeProse(title){
-                        let range=NSRange(title.startIndex..<title.endIndex,in:title)
-                        if let family=patterns.firstIndex(where:{$0.firstMatch(in:title,range:range) != nil}){
-                            candidates.append((line,title,family*3+(previousBlank ? 1:0)))
-                        }
+                    let range=NSRange(location:0,length:(title as NSString).length)
+                    // Ordinary prose need not traverse graphemes to reject a heading.
+                    // Keep the 80-grapheme limit for the structural candidates.
+                    if let (family,match)=patterns.lazy.enumerated().compactMap({i,p in p.firstMatch(in:title,range:range).map{(i,$0)}}).first,
+                       title.index(title.startIndex,offsetBy:81,limitedBy:title.endIndex)==nil,!endsLikeProse(title){
+                        let tail=family==0 ? (title as NSString).substring(from:NSMaxRange(match.range(at:1))):""
+                        // A compact numbered line with sentence punctuation can be a hard-wrapped
+                        // body fragment. Require a paragraph boundary unless its title is separated.
+                        let needsBoundary=tail.first.map{!$0.isWhitespace && !"-—:：".contains($0)}==true
+                            && tail.contains{"，,。！？!?；;".contains($0)}
+                        candidates.append((line,title,family*3+(previousBlank ? 1:0),needsBoundary))
                     }
                 }
                 previousBlank=blank
@@ -60,11 +65,15 @@ public enum ChapterDetector{
         // The final candidate borders either the end of the document or its empty terminal line.
         if let last=candidates.indices.last,candidates[last].0==line-1{candidates[last].2+=1}
         guard !Task.isCancelled else{return([],[])}
+        let shaped=candidates.filter{!$0.3 || $0.2%3>0}
         var families:[Int:Int]=[:]
-        for c in candidates{families[c.2/3,default:0]+=1}
-        let accepted=candidates.filter{let family=$0.2/3,isolation=$0.2%3;return (families[family] ?? 0)>=2 || isolation==2}
+        for c in shaped{families[c.2/3,default:0]+=1}
+        let accepted=shaped.filter{
+            let family=$0.2/3,isolation=$0.2%3
+            return (families[family] ?? 0)>=2 || isolation==2
+        }
         let grouped=accepted.contains{depth($0.1)==0}
-        return (offsets,accepted.map{line,title,_ in DetectedChapter(title:title,line:line,depth:grouped ? depth(title):0)})
+        return (offsets,accepted.map{line,title,_,_ in DetectedChapter(title:title,line:line,depth:grouped ? depth(title):0)})
     }
 
     private static func endsLikeProse(_ s:String)->Bool{"。！？!?；;，,".contains(s.last ?? " ")}

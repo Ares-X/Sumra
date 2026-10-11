@@ -6,7 +6,7 @@ import SumraCore
 struct SettingsView:View{
     @AppStorage("appIcon") private var appIcon = "light"
     @AppStorage("language") private var language = "system"
-    @AppStorage("theme") private var theme="system"
+    @AppStorage("theme") private var theme = ReaderTheme.all[0].id
     @AppStorage("flow") private var flow="paged"
     @AppStorage("scrollbarMode") private var scrollbarMode = "smart"
     @AppStorage("fit") private var fit="page"

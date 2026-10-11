@@ -201,6 +201,7 @@ struct ReadingPosition: Codable, Hashable {
     var invertColors: Bool?
     var grayscale: Bool?
     var documentColors: String?
+    var enhanceScannedPages: Bool?
     var preservePDFImages: Bool?
     var engineeringEnhance: String?
     var customTextColor: UInt32?
@@ -212,7 +213,7 @@ struct ReadingPosition: Codable, Hashable {
     var pdfCoordinateSpace: String?
 
     enum CodingKeys: String, CodingKey {
-        case page, pageCount, x, y, anchor, markdownPassage, nativePassage, markdownRenderer, zoom, fit, flow, spread, rtl, cover, rotation, font, fontSize, lineHeight, margin, theme, userCSS, useDocumentCSS, automaticLayout, invertColors, grayscale, documentColors, preservePDFImages, engineeringEnhance, customTextColor, customBackgroundColor, pageMargins, scrollbarMode, pdfCoordinateSpace
+        case page, pageCount, x, y, anchor, markdownPassage, nativePassage, markdownRenderer, zoom, fit, flow, spread, rtl, cover, rotation, font, fontSize, lineHeight, margin, theme, userCSS, useDocumentCSS, automaticLayout, invertColors, grayscale, documentColors, enhanceScannedPages, preservePDFImages, engineeringEnhance, customTextColor, customBackgroundColor, pageMargins, scrollbarMode, pdfCoordinateSpace
     }
 
     func convertingPDFCoordinates(_ transform: CGAffineTransform) -> ReadingPosition {
@@ -327,10 +328,11 @@ final class ReaderState: ObservableObject {
     @Published var lineHeight = 1.6
     @Published var margin = 32.0
     @Published var pageMargins: PageMargins?
-    @Published var theme = "system"
+    @Published var theme = ReaderTheme.all[0].id
     @Published var invertColors = false
     @Published var grayscale = false
     @Published var documentColors = "off"
+    @Published var enhanceScannedPages = true
     @Published var preservePDFImages = true
     @Published var engineeringEnhance = "off"
     @Published var customTextColor: UInt32?
@@ -343,6 +345,7 @@ final class ReaderState: ObservableObject {
     @Published var searchable = false
     @Published var renderRevision = 0
     var location = ReadingPosition()
+    var pendingReflowPosition: ReadingPosition?
     @Published var selectedText = ""
     @Published var searchResults: [ContentsItem] = [] {
         didSet { if searchResults.isEmpty { selectedSearchTarget = nil; searchCountCapped = false; searchCounting = false } }
@@ -529,6 +532,10 @@ extension ReaderState {
     }
 
     var isNativeMarkdown: Bool { document?.markdownRenderer == .paged }
+    var isNativeReflow: Bool {
+        guard reflowable, case .pages = document?.content else { return false }
+        return true
+    }
     var rasterZoom: Double { isNativeMarkdown ? 1 : zoom }
     var markdownRendererSelection: MarkdownRenderer? { document?.markdownPreference }
 
@@ -544,17 +551,23 @@ extension ReaderState {
         return false
     }
 
-    var supportsPagination: Bool { isFixed }
+    var supportsPagination: Bool { isFixed || isText || isBrowser }
+    var continuousReflow: Bool { reflowable && flow == "continuous" && !presentation }
 
     var supportsSearch: Bool { isPDF || isText || isBrowser || searchable }
     var supportsSearchPageRange: Bool { isFixed && supportsSearch && !reflowable }
     var hasDocument: Bool { document != nil }
     var recordsDocumentHistory: Bool { recordsHistory && !UserDefaults.standard.bool(forKey: "disableHistory") }
     var documentPassword: String { password ?? "" }
-    var canGoBackward: Bool { isBrowser ? hasDocument : page > 0 && count > 0 }
+    var canGoBackward: Bool {
+        if isBrowser { return hasDocument }
+        if isText, let previous = TextReader.canGoBackward(in: readerFocusView) { return previous }
+        return page > 0 && count > 0
+    }
     var canGoForward: Bool {
         if isBrowser { return hasDocument }
-        return visiblePages.upperBound < count && (!isText || !ReaderScroll.isAtTextEnd(readerFocusView as? NSTextView))
+        if isText, readerFocusView != nil { return !TextReader.isAtEnd(in: readerFocusView) }
+        return visiblePages.upperBound < count
     }
     var visiblePages: Range<Int> { PageRows.range(page: page, count: count, spread: spread && isFixed && !presentation, cover: cover, landscape: landscapeAsSpread ? landscapePages : []) }
     var canSaveCopy: Bool { document?.url.hasDirectoryPath == false }
@@ -591,6 +604,7 @@ extension ReaderState {
         position.invertColors = invertColors
         position.grayscale = grayscale
         position.documentColors = documentColors
+        position.enhanceScannedPages = enhanceScannedPages
         position.preservePDFImages = preservePDFImages
         position.engineeringEnhance = engineeringEnhance
         position.customTextColor = customTextColor
@@ -650,7 +664,7 @@ extension ReaderState {
         return ReaderTheme(id: "custom", name: "Custom", text: customTextColor ?? base.text, background: customBackgroundColor ?? base.background, link: base.link)
     }
 
-    var effectiveUserCSS: String { (palette.id == "light" ? "" : palette.css + "\n") + userCSS }
+    var effectiveUserCSS: String { palette.css + "\n" + userCSS }
 
     var zoomLabel: String {
         if isNativeMarkdown || isText || isBrowser || fit == "custom" || fit == "actual" {
@@ -750,6 +764,11 @@ extension ReaderState {
         if (isBrowser || isNativeMarkdown), case .zoom = action, case .zoom? = pendingActions.last {
             pendingActions.removeLast()
         }
+        // Window resizing and mode changes replace the pending absolute layout.
+        // Keep navigation between them in order while using the latest viewport.
+        if (reflowable || isText || isBrowser), action == .style, pendingActions.last == .style {
+            pendingActions.removeLast()
+        }
         pendingActions.append(action)
         dispatchCommand()
     }
@@ -825,7 +844,7 @@ extension ReaderState {
     }
     func updatePosition(_ position: ReadingPosition, preservingNativePassage: Bool = false) {
         var position = position
-        if preservingNativePassage, isNativeMarkdown, position.nativePassage == nil {
+        if preservingNativePassage, isNativeReflow, position.nativePassage == nil {
             // A restored glyph remains the reflow target when AppKit clamps
             // its viewport point. User input and explicit navigation replace it.
             position.nativePassage = location.nativePassage
@@ -854,14 +873,16 @@ extension ReaderState {
 
     private func refreshNativePassage() {
         nativePassageTask?.cancel(); nativePassageTask = nil
-        guard isNativeMarkdown, location.nativePassage == nil,
+        guard isNativeReflow, location.nativePassage == nil,
               case .pages(let pages) = document?.content, let documentID = document?.id else { return }
         let snapshot = currentPosition, revision = renderRevision
+        let region = RasterReader.visiblePageBounds(in: readerFocusView, pages: pages, location: pageLocation(snapshot.page))
+        if continuousReflow, region == nil { return }
         let theme = resolvedTheme, css = effectiveUserCSS
         nativePassageTask = Task {
             do {
                 try await Task.sleep(nanoseconds: 100_000_000)
-                let passage = try await pages.capturePassage(snapshot, theme: theme, userCSS: css)
+                let passage = try await pages.capturePassage(snapshot, theme: theme, userCSS: css, region: region)
                 guard !Task.isCancelled, document?.id == documentID, renderRevision == revision,
                       page == snapshot.page, location.x == snapshot.x, location.y == snapshot.y,
                       let passage else { return }
@@ -874,7 +895,7 @@ extension ReaderState {
     }
 
     func discardNativePassage() {
-        guard isNativeMarkdown, location.nativePassage != nil else { return }
+        guard isNativeReflow, location.nativePassage != nil else { return }
         var position = location; position.nativePassage = nil
         updatePosition(position)
     }
@@ -1213,12 +1234,19 @@ extension ReaderState {
         guard let hit = scroll.hitTest(point), hit === scroll || hit.enclosingScrollView === scroll else { return false }
         if event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 { discardNativePassage() }
         guard flow != "continuous" || presentation else { return false }
-        guard event.scrollingDeltaY != 0, abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) else { return false }
+        let horizontal = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+        let delta = horizontal ? event.scrollingDeltaX : event.scrollingDeltaY
+        guard delta != 0 else { return false }
         if wheelTurnedPage { return true }
-        let direction: ReaderScrollDirection = event.scrollingDeltaY > 0 ? .up : .down
+        let direction: ReaderScrollDirection = horizontal ? (delta > 0 ? .left : .right) : (delta > 0 ? .up : .down)
         var probe = clip.bounds
-        probe.origin.y += (direction == .up ? -1 : 1) * (canvas.isFlipped ? 1 : -1)
-        if fit != "content", abs(clip.constrainBoundsRect(probe).minY - clip.bounds.minY) > 0.5 { return false }
+        if horizontal {
+            probe.origin.x += delta > 0 ? -1 : 1
+            if abs(clip.constrainBoundsRect(probe).minX - clip.bounds.minX) > 0.5 { return false }
+        } else {
+            probe.origin.y += (direction == .up ? -1 : 1) * (canvas.isFlipped ? 1 : -1)
+            if fit != "content", abs(clip.constrainBoundsRect(probe).minY - clip.bounds.minY) > 0.5 { return false }
+        }
         // CanvasOnMouseWheel turns only after page scrolling reaches its edge.
         // The existing page command also owns previous-page-at-bottom and form
         // commits. One touch gesture may turn once; its inertia must not skip pages.
@@ -1231,7 +1259,8 @@ extension ReaderState {
                   RasterReader.pageIsRendered(in: readerFocusView, pages: pages, location: pageLocation(page)) else { return true }
         }
         wheelPageTurnTime = event.timestamp
-        self.scroll(direction, amount: .page)
+        if horizontal { turn(((direction == .right) != rtl) ? 1 : -1) }
+        else { self.scroll(direction, amount: .page) }
         return true
     }
 
@@ -1245,7 +1274,7 @@ extension ReaderState {
 
     func turn(_ delta: Int, count steps: Int = 1) {
         guard steps > 0 else { return }
-        if isBrowser || (chapterLayout?.chapterCount ?? 1) > 1 {
+        if isBrowser || isText || (chapterLayout?.chapterCount ?? 1) > 1 {
             send(.turnPages(delta > 0 ? steps : -steps))
             return
         }
@@ -1437,15 +1466,24 @@ extension ReaderState {
     }
     func zoomToSelection() { if canZoomToSelection { send(.zoomToSelection) } }
 
-    func setFlow(_ value: String) {
-        if deferForNativePDFForm({ [weak self] in self?.setFlow(value) }) { return }
-        automaticLayout = false
-        flow = value
-        UserDefaults.standard.set(value, forKey: "flow")
-        if isBrowser { send(.style) }
+    func captureReflowPosition() {
+        guard reflowable, pendingReflowPosition == nil else { return }
+        RasterReader.recordPosition(in: readerScrollView?.documentView)
+        pendingReflowPosition = currentPosition
     }
 
-    func applyTypography() {
+    func setFlow(_ value: String) {
+        if deferForNativePDFForm({ [weak self] in self?.setFlow(value) }) { return }
+        if flow != value { captureReflowPosition() }
+        automaticLayout = false
+        if value == "continuous", reflowable || isText || isBrowser { spread = false }
+        flow = value
+        UserDefaults.standard.set(value, forKey: "flow")
+        if isBrowser || isText { send(.style) }
+    }
+
+    func applyTypography(overrideDocumentStyles: Bool = false) {
+        if overrideDocumentStyles && isCHM { useDocumentCSS = false }
         persist()
         if typographyForAll {
         let defaults = UserDefaults.standard
@@ -1632,12 +1670,13 @@ extension ReaderState {
         }
         // Closing a window can precede the debounced scroll capture. Retain the
         // decoder just for this source lookup, and upgrade only this snapshot.
-        if isNativeMarkdown, position.nativePassage == nil, case .pages(let pages) = document.content {
+        if isNativeReflow, position.nativePassage == nil, case .pages(let pages) = document.content {
             let theme = resolvedTheme, css = effectiveUserCSS
+            let region = RasterReader.visiblePageBounds(in: readerFocusView, pages: pages, location: pageLocation(position.page))
             let key = "position:" + document.url.standardizedFileURL.path
             Task {
                 do {
-                    guard let passage = try await pages.capturePassage(position, theme: theme, userCSS: css) else { return }
+                    guard let passage = try await pages.capturePassage(position, theme: theme, userCSS: css, region: region) else { return }
                     var exact = position; exact.nativePassage = passage
                     let upgraded = try JSONEncoder().encode(exact)
                     if UserDefaults.standard.data(forKey: key) == data { UserDefaults.standard.set(upgraded, forKey: key) }
@@ -1779,15 +1818,16 @@ extension ReaderState {
         alert.addButton(withTitle: L("Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn, document?.id == reading.id, document?.url == url else { return }
         let title = field.stringValue, theme = resolvedTheme, css = effectiveUserCSS
-        guard reading.markdownRenderer == .paged, case .pages(let pages) = reading.content else {
+        guard isNativeReflow, case .pages(let pages) = reading.content else {
             bookmarks.append(.init(title: title, path: url.path, position: position))
             saveBookmarks(); showBookmarks = true
             return
         }
+        let region = RasterReader.visiblePageBounds(in: readerFocusView, pages: pages, location: pageLocation(position.page))
         Task {
             var position = position
             do {
-                position.nativePassage = try await pages.capturePassage(position, theme: theme, userCSS: css)
+                position.nativePassage = try await pages.capturePassage(position, theme: theme, userCSS: css, region: region)
                 guard document?.id == reading.id, document?.url == url else { return }
                 bookmarks.append(.init(title: title, path: url.path, position: position))
                 saveBookmarks(); showBookmarks = true
@@ -2060,6 +2100,7 @@ private extension ReaderState {
         browserTemporary = nil; selectionScreenBounds = nil; nativePDFSignatureSelection = nil; nativePDFInverseSearchPosition = nil; nativePDFCursorPosition = nil
         readerScrollView = nil
         readerFocusView = nil
+        pendingReflowPosition = nil
         wheelTurnedPage = false
         wheelPageTurnTime = nil
         zoomLimit = configuredZoomMaximum
@@ -2303,6 +2344,7 @@ private extension ReaderState {
         if let value = position.invertColors { invertColors = value }
         if let value = position.grayscale { grayscale = value }
         if let value = position.documentColors { documentColors = value }
+        if let value = position.enhanceScannedPages { enhanceScannedPages = value }
         if let value = position.preservePDFImages { preservePDFImages = value }
         if let value = position.engineeringEnhance { engineeringEnhance = value }
         if position.documentColors != nil || position.customTextColor != nil || position.customBackgroundColor != nil {
@@ -2341,6 +2383,7 @@ private extension ReaderState {
         invertColors = defaults.bool(forKey: "invertColors")
         grayscale = defaults.bool(forKey: "grayscale")
         documentColors = defaults.string(forKey: "documentColors") ?? "off"
+        enhanceScannedPages = defaults.object(forKey: "enhanceScannedPages") as? Bool ?? true
         preservePDFImages = defaults.object(forKey: "preservePDFImages") as? Bool ?? true
         engineeringEnhance = defaults.string(forKey: "engineeringEnhance") ?? "off"
         customTextColor = nil; customBackgroundColor = nil
@@ -2351,7 +2394,7 @@ private extension ReaderState {
         cover = defaults.bool(forKey: "cover")
         showContents = defaults.bool(forKey: "showContentsOnOpen")
         font = defaults.string(forKey: "font") ?? "system"
-        theme = defaults.string(forKey: "theme") ?? "system"
+        theme = defaults.string(forKey: "theme") ?? ReaderTheme.all[0].id
         userCSS = defaults.string(forKey: "userCSS") ?? ""
         useDocumentCSS = defaults.object(forKey: "useDocumentCSS") as? Bool ?? true
         fontSize = defaults.object(forKey: "fontSize") == nil ? 17 : defaults.double(forKey: "fontSize")

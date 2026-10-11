@@ -7,6 +7,373 @@ import SumraCore
 
 final class TextLayoutTests: XCTestCase {
     @MainActor
+    func testThemeChangeRetainsDistantContinuousSourcePosition() async throws {
+        let text = (0..<40_000).map { index in
+            index % 2 == 0 ? "Paragraph \(index): " + String(repeating: "中文 English neutral text. ", count: 1 + index % 11) + "\n" : "\n"
+        }.joined()
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        window.setContentSize(NSSize(width: 1_200, height: 700))
+        state.theme = "dark"
+        try await navigate(.style, state: state, host: host)
+        try await navigate(.page(24_000), state: state, host: host)
+        await settle(host)
+        let saved = state.currentPosition
+        let before = visibleTextLines(in: view).map { ($0.range, $0.rect.minY - view.visibleRect.minY) }
+        XCTAssertFalse(before.isEmpty)
+
+        state.theme = "light"
+        try await navigate(.style, state: state, host: host)
+        await settle(host)
+        let after = visibleTextLines(in: view).map { ($0.range, $0.rect.minY - view.visibleRect.minY) }
+        XCTAssertEqual(state.location.anchor, saved.anchor)
+        XCTAssertEqual(state.location.y ?? 0, saved.y ?? 0, accuracy: 0.5)
+        XCTAssertEqual(before.map { $0.0 }, after.map { $0.0 })
+        for (left, right) in zip(before, after) { XCTAssertEqual(left.1, right.1, accuracy: 0.5) }
+    }
+
+    @MainActor
+    func testContinuousPositionSurvivesRecreationAfterFacingPageNavigation() async throws {
+        let text = (0..<5_584).map { index in
+            index % 2 == 0 ? "Paragraph \(index): " + String(repeating: "中文 English neutral text. ", count: 1 + index % 11) + "\n" : "\n"
+        }.joined()
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        window.setContentSize(NSSize(width: 1_200, height: 700))
+        await settle(host)
+        state.fontSize += 1
+        try await navigate(.style, state: state, host: host)
+        state.fontSize -= 1
+        try await navigate(.style, state: state, host: host)
+        state.flow = "paged"
+        try await navigate(.style, state: state, host: host)
+        try await navigate(.turnPages(1), state: state, host: host)
+        try await navigate(.turnPages(1), state: state, host: host)
+        state.spread = true
+        try await navigate(.style, state: state, host: host)
+        try await navigate(.turnPages(1), state: state, host: host)
+        try await navigate(.turnPages(1), state: state, host: host)
+        state.spread = false; state.flow = "continuous"
+        try await navigate(.style, state: state, host: host)
+        try await navigate(.scroll(.down, .page), state: state, host: host)
+        await settle(host)
+        let saved = state.currentPosition
+        let before = visibleTextLines(in: view).map { ($0.range, $0.rect.minY - view.visibleRect.minY) }
+
+        let (againWindow, againHost, againView, again) = try await makeReader(text, withDocument: true, position: saved)
+        defer { close(againWindow) }
+        againWindow.setContentSize(NSSize(width: 1_200, height: 700))
+        await settle(againHost)
+        let after = visibleTextLines(in: againView).map { ($0.range, $0.rect.minY - againView.visibleRect.minY) }
+        XCTAssertEqual(again.location.anchor, saved.anchor)
+        XCTAssertEqual(again.location.y ?? 0, saved.y ?? 0, accuracy: 0.5)
+        XCTAssertEqual(before.map { $0.0 }, after.map { $0.0 })
+        for (left, right) in zip(before, after) { XCTAssertEqual(left.1, right.1, accuracy: 0.5) }
+    }
+
+    @MainActor
+    func testInitialInsertionUsesTheRequestedAttributesThroughoutTheBook() async throws {
+        let text = String(repeating: "English 中文 😀\n", count: 100)
+        let (window, _, view, state) = try await makeReader(text)
+        defer { close(window) }
+        let storage = try XCTUnwrap(view.textContentStorage?.textStorage)
+        XCTAssertEqual(view.string, text)
+        for offset in [0, storage.length / 2, storage.length - 1] {
+            let attributes = storage.attributes(at: offset, effectiveRange: nil)
+            XCTAssertEqual((attributes[.font] as? NSFont)?.pointSize, CGFloat(state.fontSize))
+            XCTAssertEqual((attributes[.paragraphStyle] as? NSParagraphStyle)?.lineHeightMultiple, CGFloat(state.lineHeight))
+            XCTAssertEqual(attributes[.foregroundColor] as? NSColor, ReaderTheme.color(state.palette.text))
+        }
+    }
+
+    @MainActor
+    func testLiveResizeRetainsTheReadingAnchorUntilItsFinalViewport() async throws {
+        let text = (0..<1_000).map { "Line \($0): " + String(repeating: "中文 English 😀 text. ", count: 8) + "\n" }.joined()
+        for spread in [false, true] {
+            let (window, host, view, state) = try await makeReader(text, withDocument: true)
+            defer { close(window) }
+            state.spread = spread; state.flow = spread ? "paged" : "continuous"
+            try await navigate(.style, state: state, host: host)
+            try await navigate(.page(200), state: state, host: host)
+            let saved = state.currentPosition
+            let readerHost = try XCTUnwrap(view.enclosingScrollView?.superview as? TextReaderHost)
+            readerHost.viewWillStartLiveResize()
+            for width in [490.0, 620.0, 400.0] {
+                window.setContentSize(NSSize(width: width, height: 180))
+                await settle(host)
+                XCTAssertEqual(state.location.anchor, saved.anchor)
+                XCTAssertEqual(state.location.y ?? 0, saved.y ?? 0, accuracy: 0.5)
+            }
+            readerHost.viewDidEndLiveResize()
+            await settle(host)
+            let rect = try XCTUnwrap(lineRect(at: try XCTUnwrap(Int(saved.anchor ?? "")), in: view))
+            XCTAssertTrue(rect.intersects(view.visibleRect))
+            XCTAssertEqual(view.visibleRect.minY - rect.minY, saved.y ?? 0, accuracy: 0.5)
+            XCTAssertEqual(state.location.anchor, saved.anchor)
+        }
+    }
+
+    @MainActor
+    func testNavigationDuringLiveResizeSupersedesTheStartingAnchor() async throws {
+        let text = (0..<1_000).map { "Line \($0): a paragraph.\n" }.joined()
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        try await navigate(.page(100), state: state, host: host)
+        let readerHost = try XCTUnwrap(view.enclosingScrollView?.superview as? TextReaderHost)
+        readerHost.viewWillStartLiveResize()
+        window.setContentSize(NSSize(width: 490, height: 180))
+        await settle(host)
+        try await navigate(.page(300), state: state, host: host)
+        readerHost.viewDidEndLiveResize()
+        await settle(host)
+        XCTAssertEqual(state.page, 300)
+    }
+
+    @MainActor
+    func testTextViewportTurnsWrappedParagraphsWithoutUsingSourceLines() async throws {
+        let text = String(repeating: "中文与 English 😀 mixed text。 ", count: 2_000)
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        state.flow = "paged"
+        try await navigate(.style, state: state, host: host)
+        XCTAssertEqual(state.count, 1)
+        XCTAssertFalse(state.canGoBackward)
+        try await navigate(.turnPages(1), state: state, host: host)
+        XCTAssertGreaterThan(try XCTUnwrap(Int(state.location.anchor ?? "")), 0)
+        XCTAssertEqual(state.page, 0, "The toolbar keeps the source line rather than inventing a whole-book page count")
+        XCTAssertTrue(state.canGoBackward, "A wrapped paragraph can move backward while its source line stays zero")
+        XCTAssertTrue(state.canGoForward)
+        try await navigate(.scroll(.right, .line), state: state, host: host)
+        let forward = try XCTUnwrap(Int(state.location.anchor ?? ""))
+        XCTAssertGreaterThan(forward, 0)
+        state.rtl = true
+        try await navigate(.scroll(.right, .line), state: state, host: host)
+        XCTAssertLessThan(try XCTUnwrap(Int(state.location.anchor ?? "")), forward)
+        XCTAssertNotNil(view.textLayoutManager)
+    }
+
+    @MainActor
+    func testTextNextPreviousRestoresSingleAndFacingPageBoundaries() async throws {
+        let text = (0..<1_000).map { index in
+            "Line \(index): " + String(repeating: "中文和 English 😀 text. ", count: 1 + index % 4) + "\n"
+        }.joined()
+        for spread in [false, true] {
+            let (window, host, view, state) = try await makeReader(text, withDocument: true)
+            defer { close(window) }
+            state.spread = spread; state.flow = "paged"
+            try await navigate(.style, state: state, host: host)
+            let beginning = state.currentPosition
+            if spread {
+                let facing = try XCTUnwrap((view.enclosingScrollView?.superview as? TextReaderHost)?.trailing?.documentView as? NSTextView)
+                XCTAssertEqual(NSMaxRange(try XCTUnwrap(visibleTextLines(in: view).last).range), try XCTUnwrap(visibleTextLines(in: facing).first).range.location)
+            }
+            try await navigate(.turnPages(1), state: state, host: host)
+            let second = state.currentPosition
+            XCTAssertGreaterThan(try XCTUnwrap(Int(second.anchor ?? "")), 0)
+            try await navigate(.turnPages(1), state: state, host: host)
+            let third = state.currentPosition
+            XCTAssertNotEqual(second.anchor, third.anchor)
+            try await navigate(.turnPages(-1), state: state, host: host)
+            XCTAssertEqual(state.location.anchor, second.anchor)
+            XCTAssertEqual(state.location.y ?? 0, second.y ?? 0, accuracy: 0.5)
+            try await navigate(.turnPages(-1), state: state, host: host)
+            XCTAssertEqual(state.location.anchor, beginning.anchor)
+            XCTAssertEqual(state.location.y ?? 0, beginning.y ?? 0, accuracy: 0.5)
+            try await navigate(.turnPages(1), state: state, host: host)
+            XCTAssertEqual(state.location.anchor, second.anchor)
+        }
+    }
+
+    @MainActor
+    func testTextArrowKeysTurnReadingPagesAndPreserveNativeSelection() async throws {
+        let text = (0..<1_000).map { "Line \($0): a short paragraph.\n" }.joined()
+        for flow in ["paged", "continuous"] {
+            for spread in [false, true] {
+                let (window, host, view, state) = try await makeReader(text, withDocument: true)
+                defer { close(window) }
+                state.flow = flow; state.spread = spread
+                try await navigate(.style, state: state, host: host)
+                let facing = (view.enclosingScrollView?.superview as? TextReaderHost)?.trailing?.documentView as? NSTextView
+                let input = try XCTUnwrap(spread ? facing : view)
+                func arrow(_ keyCode: UInt16, modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+                    let characters = keyCode == 123 ? "\u{f702}" : "\u{f703}"
+                    return try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                        context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                        isARepeat: false, keyCode: keyCode))
+                }
+                let beginning = state.currentPosition
+                input.keyDown(with: try arrow(124))
+                await settle(host)
+                XCTAssertGreaterThan(try XCTUnwrap(Int(state.location.anchor ?? "")), try XCTUnwrap(Int(beginning.anchor ?? "")))
+                view.keyDown(with: try arrow(123, modifiers: [.function, .numericPad]))
+                await settle(host)
+                XCTAssertEqual(state.location.anchor, beginning.anchor)
+                XCTAssertEqual(state.location.y ?? 0, beginning.y ?? 0, accuracy: 0.5)
+                state.rtl = true
+                try await navigate(.style, state: state, host: host)
+                input.keyDown(with: try arrow(123))
+                await settle(host)
+                XCTAssertGreaterThan(try XCTUnwrap(Int(state.location.anchor ?? "")), try XCTUnwrap(Int(beginning.anchor ?? "")))
+                view.keyDown(with: try arrow(124))
+                await settle(host)
+                XCTAssertEqual(state.location.anchor, beginning.anchor)
+
+                window.makeFirstResponder(view)
+                view.setSelectedRange(NSRange(location: 0, length: 0))
+                view.keyDown(with: try arrow(124, modifiers: .shift))
+                await settle(host)
+                XCTAssertEqual(view.selectedRange(), NSRange(location: 0, length: 1), "Shift-arrow must retain native text selection")
+                XCTAssertEqual(state.location.anchor, beginning.anchor)
+                state.keyboardTextSelection = true
+                view.setSelectedRange(NSRange(location: 0, length: 0))
+                view.keyDown(with: try arrow(124))
+                await settle(host)
+                XCTAssertEqual(view.selectedRange(), NSRange(location: 1, length: 0), "Opt-in text selection keeps bare arrows as caret movement")
+                XCTAssertEqual(state.location.anchor, beginning.anchor)
+            }
+        }
+    }
+
+    @MainActor
+    func testTextContinuousWheelCrossesViewportBoundaryWithoutPageSnap() async throws {
+        let text = (0..<1_000).map { "Line \($0): a short paragraph.\n" }.joined()
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        state.flow = "paged"
+        try await navigate(.style, state: state, host: host)
+        state.flow = "continuous"
+        try await navigate(.style, state: state, host: host)
+        let scroll = try XCTUnwrap(view.enclosingScrollView), clip = scroll.contentView
+        XCTAssertEqual(view.string, text, "Continuous reading keeps the complete native text document")
+        XCTAssertNotNil(view.textLayoutManager)
+        XCTAssertEqual(clip.frame.height, scroll.bounds.height, accuracy: 0.5,
+                       "Continuous mode releases the paged complete-line clip height")
+        let boundary = clip.bounds.height * 2
+        clip.scroll(to: NSPoint(x: 0, y: boundary - 4))
+        scroll.reflectScrolledClipView(clip)
+        await settle(host)
+        func wheel(_ phase: CGScrollPhase) throws -> NSEvent {
+            let point = clip.convert(NSPoint(x: clip.bounds.midX, y: clip.bounds.midY), to: nil)
+            let seed = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: point,
+                modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+            let cg = try XCTUnwrap(seed.cgEvent?.copy())
+            cg.type = .scrollWheel
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -3)
+            cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: -3)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+            return try XCTUnwrap(NSEvent(cgEvent: cg))
+        }
+        for phase: CGScrollPhase in [.began, .changed] {
+            let before = clip.bounds.minY, event = try wheel(phase)
+            XCTAssertTrue(event.hasPreciseScrollingDeltas)
+            view.scrollWheel(with: event)
+            await settle(host)
+            XCTAssertEqual(clip.bounds.minY - before, -event.scrollingDeltaY, accuracy: 0.5,
+                           "Each small native wheel input keeps its distance across a former page boundary")
+            XCTAssertEqual(clip.frame.height, scroll.bounds.height, accuracy: 0.5)
+        }
+        XCTAssertGreaterThan(clip.bounds.minY, boundary)
+    }
+
+    @MainActor
+    func testTextMouseWheelTurnsAfterTrackpadGesture() async throws {
+        let text = (0..<1_000).map { "Line \($0): a short paragraph.\n" }.joined()
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        state.flow = "paged"
+        try await navigate(.style, state: state, host: host)
+        func wheel(phase: CGScrollPhase? = nil, momentum: Int64 = 0) throws -> NSEvent {
+            let seed = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: .zero,
+                modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+            let cg = try XCTUnwrap(seed.cgEvent?.copy())
+            cg.type = .scrollWheel
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: phase == nil && momentum == 0 ? 0 : 1)
+            cg.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -10)
+            cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: -10)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase?.rawValue ?? 0))
+            cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
+            return try XCTUnwrap(NSEvent(cgEvent: cg))
+        }
+        view.scrollWheel(with: try wheel(phase: .began))
+        await settle(host)
+        let afterTouch = try XCTUnwrap(Int(state.location.anchor ?? ""))
+        XCTAssertGreaterThan(afterTouch, 0)
+        view.scrollWheel(with: try wheel(phase: .changed))
+        view.scrollWheel(with: try wheel(momentum: 1))
+        await settle(host)
+        XCTAssertEqual(Int(state.location.anchor ?? ""), afterTouch, "A touch gesture and its momentum turn once")
+        view.scrollWheel(with: try wheel())
+        await settle(host)
+        let afterMouse = try XCTUnwrap(Int(state.location.anchor ?? ""))
+        XCTAssertGreaterThan(afterMouse, afterTouch, "A discrete mouse wheel must not inherit the trackpad latch")
+        view.scrollWheel(with: try wheel())
+        await settle(host)
+        XCTAssertGreaterThan(try XCTUnwrap(Int(state.location.anchor ?? "")), afterMouse)
+    }
+
+    @MainActor
+    func testTextFacingPagesShareContentAndRetainSelectionAcrossModes() async throws {
+        let text = (0..<1_000).map { "Line \($0): 中文和 English 😀 text.\n" }.joined()
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        try await navigate(.page(100), state: state, host: host)
+        let anchor = state.location.anchor
+        let selection = NSRange(location: try XCTUnwrap(Int(anchor ?? "")), length: 4)
+        view.setSelectedRange(selection)
+        state.spread = true; state.flow = "paged"
+        try await navigate(.style, state: state, host: host)
+        let reader = try XCTUnwrap(view.enclosingScrollView?.superview as? TextReaderHost)
+        let second = try XCTUnwrap(reader.trailing?.documentView as? NSTextView)
+        XCTAssertTrue(view.textContentStorage === second.textContentStorage)
+        XCTAssertNotNil(second.textLayoutManager)
+        XCTAssertLessThan(view.visibleRect.width, host.bounds.width / 2 + 1)
+        XCTAssertEqual(view.visibleRect.width, second.visibleRect.width, accuracy: 0.5)
+        let leftLines = visibleTextLines(in: view), rightLines = visibleTextLines(in: second)
+        XCTAssertEqual(NSMaxRange(try XCTUnwrap(leftLines.last).range), try XCTUnwrap(rightLines.first).range.location,
+                       "Facing pages meet at the same UTF-16 boundary without repeated or skipped text")
+        XCTAssertLessThanOrEqual(try XCTUnwrap(leftLines.last).rect.maxY, view.visibleRect.maxY + 0.5)
+        XCTAssertEqual(state.location.anchor, anchor)
+        XCTAssertEqual(view.selectedRange(), selection)
+        let primary = try XCTUnwrap(view.textLayoutManager?.textViewportLayoutController.viewportRange)
+        let facing = try XCTUnwrap(second.textLayoutManager?.textViewportLayoutController.viewportRange)
+        XCTAssertEqual(primary.location.compare(facing.location), .orderedAscending)
+        let secondSelection = NSRange(location: try XCTUnwrap(second.textContentStorage).offset(from: try XCTUnwrap(second.textContentStorage).documentRange.location, to: facing.location), length: 4)
+        second.setSelectedRange(secondSelection)
+        await settle(host)
+        XCTAssertEqual(state.selectedText, (text as NSString).substring(with: secondSelection))
+        state.spread = false
+        try await navigate(.style, state: state, host: host)
+        XCTAssertEqual(view.selectedRange(), secondSelection)
+        XCTAssertEqual(state.location.anchor, anchor)
+        XCTAssertTrue(reader.trailing?.isHidden == true)
+    }
+
+    @MainActor
+    func testTextFacingEndAndSearchRespectBothNativeViewports() async throws {
+        let text = (0..<300).map { "Line \($0): a short paragraph.\n" }.joined()
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        state.spread = true
+        try await navigate(.style, state: state, host: host)
+        try await navigate(.find("Line 200:"), state: state, host: host)
+        let match = (text as NSString).range(of: "Line 200:")
+        try await waitFor(host) { state.selectedSearchTarget == "text:\(match.location):\(match.length)" && self.lineRect(at: match.location, in: view)?.intersects(view.visibleRect) == true }
+        try await navigate(.page(state.count - 1), state: state, host: host)
+        XCTAssertTrue(TextReader.isAtEnd(in: view))
+        XCTAssertFalse(state.canGoForward)
+        let end = state.location.anchor
+        try await navigate(.turnPages(1), state: state, host: host)
+        XCTAssertEqual(state.location.anchor, end)
+        state.spread = false; state.flow = "continuous"
+        try await navigate(.style, state: state, host: host)
+        XCTAssertTrue(ReaderScroll.isAtTextEnd(view))
+        XCTAssertNotNil(view.textLayoutManager)
+    }
+    @MainActor
     func testTextEndPositionSurvivesReflowAndReaderRecreation() async throws {
         for ending in ["", "\n"] {
             let text = (0..<1_000).map { "Line \($0): a short paragraph." }.joined(separator: "\n") + ending
@@ -59,12 +426,14 @@ final class TextLayoutTests: XCTestCase {
         await settle(lastHost)
         let saved = lastState.currentPosition
         XCTAssertLessThan(try XCTUnwrap(Int(saved.anchor ?? "")), (text as NSString).length)
-        XCTAssertFalse(lastState.canGoForward, "The logical Next command must not return to the start of the final paragraph")
+        XCTAssertTrue(lastState.canGoForward, "A long final source paragraph still has later reading screens")
         let (againWindow, againHost, _, again) = try await makeReader(text, withDocument: true, position: saved)
         defer { close(againWindow) }
         await settle(againHost)
         XCTAssertEqual(again.location.anchor, saved.anchor)
         XCTAssertEqual(again.location.y ?? 0, saved.y ?? 0, accuracy: 0.5)
+        try await navigate(.restore(.init(page: again.count - 1, anchor: String((text as NSString).length))), state: again, host: againHost)
+        XCTAssertFalse(again.canGoForward, "Next stops at the actual end of the displayed text")
     }
 
     @MainActor
@@ -100,6 +469,7 @@ final class TextLayoutTests: XCTestCase {
     @MainActor
     func testTextForwardNavigationRetainsLogicalBoundsUntilMounted() async throws {
         let state = ReaderState()
+        state.flow = "continuous"
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/text-navigation.txt"), content: .text("first\nlast"))
         state.count = 2
         XCTAssertTrue(state.canGoForward, "Unavailable viewport geometry must retain logical navigation")
@@ -354,6 +724,7 @@ final class TextLayoutTests: XCTestCase {
     private func makeReader(_ text: String, withDocument: Bool = false, position: ReadingPosition? = nil) async throws -> (NSWindow, NSHostingView<TextReader>, NSTextView, ReaderState) {
         _ = NSApplication.shared
         let state = ReaderState()
+        state.flow = "continuous"
         state.font = "system"; state.fontSize = 17; state.zoom = 1; state.lineHeight = 1.6
         state.margin = 32; state.pageMargins = nil; state.theme = "light"
         if withDocument {
@@ -390,13 +761,34 @@ final class TextLayoutTests: XCTestCase {
     @MainActor
     private func settle(_ host: NSHostingView<TextReader>) async {
         host.layoutSubtreeIfNeeded()
-        if let view = host.rootView.state.readerFocusView as? NSTextView, view.visibleRect.width > 0, view.visibleRect.height > 0 {
+        let primary = host.rootView.state.readerFocusView as? NSTextView
+        let facing = (primary?.enclosingScrollView?.superview as? TextReaderHost)?.trailing?.documentView as? NSTextView
+        for view in [primary, facing].compactMap({ $0 }) where !view.isHiddenOrHasHiddenAncestor && view.visibleRect.width > 0 && view.visibleRect.height > 0 {
             view.layoutSubtreeIfNeeded()
             autoreleasepool {
                 if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.visibleRect) { view.cacheDisplay(in: view.visibleRect, to: bitmap) }
             }
         }
         try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    @MainActor
+    private func visibleTextLines(in view: NSTextView) -> [(range: NSRange, rect: CGRect)] {
+        guard let content = view.textContentStorage, let manager = view.textLayoutManager,
+              let viewport = manager.textViewportLayoutController.viewportRange else { return [] }
+        var result: [(range: NSRange, rect: CGRect)] = []
+        manager.enumerateTextLayoutFragments(from: viewport.location, options: []) { fragment in
+            let start = content.offset(from: content.documentRange.location, to: fragment.textElement?.elementRange?.location ?? fragment.rangeInElement.location)
+            for line in fragment.textLineFragments {
+                let rect = line.typographicBounds.offsetBy(dx: fragment.layoutFragmentFrame.minX + view.textContainerOrigin.x,
+                                                          dy: fragment.layoutFragmentFrame.minY + view.textContainerOrigin.y)
+                if rect.maxY > view.visibleRect.minY + 0.5, rect.minY < view.visibleRect.maxY - 0.5 {
+                    result.append((NSRange(location: start + line.characterRange.location, length: line.characterRange.length), rect))
+                }
+            }
+            return fragment.layoutFragmentFrame.maxY + view.textContainerOrigin.y < view.visibleRect.maxY
+        }
+        return result
     }
 
     @MainActor

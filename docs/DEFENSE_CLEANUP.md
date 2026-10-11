@@ -1,5 +1,51 @@
 # Function-first cleanup
 
+## October 11 follow-up
+
+The project-owned Python build, packaging, release-feed and localization tools
+are replaced by Swift scripts using existing platform tools. The Python packaging
+test harness and Python comic archive fixture writers are removed. The completed
+ctypes scan probe is retired; its measured result and native display regressions
+remain. No Python runtime is bundled or required by the reader.
+
+The unused `--core` build branch had no caller outside its two implementing
+scripts. It is removed, so there is one application with all document engines.
+TextReader's forced initial-style bypass is unnecessary for a fresh coordinator
+and is removed. Its test-only search forwarding wrapper is replaced by direct
+tests of the authoritative `TextSearchOptions` API.
+
+A suspected Contents mouse failure was disproved by actual event-to-scroll
+tracing. The unnecessary mouse rewrite, its added test and all temporary trace
+code are removed. The demonstrated slow destination passage extraction instead
+uses its existing viewport region, avoiding whole-chapter text shaping without
+another index or fallback.
+
+Reading and Home now default to the existing light palette, with manual theme
+choices retained. Actual original TXT acceptance exposed a color-only style
+change losing the distant viewport: TextKit invalidates its estimated layout
+when foreground attributes change. The existing style owner now captures and
+restores its source position for that change too. A mounted 40,000-line neutral
+regression fails before the fix and passes with the 24-case TextLayout group;
+no extra position store, delay or fallback is added.
+The final normal app also preserves the original 51 MB TXT's entire captured
+822-character passage through theme changes and a fresh-process reopen, with
+the light painted background verified independently.
+
+The retained checks have current consumers: native patch probing preserves
+unknown source edits, archive inventory verifies the artifacts being emitted,
+and display/source identity preserves the user's original documents. No new
+dependency, arbitrary input cap, retry or protective wrapper is added.
+
+Focused Swift packaging behavior checks and isolated full-app packaging pass;
+the full-engine release build also completes with Python commands disabled and
+loads successfully in the canonical GUI. Its final Contents navigation and
+fresh-process original-book position checks pass. The delivered bundle keeps
+the requested arm64/macOS 13 target and its complete decoder set;
+the current reader integration and original-book results are recorded in
+[the corpus report](BOOK_CORPUS_ACCEPTANCE.md). Completed agents' owned indexing,
+analysis and test processes are stopped, with exact ownership receipts retained
+locally. Shared services and original books are preserved.
+
 Candidate854 removes unused bookmark/authenticated-open wrappers, duplicate grid
 settings coercion, repeated native search truncation, repeated source/app hashing
 and test-count/status policy gates in release receipts. Actual archived output

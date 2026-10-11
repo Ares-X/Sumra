@@ -88,11 +88,11 @@ static int preserve_art(ImageStats s, float coverage) {
     return photo;
 }
 
-typedef struct { fz_rect rect, original; fz_image *image; } PageImage;
+typedef struct { fz_rect rect, original; fz_image *image; int scan; } PageImage;
 typedef struct {
     fz_device super;
     PageImage *images; int count, capacity, collect_images;
-    int strokes, fills, text, gray, thin;
+    int strokes, fills, text, gray, thin, scans_checked;
     float page_area, image_coverage;
 } Analysis;
 static void analysis_drop(fz_context *ctx, fz_device *dev) {
@@ -134,7 +134,7 @@ static void analysis_image(fz_context *ctx, fz_device *dev, fz_image *image, fz_
         if (w/h<aspect/1.4f) rect.y1=rect.y0+fminf(w/aspect,h);
         if (w/h>aspect*1.4f) rect.x1=rect.x0+fminf(h*aspect,w);
     }
-    d->images[d->count++]=(PageImage){rect,original,fz_keep_image(ctx,image)};
+    d->images[d->count++]=(PageImage){rect,original,fz_keep_image(ctx,image),0};
 }
 static Analysis *new_analysis(fz_context *ctx, int collect, float page_area) {
     Analysis *d=fz_new_derived_device(ctx,Analysis); d->collect_images=collect; d->page_area=page_area;
@@ -233,6 +233,73 @@ static void cad_pixels(fz_pixmap *pix,float zoom,fz_cookie *cookie) {
         for(int i=0;i<3;++i) p[i]=lroundf(clamp(rgb[i],0,1)*alpha*255);
     }
 }
+// Scans are detected from their complete source image, never from a viewport
+// tile. A neutral paper field with many short ink runs describes printed text;
+// broad continuous tones and colored/photo images keep their original pixels.
+static int scanned_text(fz_context *ctx, fz_image *image, fz_cookie *cookie) {
+    fz_pixmap *pix=NULL; int result=0;
+    fz_var(pix); fz_var(result);
+    fz_try(ctx) {
+        float scale=fminf(1,512.f/fmaxf(image->w,image->h));
+        fz_matrix ctm=fz_scale(image->w*scale,image->h*scale);
+        pix=fz_get_pixmap_from_image(ctx,image,NULL,&ctm,NULL,NULL);
+        int histogram[256]={0}, samples=0, neutral=0;
+        for(int y=0;y<pix->h;++y) {
+            if(cookie && cookie->abort) fz_throw(ctx,FZ_ERROR_ABORT,"PDF display cancelled");
+            for(int x=0;x<pix->w;++x) {
+                float rgb[FZ_MAX_COLORS]={0}; sample_rgb(ctx,pix,x,y,rgb);
+                histogram[(int)lroundf(clamp(luminance(rgb),0,1)*255)]++;
+                neutral+=max3(rgb[0],rgb[1],rgb[2])-min3(rgb[0],rgb[1],rgb[2])<.04f; samples++;
+            }
+        }
+        int paper=224;
+        for(int i=225;i<256;++i) if(histogram[i]>histogram[paper]) paper=i;
+        int background=0, ink=0;
+        for(int i=paper-12;i<256;++i) background+=histogram[i];
+        for(int i=0;i<paper-32;++i) ink+=histogram[i];
+        if(neutral>=samples*.98f && background>=samples*.75f && ink>=samples*.005f && ink<=samples*.20f) {
+            int text_rows=0, short_ink=0;
+            for(int y=0;y<pix->h;++y) {
+                if(cookie && cookie->abort) fz_throw(ctx,FZ_ERROR_ABORT,"PDF display cancelled");
+                int run=0, runs=0;
+                for(int x=0;x<=pix->w;++x) {
+                    float rgb[FZ_MAX_COLORS]={0};
+                    if(x<pix->w) sample_rgb(ctx,pix,x,y,rgb);
+                    if(x<pix->w && luminance(rgb)*255<paper-32) run++;
+                    else if(run) { if(run<=fmaxf(2,pix->w/32)) { short_ink+=run; runs++; } run=0; }
+                }
+                text_rows+=runs>=8;
+            }
+            result=text_rows>=pix->h*.05f && short_ink>=ink*.75f;
+        }
+    }
+    fz_always(ctx) { fz_drop_pixmap(ctx,pix); }
+    fz_catch(ctx) { fz_rethrow(ctx); }
+    return result;
+}
+static void scan_pixels(fz_context *ctx, fz_pixmap *pix, Analysis *analysis, fz_rect box, fz_matrix ctm, fz_cookie *cookie) {
+    if(!analysis->scans_checked) {
+        for(int i=0;i<analysis->count;++i) {
+            PageImage *image=&analysis->images[i];
+            if(area(fz_intersect_rect(image->original,box))>=area(box)*.70f)
+                image->scan=scanned_text(ctx,image->image,cookie);
+        }
+        analysis->scans_checked=1;
+    }
+    for(int i=0;i<analysis->count;++i) if(analysis->images[i].scan) {
+        fz_irect r=fz_intersect_irect(fz_round_rect(fz_transform_rect(analysis->images[i].original,ctm)),fz_pixmap_bbox(ctx,pix));
+        for(int y=r.y0;y<r.y1;++y) {
+            if(cookie && cookie->abort) fz_throw(ctx,FZ_ERROR_ABORT,"PDF display cancelled");
+            for(int x=r.x0;x<r.x1;++x) {
+                unsigned char *p=pix->samples+(size_t)(y-pix->y)*pix->stride+(size_t)(x-pix->x)*4;
+                if(!p[3] || max3(p[0],p[1],p[2])-min3(p[0],p[1],p[2])>=p[3]*.04f) continue;
+                // Smooth gamma 2 keeps black, white and every antialiased gray
+                // level ordered; no thresholding, dilation or paper clipping.
+                for(int c=0;c<3;++c) p[c]=(p[c]*p[c]+p[3]/2)/p[3];
+            }
+        }
+    }
+}
 static int mul255(int a,int b) { int n=a*b+128;n+=n>>8;return n>>8; }
 static void image_outlines(fz_pixmap *pix,Analysis *analysis,fz_matrix ctm) {
     // Canvas.cpp DebugOutlinePageElements: image outlines are green, unlike
@@ -274,7 +341,7 @@ void lf_run_pdf_colors(fz_context *ctx, fz_display_list *list, fz_device **cache
     fz_var(dev); fz_var(analysis);
     fz_try(ctx) {
         if(cookie && cookie->abort) fz_throw(ctx,FZ_ERROR_ABORT,"PDF display cancelled");
-        if((style[0]==1 && style[1]) || style[7]) {
+        if((style[0]==1 && style[1]) || style[7] || style[8]) {
             if (!*cached_analysis) {
                 analysis=new_analysis(ctx,1,area(box));
                 fz_run_display_list(ctx,list,&analysis->super,fz_identity,box,cookie);
@@ -297,6 +364,7 @@ void lf_run_pdf_colors(fz_context *ctx, fz_display_list *list, fz_device **cache
         fz_run_display_list(ctx,list,dev,fz_identity,clip,cookie);
         if(cookie && cookie->abort) fz_throw(ctx,FZ_ERROR_ABORT,"PDF display cancelled");
         fz_close_device(ctx,dev);
+        if(style[8]) scan_pixels(ctx,pix,(Analysis *)*cached_analysis,box,ctm,cookie);
         if(style[2] && style[3]) cad_pixels(pix,zoom,cookie);
         // Sumatra applies grayscale first, so selected theme colors still apply.
         if(style[6]) for(int y=0;y<pix->h && (!cookie || !cookie->abort);++y) for(int x=0;x<pix->w;++x) {

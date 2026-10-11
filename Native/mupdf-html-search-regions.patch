@@ -1,0 +1,43 @@
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -39,6 +39,8 @@
+ {
+ 	int unicode, page, paintable;
+ 	uint32_t source_node, source_offset, source_part;
++	/* Owning flow glyph extents in page coordinates for bounded hit extraction. */
++	float text_y0, text_y1;
+ } fz_html_search_char;
+ /* Return nonzero to stop the walk after the current character. */
+ typedef int (fz_html_search_char_fn)(fz_context *ctx, void *opaque, const fz_html_search_char *ch);
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -244,6 +244,7 @@
+ 	size_t visited;
+ 	int emitted, last_rune, last_page, stop;
+ 	int seek_page, started, previous_text;
++	float text_y0, text_y1;
+ } html_search_source_state;
+ 
+ static int html_search_flow_page(html_search_source_state *state, const fz_html_flow *flow)
+@@ -259,7 +260,8 @@
+ static void html_search_emit(html_search_source_state *state, int rune, uint32_t node,
+ 	uint32_t offset, uint32_t part, int page, int paintable)
+ {
+-	fz_html_search_char ch = { rune, page, paintable, node, offset, part };
++	fz_html_search_char ch = { rune, page, paintable, node, offset, part,
++		state->text_y0, state->text_y1 };
+ 	if (((++state->visited) & 1023) == 0 && state->cancelled && state->cancelled())
+ 		fz_throw(state->ctx, FZ_ERROR_ABORT, "Search cancelled");
+ 	state->stop = state->callback(state->ctx, state->opaque, &ch);
+@@ -389,6 +391,11 @@
+ 			}
+ 			if (state->emitted && state->last_box != box && state->last_rune != '\n')
+ 				html_search_emit(state, '\n', 0, 0, 0, state->last_page, 0);
++			/* The continuous search consumer only extracts matched flow regions.
++			 * Preserve actual font extents, including superscripts and fallback fonts. */
++			float origin = state->doc->html->page_margin[T];
++			state->text_y0 = box->s.layout.text_y0 + origin;
++			state->text_y1 = box->s.layout.text_y1 + origin;
+ 			for (fz_html_flow *flow = box->u.flow.head; flow && !state->stop; )
+ 			{
+ 				fz_html_flow *end = fz_html_flow_next(&state->doc->html->tree, flow);

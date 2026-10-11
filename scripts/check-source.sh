@@ -8,7 +8,8 @@ for source in Sources/Sumra/*.swift; do
     swiftc -frontend -parse -target arm64-apple-macosx13.0 "$source"
 done
 swift test
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Tests/Packaging -p 'test_*.py'
+# Packaging exercises macOS libarchive, ditto and app metadata.
+if [ "$(uname -s)" = Darwin ]; then Tests/Packaging/run-tests.sh; fi
 
 # Optional syntax checks only; browser behavior belongs to the macOS integration pass.
 if command -v node >/dev/null; then

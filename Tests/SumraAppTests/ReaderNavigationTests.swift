@@ -1212,7 +1212,19 @@ final class ReaderNavigationTests: XCTestCase {
         for flags: CGEventFlags in [.maskShift, .maskControl, .maskAlternate, .maskCommand] {
             XCTAssertFalse(try wheel(-1, flags: flags, dispatch: false))
         }
-        XCTAssertFalse(try wheel(0, x: 2, dispatch: false))
+        state.rtl = false
+        XCTAssertTrue(try wheel(0, x: -2, phase: .began))
+        try await settle(2)
+        XCTAssertTrue(try wheel(0, x: -2, phase: .changed), "One horizontal touch gesture must turn once")
+        XCTAssertFalse(try wheel(0, phase: .ended))
+        XCTAssertTrue(try wheel(0, x: 2))
+        try await settle(1)
+        state.rtl = true
+        XCTAssertTrue(try wheel(0, x: 2))
+        try await settle(2)
+        XCTAssertTrue(try wheel(0, x: -2))
+        try await settle(1)
+        state.rtl = false
         XCTAssertFalse(try wheel(-1, outside: true, dispatch: false))
         try await settle(1)
 

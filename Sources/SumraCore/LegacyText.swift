@@ -199,6 +199,20 @@ public enum LegacyText{
         let matches = tags.matches(in: byteText, range: NSRange(location: 0, length: source.length))
         var targets = Set<Int>(), toc: Int?
         var edits = [(range: NSRange, data: Data)]()
+        // MOBI 6 often puts many visible lines in one paragraph with <br>.
+        // Keep short source lines for the chapter detector and retain their
+        // original byte offsets for native destinations.
+        var sourceLines = [(text: String, offset: Int)]()
+        var line: (anchor: Int, textStart: Int, plain: Bool)?
+        func recordLine(until end: Int) {
+            guard let line else { return }
+            let text: String
+            if line.plain, line.textStart <= end {
+                text = String(data: raw.subdata(in: line.textStart..<end), encoding: encoding)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            } else { text = "body" }
+            sourceLines.append((text.count <= 80 && text.rangeOfCharacter(from: .newlines) == nil ? text : "body", line.anchor))
+        }
         func position(_ value: String?) -> Int? {
             guard let value, !value.isEmpty, value.utf8.allSatisfy({ (48...57).contains($0) }),
                   let offset = Int(value), offset <= raw.count else { return nil }
@@ -216,8 +230,21 @@ public enum LegacyText{
         }
         for match in matches where match.range(at: 1).location != NSNotFound {
             let original = source.substring(with: match.range)
-            guard !original.hasPrefix("</") else { continue }
-            let name = source.substring(with: match.range(at: 1)).lowercased(), values = attributes(original)
+            let closing = original.hasPrefix("</")
+            let name = source.substring(with: match.range(at: 1)).lowercased()
+            if name == "p" {
+                recordLine(until: match.range.location)
+                line = closing ? nil : (match.range.location, NSMaxRange(match.range), true)
+            } else if name == "br" {
+                if !closing || line?.textStart != match.range.location { recordLine(until: match.range.location) }
+                if line != nil { line = (NSMaxRange(match.range), NSMaxRange(match.range), true) }
+            } else if var current = line {
+                // Inline markup makes this line body context, not a title.
+                current.plain = false
+                line = current
+            }
+            guard !closing else { continue }
+            let values = attributes(original)
             if name == "reference", toc == nil, values["type"]?.lowercased() == "toc" { toc = position(values["filepos"]) }
             guard name == "a", let offset = position(values["filepos"] ?? values["href"]) else { continue }
             targets.insert(offset)
@@ -261,6 +288,17 @@ public enum LegacyText{
                         outline.append((text, target, level))
                     }
                 } catch { NSLog("MOBI table of contents could not be parsed: %@", error.localizedDescription) }
+            }
+        }
+        if outline.isEmpty, !sourceLines.isEmpty {
+            let lines = sourceLines.map { $0.text }.joined(separator: "\n")
+            for chapter in ChapterDetector.detect(lines) {
+                let offset = sourceLines[chapter.line].offset
+                outline.append((chapter.title, "#mobi-filepos-\(offset)", chapter.depth))
+                if !targets.contains(offset) {
+                    edits.append((NSRange(location: offset, length: 0), Data("<a id=\"mobi-filepos-\(offset)\"></a>".utf8)))
+                    targets.insert(offset)
+                }
             }
         }
         guard !edits.isEmpty else { return (raw, false, outline) }

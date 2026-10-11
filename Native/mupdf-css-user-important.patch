@@ -1,0 +1,158 @@
+diff --git a/source/html/html-imp.h b/source/html/html-imp.h
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -88,6 +88,7 @@
+ 	fz_css_property *declaration;
+ 	fz_css_rule *next;
+ 	int loaded;
++	int user; /* Rules parsed from the reader/user stylesheet. */
+ };
+ 
+ struct fz_css_selector
+@@ -219,6 +220,8 @@
+ {
+ 	fz_css_match *up;
+ 	short spec[NUM_PROPERTIES];
++	unsigned char priority[NUM_PROPERTIES];
++	unsigned char current_priority; /* Retained through shorthand expansion. */
+ 	fz_css_value *value[NUM_PROPERTIES];
+ };
+ 
+diff --git a/source/html/css-parse.c b/source/html/css-parse.c
+--- a/source/html/css-parse.c
++++ b/source/html/css-parse.c
+@@ -156,12 +156,13 @@
+ 		fz_drop_pool(ctx, css->pool);
+ }
+ 
+-static fz_css_rule *fz_new_css_rule(fz_context *ctx, fz_pool *pool, fz_css_selector *selector, fz_css_property *declaration)
++static fz_css_rule *fz_new_css_rule(fz_context *ctx, fz_pool *pool, fz_css_selector *selector, fz_css_property *declaration, int user)
+ {
+ 	fz_css_rule *rule = fz_pool_alloc(ctx, pool, sizeof *rule);
+ 	rule->selector = selector;
+ 	rule->declaration = declaration;
+ 	rule->next = NULL;
++	rule->user = user;
+ 	return rule;
+ }
+ 
+@@ -1025,7 +1026,7 @@
+ 		return NULL;
+ 	}
+ 
+-	return fz_new_css_rule(buf->ctx, buf->pool, s, p);
++	return fz_new_css_rule(buf->ctx, buf->pool, s, p, !strcmp(buf->file, "<user>"));
+ }
+ 
+ static fz_css_rule *parse_at_page(struct lexbuf *buf)
+@@ -1053,7 +1054,7 @@
+ 	}
+ 
+ 	s = fz_new_css_selector(buf->ctx, buf->pool, "@page");
+-	return fz_new_css_rule(buf->ctx, buf->pool, s, p);
++	return fz_new_css_rule(buf->ctx, buf->pool, s, p, !strcmp(buf->file, "<user>"));
+ }
+ 
+ static fz_css_rule *parse_at_font_face(struct lexbuf *buf)
+@@ -1076,7 +1077,7 @@
+ 	}
+ 
+ 	s = fz_new_css_selector(buf->ctx, buf->pool, "@font-face");
+-	return fz_new_css_rule(buf->ctx, buf->pool, s, p);
++	return fz_new_css_rule(buf->ctx, buf->pool, s, p, !strcmp(buf->file, "<user>"));
+ }
+ 
+ static void parse_at_rule(struct lexbuf *buf)
+diff --git a/source/html/css-apply.c b/source/html/css-apply.c
+--- a/source/html/css-apply.c
++++ b/source/html/css-apply.c
+@@ -421,12 +421,12 @@
+ #define INLINE_SPECIFICITY 10000
+ 
+ static int
+-selector_specificity(fz_css_selector *sel, int important)
++selector_specificity(fz_css_selector *sel)
+ {
+ 	int b = count_selector_ids(sel);
+ 	int c = count_selector_atts(sel);
+ 	int d = count_selector_names(sel);
+-	return important * 1000 + b * 100 + c * 10 + d;
++	return b * 100 + c * 10 + d;
+ }
+ 
+ /*
+@@ -1042,10 +1042,16 @@
+ 		return;
+ 	}
+ 
+-	if (name < NUM_PROPERTIES && match->spec[name] <= spec)
++	/* Importance and origin precede selector specificity. User !important
++	 * must also beat author !important in a style attribute. Ordinary rules
++	 * retain MuPDF's existing specificity and stylesheet-order behavior. */
++	if (name < NUM_PROPERTIES &&
++		(match->priority[name] < match->current_priority ||
++		 (match->priority[name] == match->current_priority && match->spec[name] <= spec)))
+ 	{
+ 		match->value[name] = value;
+ 		match->spec[name] = spec;
++		match->priority[name] = match->current_priority;
+ 	}
+ }
+ 
+@@ -1062,6 +1068,7 @@
+ 	for (i = 0; i < NUM_PROPERTIES; ++i)
+ 	{
+ 		match->spec[i] = -1;
++		match->priority[i] = 0;
+ 		match->value[i] = NULL;
+ 	}
+ 
+@@ -1073,7 +1080,10 @@
+ 			if (match_selector(sel, node, pseudo))
+ 			{
+ 				for (prop = rule->declaration; prop; prop = prop->next)
+-					add_property(match, prop->name, prop->value, selector_specificity(sel, prop->important));
++				{
++					match->current_priority = prop->important ? (rule->user ? 2 : 1) : 0;
++					add_property(match, prop->name, prop->value, selector_specificity(sel));
++				}
+ 				break;
+ 			}
+ 			sel = sel->next;
+@@ -1090,6 +1100,7 @@
+ 				prop = fz_parse_css_properties(ctx, css->pool, s);
+ 				while (prop)
+ 				{
++					match->current_priority = prop->important ? 1 : 0;
+ 					add_property(match, prop->name, prop->value, INLINE_SPECIFICITY);
+ 					prop = prop->next;
+ 				}
+@@ -1117,6 +1128,7 @@
+ 	for (i = 0; i < NUM_PROPERTIES; ++i)
+ 	{
+ 		match->spec[i] = -1;
++		match->priority[i] = 0;
+ 		match->value[i] = NULL;
+ 	}
+ 
+@@ -1128,7 +1140,10 @@
+ 			if (sel->name && !strcmp(sel->name, "@page"))
+ 			{
+ 				for (prop = rule->declaration; prop; prop = prop->next)
+-					add_property(match, prop->name, prop->value, selector_specificity(sel, prop->important));
++				{
++					match->current_priority = prop->important ? (rule->user ? 2 : 1) : 0;
++					add_property(match, prop->name, prop->value, selector_specificity(sel));
++				}
+ 				break;
+ 			}
+ 			sel = sel->next;
+@@ -2315,7 +2330,7 @@
+ 	for (sel = rule->selector; sel; sel = sel->next)
+ 	{
+ 		print_selector(sel);
+-		printf(" /* %d */", selector_specificity(sel, 0));
++		printf(" /* %d */", selector_specificity(sel));
+ 		if (sel->next)
+ 			printf(", ");
+ 	}

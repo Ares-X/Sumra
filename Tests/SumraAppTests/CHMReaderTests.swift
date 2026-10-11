@@ -147,6 +147,7 @@ final class BrowserReaderTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         let source = try CHMSource(url), state = ReaderState(), view = WKWebView(frame: .zero)
         state.document = .init(url: url, content: .browser(source))
+        state.flow = "continuous"; state.spread = false
         state.browserView = view
         return (state, BrowserReader.Coordinator(state: state, source: source), view)
     }
@@ -302,6 +303,333 @@ final class BrowserReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testPlainTextCHMUsesReaderTypographyAndWrapsAcrossReadingModes() async throws {
+        let text = "Opening line\n\n" + String(repeating: "Readable words stay searchable. ", count: 400) + "\n\nFinal line"
+        let (_, view) = try await loadedReaderFixture(topic: ("/topic1.txt", Data(text.utf8)), home: "/topic1.txt")
+        let result = try await evaluate("""
+        const pre = document.querySelector('pre');
+        const metrics = () => {
+            const body = getComputedStyle(document.body), style = getComputedStyle(pre), box = pre.getBoundingClientRect();
+            return {viewport:innerWidth, width:box.width, scrollWidth:pre.scrollWidth,
+                bodyFont:body.fontSize, font:style.fontSize, family:style.fontFamily,
+                line:style.lineHeight, padding:body.paddingLeft, whiteSpace:style.whiteSpace,
+                columns:getComputedStyle(document.body).columnCount};
+        };
+        const narrow = metrics();
+        await window.leafCommand({name:'style',flow:'paged',spread:false});
+        const single = metrics();
+        await window.leafCommand({name:'style',flow:'paged',spread:true});
+        const spread = metrics();
+        await window.leafCommand({name:'style',flow:'continuous',spread:false});
+        await window.leafCommand({name:'style',text:'serif|24|1.5|48|light'});
+        const enlarged = metrics();
+        return {contentType:document.contentType, text:pre.textContent, narrow,single,spread,enlarged};
+        """, in: view) as? [String: Any]
+        XCTAssertEqual(result?["contentType"] as? String, "text/plain")
+        XCTAssertEqual(result?["text"] as? String, text)
+        for (key, columns) in [("narrow", "auto"), ("single", "1"), ("spread", "2")] {
+            let mode = try XCTUnwrap(result?[key] as? [String: Any])
+            let width = try XCTUnwrap(mode["width"] as? Double)
+            let viewport = try XCTUnwrap(mode["viewport"] as? Double)
+            XCTAssertGreaterThan(width, viewport * (key == "spread" ? 0.35 : 0.8), key)
+            XCTAssertLessThanOrEqual(try XCTUnwrap(mode["scrollWidth"] as? Double), width + 2, key)
+            XCTAssertEqual(mode["bodyFont"] as? String, "17px", key)
+            XCTAssertEqual(mode["font"] as? String, "17px", key)
+            XCTAssertEqual(mode["padding"] as? String, "32px", key)
+            XCTAssertEqual(mode["whiteSpace"] as? String, "pre-wrap", key)
+            XCTAssertEqual(mode["columns"] as? String, columns, key)
+        }
+        let enlarged = try XCTUnwrap(result?["enlarged"] as? [String: Any])
+        XCTAssertEqual(enlarged["font"] as? String, "24px")
+        XCTAssertEqual(enlarged["line"] as? String, "36px")
+        XCTAssertEqual(enlarged["family"] as? String, "serif")
+        XCTAssertEqual(enlarged["padding"] as? String, "48px")
+    }
+
+    @MainActor
+    func testSourceWrappedCHMParagraphGapsIgnoreExcessBlankRowsAndRetainFindOffsets() async throws {
+        let full = String(repeating: "中", count: 35)
+        let paragraphs = (0..<4).map { "\(full)\n收尾第\($0)段文字。" }
+        let separators = ["\n\n", String(repeating: "\n", count: 10), "\n \t\n\n"]
+        let text = paragraphs.enumerated().map { index, paragraph in
+            paragraph + (index < separators.count ? separators[index] : "")
+        }.joined() + "\n\n\n\n    let value = 1\n    print(value)"
+        let (_, view) = try await loadedReaderFixture(topic: ("/topic1.txt", Data(text.utf8)), home: "/topic1.txt")
+        func sample() async throws -> [String: Any] {
+            let value = try await evaluate("""
+            const pre = document.querySelector('pre');
+            const prose = [...pre.querySelectorAll('.sumra-chm-prose')];
+            const gaps = [...pre.querySelectorAll('.sumra-chm-paragraph-gap')];
+            const indexed = window.__sumatraFind.textFromBody(document.body);
+            const edge = (span, last) => {
+                const node = last ? span.lastChild : span.firstChild, range = document.createRange();
+                const offset = last ? node.length - 1 : 0;
+                range.setStart(node, offset); range.setEnd(node, offset + 1);
+                return range.getBoundingClientRect();
+            };
+            return {source:pre.textContent, searchable:indexed.text,
+                separators:gaps.map(gap => gap.textContent),
+                offsets:gaps.map(gap => indexed.starts[indexed.nodes.indexOf(gap.firstChild)]),
+                distances:gaps.map((gap, index) => edge(prose[index + 1], false).top - edge(prose[index], true).bottom),
+                heights:gaps.map(gap => gap.getBoundingClientRect().height),
+                fontSize:parseFloat(getComputedStyle(pre).fontSize)};
+            """, in: view) as? [String: Any]
+            return try XCTUnwrap(value)
+        }
+        let continuous = try await sample()
+        XCTAssertEqual(continuous["source"] as? String, text)
+        XCTAssertEqual(continuous["searchable"] as? String, text)
+        XCTAssertEqual(continuous["separators"] as? [String], separators)
+        let offsets = separators.indices.map { index in
+            paragraphs.prefix(index + 1).reduce(0) { $0 + ($1 as NSString).length }
+                + separators.prefix(index).reduce(0) { $0 + ($1 as NSString).length }
+        }
+        XCTAssertEqual(continuous["offsets"] as? [Int], offsets)
+        let distances = try XCTUnwrap(continuous["distances"] as? [Double])
+        XCTAssertEqual(distances.count, 3)
+        for distance in distances.dropFirst() {
+            XCTAssertEqual(distance, distances[0], accuracy: 1, "Source blank-row count must not enlarge recognized prose gaps")
+        }
+        let fontSize = try XCTUnwrap(continuous["fontSize"] as? Double)
+        for height in try XCTUnwrap(continuous["heights"] as? [Double]) {
+            XCTAssertEqual(height, fontSize / 2, accuracy: 1)
+        }
+        let needle = "收尾第1段文字。" + separators[1] + "中"
+        _ = try await evaluate("""
+        await window.__sumatraFind.start(needle,true,false,1);
+        await window.leafCommand({name:'style',flow:'paged',spread:true,text:'serif|24|1.5|40|light'});
+        """, in: view, arguments: ["needle": needle])
+        let after = try await evaluate("""
+        const range = window.__sumatraFind.currentRange();
+        return {source:document.querySelector('pre').textContent,
+            searchable:window.__sumatraFind.textFromBody(document.body).text,
+            selected:range?.toString(), connected:range?.startContainer.isConnected && range?.endContainer.isConnected};
+        """, in: view) as? [String: Any]
+        XCTAssertEqual(after?["source"] as? String, text)
+        XCTAssertEqual(after?["searchable"] as? String, text)
+        XCTAssertEqual(after?["selected"] as? String, needle)
+        XCTAssertEqual(after?["connected"] as? Bool, true)
+        let paged = try await sample()
+        for height in try XCTUnwrap(paged["heights"] as? [Double]) {
+            XCTAssertEqual(height, 12, accuracy: 1)
+        }
+    }
+
+    @MainActor
+    func testSourceWrappedCHMProseFlowsWithoutChangingTextOrUnrelatedLineBreaks() async throws {
+        let full = String(repeating: "中", count: 35)
+        let paragraphs = (0..<4).map { "\(full)\n收尾第\($0)段文字。" }
+        let ascii = (0..<3).map { String(repeating: "X", count: 35) + "\nrow-\($0)" }.joined(separator: "\n\n")
+        let text = paragraphs.joined(separator: "\n\n") + "\n\n" + ascii +
+            "\n\n    let value = 1\n    print(value)\n\n春风\n秋月"
+        let (_, view) = try await loadedReaderFixture(topic: ("/topic1.txt", Data(text.utf8)), home: "/topic1.txt")
+        func sample() async throws -> [String: Any] {
+            let value = try await evaluate("""
+            const pre = document.querySelector('pre'), spans = [...pre.querySelectorAll('.sumra-chm-prose')];
+            const lineTops = node => {
+                const newline = node.data.indexOf('\\n'), range = document.createRange();
+                range.setStart(node, 0); range.setEnd(node, 1); const first = range.getBoundingClientRect().top;
+                range.setStart(node, newline + 1); range.setEnd(node, newline + 2);
+                return [first, range.getBoundingClientRect().top];
+            };
+            const proseGeometry = span => {
+                const before = span.firstChild, after = span.lastChild, range = document.createRange();
+                range.setStart(before, 0); range.setEnd(before, 1);
+                const first = range.getBoundingClientRect();
+                range.setStart(before, before.length - 1); range.setEnd(before, before.length);
+                const lastBefore = range.getBoundingClientRect();
+                range.setStart(after, 0); range.setEnd(after, 1);
+                const second = range.getBoundingClientRect();
+                return {tops:[first.top, second.top], gap:second.left - lastBefore.right};
+            };
+            const code = [...pre.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.data.includes('let value'));
+            const poem = [...pre.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.data.includes('春风'));
+            const ascii = [...pre.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.data.includes('row-0'));
+            const indexed = window.__sumatraFind.textFromBody(document.body);
+            const softBreak = spans[2]?.querySelector('.sumra-chm-softbreak')?.firstChild;
+            return {source:pre.textContent, searchable:indexed.text,
+                proseCount:spans.length, firstStyle:spans[0] && getComputedStyle(spans[0]).whiteSpace,
+                softBreaks:spans.map(span => [...span.querySelectorAll('.sumra-chm-softbreak')].map(node => node.textContent)),
+                breakIndex:softBreak && indexed.starts[indexed.nodes.indexOf(softBreak)],
+                width:innerWidth, prose:spans[0] && proseGeometry(spans[0]), code:code && lineTops(code),
+                poem:poem && lineTops(poem), ascii:ascii && lineTops(ascii)};
+            """, in: view) as? [String: Any]
+            return try XCTUnwrap(value)
+        }
+        try XCTUnwrap(view.window).setContentSize(CGSize(width: 1400, height: 500))
+        let wide = try await sample()
+        XCTAssertEqual(wide["source"] as? String, text)
+        XCTAssertEqual(wide["searchable"] as? String, text)
+        XCTAssertEqual(wide["proseCount"] as? Int, 4)
+        XCTAssertEqual(wide["firstStyle"] as? String, "normal")
+        XCTAssertEqual(wide["softBreaks"] as? [[String]], Array(repeating: ["\n"], count: 4))
+        XCTAssertEqual(try XCTUnwrap(wide["breakIndex"] as? Int), (text as NSString).range(of: "\n收尾第2段文字").location)
+        let wideProse = try XCTUnwrap(wide["prose"] as? [String: Any])
+        let wideTops = try XCTUnwrap(wideProse["tops"] as? [Double])
+        XCTAssertEqual(wideTops[0], wideTops[1], accuracy: 1, "Source line break should flow within the wide paragraph")
+        XCTAssertEqual(try XCTUnwrap(wideProse["gap"] as? Double), 0, accuracy: 1,
+            "A source hard wrap must not render a space between adjacent Han glyphs")
+        for key in ["code", "poem", "ascii"] {
+            let tops = try XCTUnwrap(wide[key] as? [Double])
+            XCTAssertGreaterThan(tops[1], tops[0], key)
+        }
+        try XCTUnwrap(view.window).setContentSize(CGSize(width: 420, height: 500))
+        let narrow = try await sample()
+        XCTAssertEqual(narrow["source"] as? String, text)
+        XCTAssertEqual(narrow["searchable"] as? String, text)
+        let narrowProse = try XCTUnwrap(narrow["prose"] as? [String: Any])
+        let narrowTops = try XCTUnwrap(narrowProse["tops"] as? [Double])
+        XCTAssertGreaterThan(narrowTops[1], narrowTops[0], "Prose should wrap at the narrow viewport")
+        _ = try await evaluate("""
+        await window.__sumatraFind.start('中\\n收尾第2段文字',true,false,1);
+        await window.leafCommand({name:'style',flow:'paged',spread:true,text:'serif|24|1.5|40|light'});
+        """, in: view)
+        let after = try await evaluate("""
+        const range = window.__sumatraFind.currentRange();
+        return {source:document.querySelector('pre').textContent,
+            searchable:window.__sumatraFind.textFromBody(document.body).text,
+            selected:range?.toString(), connected:range?.startContainer.isConnected && range?.endContainer.isConnected,
+            startOffset:range?.startOffset, startText:range?.startContainer.data,
+            endOffset:range?.endOffset, endText:range?.endContainer.data,
+            columns:getComputedStyle(document.body).columnCount};
+        """, in: view) as? [String: Any]
+        XCTAssertEqual(after?["source"] as? String, text)
+        XCTAssertEqual(after?["searchable"] as? String, text)
+        XCTAssertEqual(after?["selected"] as? String, "中\n收尾第2段文字")
+        XCTAssertEqual(after?["connected"] as? Bool, true)
+        XCTAssertEqual(after?["startOffset"] as? Int, 34)
+        XCTAssertEqual(after?["startText"] as? String, full)
+        XCTAssertEqual(after?["endOffset"] as? Int, 7)
+        XCTAssertEqual(after?["endText"] as? String, "收尾第2段文字。")
+        XCTAssertEqual(after?["columns"] as? String, "2")
+    }
+
+    @MainActor
+    func testIndentedDecoratedCHMTitleStaysCenteredInNarrowSpreadWithSourceOffsets() async throws {
+        let indent = String(repeating: "\u{3000}", count: 14)
+        let title = "【冲动的惩罚】"
+        let ordinary = "\u{3000}\u{3000}普通段落仍有缩进。"
+        let text = "\(indent)\(title)\n\n\n作者：不详\n\n\(ordinary)\n\n    let value = 1\n\n\u{3000}\u{3000}春风\n\u{3000}\u{3000}秋月"
+        let (_, view) = try await loadedReaderFixture(topic: ("/topic1.txt", Data(text.utf8)), home: "/topic1.txt")
+        try XCTUnwrap(view.window).setContentSize(CGSize(width: 700, height: 500))
+        let result = try await evaluate("""
+        await window.leafCommand({name:'style',flow:'paged',spread:true});
+        const pre=document.querySelector('pre'), title=pre.querySelector('.sumra-chm-title');
+        const indent=title?.querySelector('.sumra-chm-title-indent');
+        const textNode=title?.lastChild, range=document.createRange();
+        range.setStart(textNode,0);range.setEnd(textNode,1);
+        const first=range.getBoundingClientRect();
+        range.setStart(textNode,textNode.length-1);range.setEnd(textNode,textNode.length);
+        const last=range.getBoundingClientRect();
+        range.selectNodeContents(textNode);
+        const glyphs=range.getBoundingClientRect(), box=title.getBoundingClientRect();
+        const indexed=window.__sumatraFind.textFromBody(document.body);
+        await window.__sumatraFind.start('【冲动的惩罚】',true,false,1);
+        const match=window.__sumatraFind.currentRange();
+        const ordinary=[...pre.childNodes].find(node=>node.nodeType===Node.TEXT_NODE && node.data.includes('普通段落'));
+        range.setStart(ordinary,0);range.setEnd(ordinary,2);
+        const ordinaryIndent=range.getBoundingClientRect();
+        return {source:pre.textContent,searchable:indexed.text,
+            titles:pre.querySelectorAll('.sumra-chm-title').length,indent:indent?.textContent,
+            indentDisplay:indent && getComputedStyle(indent).display,
+            columns:getComputedStyle(document.body).columnCount,font:getComputedStyle(pre).fontSize,
+            titleWidth:box.width,viewport:innerWidth,centerGap:(glyphs.left+glyphs.right-box.left-box.right)/2,
+            firstTop:first.top,lastTop:last.top,ordinaryIndentWidth:ordinaryIndent.width,
+            selected:match?.toString(),startIndex:indexed.starts[indexed.nodes.indexOf(match?.startContainer)]+match?.startOffset,
+            endOffset:match?.endOffset};
+        """, in: view) as? [String: Any]
+        XCTAssertEqual(result?["source"] as? String, text)
+        XCTAssertEqual(result?["searchable"] as? String, text)
+        XCTAssertEqual(result?["titles"] as? Int, 1)
+        XCTAssertEqual(result?["indent"] as? String, indent)
+        XCTAssertEqual(result?["indentDisplay"] as? String, "none")
+        XCTAssertEqual(result?["columns"] as? String, "2")
+        XCTAssertEqual(result?["font"] as? String, "17px")
+        XCTAssertLessThan(try XCTUnwrap(result?["titleWidth"] as? Double), try XCTUnwrap(result?["viewport"] as? Double) / 2)
+        XCTAssertEqual(try XCTUnwrap(result?["centerGap"] as? Double), 0, accuracy: 1)
+        XCTAssertEqual(try XCTUnwrap(result?["firstTop"] as? Double), try XCTUnwrap(result?["lastTop"] as? Double), accuracy: 1)
+        XCTAssertGreaterThan(try XCTUnwrap(result?["ordinaryIndentWidth"] as? Double), 20)
+        XCTAssertEqual(result?["selected"] as? String, title)
+        XCTAssertEqual(result?["startIndex"] as? Int, (text as NSString).range(of: title).location)
+        XCTAssertEqual(result?["endOffset"] as? Int, (title as NSString).length)
+    }
+
+    @MainActor
+    func testProseCHMWidthFitsViewportWithoutChangingAuthoredControls() async throws {
+        let prose = String(repeating: "A long paragraph of words. ", count: 90)
+        let html = """
+        <meta charset=utf-8><style>body{width:500px;margin:12px;font:20px serif}
+        #chapter{width:500px} p{font-size:22px}</style>
+        <div id=chapter><h1>Chapter</h1><p>\(prose)</p></div>
+        <form id=controls style="width:360px"><input value="Keep editing"></form>
+        <table id=diagram style="width:360px"><tr><td>Diagram</td></tr></table>
+        """
+        let (_, view) = try await loadedReaderFixture(topic: ("/topic1.htm", Data(html.utf8)), home: "/topic1.htm")
+        let result = try await evaluate("""
+        const chapter = document.getElementById('chapter'), form = document.getElementById('controls');
+        const table = document.getElementById('diagram');
+        const sample = () => ({viewport:innerWidth, body:document.body.getBoundingClientRect().width,
+            chapter:parseFloat(getComputedStyle(chapter).width), font:getComputedStyle(chapter.querySelector('p')).fontSize,
+            form:form.getBoundingClientRect().width, table:table.getBoundingClientRect().width});
+        const continuous = sample();
+        await window.leafCommand({name:'style',flow:'paged',spread:false});
+        const paged = sample();
+        await window.leafCommand({name:'style',flow:'continuous',spread:false});
+        return {continuous,paged,sameNode:chapter===document.getElementById('chapter'),
+            input:form.querySelector('input').value};
+        """, in: view) as? [String: Any]
+        for key in ["continuous", "paged"] {
+            let mode = try XCTUnwrap(result?[key] as? [String: Any])
+            let viewport = try XCTUnwrap(mode["viewport"] as? Double)
+            XCTAssertGreaterThan(try XCTUnwrap(mode["chapter"] as? Double), viewport * 0.8, key)
+            XCTAssertLessThanOrEqual(try XCTUnwrap(mode["chapter"] as? Double), viewport, key)
+            XCTAssertEqual(mode["font"] as? String, "22px", key)
+            XCTAssertEqual(try XCTUnwrap(mode["form"] as? Double), 360, accuracy: 1, key)
+            XCTAssertEqual(try XCTUnwrap(mode["table"] as? Double), 360, accuracy: 1, key)
+        }
+        XCTAssertEqual(result?["sameNode"] as? Bool, true)
+        XCTAssertEqual(result?["input"] as? String, "Keep editing")
+    }
+
+    @MainActor
+    func testChangingCHMFontOverridesDocumentStylesAndKeepsVisiblePassage() async throws {
+        let chapters = (0..<25).map { index in
+            "<p id=p\(index)>Passage \(index). " + String(repeating: "Words remain at the reading position. ", count: 15) + "</p>"
+        }.joined()
+        let html = "<style>body{font:11px monospace}</style>" + chapters
+        let (state, view) = try await loadedReaderFixture(topic: ("/topic1.htm", Data(html.utf8)), home: "/topic1.htm")
+        let before = try await evaluate("""
+        document.getElementById('p12').scrollIntoView();
+        return {font:getComputedStyle(document.body).fontSize,
+            visible:document.getElementById('p12').getBoundingClientRect().top < innerHeight};
+        """, in: view) as? [String: Any]
+        XCTAssertEqual(before?["font"] as? String, "11px")
+        XCTAssertEqual(before?["visible"] as? Bool, true)
+        state.font = "serif"; state.fontSize = 28; state.lineHeight = 1.5
+        state.applyTypography(overrideDocumentStyles: true)
+        XCTAssertFalse(state.useDocumentCSS)
+        let style = state.command
+        XCTAssertEqual(style.action, .style)
+        state.send(.copy)
+        let coordinator = try XCTUnwrap(view.navigationDelegate as? BrowserReader.Coordinator)
+        coordinator.command = style.revision
+        coordinator.deliver(style, to: view)
+        try await waitForNextCommand(state, after: style.revision)
+        let after = try await evaluate("""
+        const passage = document.getElementById('p12'), body = getComputedStyle(document.body);
+        const rect = passage.getBoundingClientRect();
+        return {font:body.fontSize,family:body.fontFamily,line:body.lineHeight,
+            visible:rect.bottom>0&&rect.top<innerHeight, sameNode:passage.isConnected};
+        """, in: view) as? [String: Any]
+        XCTAssertEqual(after?["font"] as? String, "28px")
+        XCTAssertEqual(after?["family"] as? String, "serif")
+        XCTAssertEqual(after?["line"] as? String, "42px")
+        XCTAssertEqual(after?["visible"] as? Bool, true)
+        XCTAssertEqual(after?["sameNode"] as? Bool, true)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
     func testCrossTopicSearchUsesDeclaredEncodingAndLiteralPlainText() async throws {
         let encoded = Data("<meta charset='windows-1252'><p>".utf8) + Data([0x63,0x61,0x66,0xe9]) + Data("</p>".utf8)
         let chinese = Data("<meta charset='gbk'><p>".utf8) + Data([0xb2,0xe2,0xca,0xd4]) + Data("</p>".utf8)
@@ -370,7 +698,7 @@ final class BrowserReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testCurrentTopicRetainsPublisherCSSAndPrintPreparationDoesNotLoadTheBook() async throws {
+    func testCurrentTopicRetainsPublisherLayoutAndReaderThemeDuringPrintPreparation() async throws {
         let gif = try XCTUnwrap(Data(base64Encoded: "R0lGODlhAQABAIAAAP8AAP///ywAAAAAAQABAAACAkQBADs="))
         let html = """
         <link rel="stylesheet" href="styles/book.css"><body style="margin:11px 13px;padding:7px 9px">
@@ -426,11 +754,15 @@ final class BrowserReaderTests: XCTestCase {
         const margins = bodyStyle();
         await window.leafCommand({ name:'style', pageMargins:[], userCSS:customCSS });
         const custom = bodyStyle();
-        await window.leafCommand({ name:'style', userCSS:'' });
-        return { ...original, viewportRestored, restoredImages, reading, margins, custom, restored:bodyStyle() };
-        """, in: view, arguments: ["customCSS": ReaderTheme.all[1].css + "\nbody{font-size:27px!important;padding:5px!important;color:rgb(50,60,70)!important}"]) as? [String: Any]
+        const customPublishedColor = getComputedStyle(document.querySelector('.published')).color;
+        await window.leafCommand({ name:'style', userCSS:lightCSS });
+        return { ...original, viewportRestored, restoredImages, reading, margins, custom, customPublishedColor, restored:bodyStyle() };
+        """, in: view, arguments: [
+            "lightCSS": ReaderTheme.all[0].css,
+            "customCSS": ReaderTheme.all[1].css + "\nbody{font-size:27px!important;padding:5px!important;color:rgb(50,60,70)!important}.published{color:rgb(70,80,90)!important}"
+        ]) as? [String: Any]
         XCTAssertEqual(result?["font"] as? String, "29px")
-        XCTAssertEqual(result?["color"] as? String, "rgb(10, 20, 30)")
+        XCTAssertEqual(result?["color"] as? String, "rgb(0, 0, 0)", "Reader theme overrides publisher text colors while preserving its font size")
         XCTAssertEqual(result?["value"] as? String, "edited")
         XCTAssertEqual(result?["executed"] as? Bool, true)
         XCTAssertEqual(result?["before"] as? [String], (result?["after"] as? [String])?.filter { !$0.hasSuffix("/images/print.gif") })
@@ -442,11 +774,11 @@ final class BrowserReaderTests: XCTestCase {
         XCTAssertEqual(printedImage?["width"] as? Int, 1)
         XCTAssertEqual(printedImage?["height"] as? Int, 1)
         XCTAssertEqual(printedImage?["y"] as? Double, deferred?["y"] as? Double, "Preparing a lazy image must not move the reading viewport")
-        let imageStyle = ["loading": "LaZy", "width": "24px", "height": "18px", "background": "rgb(0, 0, 255)"]
+        let imageStyle = ["loading": "LaZy", "width": "24px", "height": "18px", "background": "rgba(0, 0, 0, 0)"]
         XCTAssertEqual(result?["loadedBefore"] as? [String: String], imageStyle)
-        XCTAssertEqual(result?["loadedAfter"] as? [String: String], imageStyle, "A completed image retains its authored attribute and CSS")
+        XCTAssertEqual(result?["loadedAfter"] as? [String: String], imageStyle, "A completed image retains its authored attribute and geometry with the reader theme")
         XCTAssertEqual(deferred?["style"] as? [String: String], imageStyle)
-        XCTAssertEqual(printedImage?["style"] as? [String: String], imageStyle, "Starting a deferred request retains its authored attribute and CSS")
+        XCTAssertEqual(printedImage?["style"] as? [String: String], imageStyle, "Starting a deferred request retains its authored attribute and geometry with the reader theme")
         XCTAssertEqual(result?["viewportRestored"] as? Bool, true)
         let restoredImages = result?["restoredImages"] as? [String: Any]
         XCTAssertEqual(restoredImages?["loaded"] as? [String: String], imageStyle)
@@ -454,7 +786,7 @@ final class BrowserReaderTests: XCTestCase {
         XCTAssertEqual(restoredImages?["y"] as? Double, deferred?["y"] as? Double)
         let authored = result?["body"] as? [String: String]
         XCTAssertEqual(authored, ["font": "serif", "size": "23px", "line": "28.75px", "margin": "11px 13px",
-                                  "padding": "7px 9px", "color": "rgb(40, 50, 60)", "background": "rgb(240, 230, 220)"])
+                                  "padding": "7px 9px", "color": "rgb(0, 0, 0)", "background": "rgb(242, 242, 242)"])
         let reading = result?["reading"] as? [String: String]
         XCTAssertEqual(reading?["font"], "monospace")
         XCTAssertEqual(reading?["size"], "20px")
@@ -470,9 +802,10 @@ final class BrowserReaderTests: XCTestCase {
         XCTAssertEqual(custom?["padding"], "5px")
         XCTAssertEqual(custom?["color"], "rgb(50, 60, 70)")
         XCTAssertEqual(custom?["background"], "rgb(0, 0, 0)")
+        XCTAssertEqual(result?["customPublishedColor"] as? String, "rgb(70, 80, 90)", "Explicit user CSS takes precedence over the reader palette")
         XCTAssertEqual(result?["restored"] as? [String: String], authored)
         XCTAssertTrue(state.isCHM)
-        XCTAssertFalse(state.supportsPagination)
+        XCTAssertTrue(state.supportsPagination)
     }
 
     @MainActor
@@ -979,7 +1312,7 @@ final class BrowserReaderTests: XCTestCase {
         <iframe id="child" src="child.htm" style="width:500px;height:220px"></iframe>
         <div style="height:3200px"></div><p>End of topic</p>
         """
-        let child = "<body style='width:1200px'><div style='height:1800px'></div><p>End of frame</p></body>"
+        let child = "<body><div style='width:1200px;height:1800px'></div><p>End of frame</p></body>"
         let (state, view) = try await loadedReaderFixture(topic: ("/topic.html", Data(html.utf8)), home: "/topic.html",
             additionalTopics: [("/child.htm", Data(child.utf8))])
         let coordinator = try XCTUnwrap(view.navigationDelegate as? BrowserReader.Coordinator)

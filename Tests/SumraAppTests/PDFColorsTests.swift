@@ -123,6 +123,36 @@ final class PDFColorsTests: XCTestCase {
         XCTAssertEqual(try pixel(enhanced, 60, 80), try pixel(normal, 60, 80), "Gray area fills keep their intended contrast")
     }
 
+    func testAutomaticScanContrastKeepsGrayEdgesAndSourceBytes() throws {
+        try requireEngine()
+        let page = try document(fixture(imageSize: 300, raster: "scan"))
+        let original = try page.image(0, width: 300, style: .init(scanContrast: false))
+        let enhanced = try page.image(0, width: 300, style: .init())
+        let ink = try pixel(enhanced, 31, 108)[0], edge = try pixel(enhanced, 30, 108)[0]
+        XCTAssertLessThan(ink, try pixel(original, 31, 108)[0])
+        XCTAssertLessThan(ink, edge, "Thin glyph edges remain graded rather than becoming binary ink")
+        XCTAssertLessThan(edge, 255)
+        XCTAssertEqual(try pixel(enhanced, 5, 5), try pixel(original, 5, 5))
+        let tile = try page.image(0, width: 300, region: CGRect(x: 20, y: 88, width: 60, height: 40), style: .init())
+        XCTAssertEqual(try pixel(tile, 11, 20), try pixel(enhanced, 31, 108))
+        XCTAssertFalse(try XCTUnwrap(page.pdfInfo()).dirty)
+        let restored = try page.image(0, width: 300, style: .init(scanContrast: false))
+        XCTAssertEqual(try pixel(restored, 31, 108), try pixel(original, 31, 108))
+    }
+    func testAutomaticScanContrastPreservesPhotographsColorsAndVectorGray() throws {
+        try requireEngine()
+        for raster in ["photo", "color"] {
+            let page = try document(fixture(imageSize: 300, raster: raster))
+            let original = try page.image(0, width: 300, style: .init(scanContrast: false))
+            let enhanced = try page.image(0, width: 300, style: .init())
+            XCTAssertEqual(try rgbPixels(enhanced), try rgbPixels(original), raster)
+        }
+        let vector = try document(fixture(cad: true))
+        let original = try vector.image(0, width: 300, style: .init(scanContrast: false))
+        let enhanced = try vector.image(0, width: 300, style: .init())
+        XCTAssertEqual(try rgbPixels(enhanced), try rgbPixels(original))
+    }
+
     private func requireEngine() throws {
         guard FileManager.default.fileExists(atPath: try NativeFile.libraryURL(for: .mupdf).path) else {
             throw XCTSkip("Build MuPDF before native PDF display tests")
@@ -145,11 +175,31 @@ final class PDFColorsTests: XCTestCase {
         let color = Array(UnsafeBufferPointer(start: bytes + offset, count: components))
         return components == 3 ? color + [255] : color
     }
-    private func fixture(clipImage: Bool = false, producer: String = "", pdfe: Bool = false, cad: Bool = false, imageSize: Int = 4) -> Data {
+    private func rgbPixels(_ image: CGImage) throws -> [UInt8] {
+        let data = try XCTUnwrap(image.dataProvider?.data), bytes = try XCTUnwrap(CFDataGetBytePtr(data))
+        let components = image.bitsPerPixel / 8
+        return (0..<image.height).flatMap { y in
+            (0..<image.width).flatMap { x in
+                Array(UnsafeBufferPointer(start: bytes + y * image.bytesPerRow + x * components, count: 3))
+            }
+        }
+    }
+    private func fixture(clipImage: Bool = false, producer: String = "", pdfe: Bool = false, cad: Bool = false, imageSize: Int = 4, raster: String? = nil) -> Data {
         let palette = [0x702020, 0x205020, 0x202080, 0x604020, 0x401030, 0x103050, 0x706010, 0x203060,
                      0x301010, 0x106050, 0x703050, 0x305070, 0x504010, 0x104020, 0x602060, 0x203030]
-        let image = (0..<(imageSize * imageSize)).map { String(format: "%06x", palette[$0 % palette.count]) }.joined() + ">"
-        let content = cad ? "0.5 0 0 0.5 0 0 cm .7 g 20 178 100 4 re f 100 200 100 100 re f\n" :
+        let image = (0..<(imageSize * imageSize)).map { index -> String in
+            let x = index % imageSize, y = index / imageSize
+            let color: Int
+            switch raster {
+            case "scan":
+                let gray = x >= 30 && x < 270 && x % 15 < 4 && y >= 30 && y < 270 && y % 20 < 6 ? (x % 15 == 0 ? 240 : 210) : 255
+                color = gray * 0x010101
+            case "photo": color = (80 + (x + y) * 160 / (imageSize * 2)) * 0x010101
+            default: color = palette[index % palette.count]
+            }
+            return String(format: "%06x", color)
+        }.joined() + ">"
+        let content = raster != nil ? "q 300 0 0 200 0 0 cm /Im Do Q\n" : cad ? "0.5 0 0 0.5 0 0 cm .7 g 20 178 100 4 re f 100 200 100 100 re f\n" :
             "0 g 10 10 30 30 re f q \(clipImage ? "100 50 40 100 re W n " : "")100 0 0 100 100 50 cm /Im Do Q\n"
         let appearance = "0 1 0 rg 0 0 40 40 re f\n"
         let objects = [

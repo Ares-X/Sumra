@@ -33,25 +33,41 @@ final class NativeReflowSelectionTests: XCTestCase {
         try (0..<120).map { "Paragraph \($0): These words stay intact while the reader keeps this exact source passage through wrapping and zoom.\n\n" }
             .joined().write(to: input, atomically: true, encoding: .utf8)
         let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
-        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light")
-        let count = await pages.count, target = count / 2
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: input, content: .pages(pages), markdownPreference: .paged, markdownRenderer: .paged)
         state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32; state.font = "system"; state.theme = "light"
         state.zoom = 1; state.fit = "custom"; state.flow = "continuous"; state.spread = false
         state.trimEmptyMargins = false; state.uniformPageWidth = false; state.automaticLayout = false
+        state.scrollbarMode = "hidden"
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                     userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS,
+                                     pageMargins: state.pageMargins, pageSize: CGSize(width: 900, height: 0))
+        let count = await pages.count, target = 0
+        XCTAssertEqual(count, 1, "Continuous Markdown uses one natural-height chapter")
         state.reflowable = true; state.count = count; state.chapterLayout = await pages.chapterLayout
-        state.updatePosition(.init(page: target))
+        let initialBounds = try await pages.bounds(target)
+        state.updatePosition(try await pages.position(page: target, y: Double(initialBounds.height / 2)))
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 900, height: 700), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
         try await wait(host, state: state) {
-            RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(target))
+            RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(target)) &&
+                state.currentPosition.nativePassage != nil
+        }
+        // Finish the initial viewport style command before reading glyphs and
+        // sending mouse events against the mounted canvas.
+        let initialCommand = state.command.revision
+        state.send(.none)
+        try await wait(host, state: state) {
+            state.command.revision > initialCommand && state.command.action == .none &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(target))
         }
         let canvas = try XCTUnwrap(state.readerFocusView), bounds = try await pages.bounds(target)
         let words = try await pages.words(target)
-        let line = try XCTUnwrap(words.first { !$0.bounds.isEmpty }).bounds
+        let visible = canvas.visibleRect
+        let visibleSourceTop = bounds.minY + visible.minY * bounds.height / canvas.bounds.height
+        let line = try XCTUnwrap(words.first { !$0.bounds.isEmpty && $0.bounds.minY > visibleSourceTop + 20 }).bounds
         let first = try XCTUnwrap(words.first { !$0.bounds.isEmpty && abs($0.bounds.minY-line.minY) < 1 })
         let last = try XCTUnwrap(words.filter { !$0.bounds.isEmpty && abs($0.bounds.minY-line.minY) < 1 }.prefix(24).last)
         func event(_ type: NSEvent.EventType, _ point: CGPoint) throws -> NSEvent {
@@ -78,12 +94,17 @@ final class NativeReflowSelectionTests: XCTestCase {
         state.setZoom(1.5)
         try await Task.sleep(nanoseconds: 10_000_000)
         state.setZoom(6)
-        try await wait(host, state: state) { state.renderRevision > revision + 1 }
+        try await wait(host, state: state) {
+            state.renderRevision > revision + 1 &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(target)) &&
+                (state.readerScrollView?.contentView.bounds.minY ?? 0) > (state.readerScrollView?.contentView.bounds.height ?? 0)
+        }
         XCTAssertTrue(state.hasSelection, "Queued reflow must retain the source selection")
         XCTAssertEqual(state.selectedText.filter { !$0.isWhitespace }, selected)
         // Native scrolling must retain the reader-owned selection after its
-        // source canvas leaves the viewport.
+        // source passage leaves the viewport of the natural-height chapter.
         let scroll = try XCTUnwrap(state.readerScrollView)
+        XCTAssertGreaterThan(scroll.contentView.bounds.minY, scroll.contentView.bounds.height)
         scroll.contentView.scroll(to: .zero); scroll.reflectScrolledClipView(scroll.contentView)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(state.hasSelection)
@@ -103,21 +124,25 @@ final class NativeReflowSelectionTests: XCTestCase {
         }
         let sentinel = "OWNED_SELECTION_COPY_SENTINEL"
         pasteboard.clearContents(); pasteboard.setString(sentinel, forType: .string)
-        // Exercise the canvas responder's Copy action after its source leaves
+        // Exercise the canvas responder's Copy action after its passage leaves
         // the viewport, rather than querying an internal selection container.
         _ = canvas.perform(NSSelectorFromString("copy:"), with: nil)
         try await wait(host, state: state) { pasteboard.string(forType: .string) != sentinel }
         XCTAssertEqual(pasteboard.string(forType: .string)?.filter { !$0.isWhitespace }, selected)
     }
 
-    private func wait(_ host: NSView, state: ReaderState, until predicate: () -> Bool) async throws {
+    private func wait(_ host: NSView, state: ReaderState, file: StaticString = #filePath, line: UInt = #line,
+                      until predicate: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(15)
         while !predicate(), state.error == nil, Date() < deadline {
             host.layoutSubtreeIfNeeded()
+            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+            }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertNil(state.error)
-        XCTAssertTrue(predicate(), "Timed out waiting for hosted native reader")
+        XCTAssertNil(state.error, file: file, line: line)
+        XCTAssertTrue(predicate(), "Timed out waiting for hosted native reader: revision=\(state.renderRevision), zoom=\(state.zoom), viewport=\(String(describing: state.readerScrollView?.contentView.bounds))", file: file, line: line)
     }
 }
 #endif

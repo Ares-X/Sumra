@@ -6,6 +6,31 @@ import XCTest
 @testable import Sumra
 
 final class NativeMarkdownReflowTests: XCTestCase {
+    func testRepeatedLayoutDoesNotReplaceRestoredPassageWithOldPageGeometry() async throws {
+        let temporary = try TemporaryDirectory()
+        defer { withExtendedLifetime(temporary) {} }
+        let input = temporary.url.appendingPathComponent("RepeatedLayout.md")
+        try (0..<400).map { "Source paragraph \($0) stays at the reading position.\n\n" }.joined()
+            .write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+                                    pageSize: CGSize(width: 620, height: 720))
+        let count = await pages.count
+        let old = try await pages.position(page: count * 4 / 5)
+        let original = try XCTUnwrap(old.nativePassage)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+                                    pageSize: CGSize(width: 620, height: 0), readingPosition: old)
+        let restored = await pages.layoutPosition
+        XCTAssertEqual(restored.page, 0)
+        XCTAssertGreaterThan(try XCTUnwrap(restored.y), 720)
+        XCTAssertEqual(restored.nativePassage?.source, original.source)
+        let repeated = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+                                               pageSize: CGSize(width: 620, height: 0), readingPosition: old)
+        XCTAssertNil(repeated)
+        let after = await pages.layoutPosition
+        XCTAssertEqual(after, restored, "A replacement style command must retain the completed native source destination")
+    }
+
     func testMarkdownPDFSubsetsSelectedGlyphsWithoutChangingTextOrPaint() throws {
         let temporary = try TemporaryDirectory()
         defer { withExtendedLifetime(temporary) {} }
@@ -92,6 +117,7 @@ final class NativeMarkdownReflowTests: XCTestCase {
         let defaults = UserDefaults.standard
         let saved = ["fit", "flow"].map { ($0, defaults.object(forKey: $0)) }
         defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        state.flow = "paged"; state.spread = false
 
         state.setZoom(6)
         state.setFit("width")
@@ -150,10 +176,10 @@ final class NativeMarkdownReflowTests: XCTestCase {
         let input = temporary.url.appendingPathComponent("Scroll.md")
         try String(repeating: "A repeated paragraph with stable source identity.\n\n", count: 120).write(to: input, atomically: true, encoding: .utf8)
         let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
-        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light")
         let state = ReaderState()
         state.document = ReadingDocument(url: input, content: .pages(pages), markdownPreference: .paged, markdownRenderer: .paged)
         state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32; state.font = "system"; state.theme = "light"; state.zoom = 1
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light", userCSS: state.effectiveUserCSS)
         state.reflowable = true; state.count = await pages.count; state.chapterLayout = await pages.chapterLayout
         let key = "position:" + input.standardizedFileURL.path, modeKey = key + ":markdown:paged"
         let defaults = UserDefaults.standard, disabled = defaults.object(forKey: "disableReadingState")
@@ -173,13 +199,13 @@ final class NativeMarkdownReflowTests: XCTestCase {
         let mode = try JSONDecoder().decode(ReadingPosition.self, from: XCTUnwrap(defaults.data(forKey: modeKey)))
         XCTAssertEqual(mode.nativePassage, passage)
         let reopened = try Pages(input, format: .markdown, deferReflowLayout: true)
-        _ = try await reopened.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light", textZoom: 1.5)
+        _ = try await reopened.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light", userCSS: state.effectiveUserCSS, textZoom: 1.5)
         var zoomed = mode; zoomed.zoom = 1.5
-        let restored = try await reopened.restore(zoomed, theme: "light")
+        let restored = try await reopened.restore(zoomed, userCSS: state.effectiveUserCSS, theme: "light")
         XCTAssertEqual(restored.nativePassage?.source, passage.source, "Reopen at a different text size must restore the same source glyph")
         let restoredWords = try await reopened.words(restored.page)
         XCTAssertTrue(restoredWords.contains { $0.source == passage.source })
-        _ = try await reopened.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light", textZoom: 1)
+        _ = try await reopened.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light", userCSS: state.effectiveUserCSS, textZoom: 1)
         let returned = await reopened.layoutPosition
         XCTAssertEqual(returned.nativePassage?.source, passage.source, "Repeated reflow must not drift from a margin point to another glyph")
     }

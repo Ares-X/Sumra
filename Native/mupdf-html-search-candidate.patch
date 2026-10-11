@@ -1,0 +1,232 @@
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -119,4 +119,10 @@
+  * The caller owns dev; cancellation throws FZ_ERROR_ABORT. */
+ int fz_run_html_page_region(fz_context *ctx, fz_page *page, fz_device *dev, fz_matrix ctm, fz_rect region, fz_cookie *cookie);
+ 
++/* Conservative laid-out flow candidate check. Includes generated CSS text and
++ * list marks. One means possible/unsupported; zero proves no text match. */
++int fz_html_page_has_search_candidate(fz_context *ctx, fz_page *page, const fz_search *search, int (*cancelled)(void));
++/* Same parsed EPUB/CSS tree as page loading, without typography or page counts. */
++int fz_epub_chapter_has_search_candidate(fz_context *ctx, fz_document *doc, int chapter, const fz_search *search, int (*cancelled)(void));
++
+ #endif /* MUPDF_FITZ_HTML_H */
+--- a/include/mupdf/fitz/structured-text.h
++++ b/include/mupdf/fitz/structured-text.h
+@@ -1071,6 +1071,10 @@
+ 	int keep_rune, safe_before;
+ } fz_search_chunk_step;
+ size_t fz_search_needle_bytes(const fz_search *search);
++/* Allocated unique decomposed nonspace characters necessary for a match.
++ * A zero count cannot reject. Uses the search owner's normalization. */
++int *fz_search_candidate_characters(fz_context *ctx, const fz_search *search, size_t *count);
++void fz_search_remove_character_candidates(fz_context *ctx, const fz_search *search, int rune, int *candidates, size_t *count);
+ fz_search_chunker *fz_new_search_chunker(fz_context *ctx, const fz_search *search);
+ fz_search_chunk_step fz_feed_search_chunker(fz_context *ctx, fz_search_chunker *chunker, int rune);
+ size_t fz_finish_search_chunker(fz_context *ctx, fz_search_chunker *chunker);
+--- a/source/fitz/stext-search.c
++++ b/source/fitz/stext-search.c
+@@ -1418,6 +1418,64 @@
+ 	return search;
+ }
+ 
++static size_t search_candidate_transform(fz_context *ctx, const fz_search *search, int rune, char *text)
++{
++ transform_cache cache = {0};
++ /* Decomposition makes the necessary character independent of neighboring
++  * combining marks and visual line/paragraph separators. */
++ fz_text_transform transform = search->transform & ~FZ_TEXT_TRANSFORM_COMPOSE;
++ size_t bytes = transform_char(ctx, text, NULL, rune, 0, transform, &cache, NULL);
++ bytes += flush_transform_cache(ctx, text + bytes, NULL, transform, &cache, NULL);
++ text[bytes] = 0;
++ return bytes;
++}
++
++static int search_candidate_compare(const void *a, const void *b)
++{
++ return *(const int *)a - *(const int *)b;
++}
++
++int *fz_search_candidate_characters(fz_context *ctx, const fz_search *search, size_t *count)
++{
++ char *text = transform_text_without_index(ctx,
++  search->transform & ~FZ_TEXT_TRANSFORM_COMPOSE, search->spun_needle);
++ int *characters = NULL;
++ fz_var(characters);
++ *count = 0;
++ fz_try(ctx)
++ {
++  characters = fz_malloc_array(ctx, strlen(text), int);
++  for (const char *p = text; *p; )
++  {
++   int rune; p += fz_chartorune(&rune, p);
++   if (rune != ' ') characters[(*count)++] = rune;
++  }
++  qsort(characters, *count, sizeof(*characters), search_candidate_compare);
++  size_t unique = 0;
++  for (size_t i = 0; i < *count; ++i)
++   if (!unique || characters[i] != characters[unique - 1]) characters[unique++] = characters[i];
++  *count = unique;
++ }
++ fz_always(ctx) { fz_free(ctx, text); }
++ fz_catch(ctx) { fz_free(ctx, characters); fz_rethrow(ctx); }
++ return characters;
++}
++
++void fz_search_remove_character_candidates(fz_context *ctx, const fz_search *search, int rune,
++ int *candidates, size_t *count)
++{
++ /* NFKD expands one scalar to at most 18; sharp-S can double each unit. */
++ char text[18 * 2 * 4 + 1];
++ search_candidate_transform(ctx, search, rune, text);
++ for (const char *p = text; *p && *count; )
++ {
++  p += fz_chartorune(&rune, p);
++  for (size_t i = 0; i < *count; ++i)
++   if (candidates[i] == rune)
++   { candidates[i] = candidates[--*count]; break; }
++ }
++}
++
+ struct fz_search_chunker
+ {
+ 	fz_text_transform transform;
+@@ -1921,7 +1979,8 @@
+ 	if (direction < 0 && search->finder->find_rev == NULL)
+ 		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Can't search backwards with this finder");
+ 
+-	if (search->needle == NULL || *search->needle == 0)
++	/* A query made only of ignored marks is empty after normalization too. */
++	if (*search->spun_needle == 0)
+ 		return result_complete;
+ 
+ 	/* On entry, we assume that current_spun_pos point a position within
+--- a/source/html/epub-doc.c
++++ b/source/html/epub-doc.c
+@@ -174,6 +174,7 @@
+ }
+ 
+ static fz_html *epub_get_laid_out_html(fz_context *ctx, epub_document *doc, epub_chapter *ch);
++static fz_page *epub_load_page(fz_context *ctx, fz_document *doc_, int chapter, int number);
+ 
+ static int count_laid_out_pages(fz_html *html)
+ {
+@@ -490,6 +491,27 @@
+ 		fz_rethrow(ctx);
+ 
+ 	return fz_store_html(ctx, html, doc, ch->number);
++}
++
++int fz_epub_chapter_has_search_candidate(fz_context *ctx, fz_document *doc_, int chapter,
++ const fz_search *search, int (*cancelled)(void))
++{
++ epub_document *doc = (epub_document *)doc_;
++ if (doc_->load_page != epub_load_page) return 1;
++ /* Public document setup applies pending CSS and purges the parsed cache.
++  * EPUB's document layout only updates its accelerator, not chapter typography. */
++ int chapters = fz_count_chapters(ctx, doc_);
++ if (chapter < 0 || chapter >= chapters)
++  fz_throw(ctx, FZ_ERROR_ARGUMENT, "invalid chapter number: %d", chapter);
++ epub_chapter *ch = doc->spine[chapter];
++ if (ch->fixed_layout) return 1;
++ fz_html *html = epub_parse_chapter(ctx, doc, ch);
++ int possible = 1;
++ fz_var(possible);
++ fz_try(ctx) { possible = fz_html_has_search_candidate(ctx, html, search, cancelled); }
++ fz_always(ctx) { fz_drop_html(ctx, html); }
++ fz_catch(ctx) { fz_rethrow(ctx); }
++ return possible;
+ }
+ 
+ static fz_html *
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -163,6 +163,14 @@
+ 	return 1;
+ }
+ 
++int fz_html_page_has_search_candidate(fz_context *ctx, fz_page *page, const fz_search *search, int (*cancelled)(void))
++{
++ int number;
++ fz_html *html = html_text_page(page, &number);
++ if (!html || html->fixed_layout || html->layout_h != 0) return 1;
++ return fz_html_has_search_candidate(ctx, html, search, cancelled);
++}
++
+ int fz_run_html_page_text_region(fz_context *ctx, fz_page *page, fz_device *dev, fz_rect region)
+ {
+ 	int number;
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -897,6 +897,7 @@
+ void fz_add_css_font_faces(fz_context *ctx, fz_html_font_set *set, fz_archive *dir, const char *base_uri, fz_css *css, int tainted);
+ 
+ void fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em);
++int fz_html_has_search_candidate(fz_context *ctx, fz_html *html, const fz_search *search, int (*cancelled)(void));
+ void fz_draw_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page);
+ void fz_draw_html_text_region(fz_context *ctx, fz_device *dev, fz_html *html, int page, fz_rect region);
+ void fz_draw_html_region(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page, fz_rect region, fz_cookie *cookie);
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -4217,6 +4217,61 @@
+ 	}
+ }
+ 
++static int html_candidate_text(fz_context *ctx, const fz_search *search,
++ int *candidates, size_t *count, const char *text)
++{
++ while (*text && *count)
++ {
++  int rune; text += fz_chartorune(&rune, text);
++  fz_search_remove_character_candidates(ctx, search, rune, candidates, count);
++ }
++ return !*count;
++}
++
++static int html_candidate_box(fz_context *ctx, fz_html_tree *tree, fz_html_box *box,
++ const fz_search *search, int *candidates, size_t *count, int (*cancelled)(void))
++{
++ for (; box; box = box->next)
++ {
++  if (cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
++  if (box->list_item)
++  {
++   char text[40];
++   format_list_number(ctx, box->style->list_style_type, box->list_item, text, sizeof text);
++   if (html_candidate_text(ctx, search, candidates, count, text)) return 1;
++  }
++  if (box->type == BOX_FLOW)
++   for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
++   {
++    if (cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
++    if (flow->type == FLOW_WORD && html_candidate_text(ctx, search, candidates, count, fz_html_flow_text(flow))) return 1;
++   }
++  if (fz_html_box_has_boxes(box) && html_candidate_box(ctx, tree, box->down, search, candidates, count, cancelled)) return 1;
++ }
++ return 0;
++}
++
++int fz_html_has_search_candidate(fz_context *ctx, fz_html *html, const fz_search *search, int (*cancelled)(void))
++{
++ size_t count;
++ int *candidates = fz_search_candidate_characters(ctx, search, &count);
++ int possible = 1;
++ fz_var(possible);
++ /* Visibility and ordering are deliberately unconstrained: this only proves
++  * absence. Geometry, word boundaries and options remain the glyph matcher's. */
++ fz_try(ctx)
++ {
++  /* Layout can synthesize break hyphens absent from a parsed flow tree. */
++  for (size_t i = 0; i < count; )
++   if (candidates[i] == '-') candidates[i] = candidates[--count];
++   else ++i;
++  if (count) possible = html_candidate_box(ctx, &html->tree, html->tree.root, search, candidates, &count, cancelled);
++ }
++ fz_always(ctx) { fz_free(ctx, candidates); }
++ fz_catch(ctx) { fz_rethrow(ctx); }
++ return possible;
++}
++
+ static fz_html_flow *find_list_mark_anchor(fz_context *ctx, fz_html_box *box)
+ {
+ 	/* find first flow node in <li> tag */

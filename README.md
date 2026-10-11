@@ -27,7 +27,7 @@ Screenshots use the repository's [original demo document](docs/demos/Reading-Not
 
 Download the app ZIP from the [latest release page](https://github.com/Ares-X/Sumra/releases/latest). The same release provides corresponding source and SHA-256 checksums.
 
-The current distribution target is **Apple Silicon (arm64)**, with a minimum system target of **macOS 13**. The GUI has been exercised on macOS 27.0.1; compatibility on a physical Mac running macOS 13 has not yet been verified.
+The current distribution target is **Apple Silicon (arm64)**, with a minimum system target of **macOS 13**. Packaging checks every bundled executable and library for ARM support, the system target and resolved runtime dependencies. The GUI has been exercised on macOS 27.0.1; compatibility on a physical Mac running macOS 13 has not yet been verified.
 
 Installation:
 
@@ -42,10 +42,11 @@ Public builds use the maintainer's personal self-signed identity, **Ares-X Code 
 ## Reading and document tools
 
 - **Open files directly**: use Finder, drag files into a window, or continue from the home screen and recent files. Multiple windows and macOS tabs are supported.
-- **Navigate long documents**: contents and chapter-title search, full-text search, thumbnails, bookmarks and remembered reading positions.
-- **Choose a comfortable layout**: zoom, rotate, continuous or paged layouts, two-page spreads and presentation mode. Ebooks and text offer font and typography settings.
+- **Navigate long documents**: contents and chapter-title search, full-text search, thumbnails, bookmarks and remembered reading positions. TXT and MOBI without an authored table of contents can detect standalone chapter titles.
+- **Choose a comfortable layout**: single-page reading, continuous vertical scrolling, two-page spreads and left/right page turns are available across document formats. Continuous reflowable ebooks, text and web documents use a natural text stream without screen-sized paper gaps, wrap to the reading window and use the selected text and paper theme. Fixed pages retain their authored geometry. Ebooks and text offer font and typography settings.
 - **Listen to the text**: use system speech to read document text or a selection aloud.
 - **Work with PDFs**: fill forms, add and edit annotations, undo and redo, save or save a copy. Document tools include page extraction and merging.
+- **Read scanned PDFs**: neutral text scans gain contrast automatically. Turn **Enhance Scanned Pages** off in **View → Document Colors** to see the original appearance; the source file stays unchanged.
 - **Print and export**: use the macOS print panel or export a PDF. Available operations depend on the document's format and permissions.
 
 PDF editing is locked by default for reading. Choose **Enable Editing** before making changes, then save or save a copy to preserve the original. Saving a copy retains editable forms and annotations; exporting a PDF produces a static reading copy.
@@ -61,23 +62,27 @@ PDF editing is locked by default for reading. Choose **Enable Editing** before m
 | Other compatible formats | PDF-compatible AI, P7M envelopes, LIT |
 | Requires additional software | PostScript / EPS: install Ghostscript separately |
 
-Large Markdown documents use MuPDF for paged reading, with a selectable WebKit compatibility mode. HTML and CHM use WebKit for reading. Printing and PDF export for HTML, CHM and Markdown compatibility mode use MuPDF layout, so the output may differ from the reading view.
+Large Markdown documents use MuPDF and support single-page, continuous and two-page reading; WebKit compatibility mode is selectable. HTML and CHM use WebKit for reading. CHM prose fits the reading viewport, and plain-text topics use the reader's typography; repeated fixed-column Chinese prose flows across source line breaks while retaining the source text. Changing the reader font, size or line spacing overrides CHM publisher styles. Printing and PDF export for HTML, CHM and Markdown compatibility mode use MuPDF layout, so the output may differ from the reading view.
+
+Reflowable ebooks and native Markdown compact redundant blank prose rows and empty paragraphs. Preformatted text, tables, image blocks and explicit page breaks keep their layout. Recognized CHM prose uses compact paragraph gaps while retaining its original text.
 
 Format support does not cover every file variant. Sumra does not provide OCR or DRM removal; searching scanned pages requires an existing text layer. See the [format and engine notes](docs/SUMATRA_ENGINE_PARITY.md) for detailed coverage.
+
+Comic archives use their folders as Contents. Folder names and nesting are retained, and each entry opens the folder's first image in the existing reading order.
 
 ## Get started
 
 1. Press **⌘O** to open a file, or drag it into Sumra.
 2. Open the sidebar for contents, thumbnails or bookmarks. The contents search field finds chapter titles.
 3. Press **⌘F** to search document text.
-4. Use the **View** menu to adjust layout and theme; ebooks and text offer additional typography settings.
+4. The default reading and Home background is light. Use the **View** menu to adjust layout and theme; ebooks and text offer additional typography settings.
 5. Return through the home screen or recent files to continue from your last reading position.
 
 Find more commands under **Help → Keyboard Shortcuts**. You can customize shortcuts in Settings.
 
 ## Build from source
 
-You need macOS, the Apple Swift toolchain and macOS SDK, and CMake. Build scripts fetch pinned native dependencies, so the first build requires internet access. Swift Package Manager fetches a pinned version of Sparkle.
+You need macOS, the Apple Swift toolchain and macOS SDK, and CMake. Build scripts fetch pinned native dependencies, so the first build requires internet access. Swift Package Manager fetches a pinned version of Sparkle. Project build, packaging and checking scripts use Swift and system tools; Python is not required.
 
 ```sh
 git clone https://github.com/Ares-X/Sumra.git

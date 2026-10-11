@@ -18,6 +18,20 @@ user-deferred.
 
 ## Current implementation
 
+The latest original-book workflow sweep and changed-owner findings are in
+[the corpus acceptance report](BOOK_CORPUS_ACCEPTANCE.md#completed-original-book-workflow-sweep-2026-10-11)
+and [the performance report](LARGE_TEXT_PERFORMANCE_20261010.md#final-pagination-follow-up-october-11).
+The 0.2.2 candidate completes the large-Markdown pagination follow-up: both
+original books passed actual Single/Two/Continuous changes, Find, Contents and
+fresh-process passage restoration. Mode layout is 0.40–0.63 s in these GUI runs;
+first chapter parsing/layout remains 0.94–1.92 s. The final source check passes
+854 reader/core tests, 51 packaging checks and reader JavaScript syntax checks.
+The preceding hosted-selection timeout passed in the diagnostic full-suite run;
+caller/revision/viewport attribution is retained for any recurrence.
+The October 11 cleanup removes project Python tooling, the unused partial-engine
+build branch and unneeded reader wrappers; see [the cleanup record](DEFENSE_CLEANUP.md#october-11-follow-up).
+The candidate notes below retain their historical build and observation scopes.
+
 Candidate **855 completed browser print/export through a live WebKit snapshot
 and MuPDF**, including the preview lifecycle repair. Its optimized build took
 45.36 seconds; actual GUI Export PDF and Print → Save as PDF passed, and QA

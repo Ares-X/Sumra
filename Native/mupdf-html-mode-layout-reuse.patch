@@ -1,0 +1,14 @@
+diff --git a/source/html/html-layout.c b/source/html/html-layout.c
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -3592,6 +3592,10 @@
+ 	html->page_margin[B] = fz_from_css_number(html->tree.root->style->margin[B], em, html->fixed_layout ? h : em, 0);
+ 	html->page_margin[L] = fz_from_css_number(html->tree.root->style->margin[L], em, html->fixed_layout ? w : em, 0);
+ 	html->page_margin[R] = fz_from_css_number(html->tree.root->style->margin[R], em, html->fixed_layout ? w : em, 0);
++	/* Natural chapters have no paper padding. Apply this to geometry so
++	 * changing reading modes can reuse the same styled tree. */
++	if (!html->fixed_layout && h == 0)
++		html->page_margin[T] = html->page_margin[B] = 0;
+ 
+ 	html->page_w = w - html->page_margin[L] - html->page_margin[R];
+ 	if (!html->fixed_layout && html->page_w <= 72)

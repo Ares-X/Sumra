@@ -16,7 +16,8 @@ final class ReaderPreviewExportTests: XCTestCase {
         let directory = try TemporaryDirectory(), input = try epub(in: directory.url)
         let original = try Data(contentsOf: input)
         let pages = try Pages(input, format: .mupdf, deferReflowLayout: true)
-        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 0, font: "serif", theme: "light")
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 0, font: "serif", theme: "light",
+                                     userCSS: ".red{background-color:#ff0000!important}.blue{background-color:#0000ff!important}")
         _ = try await pages.text(PageLocation(chapter: 1, page: 0))
         let initial = await pages.chapterLayout
         XCTAssertFalse(initial.isLaidOut(0))
@@ -106,8 +107,8 @@ final class ReaderPreviewExportTests: XCTestCase {
             "mimetype": "application/epub+zip",
             "META-INF/container.xml": "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>",
             "content.opf": "<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata/><manifest><item id='a' href='first.xhtml' media-type='application/xhtml+xml'/><item id='b' href='second.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='a'/><itemref idref='b'/></spine></package>",
-            "first.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><body><div style='height:300pt;background:#ff0000'>First</div><div style='page-break-before:always;height:300pt;background:#ff0000'>Second</div></body></html>",
-            "second.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><body><div style='height:300pt;background:#0000ff'>Last chapter</div></body></html>"
+            "first.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><body><div class='red' style='height:300pt'>First</div><div class='red' style='page-break-before:always;height:300pt'>Second</div></body></html>",
+            "second.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><body><div class='blue' style='height:300pt'>Last chapter</div></body></html>"
         ]
         for (name, text) in files { try text.write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8) }
         let zip = Process(); zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); zip.currentDirectoryURL = directory

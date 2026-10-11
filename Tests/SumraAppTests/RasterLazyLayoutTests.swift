@@ -16,18 +16,25 @@ final class RasterLazyLayoutTests: XCTestCase {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory(), state = ReaderState()
         let input = directory.url.appendingPathComponent("search-selection.html")
-        let paragraphs = String(repeating: "<p>Enough ordinary text to place each match on a different reading page.</p>", count: 35)
+        let paragraphs = String(repeating: "<p>Enough ordinary text to place each match on a different reading viewport.</p>", count: 35)
         try """
         <html><body><div>KEPT user selection.</div>\(paragraphs)
         <p>needle first.</p>\(paragraphs)<p>needle second.</p></body></html>
         """.write(to: input, atomically: true, encoding: .utf8)
         let pages = try Pages(input, format: .html)
-        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 24, font: "serif", theme: "light")
         state.document = ReadingDocument(url: input, content: .pages(pages))
-        state.count = await pages.count; state.page = 0
-        XCTAssertGreaterThan(state.count, 2, "The fixture must exercise cross-page search navigation")
         state.fontSize = 17; state.lineHeight = 1.4; state.margin = 24; state.font = "serif"; state.theme = "light"
         state.flow = "continuous"; state.fit = "width"; state.spread = false; state.automaticLayout = false
+        state.scrollbarMode = "hidden"
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 24, font: "serif", theme: "light",
+                                     userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 500, height: 0))
+        state.count = await pages.count; state.page = 0
+        XCTAssertEqual(state.count, 1, "Continuous HTML keeps one natural chapter")
+        let matches = try await pages.matches("needle", page: 0)
+        XCTAssertEqual(matches.count, 2)
+        let firstMatch = try XCTUnwrap(matches.first?.rects.first)
+        let lastMatch = try XCTUnwrap(matches.last?.rects.first)
+        XCTAssertGreaterThan(lastMatch.minY - firstMatch.maxY, 400, "The matches must require different viewports")
         state.reflowable = true; state.searchable = true; state.renderRevision = 1
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 400), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -41,25 +48,47 @@ final class RasterLazyLayoutTests: XCTestCase {
             let deadline = Date().addingTimeInterval(5)
             repeat {
                 host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                }
                 if condition() { return }
                 try await Task.sleep(nanoseconds: 10_000_000)
             } while Date() < deadline && state.error == nil
             _ = try XCTUnwrap(condition() ? true : nil, state.error ?? "Raster search did not finish: page=\(state.page)/\(state.count), command=\(state.command.action), target=\(state.selectedSearchTarget ?? "nil"), results=\(state.searchResults.count), hasSelection=\(state.hasSelection), selectedLength=\(state.selectedText.count)", line: line)
         }
-        try await waitFor { state.readerScrollView != nil }
+        try await waitFor {
+            state.readerScrollView?.contentView.bounds.size == CGSize(width: 500, height: 400) &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(0))
+        }
+        state.send(.none)
+        try await waitFor {
+            state.command.action == .none && state.page == 0 &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(0))
+        }
         state.send(.selectCurrentPage)
         try await waitFor { state.hasSelection && state.selectedText.contains("KEPT") }
         let selection = state.selectedText
+        let sourceBounds = try await pages.bounds(state.page)
+        func matchIsVisible(_ rect: CGRect) -> Bool {
+            guard let canvas = state.readerFocusView else { return false }
+            let displayed = rect.applying(RasterLayout.transform(bounds: sourceBounds, size: canvas.bounds.size, rotation: state.rotation))
+            return canvas.visibleRect.contains(CGPoint(x: displayed.midX, y: displayed.midY)) &&
+                RasterReader.pageIsRendered(in: canvas, pages: pages, location: state.pageLocation(0))
+        }
         state.showFindPanel(); state.send(.find("needle"))
-        try await waitFor { state.searchResults.count == 2 && state.selectedSearchTarget == state.searchResults.first?.target && state.page > 0 }
+        try await waitFor {
+            state.searchResults.count == 2 && state.selectedSearchTarget == state.searchResults.first?.target &&
+                matchIsVisible(firstMatch)
+        }
         XCTAssertEqual(state.selectedText, selection)
         XCTAssertTrue(state.hasSelection)
         let last = try XCTUnwrap(state.searchResults.last?.target)
         let lastPage = try XCTUnwrap(Int(try XCTUnwrap(last.split(separator: ":").dropFirst().first)))
-        XCTAssertGreaterThan(lastPage, state.page, "The next match must be on another page")
+        XCTAssertEqual(lastPage, 0)
+        XCTAssertNotEqual(last, state.selectedSearchTarget, "Each same-chapter match has its own target")
         state.navigate(.href(last))
         state.send(.none)
-        try await waitFor { state.selectedSearchTarget == last && state.page == lastPage }
+        try await waitFor { state.selectedSearchTarget == last && state.page == lastPage && matchIsVisible(lastMatch) }
         XCTAssertEqual(state.selectedText, selection)
         XCTAssertTrue(state.hasSelection)
         state.closeFind(); state.send(.none)
@@ -67,7 +96,7 @@ final class RasterLazyLayoutTests: XCTestCase {
         XCTAssertEqual(state.selectedText, selection)
         XCTAssertTrue(state.hasSelection)
         state.navigateHistory(-1)
-        try await waitFor { state.page == 0 }
+        try await waitFor { state.page == 0 && (state.readerScrollView?.contentView.bounds.minY ?? .infinity) < 1 }
         XCTAssertFalse(state.canNavigateBack, "Back must return to the search start, without intermediate matches")
     }
 
@@ -139,7 +168,8 @@ final class RasterLazyLayoutTests: XCTestCase {
         let pages = try Pages(comic(in: directory.url), format: .comic)
         let high = try await pages.render(0, viewport: CGSize(width: 900, height: 700), scale: 2,
             columns: 1, rotation: 0, fit: "custom", zoom: 64, maximumZoom: 64)
-        XCTAssertEqual(high.image.width, 100); XCTAssertEqual(high.image.height, 200)
+        let highImage = try XCTUnwrap(high.image)
+        XCTAssertEqual(highImage.width, 100); XCTAssertEqual(highImage.height, 200)
         XCTAssertEqual(high.tileResolution, 0)
         XCTAssertEqual(high.display, CGSize(width: 6400, height: 12800))
     }
@@ -199,8 +229,9 @@ final class RasterLazyLayoutTests: XCTestCase {
         XCTAssertEqual(portrait.display, CGSize(width: 200, height: 400))
         XCTAssertEqual(rotated.display, CGSize(width: 200, height: 400))
         XCTAssertEqual(rotated.referenceWidth, 200)
-        XCTAssertEqual(portrait.image.height, portrait.image.width * 2)
-        XCTAssertEqual(rotated.image.width, rotated.image.height * 2)
+        let portraitImage = try XCTUnwrap(portrait.image), rotatedImage = try XCTUnwrap(rotated.image)
+        XCTAssertEqual(portraitImage.height, portraitImage.width * 2)
+        XCTAssertEqual(rotatedImage.width, rotatedImage.height * 2)
         XCTAssertTrue(portrait.imageCollection && rotated.imageCollection)
         XCTAssertTrue(portrait.links.isEmpty && rotated.links.isEmpty)
         XCTAssertNil(portrait.content)
@@ -224,8 +255,9 @@ final class RasterLazyLayoutTests: XCTestCase {
         let content = try XCTUnwrap(overlay.content)
         XCTAssertEqual(overlay.bounds, plain.bounds)
         XCTAssertEqual(overlay.display, plain.display)
-        XCTAssertEqual(overlay.image.width, plain.image.width)
-        XCTAssertEqual(overlay.image.height, plain.image.height)
+        let overlayImage = try XCTUnwrap(overlay.image), plainImage = try XCTUnwrap(plain.image)
+        XCTAssertEqual(overlayImage.width, plainImage.width)
+        XCTAssertEqual(overlayImage.height, plainImage.height)
         XCTAssertGreaterThan(content.minX, 0)
         XCTAssertGreaterThan(content.minY, 0)
         XCTAssertLessThan(content.maxX, overlay.bounds.maxX)

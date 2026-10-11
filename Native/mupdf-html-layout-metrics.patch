@@ -1,0 +1,206 @@
+diff --git a/source/html/html-imp.h b/source/html/html-imp.h
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -505,6 +505,9 @@
+ typedef struct fz_html_space_metric
+ {
+ 	float width;
++	/* The first record also owns normalized fallback-font extents for the
++	 * inline. Signature records only cache their SPACE widths. */
++	float font_ascender, font_descender;
+ 	uint32_t flags;
+ 	struct fz_html_space_metric *next;
+ } fz_html_space_metric;
+diff --git a/source/html/html-layout.c b/source/html/html-layout.c
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -333,10 +333,21 @@
+ 		return "";
+ }
+ 
+-static float measure_string_w(fz_html_tree *tree, fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf)
++static void include_inline_font_extents(fz_html_box *box, float ascender, float descender)
++{
++	if (box->type == BOX_INLINE)
++	{
++		box->u.inline_space.font_ascender = fz_max(box->u.inline_space.font_ascender, ascender);
++		box->u.inline_space.font_descender = fz_min(box->u.inline_space.font_descender, descender);
++	}
++}
++
++static float measure_string_w(fz_html_tree *tree, fz_context *ctx, fz_html_flow *node, hb_buffer_t *hb_buf,
++	float *ascender, float *descender)
+ {
+ 	float em = fz_html_flow_box(tree, node)->s.layout.em;
+ 	float width = 0;
++	float font_ascender = 0, font_descender = 0;
+ 	string_walker walker;
+ 	unsigned int i;
+ 	const char *s;
+@@ -345,10 +356,15 @@
+ 	while (walk_string(&walker))
+ 	{
+ 		int x = 0;
++		font_ascender = fz_max(font_ascender, fz_font_ascender(ctx, walker.font));
++		font_descender = fz_min(font_descender, fz_font_descender(ctx, walker.font));
+ 		for (i = 0; i < walker.glyph_count; i++)
+ 			x += walker.glyph_pos[i].x_advance;
+ 		width += x * em / walker.scale;
+ 	}
++	include_inline_font_extents(fz_html_flow_box(tree, node), font_ascender, font_descender);
++	if (ascender) *ascender = font_ascender;
++	if (descender) *descender = font_descender;
+ 	return width;
+ }
+ 
+@@ -405,15 +421,21 @@
+ 	float va;
+ 	int n, i;
+ 	fz_html_flow *node;
+-	fz_html_flow **reorder;
++	fz_html_flow **reorder = NULL;
+ 	unsigned int min_level, max_level;
+ 
+-	/* Count the number of nodes on the line */
++	/* Count the nodes and determine whether their bidi levels need reordering. */
++	min_level = start->bidi_level;
++	max_level = start->bidi_level;
+ 	for(i = 0, n = 0, node = start; node != end; node = fz_html_flow_next(tree, node))
+ 	{
+ 		n++;
+ 		if (node->type == FLOW_SPACE && node->expand && !node->breaks_line)
+ 			i++;
++		if (node->bidi_level < min_level)
++			min_level = node->bidi_level;
++		if (node->bidi_level > max_level)
++			max_level = node->bidi_level;
+ 	}
+ 
+ 	if (align == TA_JUSTIFY)
+@@ -425,22 +447,12 @@
+ 	else if (align == TA_CENTER)
+ 		x += slop / 2;
+ 
+-	/* We need a block to hold the node pointers while we reorder */
+-	reorder = fz_malloc_array(ctx, n, fz_html_flow*);
+-	min_level = start->bidi_level;
+-	max_level = start->bidi_level;
+-	for(i = 0, node = start; node != end; i++, node = fz_html_flow_next(tree, node))
+-	{
+-		reorder[i] = node;
+-		if (node->bidi_level < min_level)
+-			min_level = node->bidi_level;
+-		if (node->bidi_level > max_level)
+-			max_level = node->bidi_level;
+-	}
+-
+ 	/* Do we need to do any reordering? */
+ 	if (min_level != max_level || (min_level & 1))
+ 	{
++		reorder = fz_malloc_array(ctx, n, fz_html_flow*);
++		for (i = 0, node = start; node != end; i++, node = fz_html_flow_next(tree, node))
++			reorder[i] = node;
+ 		/* The lowest level we swap is always a rtl one */
+ 		min_level |= 1;
+ 		/* Each time around the loop we swap runs of fragments that have
+@@ -477,11 +489,11 @@
+ 		while (max_level >= min_level);
+ 	}
+ 
+-	for (i = 0; i < n; i++)
++	for (i = 0, node = start; i < n; i++)
+ 	{
+ 		float w;
+ 
+-		node = reorder[i];
++		if (reorder) node = reorder[i];
+ 		w = fz_html_flow_width(tree, node);
+ 
+ 		if (node->type == FLOW_SPACE && node->breaks_line)
+@@ -574,6 +586,7 @@
+ 			else
+ 				node->h = fz_html_flow_box(tree, node)->s.layout.em;
+ 		}
++		if (!reorder) node = fz_html_flow_next(tree, node);
+ 	}
+ 
+ 	fz_free(ctx, reorder);
+@@ -792,8 +805,8 @@
+ 			/* node becomes first cluster, fz_html_flow_next(tree, node) becomes the rest */
+ 			split_flow_at_byte_offset(tree, ctx, ld->pool, node, at);
+ 			fz_html_flow_next(tree, node)->overflow_wrap = 1;
+-			node->w = measure_string_w(tree, ctx, node, ld->hb_buf);
+-			fz_html_flow_next(tree, node)->w = measure_string_w(tree, ctx, fz_html_flow_next(tree, node), ld->hb_buf);
++			node->w = measure_string_w(tree, ctx, node, ld->hb_buf, NULL, NULL);
++			fz_html_flow_next(tree, node)->w = measure_string_w(tree, ctx, fz_html_flow_next(tree, node), ld->hb_buf, NULL, NULL);
+ 			return;
+ 		}
+ 	}
+@@ -848,8 +861,8 @@
+ 			/* node becomes last cluster, fz_html_flow_next(tree, node) becomes the rest */
+ 			split_flow_at_byte_offset_reverse(tree, ctx, ld->pool, node, at);
+ 			fz_html_flow_next(tree, node)->overflow_wrap = 1;
+-			node->w = measure_string_w(tree, ctx, node, ld->hb_buf);
+-			fz_html_flow_next(tree, node)->w = measure_string_w(tree, ctx, fz_html_flow_next(tree, node), ld->hb_buf);
++			node->w = measure_string_w(tree, ctx, node, ld->hb_buf, NULL, NULL);
++			fz_html_flow_next(tree, node)->w = measure_string_w(tree, ctx, fz_html_flow_next(tree, node), ld->hb_buf, NULL, NULL);
+ 			return;
+ 		}
+ 	}
+@@ -3141,6 +3154,8 @@
+ 		else if (box->type == BOX_INLINE)
+ 		{
+ 			fz_html_space_metric *metric;
++			box->u.inline_space.font_ascender = 0;
++			box->u.inline_space.font_descender = 0;
+ 			for (metric = &box->u.inline_space; metric; metric = metric->next)
+ 				metric->flags &= ~HTML_SPACE_METRIC_VALID;
+ 		}
+@@ -3160,7 +3175,7 @@
+ {
+ 	const char *text;
+ 	fz_font *font;
+-	float em, width;
++	float em, width, ascender, descender;
+ 	int script, language, rtl, small_caps;
+ } width_cache_entry;
+ 
+@@ -3175,7 +3190,7 @@
+ 	int small_caps = fz_html_flow_box(tree, node)->style->small_caps;
+ 	uint32_t hash = 2166136261u;
+ 	width_cache_entry *entry;
+-	float width;
++	float width, ascender, descender;
+ 
+ 	while (*p)
+ 		hash = (hash ^ *p++) * 16777619u;
+@@ -3186,11 +3201,12 @@
+ 		entry->rtl == rtl && entry->small_caps == small_caps &&
+ 		!strcmp(entry->text, text))
+ 	{
++		include_inline_font_extents(fz_html_flow_box(tree, node), entry->ascender, entry->descender);
+ 		return entry->width;
+ 	}
+ 
+-	width = measure_string_w(tree, ctx, node, hb_buf);
+-	*entry = (width_cache_entry){ text, font, em, width, node->script, language, rtl, small_caps };
++	width = measure_string_w(tree, ctx, node, hb_buf, &ascender, &descender);
++	*entry = (width_cache_entry){ text, font, em, width, ascender, descender, node->script, language, rtl, small_caps };
+ 	return width;
+ }
+ 
+@@ -3392,6 +3408,14 @@
+ 		if (inline_box->style->visibility != V_VISIBLE)
+ 			continue;
+ 		float em = inline_box->s.layout.em;
++		if (inline_box->type == BOX_INLINE)
++		{
++			low = fz_min(low, flow->y - em * inline_box->u.inline_space.font_ascender);
++			high = fz_max(high, flow->y - em * inline_box->u.inline_space.font_descender);
++			continue;
++		}
++		/* Collapsed whitespace can retain a block style owner. It has no
++		 * inline metric record; preserve its actual fallback-font extents. */
+ 		const char *s = get_node_text(ctx, flow);
+ 		fz_font *previous = NULL;
+ 		while (*s)

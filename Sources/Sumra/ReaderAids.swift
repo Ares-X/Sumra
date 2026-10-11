@@ -297,12 +297,6 @@ extension ReaderState {
         let fonts = NSComboBox(); fonts.addItems(withObjectValues: ["system", "serif", "sans-serif", "monospace"] + NSFontManager.shared.availableFontFamilies.sorted())
         fonts.stringValue = font; fonts.frame.size = NSSize(width: 420, height: 26)
         let documentCSS = NSButton(checkboxWithTitle: L("Use document styles"), target: nil, action: nil); documentCSS.state = useDocumentCSS ? .on : .off
-        if isCHM {
-            fonts.isEnabled = !useDocumentCSS
-            documentCSS.bind(.value, to: fonts, withKeyPath: #keyPath(NSControl.isEnabled),
-                             options: [.valueTransformerName: NSValueTransformerName.negateBooleanTransformerName])
-        }
-        defer { documentCSS.unbind(.value) }
         let margins = NSTextField(string: pageMargins.map { "\($0.top) \($0.right) \($0.bottom) \($0.left)" } ?? "")
         margins.placeholderString = L("Margins: top right bottom left (blank uses document default)")
         let defaults = NSButton(checkboxWithTitle: L("Use these typography settings as defaults"), target: nil, action: nil); defaults.state = typographyForAll ? .on : .off
@@ -319,9 +313,11 @@ extension ReaderState {
         let value = margins.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if !value.isEmpty, PageMargins(cssValues: value) == nil { error = L("Margins must contain 1, 2 or 4 values between 0 and 200."); return }
         pageMargins = value.isEmpty ? nil : PageMargins(cssValues: value)
-        font = fonts.stringValue.isEmpty ? "system" : fonts.stringValue
+        let selectedFont = fonts.stringValue.isEmpty ? "system" : fonts.stringValue
+        let changedFont = selectedFont != font
+        font = selectedFont
         userCSS = editor.string; useDocumentCSS = documentCSS.state == .on; typographyForAll = defaults.state == .on
-        applyTypography()
+        applyTypography(overrideDocumentStyles: changedFont)
     }
 }
 

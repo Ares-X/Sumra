@@ -23,7 +23,7 @@ final class PagesPDFDisplayTests: XCTestCase {
             columns: 1, rotation: 0, fit: "custom", zoom: 4, pdfStyle: style,
             maximumTileSize: CGSize(width: 200, height: 100))
         XCTAssertGreaterThan(rendered.tileResolution, 0)
-        XCTAssertEqual(try pixel(rendered.image, 2, 2), [0, 0, 0, 255])
+        XCTAssertEqual(try pixel(XCTUnwrap(rendered.image), 2, 2), [0, 0, 0, 255])
         let tile = try await pages.image(PageLocation(page: 0), width: rendered.pixelWidth,
             region: CGRect(x: 0, y: 0, width: 40, height: 40), pdfStyle: rendered.pdfStyle)
         XCTAssertEqual(try pixel(tile, 2, 2), [0, 0, 0, 255])
@@ -67,7 +67,8 @@ final class PagesPDFDisplayTests: XCTestCase {
         XCTAssertEqual(automatic.pdfStyle?.engineering, true)
         let disabled = try await pages.render(0, viewport: CGSize(width: 200, height: 100), scale: 1,
             columns: 1, rotation: 0, fit: "page", zoom: 1, pdfStyle: .init())
-        XCTAssertNil(disabled.pdfStyle)
+        XCTAssertEqual(disabled.pdfStyle?.engineering, false)
+        XCTAssertEqual(disabled.pdfStyle?.scanContrast, true, "Turning off CAD enhancement must retain the requested scan display")
         let info = try await pages.pdfInfo()
         XCTAssertEqual(info?.dirty, false)
     }

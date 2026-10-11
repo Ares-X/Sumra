@@ -12,17 +12,18 @@ enum PDFColors {
         var background: UInt32 = 0xffffff
         var link: UInt32 = 0
         var preserveImages = true
+        var scanContrast = true
         var engineering = false
         var rasterEngineering = false
         var hairlineEngineering = false
         var transparent = false
         var grayscale = false
         var showImageBounds = false
-        var isActive: Bool { mode != .off || engineering || transparent || grayscale || showImageBounds }
+        var isActive: Bool { mode != .off || scanContrast || engineering || transparent || grayscale || showImageBounds }
         var nativeValues: [Int32] {
             [mode.rawValue, preserveImages ? 1 : 0, engineering ? 1 : 0,
              rasterEngineering ? 1 : 0, hairlineEngineering ? 1 : 0,
-             transparent ? 1 : 0, grayscale ? 1 : 0, showImageBounds ? 1 : 0]
+             transparent ? 1 : 0, grayscale ? 1 : 0, showImageBounds ? 1 : 0, scanContrast ? 1 : 0]
         }
         var nativeColors: [UInt32] { [text, background, link] }
     }
@@ -44,6 +45,7 @@ extension ReaderState {
         if invertColors { swap(&style.text, &style.background) }
         if style.mode == .off, invertColors || customTextColor != nil || customBackgroundColor != nil { style.mode = .smart }
         style.preserveImages = preservePDFImages
+        style.scanContrast = enhanceScannedPages
         style.engineering = engineeringEnhance == "on"
         style.transparent = showTransparencyGrid
         style.showImageBounds = showImageBounds

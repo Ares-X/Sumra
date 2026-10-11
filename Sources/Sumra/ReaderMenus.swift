@@ -43,7 +43,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
     case cycleFocus, navigateThumbnail
     case speakFromTop, speakFromCursor, speakSelection
     case bookmarksWindow, showLog, showErrors
-    case documentColorsOff, documentColorsSmart, documentColorsLegacy, customDocumentColors, preserveImages, engineeringOff, engineeringAuto, engineeringOn
+    case documentColorsOff, documentColorsSmart, documentColorsLegacy, customDocumentColors, preserveImages, enhanceScans, engineeringOff, engineeringAuto, engineeringOn
 
     var id: String { rawValue }
     var title: String { L(englishTitle) }
@@ -72,6 +72,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .documentColorsSmart: return "Theme Colors (Smart)"
         case .documentColorsLegacy: return "Theme Colors (Legacy)"
         case .customDocumentColors: return "Custom Document Colors…"
+        case .enhanceScans: return "Enhance Scanned Pages"
         case .preserveImages: return "Preserve PDF Image Colors"
         case .engineeringOff: return "Engineering Enhancement Off"
         case .engineeringAuto: return "Engineering Enhancement Automatic"
@@ -240,7 +241,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .fitVisible: return "Fit Visible Content"
         case .customZoom: return "Custom Zoom…"
         case .zoomToSelection: return "Zoom to Selection"
-        case .paged: return "Paged"
+        case .paged: return "Single Page"
         case .continuous: return "Continuous"
         case .twoPages: return "Two Pages"
         case .coverOnItsOwn: return "Cover on Its Own"
@@ -345,6 +346,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .documentColorsOff: return state.documentColors == "off"
         case .documentColorsSmart: return state.documentColors == "smart"
         case .documentColorsLegacy: return state.documentColors == "legacy"
+        case .enhanceScans: return state.enhanceScannedPages
         case .preserveImages: return state.preservePDFImages
         case .engineeringOff: return state.engineeringEnhance == "off"
         case .engineeringAuto: return state.engineeringEnhance == "auto"
@@ -355,6 +357,8 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .grayscale: return state.grayscale
         case .toggleInverseSearch: return state.inverseSearchEnabled
         case .autoLayout: return state.automaticLayout
+        case .paged: return state.flow == "paged" && !state.spread
+        case .continuous: return state.flow == "continuous"
         case .twoPages: return state.spread
         case .coverOnItsOwn: return state.cover
         case .rightToLeft: return state.rtl
@@ -434,12 +438,13 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .showLog, .showErrors: return true
         case .bookmarksWindow: return state?.openAuxiliaryWindow != nil
         case .pageGrid, .configurePageGrid, .transparencyGrid, .navigateThumbnail, .imageBounds, .fitContentArea: return state?.isFixed == true
-        case .documentColorsOff, .documentColorsSmart, .documentColorsLegacy, .preserveImages, .engineeringOff, .engineeringAuto, .engineeringOn: return state?.isPDF == true
+        case .documentColorsOff, .documentColorsSmart, .documentColorsLegacy, .preserveImages, .enhanceScans, .engineeringOff, .engineeringAuto, .engineeringOn: return state?.isPDF == true
         case .pdfText: return state?.supportsSearch == true
         case .pdfOutline: return state?.isPDF == true || state?.outline.isEmpty == false
         case .inverseSearch: return state?.isPDF == true && state?.inverseSearchEnabled == true
         case .toggleInverseSearch: return state?.isPDF == true
-        case .autoLayout, .twoPages, .coverOnItsOwn, .rightToLeft: return state?.isFixed == true
+        case .autoLayout, .coverOnItsOwn: return state?.isFixed == true
+        case .twoPages, .rightToLeft: return state?.supportsPagination == true
         case .autoContents: return state?.isPDF == true && state?.outlineBusy == false
         case .screenshot, .screenshotHotkey: return state != nil
         case .pasteImage: return state != nil && NSImage.canInit(with: NSPasteboard.general)
@@ -522,6 +527,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .documentColorsSmart: state.documentColors = "smart"
         case .documentColorsLegacy: state.documentColors = "legacy"
         case .customDocumentColors: state.configureDocumentColors()
+        case .enhanceScans: state.enhanceScannedPages.toggle()
         case .preserveImages: state.preservePDFImages.toggle()
         case .engineeringOff: state.engineeringEnhance = "off"
         case .engineeringAuto: state.engineeringEnhance = "auto"
@@ -704,14 +710,27 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .fitVisible: state.setFit("visible")
         case .customZoom: state.customZoom()
         case .zoomToSelection: state.zoomToSelection()
-        case .paged: state.setFlow("paged")
-        case .continuous: state.setFlow("continuous")
+        case .paged:
+            if state.deferForNativePDFForm({ [weak state] in if let state { self.run(state) } }) { return }
+            if state.spread || state.flow != "paged" { state.captureReflowPosition() }
+            state.spread = false
+            state.setFlow("paged")
+        case .continuous:
+            if state.deferForNativePDFForm({ [weak state] in if let state { self.run(state) } }) { return }
+            if state.spread || state.flow != "continuous" { state.captureReflowPosition() }
+            state.spread = false
+            state.setFlow("continuous")
         case .twoPages, .coverOnItsOwn, .rightToLeft:
             if state.deferForNativePDFForm({ [weak state] in if let state { self.run(state) } }) { return }
             state.automaticLayout = false
-            if self == .twoPages { state.spread.toggle() }
+            if self == .twoPages {
+                state.captureReflowPosition()
+                state.spread.toggle()
+                if state.spread { state.setFlow("paged") }
+            }
             else if self == .coverOnItsOwn { state.cover.toggle() }
             else { state.rtl.toggle() }
+            if state.isText || state.isBrowser { state.send(.style) }
         case .bookmark: state.bookmark()
         case .rotateLeft: state.rotate(-90)
         case .rotateRight: state.rotate(90)

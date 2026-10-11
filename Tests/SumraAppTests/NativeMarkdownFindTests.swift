@@ -58,6 +58,20 @@ final class NativeMarkdownFindTests: XCTestCase {
                 let file = try NativeFile(input, engine: .mupdf)
                 _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light")
                 XCTAssertTrue(try file.matches("BEFOREAFTER", page: 0).isEmpty, "\(name): \(style)")
+                if style == "color:transparent" {
+                    // Reader colors replace the author's transparent color,
+                    // so Find must include the now-painted source glyphs.
+                    let visible = try file.matches("HIDDEN", page: 0)
+                    XCTAssertEqual(visible.count, 1)
+                    XCTAssertFalse(try XCTUnwrap(visible.first).rects.isEmpty)
+                    XCTAssertEqual(try file.matches(name == "Paragraph" ? "BEFORE HIDDENAFTER" : "BEFOREHIDDENAFTER", page: 0).count, 1)
+                    XCTAssertTrue(try file.matches("BEFORE AFTER", page: 0).isEmpty)
+                    // An explicit user color still makes the glyphs unpainted.
+                    // Retain the same hidden-source and paragraph-gap checks.
+                    _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light",
+                                          userCSS: "span{color:transparent !important}")
+                    XCTAssertTrue(try file.matches("BEFOREAFTER", page: 0).isEmpty)
+                }
                 XCTAssertTrue(try file.matches("HIDDEN", page: 0).isEmpty)
                 XCTAssertEqual(try file.matches("BEFORE AFTER", page: 0).count, 1, "\(name): \(style)")
             }
@@ -131,6 +145,41 @@ final class NativeMarkdownFindTests: XCTestCase {
             XCTAssertEqual(try mixed.matches(query, page: 0).count, 1)
         }
         XCTAssertTrue(try mixed.matches("ABC796tail", page: 0).isEmpty)
+    }
+
+    func testContinuousDocumentFindUsesBoundedGeometryAndStableSourceOrdinals() throws {
+        let temporary = try TemporaryDirectory()
+        defer { withExtendedLifetime(temporary) {} }
+        let input = temporary.url.appendingPathComponent("Continuous-find.md")
+        let filler = String(repeating: "A normal paragraph keeps a continuous chapter large without changing its source search identity.\n\n", count: 12000)
+        try ("# FIRST742\n\nBefore **cross** inline café office 😀.\n\n" + filler + "# LAST742\n").write(to: input, atomically: true, encoding: .utf8)
+        let file = try NativeFile(input, engine: .mupdf)
+        _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light", pageSize: CGSize(width: 817, height: 0))
+        XCTAssertEqual(file.count, 1)
+        let started = Date()
+        let first = try XCTUnwrap(file.markdownDocumentMatches("FIRST742", options: .init(), startPage: 0).first)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3, "The first hit must not extract the entire continuous chapter")
+        let counted = try file.markdownDocumentMatches("FIRST742", options: .init(), startPage: 0, counting: true, maximum: 1000)
+        XCTAssertEqual(counted.first?.index, first.index)
+        XCTAssertEqual(counted.first?.source, first.source)
+        let repeated = try file.markdownDocumentMatches("normal", options: .init(), startPage: 0, counting: true, maximum: 100)
+        XCTAssertEqual(repeated.count, 100)
+        XCTAssertEqual(Set(repeated.map(\.index)).count, repeated.count, "Each result needs a distinct target on the same natural page")
+        XCTAssertEqual(repeated.map(\.index), repeated.map(\.index).sorted())
+        let next = try XCTUnwrap(file.markdownDocumentMatches("normal", options: .init(), startPage: 0, after: repeated[0].source).first)
+        XCTAssertEqual(next.index, repeated[1].index)
+        XCTAssertEqual(next.source, repeated[1].source)
+        let last = try XCTUnwrap(file.markdownDocumentMatches("LAST742", options: .init(), startPage: 0).first)
+        XCTAssertGreaterThan(last.index, first.index)
+        XCTAssertGreaterThan(try XCTUnwrap(last.rects.first).minY, try XCTUnwrap(first.rects.first).maxY)
+        for query in ["Before cross inline cafe office 😀", "office", "cafe", "😀"] {
+            let hit = try XCTUnwrap(file.markdownDocumentMatches(query, options: .init(), startPage: 0).first)
+            XCTAssertTrue(hit.rects.allSatisfy { $0.width > 0 && $0.height > 0 }, query)
+        }
+        _ = try file.relayout(fontSize: 25, lineHeight: 1.4, font: "system", theme: "light", pageSize: CGSize(width: 620, height: 0))
+        let restored = try XCTUnwrap(file.markdownDocumentMatches("LAST742", options: .init(), startPage: 0, after: last.source, inclusive: true).first)
+        XCTAssertEqual(restored.index, last.index)
+        XCTAssertEqual(restored.source, last.source)
     }
 
     private func noSourcePDF() -> Data {

@@ -15,12 +15,39 @@ implemented scope, not additional speculative release requirements.
 | MOBI/PRC/AZW text, HUFF/CDIC, KF8 resources, guide/TOC and AZW4 Print Replica | `LegacyText.swift` and MuPDF MOBI/HTML paths. | DRM, every Kindle container and record variant unsupported; format record representations and output preservation remain part of the decoder. |
 | Palm DOC/TealDoc, TCR and LIT | Translated legacy text adapters, native text reader and ConvertLIT. | Ordinary Plucker binary records and LIT DRM5 unsupported. |
 | Markdown/HTML and CHM | Automatic native large-Markdown path with cmark/WebKit compatibility mode; Markdown zoom changes typography at physical page scale 1, preserving passage/selection and later scrolling during font loading. HTML/CHM retain whole-page zoom. Sibling headings are parsed on Contents/palette demand. Literal Find yields cooperatively without changing the document DOM or CSS and rejects obsolete scan/restoration results. Find requests immediate match positioning without rewriting authored smooth-scroll CSS or selection. A shared range iterator resolves text endpoints once for range extraction and speech, avoiding repeated distant-boundary comparisons. Speech word highlights use binary lookup over existing UTF-16 offsets; body-only eligibility, layout-rectangle checks and partial-node mapping remain. CHMLib reads book-local topics/resources. Explicit native/browser choices retain separate positions. | Giant documents at extreme sizes, broader authored styles and process relaunch, inline-SVG Find foreground behavior and broader CHM script/resource variants. The 855 form/frame/print-media snapshot passed GUI export and print-to-PDF. Earlier bounded local checks covered ordinary Markdown window reflow/selection; integrated evidence is summarized in the [current work list](RELEASE_CHECKLIST.md). |
-| DjVu, image/comic archives, image folders and multi-frame images | DjVuLibre, libarchive, ImageIO and native JPEG XL/JPEG XR paths. | Solid seek cost, archive-password variants, OS codecs, JXL 8-bit/HDR display and uncommon real files. |
+| DjVu, image/comic archives, image folders and multi-frame images | DjVuLibre, libarchive, ImageIO and native JPEG XL/JPEG XR paths. Comic Contents uses actual archive folders, preserves nesting and natural image order, and opens each folder's first image; flat archives have no fabricated filename outline. | Solid seek cost, archive-password variants, OS codecs, JXL 8-bit/HDR display and uncommon real files. |
 | PostScript/EPS | Optional external Ghostscript conversion. | Availability, converted-container Save a Copy and output inspection. |
 
 Core dispatch and sniffing live in [Sources/SumraCore](../Sources/SumraCore), the GUI reader in [Sources/Sumra](../Sources/Sumra), and native adapters in [Native](../Native). The [format table in the README](../README.md#supported-formats) describes user-visible routes.
 
+Native reflow uses [mupdf-css-user-important.patch](../Native/mupdf-css-user-important.patch)
+to rank user `!important` above publisher `!important`, including inline styles,
+before comparing selector specificity. Shorthand properties retain that priority.
+Publisher layout and images remain enabled; ordinary declarations retain MuPDF's
+existing specificity and source-order behavior. Sumra's theme and explicit custom
+CSS share the user stylesheet, so specificity and order still decide between their
+important declarations. This patch addresses important declarations rather than
+implementing every CSS cascade origin or layer.
+
 ## PDF document behavior
+
+Native continuous reflow uses an explicit MuPDF layout entry to expose the
+existing HTML zero-height natural layout, preserving the public paged API's
+default-height contract. The maintained patch also prevents authored viewport
+metadata from forcing page dimensions in this mode. Fixed-layout chapters retain
+their original geometry. Viewport tiles and clipped rectangle text extraction use
+the existing render and selection APIs; continuous chapters do not allocate a
+full-height preview or accessibility character snapshot.
+The HTML text-region patch reuses upstream draw groups before shaping visible
+paragraphs and source glyphs. Finite pages retain upstream page clipping; natural
+chapters use font-metric bounds to keep partially visible boundary lines.
+
+Current source-level residuals are recorded in the [2026-10-10 gap audit](SUMATRA_GAP_AUDIT_20261010.md), including fixed-page cross-page phrases, CHM keyword indexes and object-level dark rendering. Existing owners and unverified runtime behavior are distinguished there.
+
+The [large-text performance investigation](LARGE_TEXT_PERFORMANCE_20261010.md)
+compares the current upstream page/text cache boundary with natural-height
+chapters, records the measured source-restoration allocation reduction and
+retains the remaining whole-chapter CPU limitations.
 
 | Function | Existing path | Acceptance boundary |
 | --- | --- | --- |

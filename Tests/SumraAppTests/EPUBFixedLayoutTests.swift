@@ -58,7 +58,7 @@ final class EPUBFixedLayoutTests: XCTestCase {
         XCTAssertEqual(links.map(\.uri), ["https://example.org/visible"])
         XCTAssertTrue(links.allSatisfy { CGRect(x: 0, y: 0, width: 240, height: 320).contains($0.bounds) })
         XCTAssertEqual(try book.resolve("c0.xhtml#outside")?.page, 0, "An off-canvas fragment must never invent a second page")
-        XCTAssertNil(try book.relayout(fontSize: 40, lineHeight: 2, font: "sans-serif", theme: "dark"))
+        XCTAssertNil(try book.relayout(fontSize: 40, lineHeight: 2, font: "sans-serif", theme: "dark", pageSize: CGSize(width: 800, height: 500)))
         XCTAssertEqual(try book.text(0), text)
     }
 
@@ -76,7 +76,7 @@ final class EPUBFixedLayoutTests: XCTestCase {
         let fixed = try book.words(0).map(\.rect)
         _ = try book.relayout(fontSize: 12, lineHeight: 1.2, font: "serif", theme: "light")
         let smallCount = book.count
-        _ = try book.relayout(fontSize: 30, lineHeight: 1.6, font: "sans-serif", theme: "dark", useDocumentCSS: false)
+        _ = try book.relayout(fontSize: 30, lineHeight: 1.6, font: "sans-serif", theme: "dark", useDocumentCSS: false, pageSize: CGSize(width: 320, height: 400))
         XCTAssertGreaterThan(book.count, smallCount)
         XCTAssertEqual(book.chapterTable?.pageCount(0), 1)
         XCTAssertEqual(try book.bounds(0)?.size, CGSize(width: 240, height: 320))

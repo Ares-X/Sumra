@@ -75,39 +75,7 @@ make -C "$LTM" -j"$JOBS" libtommath.a CC=cc CFLAGS="${FLAGS[*]}"
 if [ ! -L "$CLIT/libtommath-0.30" ]; then ln -s "$LTM" "$CLIT/libtommath-0.30"; fi
 # Use the pinned Apache-2.0 tables and restore the original missing declarations;
 # suppressing implicit declarations can truncate strlen's result on 64-bit Macs.
-python3 - "$CLIT" "$ROOT/Native/convertlit-des-spr.h" <<'PY'
-from pathlib import Path
-import sys
-root = Path(sys.argv[1])
-tables = Path(sys.argv[2]).read_bytes()
-# Keep ConvertLIT's existing block algorithm, using the identical tables from
-# the project's pinned Apache-2.0 OpenSSL source instead of the old SSLeay file.
-des = root / "lib/des/des.c"
-text = des.read_text()
-old_include, new_include = '#include "spr.h"', '#include "sumra-des-spr.h"'
-if old_include in text:
-    if text.count(old_include) != 1:
-        raise RuntimeError("Unexpected ConvertLIT DES table includes")
-    des.write_text(text.replace(old_include, new_include))
-elif text.count(new_include) != 1:
-    raise RuntimeError("Cannot identify the ConvertLIT DES table owner")
-table_path = root / "lib/des/sumra-des-spr.h"
-if not table_path.exists() or table_path.read_bytes() != tables:
-    table_path.write_bytes(tables)
-    # The original implicit make rule does not track included headers.
-    des.touch()
-for name, header in {
-    "clit18/display.c": "string.h", "clit18/explode.c": "sys/stat.h",
-    "clit18/hexdump.c": "string.h", "clit18/manifest.c": "string.h",
-    "clit18/drm5.c": "ctype.h", "clit18/transmute.c": "string.h",
-    "lib/newlzx/lzxglue.c": "string.h", "lib/litsections.c": "lzx/lzx.h",
-}.items():
-    path = root / name
-    text = path.read_text()
-    directive = f'#include "{header}"'
-    if directive not in text:
-        path.write_text(text.replace('#include ', directive + '\n#include ', 1))
-PY
+swift "$ROOT/scripts/setup-convertlit.swift" "$CLIT" "$ROOT/Native/convertlit-des-spr.h"
 make -C "$CLIT/lib" -j"$JOBS" CC=cc CFLAGS="${FLAGS[*]} -Werror=implicit-function-declaration -Ides -Isha -Inewlzx -I."
 # Test the actual object selected for the helper, including legacy block outputs.
 cc "${FLAGS[@]}" -I"$CLIT/lib/des" Tests/Native/ConvertLITBlockTests.c \

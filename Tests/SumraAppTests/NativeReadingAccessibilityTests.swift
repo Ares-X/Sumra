@@ -90,38 +90,58 @@ final class NativeReadingAccessibilityTests: XCTestCase {
         page.clear()
     }
 
-    func testMountedNativeReaderExposesOnlyPageLocalText() async throws {
+    func testMountedNativeReaderExposesOnlyViewportLocalText() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("Reading.md")
         try (0..<1000).map { "Paragraph \($0): 中文😀 accessible native reading with ordinary wrapping.\n\n" }.joined().write(to: input, atomically: true, encoding: .utf8)
         defer { withExtendedLifetime(directory) {} }
         let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
-        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light")
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: input, content: .pages(pages), markdownPreference: .paged, markdownRenderer: .paged)
         state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32; state.font = "system"; state.theme = "light"
         state.fit = "custom"; state.zoom = 1; state.flow = "continuous"; state.spread = false
         state.trimEmptyMargins = false; state.uniformPageWidth = false; state.automaticLayout = false
+        state.scrollbarMode = "hidden"
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                     userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS,
+                                     pageMargins: state.pageMargins, pageSize: CGSize(width: 900, height: 0))
         state.reflowable = true; state.count = await pages.count; state.chapterLayout = await pages.chapterLayout
-        XCTAssertGreaterThan(state.count, 10)
+        XCTAssertEqual(state.count, 1, "Natural continuous Markdown keeps one chapter canvas")
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 900, height: 700), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer { state.windowClosed(); window.contentView = nil; window.close() }
-        try await wait(host: host) { !self.readingElements(in: host).isEmpty }
+        try await wait(host: host) {
+            state.page == 0 && RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(0)) &&
+                !self.readingElements(in: host).isEmpty
+        }
         XCTAssertNil(state.error)
         let initial = readingElements(in: host)
         XCTAssertLessThan(initial.count, 5)
-        let expected = try await pages.words(0).map(\.text).joined()
+        let element = try XCTUnwrap(initial.first), canvas = try XCTUnwrap(element.view)
+        let region = canvas.visibleRect.applying(element.transform.inverted())
+        let expected = try await pages.selection(areas: [state.pageLocation(0): region])[state.pageLocation(0)]?.words?.map(\.text).joined()
+        XCTAssertTrue(expected?.contains("Paragraph 0:") == true)
         XCTAssertEqual(initial.first?.accessibilityValue(), expected)
         XCTAssertFalse(initial.contains { $0.accessibilityValue()?.contains("Paragraph 999:") == true })
-        // AX focus retention remains bounded, independent of first responder.
-        initial.first?.setAccessibilityFocused(true)
-        state.navigate(.page(state.count / 2))
-        try await wait(host: host) { self.readingElements(in: host).contains { $0.accessibilityValue()?.contains("Paragraph 0:") == false } }
+        // The same chapter must publish fresh text as the viewport moves.
+        element.setAccessibilityFocused(true)
+        let scroll = try XCTUnwrap(state.readerScrollView)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: canvas.bounds.height / 2))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        try await wait(host: host) {
+            self.readingElements(in: host).contains {
+                $0.accessibilityValue().map { !$0.isEmpty && !$0.contains("Paragraph 0:") } == true
+            }
+        }
+        let moved = try XCTUnwrap(readingElements(in: host).first)
+        let movedCanvas = try XCTUnwrap(moved.view)
+        let movedRegion = movedCanvas.visibleRect.applying(moved.transform.inverted())
+        let movedExpected = try await pages.selection(areas: [state.pageLocation(0): movedRegion])[state.pageLocation(0)]?.words?.map(\.text).joined()
+        XCTAssertEqual(moved.accessibilityValue(), movedExpected)
         XCTAssertLessThan(readingElements(in: host).count, 6)
-        XCTAssertTrue(readingElements(in: host).contains { $0 === initial.first }, "Retain one focused AX page through offscreen virtualization")
-        initial.first?.setAccessibilityFocused(false)
+        XCTAssertTrue(moved === element, "Keep the focused chapter element while updating its viewport text")
+        element.setAccessibilityFocused(false)
     }
 
     func testProtectedPDFAllowsReadingWithoutCopyAndPreservesAppKitControls() async throws {
@@ -175,6 +195,9 @@ final class NativeReadingAccessibilityTests: XCTestCase {
         let deadline = Date().addingTimeInterval(20)
         while !predicate(), Date() < deadline {
             host?.layoutSubtreeIfNeeded()
+            if let host, let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+            }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertTrue(predicate(), "Timed out waiting for native accessibility text")

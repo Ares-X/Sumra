@@ -37,6 +37,21 @@ struct NativePassage: Codable, Hashable {
     let source: NativeSourceAnchor
     let offsetX: Double, offsetY: Double
     let sourceRevision: String, styleSignature: String
+    let chapter: Int
+
+    init(source: NativeSourceAnchor, offsetX: Double, offsetY: Double, sourceRevision: String, styleSignature: String, chapter: Int = 0) {
+        self.source = source; self.offsetX = offsetX; self.offsetY = offsetY
+        self.sourceRevision = sourceRevision; self.styleSignature = styleSignature; self.chapter = chapter
+    }
+    private enum CodingKeys: String, CodingKey { case source, offsetX, offsetY, sourceRevision, styleSignature, chapter }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        source = try values.decode(NativeSourceAnchor.self, forKey: .source)
+        offsetX = try values.decode(Double.self, forKey: .offsetX); offsetY = try values.decode(Double.self, forKey: .offsetY)
+        sourceRevision = try values.decode(String.self, forKey: .sourceRevision)
+        styleSignature = try values.decode(String.self, forKey: .styleSignature)
+        chapter = try values.decodeIfPresent(Int.self, forKey: .chapter) ?? 0
+    }
 }
 struct RasterSelection: Decodable {
     let text: String
@@ -146,6 +161,7 @@ final class NativeFile {
     private let closeDocument: Close
     private let render: Render?
     private var wordCache: (PageLocation, [RasterWord])?
+    private var passagePosition: (passage: NativePassage, location: PageLocation, position: ReadingPosition)?
     private var resolvedDestinations = [String: (location: PageLocation, x: Double?, y: Double?)]()
     private var imageColorSpace: CGColorSpace?
     private let authenticationPassword: String
@@ -232,7 +248,7 @@ final class NativeFile {
         init(_ source: URL, expected: FileCheckpoint) throws {
             let file = try FileHandle(forReadingFrom: source)
             defer { try? file.close() }
-            guard FileVersion(descriptor: file.fileDescriptor) == expected.version else {
+            guard let opened = FileVersion(descriptor: file.fileDescriptor), expected.version.matchesContentMetadata(opened) else {
                 throw ReadError("The PDF file changed while opening. Open it again.")
             }
             var attributes = stat()
@@ -286,7 +302,9 @@ final class NativeFile {
             try Task.checkCancellation()
             // A streaming copy can span concurrent source writes. Digest equality
             // with the pre-open checkpoint is required even when metadata agrees.
-            guard FileVersion(descriptor: file.fileDescriptor) == expected.version,
+            // Source metadata can change while AppKit opens a file. The snapshot
+            // digest below remains authoritative for the PDF bytes.
+            guard let copied = FileVersion(descriptor: file.fileDescriptor), expected.version.matchesContentMetadata(copied),
                   let captured = try FileCheckpoint(snapshot), captured.digest == expected.digest else {
                 throw ReadError("The PDF file changed while opening. Open it again.")
             }
@@ -314,7 +332,6 @@ final class NativeFile {
                  sourceCheckpoint: FileCheckpoint?, retainedPDFSource: PDFSource?, deferMarkdownMetadata: Bool = false) throws {
         authenticationPassword = password ?? ""
         let version = sourceCheckpoint?.version ?? (engine == .mupdf ? FileVersion(url) : nil)
-        sourceRevision = version?.signature ?? ""
         var pdfSource = retainedPDFSource
         if engine == .mupdf, pdfSource == nil, let sourceCheckpoint {
             pdfSource = try PDFSource(url, expected: sourceCheckpoint)
@@ -397,6 +414,11 @@ final class NativeFile {
                 let values = try Self.decode(metadata(document, &error), error: error, as: [String: String].self)
                 fixedLayoutEPUB = values["EPUBLayout"] == "fixed"
             }
+            // Converted ebook input is regenerated in a fresh temporary directory
+            // on every open. Its source nodes belong to the bytes, not that inode.
+            if engine == .mupdf, pdfSource == nil, ["document.mobihtml", "document.mobi", "document.fb2", "document.html"].contains(url.lastPathComponent) {
+                sourceRevision = SHA256.hash(data: try Data(contentsOf: url, options: .mappedIfSafe)).map { String(format: "%02x", $0) }.joined()
+            } else { sourceRevision = version?.signature ?? "" }
             self.library = library; self.document = document; initialCount = count; self.engine = engine; closeDocument = close
             self.fixedLayoutEPUB = fixedLayoutEPUB
             lazyChapters = deferred; chapterTable = table
@@ -869,8 +891,8 @@ final class NativeFile {
         return Data(bytesNoCopy: pointer, count: size, deallocator: .free)
     }
 
-    func relayout(fontSize: Double, lineHeight: Double, font: String, theme: String, userCSS: String = "", useDocumentCSS: Bool = true, pageMargins: PageMargins? = nil) throws -> Int? {
-        typealias Layout = @convention(c) (UnsafeMutableRawPointer, Float, UnsafePointer<CChar>, Int32, UnsafeMutablePointer<CChar>) -> Int32
+    func relayout(fontSize: Double, lineHeight: Double, font: String, theme: String, userCSS: String = "", useDocumentCSS: Bool = true, pageMargins: PageMargins? = nil, pageSize: CGSize = CGSize(width: 420, height: 595)) throws -> Int? {
+        typealias Layout = @convention(c) (UnsafeMutableRawPointer, Float, Float, Float, UnsafePointer<CChar>, Int32, UnsafeMutablePointer<CChar>) -> Int32
         guard reflowable else { return nil }
         guard let fn = symbol("lf_relayout_css", Layout.self) else { throw ReadError("Incompatible MuPDF engine: lf_relayout_css") }
         // Translate Sumatra's EbookGeneratedCssTemp: only explicit margins
@@ -878,11 +900,16 @@ final class NativeFile {
         let elements = "body,p,div,span,a,em,strong,b,i,u,s,small,big,sub,sup,li,ol,ul,dl,dt,dd,td,th,caption,table,h1,h2,h3,h4,h5,h6,blockquote,q,cite,section,article,aside,header,footer,nav,main,figure,figcaption,label,center,font"
         let familyName = ["serif", "monospace", "sans-serif"].contains(font) ? font : "\"" + font.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
         let family = font == "system" ? "" : "\(elements){font-family:\(familyName) !important;}\n"
-        let colors = theme == "dark" ? "*{color:#ddd !important;background-color:transparent !important;} html,body{background-color:#111 !important;color:#ddd !important;} a,a *{color:#8ab4f8 !important;}" : ""
+        let palette = ReaderTheme.all.first { $0.id == theme } ?? ReaderTheme.all[0]
+        let colors = palette.css
         let margins = pageMargins.map { "@page{margin:\($0.css) !important;}\n" } ?? ""
-        let css = margins + "body,body *{line-height:\(lineHeight) !important;}\n" + family + colors + "\n" + userCSS
+        // Compact empty prose rows during reader reflow while retaining source
+        // nodes, hard newlines, preformatted text and table/image geometry.
+        let proseSpacing = "body{-sumra-prose-spacing:compact;}pre,code,table{-sumra-prose-spacing:preserve !important;}\n"
+        let css = margins + proseSpacing + "body,body *{line-height:\(lineHeight) !important;}\n" + family + colors + "\n" + userCSS
         var error = [CChar](repeating: 0, count: 512)
-        let count = css.withCString { fn(document, Float(fontSize), $0, useDocumentCSS ? 1 : 0, &error) }
+        passagePosition = nil
+        let count = css.withCString { fn(document, Float(pageSize.width), Float(pageSize.height), Float(fontSize), $0, useDocumentCSS ? 1 : 0, &error) }
         guard count > 0 else { throw Self.failure(error, "Cannot lay out this document") }
         // Reader font, line-height, theme colors and page margins change geometry,
         // not the parsed text identity. User/publisher CSS can change visible
@@ -923,6 +950,19 @@ final class NativeFile {
     }
     func selection(_ page: Int, range: NSRange) throws -> RasterSelection {
         try RasterSelection.select(words(page), range: range)
+    }
+    func chapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions) throws -> Bool {
+        try Task.checkCancellation()
+        typealias Cancelled = @convention(c) () -> Int32
+        typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, UnsafePointer<CChar>, Int32, Cancelled, UnsafeMutablePointer<CChar>) -> Int32
+        guard let fn = symbol("lf_search_chapter_candidate", Search.self) else { throw ReadError("Incompatible MuPDF engine: lf_search_chapter_candidate") }
+        var error = [CChar](repeating: 0, count: 512)
+        let flags: Int32 = (options.caseSensitive ? 1 : 0) | (options.wholeWord ? 2 : 0)
+        let cancelled: Cancelled = { Task<Never, Never>.isCancelled ? 1 : 0 }
+        let value = query.withCString { fn(document, Int32(chapter), $0, flags, cancelled, &error) }
+        try Task.checkCancellation()
+        guard value >= 0 else { throw Self.failure(error, "Cannot search chapter text") }
+        return value != 0
     }
     func matches(_ query: String, page: Int, options: TextSearchOptions = .init(), after: Int? = nil,
                  backwards: Bool = false, maximum: Int? = nil) throws -> [RasterMatch] {
@@ -1106,34 +1146,52 @@ final class NativeFile {
         guard page >= 0 else { throw Self.failure(error, "Cannot resolve document link") }
         return ReadingPosition(page: Int(page), x: point[0].isFinite ? Double(point[0]) : nil, y: point[1].isFinite ? Double(point[1]) : nil)
     }
-    func passage(_ page: Int, at point: CGPoint) throws -> NativePassage? {
+    func passage(_ page: Int, at point: CGPoint, in region: CGRect? = nil) throws -> NativePassage? {
         guard engine == .mupdf, reflowable else { return nil }
         typealias Get = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, Float, Float, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
-        guard let fn = symbol("lf_html_page_anchor_at", Get.self) else { throw ReadError("Incompatible MuPDF engine: lf_html_page_anchor_at") }
         let location = try preparedLocation(page)
         var error = [CChar](repeating: 0, count: 512)
         struct Result: Decodable { let source: NativeSourceAnchor; let rect: [Double] }
-        guard let value = try decode(fn(document, Int32(location.chapter), Int32(location.page), Float(point.x), Float(point.y), &error), error: error, as: Result?.self) else { return nil }
+        let pointer: UnsafeMutablePointer<CChar>?
+        if let region {
+            typealias GetRegion = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, Float, Float, Float, Float, Float, Float, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+            guard let fn = symbol("lf_html_page_anchor_in_region", GetRegion.self) else { throw ReadError("Incompatible MuPDF engine: lf_html_page_anchor_in_region") }
+            pointer = fn(document, Int32(location.chapter), Int32(location.page), Float(point.x), Float(point.y), Float(region.minX), Float(region.minY), Float(region.maxX), Float(region.maxY), &error)
+        } else {
+            guard let fn = symbol("lf_html_page_anchor_at", Get.self) else { throw ReadError("Incompatible MuPDF engine: lf_html_page_anchor_at") }
+            pointer = fn(document, Int32(location.chapter), Int32(location.page), Float(point.x), Float(point.y), &error)
+        }
+        guard let value = try decode(pointer, error: error, as: Result?.self) else { return nil }
         let rect = CGRect(raster: value.rect)
         return NativePassage(source: value.source, offsetX: Double(point.x-rect.minX), offsetY: Double(point.y-rect.minY),
-                             sourceRevision: sourceRevision, styleSignature: htmlStyleSignature)
+                             sourceRevision: sourceRevision, styleSignature: htmlStyleSignature, chapter: location.chapter)
     }
     func position(for passage: NativePassage) throws -> ReadingPosition? {
         guard engine == .mupdf, reflowable, !sourceRevision.isEmpty,
               passage.sourceRevision == sourceRevision, passage.styleSignature == htmlStyleSignature else { return nil }
+        if let cached = passagePosition, cached.passage == passage {
+            var position = cached.position
+            position.page = try page(cached.location)
+            position.anchor = try anchor(position.page)
+            return position
+        }
         typealias Get = @convention(c) (UnsafeMutableRawPointer, Int32, UInt32, UInt32, UInt32, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
         guard let fn = symbol("lf_html_anchor_position", Get.self) else { throw ReadError("Incompatible MuPDF engine: lf_html_anchor_position") }
         var error = [CChar](repeating: 0, count: 512)
         struct Result: Decodable { let page: Int; let rect: [Double]; let whitespace: Bool? }
         let anchor = passage.source
-        guard let value = try decode(fn(document, 0, anchor.node, anchor.offset, anchor.part, &error), error: error, as: Result?.self) else { return nil }
+        guard let value = try decode(fn(document, Int32(passage.chapter), anchor.node, anchor.offset, anchor.part, &error), error: error, as: Result?.self) else { return nil }
+        let location = PageLocation(chapter: passage.chapter, page: value.page)
+        let page = try self.page(location)
         let rect = CGRect(raster: value.rect)
         let x = Double(rect.minX)+passage.offsetX, y = Double(rect.minY)+passage.offsetY
         // Older reading records can name a space that disappears on wrapping.
         // Normalize just those records at their original viewport point.
-        let canonical = value.whitespace == true ? try self.passage(value.page, at: CGPoint(x: x, y: y)) : passage
-        return ReadingPosition(page: value.page, x: x, y: y,
-                               anchor: try self.anchor(value.page), nativePassage: canonical)
+        let canonical = value.whitespace == true ? try self.passage(page, at: CGPoint(x: x, y: y)) : passage
+        let position = ReadingPosition(page: page, x: x, y: y,
+                                       anchor: try self.anchor(page), nativePassage: canonical)
+        passagePosition = (passage, location, position)
+        return position
     }
     func selection(_ page: Int, from start: NativeSourceAnchor, to end: NativeSourceAnchor) throws -> RasterSelection {
         try Task.checkCancellation()

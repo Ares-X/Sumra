@@ -1,0 +1,296 @@
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -84,7 +84,7 @@
+ typedef struct fz_htdoc_format
+ {
+ 	const char *format_name;
+-	fz_buffer *(*convert_to_html)(fz_context *ctx, fz_html_font_set *set, fz_buffer *buf, fz_archive *dir);
++	fz_buffer *(*convert_to_html)(fz_context *ctx, fz_html_font_set *set, fz_buffer *buf, fz_archive *dir, int *try_xml);
+ 	int try_xml;
+ 	int try_html5;
+ 	fz_html_flavor flavor;
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -38,6 +38,7 @@
+ 	fz_outline *outline;
+ 	const fz_htdoc_format *format;
+ 	fz_buffer *buf;
++	int try_xml;
+ } html_document;
+ 
+ typedef struct
+@@ -644,7 +645,9 @@
+ 	fz_drop_outline(ctx, doc->outline);
+ 	doc->outline = NULL;
+ 
+-	doc->html = fz_parse_html(ctx, doc->set, doc->zip, ".", doc->buf, doc->super.user_css, doc->format->try_xml, doc->format->try_html5, doc->format->flavor, doc->super.publisher_css);
++	doc->html = fz_parse_html(ctx, doc->set, doc->zip, ".", doc->buf, doc->super.user_css, doc->try_xml,
++		doc->try_xml == FZ_HTML_PARSE_GENERATED_XML ? 0 : doc->format->try_html5,
++		doc->format->flavor, doc->super.publisher_css);
+ 	doc->outline = fz_load_html_outline(ctx, doc->html);
+ }
+ 
+@@ -683,10 +686,11 @@
+ 
+ 		doc->zip = fz_keep_archive(ctx, dir);
+ 		doc->format = format;
++		doc->try_xml = format->try_xml;
+ 		doc->set = fz_new_html_font_set(ctx);
+ 		doc->html = NULL;
+ 		if (format->convert_to_html)
+-			doc->buf = format->convert_to_html(ctx, doc->set, buf, doc->zip);
++			doc->buf = format->convert_to_html(ctx, doc->set, buf, doc->zip, &doc->try_xml);
+ 		else
+ 			doc->buf = fz_keep_buffer(ctx, buf);
+ 		doc->outline = NULL;
+--- a/source/html/txt.c
++++ b/source/html/txt.c
+@@ -214,7 +214,7 @@
+ }
+ 
+ static fz_buffer *
+-txt_to_html(fz_context *ctx, fz_html_font_set *set, fz_buffer *buf, fz_archive *zip)
++txt_to_html(fz_context *ctx, fz_html_font_set *set, fz_buffer *buf, fz_archive *zip, int *try_xml)
+ {
+ 	return fz_txt_buffer_to_html(ctx, buf);
+ }
+--- a/source/html/office.c
++++ b/source/html/office.c
+@@ -1210,7 +1210,7 @@
+ /* Office document handler */
+ 
+ static fz_buffer *
+-office_to_html(fz_context *ctx, fz_html_font_set *set, fz_buffer *buf, fz_archive *zip)
++office_to_html(fz_context *ctx, fz_html_font_set *set, fz_buffer *buf, fz_archive *zip, int *try_xml)
+ {
+ 	fz_office_to_html_opts opts = { 0 };
+ 
+--- a/source/html/md.c
++++ b/source/html/md.c
+@@ -76,13 +76,16 @@
+ }
+ 
+ static fz_buffer *
+-fz_md_to_html(fz_context *ctx, fz_html_font_set *set, fz_buffer *buffer_in, fz_archive *dir, fz_md_to_html_opts *opts)
++fz_md_to_html(fz_context *ctx, fz_html_font_set *set, fz_buffer *buffer_in, fz_archive *dir, fz_md_to_html_opts *opts, int *try_xml)
+ {
+ 	fz_buffer *buffer_out = NULL;
+ 	size_t i, len;
+ 	char *src, *out = NULL;
+ 	cmark_parser *parser = NULL;
+ 	cmark_node *document = NULL;
++	cmark_iter *iter = NULL;
++	cmark_node_type type;
++	int has_raw_html = 0;
+ 	/* CMark provides a way to redirect allocation, but
+ 	 * stupidly, provides no way to pass in any opaque
+ 	 * data, so we can't pass an fz_context. So might
+@@ -93,6 +96,7 @@
+ 	fz_var(out);
+ 	fz_var(parser);
+ 	fz_var(document);
++	fz_var(iter);
+ 
+ 	if (!buffer_in)
+ 		fz_throw(ctx, FZ_ERROR_ARGUMENT, "no markdown data");
+@@ -124,6 +128,17 @@
+ 		cmark_parser_feed(parser, src, len);
+ 
+ 		document = cmark_parser_finish(parser);
++		iter = cmark_iter_new(document);
++		while (cmark_iter_next(iter) != CMARK_EVENT_DONE)
++		{
++			if (cmark_iter_get_event_type(iter) != CMARK_EVENT_ENTER)
++				continue;
++			type = cmark_node_get_type(cmark_iter_get_node(iter));
++			if (type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_HTML_INLINE)
++				has_raw_html = 1;
++		}
++		cmark_iter_free(iter);
++		iter = NULL;
+ 
+ 		out = cmark_render_html_with_mem(document, options, cmark_parser_get_syntax_extensions(parser), mem);
+ 
+@@ -135,17 +150,22 @@
+ 		parser = NULL;
+ 
+ 		buffer_out = fz_new_buffer_from_copied_data(ctx, (unsigned char *)out, strlen(out)+1);
++		if (!has_raw_html)
++			*try_xml = FZ_HTML_PARSE_GENERATED_XML;
+ 	}
+ 	fz_always(ctx)
+ 	{
+ 		if (parser)
+ 			cmark_parser_free(parser);
++		if (iter)
++			cmark_iter_free(iter);
+ 		if (document)
+ 			cmark_node_free(document);
+ 		mem->free(out);
+ 	}
+ 	fz_catch(ctx)
+ 	{
++		fz_drop_buffer(ctx, buffer_out);
+ 		fz_rethrow(ctx);
+ 	}
+ 
+@@ -160,11 +180,11 @@
+ /* MD document handler */
+ 
+ static fz_buffer *
+-md_to_html(fz_context *ctx, fz_html_font_set *set, fz_buffer *buf, fz_archive *zip)
++md_to_html(fz_context *ctx, fz_html_font_set *set, fz_buffer *buf, fz_archive *zip, int *try_xml)
+ {
+ 	fz_md_to_html_opts opts = { 0 };
+ 
+-	return fz_md_to_html(ctx, set, buf, zip, &opts);
++	return fz_md_to_html(ctx, set, buf, zip, &opts, try_xml);
+ }
+ 
+ static const fz_htdoc_format fz_htdoc_md =
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -25,6 +25,9 @@
+ 
+ #include "mupdf/fitz.h"
+ #include <string.h>
++
++enum { FZ_HTML_PARSE_GENERATED_XML = 2 };
++fz_xml *fz_parse_xml_from_generated_html(fz_context *ctx, fz_buffer *buf);
+ 
+ typedef struct fz_html_font_face fz_html_font_face;
+ typedef struct fz_html_box fz_html_box;
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -2030,6 +2030,8 @@
+ parse_to_xml(fz_context *ctx, fz_buffer *buf, int try_xml, int try_html5)
+ {
+ 	fz_xml_doc *xml;
++	if (try_xml == FZ_HTML_PARSE_GENERATED_XML)
++		return fz_parse_xml_from_generated_html(ctx, buf);
+ 
+ 	if (try_xml && try_html5)
+ 	{
+--- a/source/fitz/xml.c
++++ b/source/fitz/xml.c
+@@ -102,6 +102,7 @@
+ 	fz_pool *pool;
+ 	fz_xml *head;
+ 	int preserve_white;
++	int generated_html_entities;
+ 	int depth;
+ #ifdef FZ_XML_SEQ
+ 	int seq;
+@@ -524,6 +525,23 @@
+ 	head->u.node.u.d.atts = att;
+ }
+ 
++static void xml_decode_entities_in_place(char *text)
++{
++	char *read = text, *write = text;
++	int c;
++	while (*read)
++	{
++		if (*read == '&')
++		{
++			read += xml_parse_entity(&c, read);
++			write += fz_runetochar(write, c);
++		}
++		else
++			*write++ = *read++;
++	}
++	*write = 0;
++}
++
+ void fz_xml_add_att(fz_context *ctx, fz_pool *pool, fz_xml *node, const char *key, const char *val)
+ {
+ 	size_t size = offsetof(struct attribute, name) + strlen(key) + 1;
+@@ -554,6 +572,8 @@
+ 		}
+ 	}
+ 	*s = 0;
++	if (parser->generated_html_entities)
++		xml_decode_entities_in_place(att->value);
+ }
+ 
+ static void xml_emit_close_tag(fz_context *ctx, struct parser *parser)
+@@ -600,6 +620,8 @@
+ 		}
+ 	}
+ 	*s = 0;
++	if (parser->generated_html_entities)
++		xml_decode_entities_in_place(fz_xml_text(head));
+ 
+ 	xml_emit_close_tag(ctx, parser);
+ }
+@@ -1064,8 +1086,8 @@
+ 	return parse_and_drop_buffer(ctx, buf, preserve_white);
+ }
+ 
+-fz_xml *
+-fz_parse_xml(fz_context *ctx, fz_buffer *buf, int preserve_white)
++static fz_xml *
++parse_xml_imp(fz_context *ctx, fz_buffer *buf, int preserve_white, int generated_html_entities)
+ {
+ 	struct parser parser;
+ 	fz_xml *xml = NULL;
+@@ -1095,6 +1117,7 @@
+ 	parser.pool = fz_new_pool(ctx);
+ 	parser.head = root = fz_pool_alloc_flexible(ctx, parser.pool, fz_xml, u.node.u.d.name, 1);
+ 	parser.preserve_white = preserve_white;
++	parser.generated_html_entities = generated_html_entities;
+ 	parser.depth = 0;
+ #ifdef FZ_XML_SEQ
+ 	parser.seq = 0;
+@@ -1103,10 +1126,24 @@
+ 	fz_try(ctx)
+ 	{
+ 		p = convert_to_utf8(ctx, s, n, &dofree);
++		if (generated_html_entities)
++		{
++			xml_emit_open_tag(ctx, &parser, "html", "html" + 4, 0);
++			xml_emit_open_tag(ctx, &parser, "head", "head" + 4, 0);
++			xml_emit_close_tag(ctx, &parser);
++			xml_emit_open_tag(ctx, &parser, "body", "body" + 4, 0);
++		}
+ 
+ 		error = xml_parse_document_imp(ctx, &parser, p);
+ 		if (error)
+ 			fz_throw(ctx, FZ_ERROR_SYNTAX, "%s", error);
++		if (generated_html_entities)
++		{
++			if (parser.depth != 2)
++				fz_throw(ctx, FZ_ERROR_SYNTAX, "unbalanced generated HTML");
++			xml_emit_close_tag(ctx, &parser);
++			xml_emit_close_tag(ctx, &parser);
++		}
+ 
+ 		for (node = parser.head; node; node = node->up)
+ 			node->u.node.next = NULL;
+@@ -1132,6 +1169,18 @@
+ 	}
+ 
+ 	return xml;
++}
++
++fz_xml *
++fz_parse_xml(fz_context *ctx, fz_buffer *buf, int preserve_white)
++{
++	return parse_xml_imp(ctx, buf, preserve_white, 0);
++}
++
++fz_xml *
++fz_parse_xml_from_generated_html(fz_context *ctx, fz_buffer *buf)
++{
++	return parse_xml_imp(ctx, buf, 1, 1);
+ }
+ 
+ #if FZ_ENABLE_HTML_ENGINE
+@@ -1252,6 +1301,7 @@
+ 	parser.pool = fz_new_pool(ctx);
+ 	parser.head = &root;
+ 	parser.preserve_white = 1;
++	parser.generated_html_entities = 0;
+ 	parser.depth = 0;
+ #ifdef FZ_XML_SEQ
+ 	parser.seq = 0;

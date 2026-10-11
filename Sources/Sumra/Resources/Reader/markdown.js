@@ -1,5 +1,5 @@
 // BrowserDocView / MarkdownModel bridge, SumatraPDF 012d997f6a3a5c5c97b878e1a340db3bffde8c0e.
-// GPL-3.0-or-later. WebKit owns the ordinary scrolling document; no pagination layer.
+// GPL-3.0-or-later. WebKit owns scrolling and column layout on the original DOM.
 (() => {
     const config = window.sumraDocument, initial = config.initial, pages = config.pages
     const mainFrame = window === window.top
@@ -34,6 +34,19 @@
     const finder = window.__sumatraFind
     let typography = initial.text, userCSS = initial.userCSS || '', useDocumentCSS = initial.useDocumentCSS !== false
     let margins = initial.pageMargins || [], interaction = {}, linkDigits = '', pointer = null
+    let flow = initial.flow || 'continuous', spread = initial.spread === true, rtl = initial.rtl === true
+    const paged = () => flow === 'paged' || spread
+    const pageDirection = () => rtl ? -1 : 1
+    const pageExtent = () => Math.max(0, document.documentElement.scrollWidth - innerWidth)
+    const pageOffset = () => paged() ? scrollX * pageDirection() : scrollY
+    const scrollEnd = (x = scrollX) => paged()
+        ? scrollTo({left: pageExtent() * pageDirection(), top: 0, behavior: 'instant'})
+        : scrollTo({left: x, top: document.documentElement.scrollHeight, behavior: 'instant'})
+    const snapPage = () => {
+        if (!paged()) return
+        const offset = Math.max(0, Math.min(pageExtent(), Math.round(pageOffset() / innerWidth) * innerWidth))
+        scrollTo({left: offset * pageDirection(), top: 0, behavior: 'instant'})
+    }
     let searchGeneration = 0, searchKey = '', searchOptions = null, hits = [], hitsCapped = false, selected = -1, scan = null, searchAbort = null
     let speechNodes = [], speechRange = null, restoring = false, ready = false
     let activationRevision = 0, restoreRevision = 0
@@ -336,6 +349,7 @@
     let reportedLayoutLimit = false
     const reportPosition = () => {
         if (!mainFrame || !ready || restoring || printViewport) return
+        snapPage()
         rememberReadingViewport()
         post('position', { page: pageIndex(), count: pages.length, label: String(pageIndex() + 1),
             anchor: pageURL(), x: window.scrollX, y: window.scrollY, markdownPassage: savedReadingPassage() })
@@ -470,12 +484,109 @@
         .map(element => ({ element, media: element.media }))
     const inlineStyles = [...document.querySelectorAll('[style]')].map(element => ({ element, css: element.getAttribute('style') }))
     const scheme = matchMedia('(prefers-color-scheme:dark)')
+    const documentDirection = getComputedStyle(document.body).direction
+    const reflowPlainCHM = () => {
+        if (!config.chm || document.contentType !== 'text/plain') return
+        const pre = document.body.querySelector('pre')
+        if (!pre) return
+        const parts = pre.textContent.split(/((?:\r\n|\r(?!\n)|\n)(?:[ \t]*(?:\r\n|\r(?!\n)|\n))+)/)
+        const candidates = [], widths = new Map()
+        let multiline = 0
+        for (let index = 0; index < parts.length; index += 2) {
+            const lines = parts[index].split(/\r\n|\r|\n/)
+            if (lines.length < 2) continue
+            // This is specifically the fixed-column CJK prose found in CHM
+            // text chapters, not a general-purpose code/list line merger.
+            const han = parts[index].match(/[\u3400-\u9fff]/gu)?.length || 0
+            if (han * 2 < parts[index].replace(/\s/g, '').length || !/[。！？；，、：]/u.test(parts[index]) ||
+                lines.some(line => /^[ \t]*(?:[-*+•] |\d+[.)] |[#>|])/.test(line))) continue
+            multiline++
+            const width = lines[0].length
+            // A fixed-length run ending in a short line is a source-wrapped
+            // paragraph. Tabs and deep indentation mark content such as code.
+            if (width < 20 || lines.at(-1).length >= width ||
+                lines.slice(0, -1).some(line => line.length !== width || /\t|^ {4}/.test(line))) continue
+            candidates.push({index, width})
+            widths.set(width, (widths.get(width) || 0) + 1)
+        }
+        const [width, count] = [...widths].sort((a, b) => b[1] - a[1])[0] || []
+        // Require a repeated book-wide column, not a coincidental wrapped line.
+        const prose = new Set(count >= 3 && count * 2 > multiline
+            ? candidates.filter(item => item.width === width).map(item => item.index) : [])
+        let changed = false
+        const nodes = parts.map((part, index) => {
+            if (prose.has(index - 1) && prose.has(index + 1)) {
+                changed = true
+                const gap = document.createElement('span')
+                gap.className = 'sumra-chm-paragraph-gap'
+                gap.textContent = part
+                return gap
+            }
+            const title = part.match(/^(\u3000+)(【[^【】\r\n]+】)$/u)
+            if (title && title[1].length >= title[2].length) {
+                changed = true
+                const line = document.createElement('span')
+                line.className = 'sumra-chm-title'
+                const indent = document.createElement('span')
+                indent.className = 'sumra-chm-title-indent'
+                indent.textContent = title[1]
+                line.append(indent, document.createTextNode(title[2]))
+                return line
+            }
+            if (!prose.has(index)) return document.createTextNode(part)
+            changed = true
+            const span = document.createElement('span')
+            span.className = 'sumra-chm-prose'
+            // WebKit renders a collapsed newline between Han glyphs as a
+            // visible space. Keep it in the source DOM for Find and offsets,
+            // but remove only that hard-wrap separator from visual layout.
+            part.split(/(\r\n|\r(?!\n)|\n)/).forEach((piece, offset) => {
+                if (offset % 2 === 0) span.append(document.createTextNode(piece))
+                else {
+                    const softBreak = document.createElement('span')
+                    softBreak.className = 'sumra-chm-softbreak'
+                    softBreak.textContent = piece
+                    span.append(softBreak)
+                }
+            })
+            return span
+        })
+        if (changed) pre.replaceChildren(...nodes)
+    }
+    const normalizeColors = declarations => {
+        for (const property of ['color', 'background-color']) {
+            if (declarations.getPropertyPriority(property) === 'important')
+                declarations.setProperty(property, declarations.getPropertyValue(property), '')
+        }
+    }
+    const normalizePublisherSheet = sheet => {
+        if (!sheet) return
+        const visit = rules => {
+            for (const rule of rules) {
+                if (rule.style) normalizeColors(rule.style)
+                if (rule.styleSheet) normalizePublisherSheet(rule.styleSheet)
+                else if (rule.cssRules) visit(rule.cssRules)
+            }
+        }
+        try { visit(sheet.cssRules) }
+        catch (error) {
+            // CSSOM cannot read cross-origin sheets without CORS permission.
+            // Local document sheets and their imports remain editable.
+            if (error.name !== 'SecurityError') throw error
+        }
+    }
+    const normalizePublisherColors = () => {
+        for (const {element} of publisherStyles) normalizePublisherSheet(element.sheet)
+        for (const {element} of inlineStyles) normalizeColors(element.style)
+    }
+    for (const {element} of publisherStyles) element.addEventListener('load', () => normalizePublisherSheet(element.sheet))
     const applyDocumentCSS = () => {
         for (const { element, media } of publisherStyles) element.media = useDocumentCSS ? media : 'not all'
         for (const { element, css } of inlineStyles) {
             if (useDocumentCSS) element.setAttribute('style', css)
             else element.removeAttribute('style')
         }
+        normalizePublisherColors()
     }
     const applyStyle = () => {
         const [family = 'system', size = '17', line = '1.6', margin = '32', theme = 'system'] = String(typography || '').split('|')
@@ -483,15 +594,39 @@
             : ['serif', 'sans-serif', 'monospace'].includes(family) ? family : JSON.stringify(family)
         const dark = theme === 'dark' || theme === 'system' && scheme.matches
         const padding = margins.length === 4 ? margins.map(value => `${value * 96 / 72}px`).join(' ') : `${margin}px`
-        // ChmModel::ChmThemeStyleTemp leaves the author's layout intact.
-        // Swift supplies non-default theme colors through userCSS.
-        const layout = config.chm && useDocumentCSS
-            ? (margins.length === 4 ? `body{padding:${padding}!important}` : '')
+        const gap = margins.length === 4 ? (margins[1] + margins[3]) * 96 / 72 : Number(margin) * 2
+        // CHM topics retain the author's CSS. Plain-text topics have no author
+        // typography, so use the same readable text settings as other books.
+        const plainCHM = config.chm && document.contentType === 'text/plain'
+        const layout = config.chm && useDocumentCSS && !plainCHM
+            ? `${margins.length === 4 ? `body{padding:${padding}!important}` : ''}
+                @media screen{
+                    html,body{min-width:0!important;max-width:100%!important}
+                    body{box-sizing:border-box!important;width:auto!important;overflow-wrap:break-word}
+                    body>:is(div,main,article,section):has(:is(p,h1,h2,h3,h4,h5,h6)){
+                        box-sizing:border-box!important;width:auto!important;min-width:0!important;max-width:100%!important}}
+                `
             : `:root{color-scheme:${dark ? 'dark' : 'light'};--bg:${dark ? '#111' : '#fff'};--fg:${dark ? '#ddd' : '#24292f'};--link:${dark ? '#4493f8' : '#0969da'};--muted:${dark ? '#9198a1' : '#57606a'};--border:${dark ? '#444' : '#d0d7de'};--code-bg:${dark ? '#222' : '#f6f8fa'}}
-            body{font-family:${font}!important;font-size:${Number(size)}px!important;line-height:${Number(line)}!important;padding:${padding}!important;background:var(--bg)!important;color:var(--fg)!important}a{color:var(--link)}`
-        const css = `${layout}
+            body{font-family:${font}!important;font-size:${Number(size)}px!important;line-height:${Number(line)}!important;padding:${padding}!important;background-color:var(--bg)!important;color:var(--fg)!important}a{color:var(--link)}`
+        const columns = paged() ? `@media screen{
+            html{direction:${rtl ? 'rtl' : 'ltr'}!important;overflow-x:auto!important;overflow-y:hidden!important}
+            body{box-sizing:border-box!important;width:100vw!important;max-width:none!important;height:100vh!important;
+                min-height:0!important;margin:0!important;padding:${padding}!important;
+                column-count:${spread ? 2 : 1}!important;column-width:1px!important;
+                column-gap:${gap}px!important;column-fill:auto!important;
+                direction:${rtl ? 'rtl' : 'ltr'}!important;overflow:visible!important}
+            body>*{direction:${documentDirection}}img,svg,video,iframe{max-width:100%}}
+            ` : ''
+        const css = `${layout}\n${columns}
             ::highlight(sumra-speech){background:#ffd54f;color:#000}
-            ${document.contentType === 'text/plain' ? 'pre{white-space:pre-wrap;overflow-wrap:anywhere}' : ''}\n${userCSS}`
+            ${document.contentType === 'text/plain' ? `pre{box-sizing:border-box;max-width:100%;margin:0;
+                font-family:inherit!important;font-size:inherit!important;line-height:inherit!important;
+                white-space:pre-wrap!important;overflow-wrap:anywhere}
+                pre .sumra-chm-prose{white-space:normal!important}
+                pre .sumra-chm-paragraph-gap{display:block;height:.5em;line-height:0;white-space:normal!important}
+                pre .sumra-chm-softbreak,pre .sumra-chm-title-indent{display:none!important}
+                pre .sumra-chm-title{display:inline-block;box-sizing:border-box;width:100%;
+                    text-align:center;white-space:nowrap!important;overflow-wrap:normal!important}` : ''}\n${userCSS}`
         if (style.textContent !== css) style.textContent = css
     }
     const updateStyle = command => {
@@ -503,6 +638,10 @@
             applyDocumentCSS()
         }
         if ('pageMargins' in command) margins = command.pageMargins || []
+        if ('flow' in command) flow = command.flow
+        if ('spread' in command) spread = command.spread === true
+        if ('rtl' in command) rtl = command.rtl === true
+        normalizePublisherColors()
         applyStyle()
     }
     const clearLinkPreview = () => {
@@ -533,7 +672,8 @@
     }
     const caret = (x, y) => document.caretRangeFromPoint(Math.max(0, Math.min(innerWidth - 1, x)), Math.max(0, Math.min(innerHeight - 1, y)))
     const visibleRange = () => {
-        const start = caret(Math.min(40, innerWidth / 2), 1), end = caret(innerWidth - 1, innerHeight - 1)
+        const start = paged() ? readingCaret() : caret(Math.min(40, innerWidth / 2), 1)
+        const end = caret(rtl && paged() ? 1 : innerWidth - 1, innerHeight - 1)
         if (!start || !end) return null
         const range = document.createRange(); range.setStart(start.startContainer, start.startOffset); range.setEnd(end.startContainer, end.startOffset)
         return range
@@ -542,7 +682,23 @@
         if (!range) return
         selection().removeAllRanges(); selection().addRange(range); reportSelection()
     }
-    const atDocumentEnd = () => scrollY > 0 && scrollY + document.documentElement.clientHeight >= document.documentElement.scrollHeight - 1
+    const atDocumentEnd = () => paged() ? pageOffset() > 0 && pageOffset() >= pageExtent() - 1
+        : scrollY > 0 && scrollY + Math.min(innerHeight, document.documentElement.clientHeight) >= document.documentElement.scrollHeight - 1
+    const readingCaret = () => {
+        if (!paged()) return caret(Math.min(40, innerWidth / 2), 1)
+        const padding = getComputedStyle(document.body)
+        const x = rtl && paged() ? innerWidth - (parseFloat(padding.paddingRight) || 0) - 1
+            : (parseFloat(padding.paddingLeft) || 0) + 1
+        return caret(x, (parseFloat(padding.paddingTop) || 0) + 1)
+    }
+    const alignReadingRange = (range, top) => {
+        const rect = range.getBoundingClientRect()
+        if (paged()) {
+            const offset = rtl ? -scrollX + innerWidth - rect.right : scrollX + rect.left
+            scrollTo({left: Math.floor(offset / innerWidth) * innerWidth * pageDirection(), top: 0, behavior: 'instant'})
+            snapPage()
+        } else scrollTo({left: scrollX, top: scrollY + rect.top - top, behavior: 'instant'})
+    }
     const passageText = (node, offset) => {
         let start = Math.max(0, offset - 16), end = Math.min(node.length, offset + 16)
         // The bridge carries Unicode strings, while DOM offsets use UTF-16.
@@ -567,7 +723,7 @@
         const passage = position?.markdownPassage
         if (!config.markdown || !passage) return false
         if (passage.end === true) {
-            scrollTo({left: position.x || 0, top: document.documentElement.scrollHeight, behavior: 'instant'})
+            scrollEnd(position.x || 0)
             return true
         }
         if (passage.end !== false || !Array.isArray(passage.path) || !passage.path.length ||
@@ -581,47 +737,54 @@
         const range = document.createRange(); range.setStart(node, passage.offset); range.collapse(true)
         const top = range.getBoundingClientRect().top
         if (!Number.isFinite(top)) return false
-        scrollTo({left: position.x || 0, top: scrollY + top - passage.top, behavior: 'instant'})
+        alignReadingRange(range, passage.top)
         return true
     }
-    const rememberReadingViewport = () => {
-        if (!config.markdown || readingViewport &&
-            (readingViewport.width !== innerWidth || readingViewport.height !== innerHeight)) return
-        const range = scrollY > 0 ? caret(Math.min(40, innerWidth / 2), 1) : null
+    const rememberReadingViewport = range => {
+        if (readingViewport?.preserved && readingViewport.width === innerWidth && readingViewport.height === innerHeight &&
+            (readingViewport.x !== scrollX || readingViewport.y !== scrollY)) readingViewport = null
+        if (readingViewport && (readingViewport.preserved ||
+            readingViewport.width !== innerWidth || readingViewport.height !== innerHeight)) return
+        const preserved = range !== undefined
+        if (!preserved) range = pageOffset() > 0 ? readingCaret() : null
         range?.collapse(true)
-        readingViewport = {range, top: range?.getBoundingClientRect().top, x: scrollX,
+        readingViewport = {range, top: range?.getBoundingClientRect().top, x: scrollX, y: scrollY,
             width: innerWidth, height: innerHeight,
-            end: atDocumentEnd()}
+            end: atDocumentEnd(), preserved}
     }
     const resizeReadingViewport = () => {
         const saved = readingViewport
-        if (config.markdown && mainFrame && ready && !restoring && !printViewport && saved &&
+        if (mainFrame && ready && !restoring && !printViewport && saved &&
             (saved.width !== innerWidth || saved.height !== innerHeight)) {
-            if (saved.end) scrollTo({left: saved.x, top: document.documentElement.scrollHeight, behavior: 'instant'})
+            if (saved.end) scrollEnd(saved.x)
             else if (saved.range?.startContainer.isConnected && Number.isFinite(saved.top)) {
-                scrollTo({left: saved.x, top: scrollY + saved.range.getBoundingClientRect().top - saved.top, behavior: 'instant'})
+                const height = saved.range.getBoundingClientRect().height
+                alignReadingRange(saved.range, Math.min(saved.top, Math.max(0, innerHeight - height)))
             }
         }
         readingViewport = null
+        if (saved?.range?.startContainer.isConnected) rememberReadingViewport(saved.range)
         reportPosition(); scheduleRangeHighlights()
     }
     const reflowText = async command => {
+        rememberReadingViewport()
+        const saved = readingViewport
         readingViewport = null
-        const pageTop = scrollY
-        const end = config.markdown && atDocumentEnd()
-        const anchor = config.markdown && pageTop > 0 && !end ? caret(Math.min(40, innerWidth / 2), 1) : null
+        const end = atDocumentEnd()
+        const anchor = !end ? saved?.range || (pageOffset() > 0 ? readingCaret() : null) : null
         anchor?.collapse(true)
         const anchorTop = anchor?.getBoundingClientRect().top
         updateStyle(command)
         // Shrinking the layout can clamp scrolling before fonts settle.
         // Only a later scroll should override the saved reading passage.
-        const styledTop = scrollY
+        const styledX = scrollX, styledTop = scrollY
         await document.fonts.ready
-        if (scrollY !== styledTop) return
-        if (end) scrollTo({left: scrollX, top: document.documentElement.scrollHeight, behavior: 'instant'})
+        if (scrollX !== styledX || scrollY !== styledTop) return
+        if (end) scrollEnd()
         else if (anchor?.startContainer.isConnected && Number.isFinite(anchorTop)) {
-            scrollTo({left: scrollX, top: scrollY + anchor.getBoundingClientRect().top - anchorTop, behavior: 'instant'})
+            alignReadingRange(anchor, anchorTop)
         }
+        rememberReadingViewport(anchor)
     }
     const readAloud = source => {
         const current = selection(), selected = source === 'selection' || !source && !current.isCollapsed
@@ -669,8 +832,11 @@
         if (window.Highlight && CSS.highlights) CSS.highlights.set('sumra-speech', new Highlight(range))
         else speechRange = range
         if (interaction.speechFollow) {
+            readingViewport = null
             const rect = range.getBoundingClientRect()
-            if (rect.top < 0 || rect.bottom > innerHeight) scrollBy(0, rect.top - innerHeight / 3)
+            if (paged()) {
+                if (rect.left < 0 || rect.right > innerWidth) alignReadingRange(range, 0)
+            } else if (rect.top < 0 || rect.bottom > innerHeight) scrollBy(0, rect.top - innerHeight / 3)
         }
         publishRangeHighlights(true)
     }
@@ -747,7 +913,7 @@
         try {
             const search = readSearchTarget(destination.href)
             if (search) return await restoreSearch(search)
-            else if (destination.hash === '#sumra-end') scrollTo(0, document.documentElement.scrollHeight)
+            else if (destination.hash === '#sumra-end') scrollEnd(0)
             else if (destination.hash) {
                 // MarkdownToc emits empty inline anchors before headings.
                 // WebKit's scrollIntoView can leave those anchors unmoved or
@@ -755,8 +921,10 @@
                 const target = fragmentTarget(destination.hash)
                 // Window.scrollY loses the fractional scroll at native page zoom.
                 const viewport = window.visualViewport
-                if (target) scrollTo(window.scrollX,
-                    viewport.pageTop - viewport.offsetTop + target.getBoundingClientRect().top)
+                if (target) {
+                    if (paged()) { const range = document.createRange(); range.selectNodeContents(target); alignReadingRange(range, 0) }
+                    else scrollTo(window.scrollX, viewport.pageTop - viewport.offsetTop + target.getBoundingClientRect().top)
+                }
             }
             else if (!restoreReadingPassage(position)) scrollTo(position?.x || 0, position?.y || 0)
         } finally {
@@ -818,6 +986,7 @@
     const scroll = command => {
         const vertical = command.direction === 'up' || command.direction === 'down'
         const sign = command.direction === 'up' || command.direction === 'left' ? -1 : 1
+        if (paged()) return turnPages(sign * (vertical ? 1 : pageDirection()) * (command.count ?? 1))
         const amount = command.amount === 'line' ? Math.max(16, Number(String(typography).split('|')[1]) || 17)
             : (vertical ? innerHeight : innerWidth) * (command.amount === 'halfPage' ? 0.5 : 1)
         const distance = amount * sign * (command.count ?? 1)
@@ -825,16 +994,20 @@
     }
     const turnPages = count => {
         if (!count) return
-        const bottom = Math.max(0, document.documentElement.scrollHeight - innerHeight)
-        if (count > 0 && scrollY >= bottom - 1 && pageIndex() + 1 < pages.length) return navigatePage(pageIndex() + 1)
-        else if (count < 0 && scrollY <= 0 && pageIndex() > 0) { const url = new URL(pages[pageIndex() - 1]); url.hash = 'sumra-end'; return go(url) }
-        else { scrollBy(0, innerHeight * count); reportPosition() }
+        const bottom = paged() ? pageExtent() : Math.max(0, document.documentElement.scrollHeight - innerHeight)
+        if (count > 0 && pageOffset() >= bottom - 1 && pageIndex() + 1 < pages.length) return navigatePage(pageIndex() + 1)
+        else if (count < 0 && pageOffset() <= 0 && pageIndex() > 0) { const url = new URL(pages[pageIndex() - 1]); url.hash = 'sumra-end'; return go(url) }
+        else {
+            if (paged()) scrollTo({left: (pageOffset() + innerWidth * count) * pageDirection(), top: 0, behavior: 'instant'})
+            else scrollBy(0, innerHeight * count)
+            reportPosition()
+        }
     }
     window.leafCommand = async command => {
         // Let the existing native readiness/error owner finish activation.
         if (command.name === 'activate') return await activate(command)
         try {
-        if (['turnPages', 'scroll', 'page', 'location', 'href', 'restore'].includes(command.name)) readingViewport = null
+        if (['turnPages', 'scroll', 'page', 'location', 'href', 'restore', 'find'].includes(command.name)) readingViewport = null
         const focused = ['copy', 'speechHighlight'].includes(command.name)
             || command.name === 'readAloud' && (!command.source || command.source === 'selection') ? selectionReader() : focusedReader()
         if (focused && ['copy', 'selectAll', 'selectCurrentPage', 'readAloud', 'speechHighlight'].includes(command.name)) return await focused.leafCommand(command)
@@ -843,11 +1016,11 @@
         case 'find': return await find(command)
         case 'toc': clearFind(); post('toc', { items: outlineItems }); break
         case 'turnPages': return turnPages(command.count)
-        case 'scroll': scroll(command); break
+        case 'scroll': return scroll(command)
         case 'page': return navigatePage(command.number)
         case 'location': {
             if (command.text === 'first') { if (pageIndex() === 0) scrollTo(0, 0); else return navigatePage(0); reportPosition(); break }
-            if (command.text === 'last') { if (pageIndex() === pages.length - 1) scrollTo(0, document.documentElement.scrollHeight); else { const url = new URL(pages.at(-1)); url.hash = 'sumra-end'; return go(url) }; reportPosition(); break }
+            if (command.text === 'last') { if (pageIndex() === pages.length - 1) scrollEnd(0); else { const url = new URL(pages.at(-1)); url.hash = 'sumra-end'; return go(url) }; reportPosition(); break }
             const [page, part = 1] = command.text.split(':').map(Number)
             if (!Number.isSafeInteger(page) || page < 1 || page > pages.length || part !== 1) throw Error('Page not found')
             return navigatePage(page - 1)
@@ -867,8 +1040,7 @@
             const result = await restore(command.position); publishRangeHighlights(); return result
         }
         case 'style':
-            if (config.markdown) await reflowText(command)
-            else updateStyle(command)
+            await reflowText(command)
             reportPosition(); publishRangeHighlights(); break
         case 'zoom': {
             // Swift translates Markdown zoom to typography and supplies the
@@ -1268,12 +1440,23 @@
         await mermaid.run({ querySelector: 'pre.mermaid' })
     }
     const isInput = target => target?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])')
+    const nativeScrollTarget = target => {
+        if (!mainFrame || isInput(target) || target.closest?.('frame,iframe')) return true
+        for (let element = target; element && element !== document.body; element = element.parentElement) {
+            const style = getComputedStyle(element)
+            if (['auto', 'scroll'].includes(style.overflowY) && element.scrollHeight > element.clientHeight ||
+                ['auto', 'scroll'].includes(style.overflowX) && element.scrollWidth > element.clientWidth) return true
+        }
+        return false
+    }
     window.leafInputFocused = () => focusedReader()?.leafInputFocused() || !!isInput(document.activeElement)
     document.addEventListener('focusin', event => post('inputFocus', { focused: !!isInput(event.target) }))
     document.addEventListener('focusout', event => post('inputFocus', { focused: !!isInput(event.relatedTarget) }))
     document.addEventListener('selectionchange', reportSelection)
-    document.addEventListener('pointerdown', event => { pointer = { x: event.clientX, y: event.clientY } })
+    document.addEventListener('pointerdown', event => { readingViewport = null; pointer = { x: event.clientX, y: event.clientY } })
+    document.addEventListener('wheel', () => { readingViewport = null }, {passive:true})
     document.addEventListener('pointerover', event => {
+        post('wheelTarget', {scrollable: nativeScrollTarget(event.target)})
         const link = event.target.closest?.('a[href]')
         if (!interaction.hoverPreview || !link || link === previewLink) return
         clearLinkPreview()
@@ -1311,6 +1494,13 @@
             selection().modify(event.shiftKey ? 'extend' : 'move', ['ArrowLeft', 'ArrowUp'].includes(event.key) ? 'backward' : 'forward',
                 ['ArrowUp', 'ArrowDown'].includes(event.key) ? 'line' : event.altKey ? 'word' : 'character')
         }
+        if (paged() && !interaction.keyboardSelection && !event.defaultPrevented && !event.altKey && !event.shiftKey &&
+            ['ArrowLeft', 'ArrowRight'].includes(event.key) && !nativeScrollTarget(event.target)) {
+            event.preventDefault()
+            readingViewport = null
+            const destination = turnPages((event.key === 'ArrowRight' ? 1 : -1) * pageDirection())
+            if (destination?.navigation) post('navigate', {href: destination.navigation})
+        }
     })
     window.addEventListener('scroll', reportPosition, { passive: true })
     window.addEventListener('scroll', () => scheduleRangeHighlights(), { passive: true, capture: true })
@@ -1328,7 +1518,9 @@
         speechNodes = []; speechRange = null; CSS.highlights?.delete('sumra-speech'); scheduleRangeHighlights()
     })
     scheme.addEventListener('change', () => { if (String(typography).split('|')[4] === 'system') applyStyle() })
+    reflowPlainCHM()
     if (!useDocumentCSS) applyDocumentCSS()
+    else normalizePublisherColors()
     applyStyle()
     // Native navigation completion owns activation and position restoration.
     // Sibling headings are read on demand by Contents or its palette mode.
@@ -1348,6 +1540,6 @@
         }
     }
     window.leafApplyFrame = reader => reader.leafCommand({ name: 'activate', text: typography, userCSS,
-        useDocumentCSS, pageMargins: margins, flags: interaction })
+        useDocumentCSS, pageMargins: margins, flow, spread, rtl, flags: interaction })
     start().catch(error => post('error', { message: error.message }))
 })()

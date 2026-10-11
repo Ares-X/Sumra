@@ -11,10 +11,10 @@ import SumraCore
 // the monotonic clock keeps actor waiting, native work and drawing comparable.
 enum NativeReadingPerformance {
     private static let logger = Logger(subsystem: "com.leaf.reader", category: "native-reading")
-    static func mark(_ stage: String, pages: Pages? = nil, revision: Int = -1, page: Int = -1, started: UInt64? = nil) {
+    static func mark(_ stage: String, pages: Pages? = nil, revision: Int = -1, page: Int = -1, started: UInt64? = nil, size: CGSize = .zero) {
         let now = DispatchTime.now().uptimeNanoseconds
         let owner = pages.map { UInt(bitPattern: ObjectIdentifier($0)) } ?? 0
-        logger.debug("\(stage, privacy: .public) monotonic_ns=\(now, privacy: .public) owner=\(owner, privacy: .public) revision=\(revision, privacy: .public) page=\(page, privacy: .public) duration_ns=\(started.map { now &- $0 } ?? 0, privacy: .public)")
+        logger.debug("\(stage, privacy: .public) monotonic_ns=\(now, privacy: .public) owner=\(owner, privacy: .public) revision=\(revision, privacy: .public) page=\(page, privacy: .public) duration_ns=\(started.map { now &- $0 } ?? 0, privacy: .public) width=\(Double(size.width), privacy: .public) height=\(Double(size.height), privacy: .public)")
     }
 }
 
@@ -31,6 +31,7 @@ struct RasterMatch: Equatable {
     var context = ""
     var source: NativeSourceAnchor? = nil
     var fragments: [RasterMatchFragment]? = nil
+    var location: PageLocation? = nil
     func rects(on page: Int) -> [CGRect] {
         fragments?.first(where: { $0.page == page })?.rects ?? (self.page == page ? rects : [])
     }
@@ -47,6 +48,7 @@ fileprivate struct RasterStyle: Equatable {
     var useDocumentCSS = true
     var pageMargins: PageMargins?
     var textZoom = 1.0
+    var pageSize = CGSize(width: 420, height: 595)
 }
 
 // The actor serializes all operations on this synchronous decoder owner.
@@ -122,8 +124,30 @@ fileprivate final class RasterDocument {
         }
         guard count > 0 || deferReflowLayout && native?.reflowable == true else { throw ReadError("No readable pages found") }
     }
+    func outline() throws -> [ContentsItem] {
+        if let native { return try native.outline() }
+        guard format == .comic else { return [] }
+        var outline = [ContentsItem](), folders = Set<String>()
+        // These are the same naturally sorted names used to paint pages.
+        // Directory metadata supplies Contents without reading image bytes.
+        for (page, name) in names.enumerated() {
+            let parts = name.split(separator: "/").filter { $0 != "." }
+            var path = ""
+            for (depth, title) in parts.dropLast().enumerated() {
+                path += "/" + title
+                if folders.insert(path).inserted {
+                    outline.append(ContentsItem(title: String(title), target: "#page=\(page + 1)", depth: depth, page: page))
+                }
+            }
+        }
+        return outline
+    }
+    func comicPage(_ target: String) -> Int? {
+        guard format == .comic, target.hasPrefix("#page=") else { return nil }
+        return Int(target.dropFirst(6)).map { $0 - 1 }
+    }
     func relayout(_ style: RasterStyle) throws -> Int? {
-        guard let count = try native?.relayout(fontSize: style.fontSize * style.textZoom, lineHeight: style.lineHeight, font: style.font, theme: style.theme, userCSS: style.userCSS, useDocumentCSS: style.useDocumentCSS, pageMargins: style.pageMargins) else { return nil }
+        guard let count = try native?.relayout(fontSize: style.fontSize * style.textZoom, lineHeight: style.lineHeight, font: style.font, theme: style.theme, userCSS: style.userCSS, useDocumentCSS: style.useDocumentCSS, pageMargins: style.pageMargins, pageSize: style.pageSize) else { return nil }
         self.style = style; self.storedCount = count; cache.removeAll(); pageBounds.removeAll(); contentBoxes.removeAll()
         return count
     }
@@ -485,18 +509,18 @@ actor Pages {
         return chapterLayout
     }
     private func index(_ location: PageLocation) throws -> Int { try document.native?.page(location) ?? location.page }
-    func position(_ location: PageLocation, x: Double? = nil, y: Double? = nil, passage: NativePassage? = nil) throws -> ReadingPosition {
-        try position(page: index(location), x: x, y: y, passage: passage)
+    func position(_ location: PageLocation, x: Double? = nil, y: Double? = nil, passage: NativePassage? = nil, viewport: CGSize? = nil) throws -> ReadingPosition {
+        try position(page: index(location), x: x, y: y, passage: passage, viewport: viewport)
     }
-    func capturePassage(_ position: ReadingPosition, theme: String, userCSS: String) throws -> NativePassage? {
-        guard isMarkdown, let current = document.style else { return nil }
+    func capturePassage(_ position: ReadingPosition, theme: String, userCSS: String, region: CGRect? = nil) throws -> NativePassage? {
+        guard document.native?.reflowable == true, let current = document.style else { return nil }
         let expected = RasterStyle(fontSize: position.fontSize ?? current.fontSize,
             lineHeight: position.lineHeight ?? current.lineHeight, margin: position.margin ?? current.margin,
             font: position.font ?? current.font, theme: theme, userCSS: userCSS,
             useDocumentCSS: position.useDocumentCSS ?? current.useDocumentCSS,
-            pageMargins: position.pageMargins, textZoom: position.zoom ?? current.textZoom)
+            pageMargins: position.pageMargins ?? current.pageMargins, textZoom: isMarkdown ? position.zoom ?? current.textZoom : 1, pageSize: current.pageSize)
         guard expected == current else { return nil }
-        return try document.native?.passage(position.page, at: CGPoint(x: position.x ?? 0, y: position.y ?? 0))
+        return try document.native?.passage(position.page, at: CGPoint(x: position.x ?? 0, y: position.y ?? 0), in: region)
     }
     func bounds(_ location: PageLocation) throws -> CGRect { try bounds(index(location)) }
     func contentBounds(_ location: PageLocation) async throws -> CGRect { try await contentBounds(index(location)) }
@@ -870,26 +894,25 @@ actor Pages {
             try document.contentBounds(page, cancellation: cancellation)
         } onCancel: { cancellation?.cancel() }
     }
+    typealias RenderedPage = (bounds: CGRect, content: CGRect?, referenceWidth: CGFloat?,
+        facing: RasterLayout.FacingPage?, display: CGSize, image: CGImage?, pixelWidth: Int, tileResolution: Int,
+        links: [RasterLink], imageCollection: Bool, landscape: Set<Int>, limit: Double, estimate: CGRect, pdfStyle: PDFColors.Style?)
     func render(_ location: PageLocation, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
-                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false) async throws -> (bounds: CGRect, content: CGRect?, referenceWidth: CGFloat?,
-                    facing: RasterLayout.FacingPage?, display: CGSize, image: CGImage, pixelWidth: Int, tileResolution: Int, links: [RasterLink], imageCollection: Bool,
-                    landscape: Set<Int>, limit: Double, estimate: CGRect, pdfStyle: PDFColors.Style?) {
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false) async throws -> RenderedPage {
         // The reference chapter must be prepared before projecting this request.
         if uniform { _ = try document.bounds(0) }
         return try await render(index(location), viewport: viewport, scale: scale, columns: columns, rotation: rotation,
             fit: fit, zoom: zoom, maximumZoom: maximumZoom, trim: trim, showContent: showContent,
-            uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto, maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl)
+            uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto, maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl, viewportOnly: viewportOnly)
     }
     func render(_ page: Int, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
-                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false) async throws -> (bounds: CGRect, content: CGRect?, referenceWidth: CGFloat?,
-                    facing: RasterLayout.FacingPage?, display: CGSize, image: CGImage, pixelWidth: Int, tileResolution: Int, links: [RasterLink], imageCollection: Bool,
-                    landscape: Set<Int>, limit: Double, estimate: CGRect, pdfStyle: PDFColors.Style?) {
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false) async throws -> RenderedPage {
         let started = DispatchTime.now().uptimeNanoseconds
         NativeReadingPerformance.mark("render-actor-entry", pages: self, revision: layoutRevision, page: page)
         defer { NativeReadingPerformance.mark("render-actor-return", pages: self, revision: layoutRevision, page: page, started: started) }
@@ -909,24 +932,24 @@ actor Pages {
                 return RasterLayout.FacingPage(bounds: trim ? content ?? bounds : bounds, content: content, before: other < page)
             }
             // Leave this page's display list current for the render below.
-            let content = ReadingZoom.usesContent(fit) || trim || showContent ? try document.contentBounds(page, cancellation: cancellation) : nil
+            let content = (!viewportOnly && ReadingZoom.usesContent(fit)) || trim || showContent ? try document.contentBounds(page, cancellation: cancellation) : nil
             let visible = trim ? content ?? measured : measured
-            let limit = try zoomLimit(rotation: rotation, maximumZoom: maximumZoom, uniform: uniform)
+            let limit = viewportOnly ? maximumZoom : try zoomLimit(rotation: rotation, maximumZoom: maximumZoom, uniform: uniform)
             let display = displaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns,
                 rotation: rotation, fit: fit, zoom: zoom, content: content, limit: limit, uniformWidth: referenceWidth,
-                origin: visible.origin, facing: facing, rtl: rtl)
+                origin: visible.origin, facing: facing, rtl: rtl, continuous: viewportOnly)
             let logicalWidth = (rotated ? display.height : display.width) * measured.width / visible.width
             let pixelWidth = max(1, Int(ceil(logicalWidth * scale)))
             let pixels = CGSize(width: pixelWidth, height: Int(ceil(CGFloat(pixelWidth) * measured.height / measured.width)))
             let viewportPixels = CGSize(width: viewport.width * scale, height: viewport.height * scale)
-            let tileResolution = document.isImageCollection && !document.isVectorImage(page) ? 0 : RasterLayout.tileResolution(
+            let tileResolution = viewportOnly ? 1 : document.isImageCollection && !document.isVectorImage(page) ? 0 : RasterLayout.tileResolution(
                 pixels: rotated ? CGSize(width: pixels.height, height: pixels.width) : pixels,
                 maximum: maximumTileSize ?? viewportPixels, viewport: viewportPixels, fit: fit)
             // RenderCache::PaintTile keeps a lower-resolution page behind visible
             // tiles. It also makes the first high-zoom frame cheap to display.
             let previewWidth = max(1, Int(ceil(CGFloat(pixelWidth) / CGFloat(1 << tileResolution))))
             let style = try document.displayStyle(pdfStyle, engineeringAuto: engineeringAuto, cancellation: cancellation)
-            let image = try document.image(page, width: previewWidth,
+            let image: CGImage? = viewportOnly ? nil : try document.image(page, width: previewWidth,
                 transparent: document.isImageCollection && transparent, pdfStyle: style, cancellation: cancellation)
             return (measured, content, referenceWidth, facing, display, image, pixelWidth, tileResolution, isPDF ? [] : try links(page), document.isImageCollection,
                     try landscapePages(rotation: rotation), limit, document.estimatedBounds, style)
@@ -1120,6 +1143,27 @@ actor Pages {
                  backwards: Bool = false, maximum: Int? = nil) throws -> [RasterMatch] {
         try document.native?.matches(query, page: page, options: options, after: after, backwards: backwards, maximum: maximum) ?? []
     }
+    func match(_ query: String, at passage: NativePassage, options: TextSearchOptions) throws -> RasterMatch? {
+        guard let position = try document.native?.position(for: passage),
+              let x = position.x, let y = position.y else { return nil }
+        let point = CGPoint(x: x, y: y)
+        return try matches(query, page: position.page, options: options).first {
+            $0.rects.contains { $0.contains(point) }
+        }
+    }
+    func searchPageCount(_ chapter: Int) throws -> Int {
+        try document.native?.ensureChapter(chapter)
+        return chapterLayout.pageCount(chapter)
+    }
+    func searchChapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions) throws -> Bool {
+        try document.native?.chapterMayMatch(query, chapter: chapter, options: options) ?? false
+    }
+    func matches(_ query: String, location: PageLocation, options: TextSearchOptions = .init(), after: Int? = nil,
+                 backwards: Bool = false, maximum: Int? = nil) throws -> [RasterMatch] {
+        let page = try index(location)
+        return try matches(query, page: page, options: options, after: after, backwards: backwards, maximum: maximum)
+            .map { match in var match = match; match.location = location; return match }
+    }
     func markdownDocumentMatches(_ query: String, options: TextSearchOptions, startPage: Int,
                                  after: NativeSourceAnchor? = nil, backwards: Bool = false,
                                  counting: Bool = false, maximum: Int = 1, inclusive: Bool = false) throws -> [RasterMatch] {
@@ -1128,28 +1172,32 @@ actor Pages {
             after: after, backwards: backwards, counting: counting, maximum: maximum, inclusive: inclusive) ?? []
     }
     func prepare() throws -> (outline: [ContentsItem], reflowable: Bool, searchable: Bool) {
-        let outline = try externalOutline ?? document.native?.outline() ?? []
+        let outline = try externalOutline ?? document.outline()
         return (outline, document.native?.reflowable == true, document.native?.hasText == true)
     }
-    func outlinePage(_ target: String) throws -> Int? { try document.native?.resolve(target)?.page }
-    func position(page: Int, x: Double? = nil, y: Double? = nil, passage: NativePassage? = nil) throws -> ReadingPosition {
+    func outlinePage(_ target: String) throws -> Int? {
+        try document.comicPage(target) ?? document.native?.resolve(target)?.page
+    }
+    func position(page: Int, x: Double? = nil, y: Double? = nil, passage: NativePassage? = nil, viewport: CGSize? = nil) throws -> ReadingPosition {
         try Task.checkCancellation()
         let page = min(max(0, page), document.count - 1)
         currentLocation = try document.native?.location(page) ?? .init(page: page)
         _ = try index(currentLocation)
         savedPosition = ReadingPosition(page: currentPage, x: x, y: y, anchor: try document.native?.anchor(currentPage))
-        if isMarkdown {
+        if document.native?.reflowable == true {
             if let passage, let resolved = try document.native?.position(for: passage) {
                 // In continuous mode a negative glyph-relative offset can put
                 // the viewport top on the preceding page of the same passage.
                 savedPosition.nativePassage = resolved.nativePassage
             } else {
-                savedPosition.nativePassage = try document.native?.passage(currentPage, at: CGPoint(x: x ?? 0, y: y ?? 0))
+                let point = CGPoint(x: x ?? 0, y: y ?? 0)
+                savedPosition.nativePassage = try document.native?.passage(currentPage, at: point,
+                    in: viewport.map { CGRect(origin: point, size: $0) })
             }
         }
         return layoutPosition
     }
-    func restore(_ position: ReadingPosition, userCSS: String? = nil, theme: String? = nil) throws -> ReadingPosition {
+    func restore(_ position: ReadingPosition, userCSS: String? = nil, theme: String? = nil, viewport: CGSize? = nil) throws -> ReadingPosition {
         try Task.checkCancellation()
         if let current = document.style {
             let theme = theme ?? (position.theme == "system" ? current.theme : position.theme ?? current.theme)
@@ -1157,29 +1205,29 @@ actor Pages {
                              margin: position.margin ?? current.margin, font: position.font ?? current.font, theme: theme,
                              userCSS: userCSS ?? position.userCSS ?? current.userCSS, useDocumentCSS: position.useDocumentCSS ?? current.useDocumentCSS,
                              pageMargins: position.margin != nil || position.pageMargins != nil ? position.pageMargins : current.pageMargins,
-                             textZoom: isMarkdown ? position.zoom ?? current.textZoom : 1)
+                             textZoom: isMarkdown ? position.zoom ?? current.textZoom : 1, viewport: viewport)
         }
-        if isMarkdown, let passage = position.nativePassage, let target = try document.native?.position(for: passage) {
-            return try self.position(page: target.page, x: target.x, y: target.y, passage: target.nativePassage)
+        if let passage = position.nativePassage, let target = try document.native?.position(for: passage) {
+            return try self.position(page: target.page, x: target.x, y: target.y, passage: target.nativePassage, viewport: viewport)
         }
         if isPDF, let anchor = position.anchor,
            let destination = try pdfNative().pdfResolveDestination(anchor) {
             let target = NativePDFActions.position(for: destination, current: position)
-            var restored = try self.position(page: target.page, x: target.x, y: target.y)
+            var restored = try self.position(page: target.page, x: target.x, y: target.y, viewport: viewport)
             restored.fit = target.fit; restored.zoom = target.zoom
             return restored
         }
         if document.format == .markdown || document.format == .html,
            let anchor = position.anchor, anchor.hasPrefix("#"),
            let target = try document.native?.resolve(anchor.removingPercentEncoding ?? anchor) {
-            return try self.position(page: target.page, x: target.x, y: target.y)
+            return try self.position(page: target.page, x: target.x, y: target.y, viewport: viewport)
         }
         let page: Int
         if let anchor = position.anchor, let restored = try document.native?.page(for: anchor) { page = restored }
         else if let native = document.native, native.hasChapters {
             page = try native.page(native.locationFromFlatPage(position.page))
         } else { page = position.page }
-        var restored = try self.position(page: page, x: position.x, y: position.y)
+        var restored = try self.position(page: page, x: position.x, y: position.y, viewport: viewport)
         if isPDF { restored.fit = position.fit; restored.zoom = position.zoom }
         return restored
     }
@@ -1190,13 +1238,14 @@ actor Pages {
         let uri = isPDF || href.lowercased().hasPrefix("file:") ? href : String(href.drop(while: { $0 == "/" }))
         return NativePDFActions.fileTarget(uri, relativeTo: source)
     }
-    func resolve(_ href: String, from current: ReadingPosition? = nil) throws -> ReadingPosition? {
+    func resolve(_ href: String, from current: ReadingPosition? = nil, viewport: CGSize? = nil) throws -> ReadingPosition? {
         try Task.checkCancellation()
+        if let page = document.comicPage(href) { return try position(page: page) }
         var href = href
         if document.format == .markdown || document.format == .html,
            let target = fileTarget(href, relativeTo: document.url) {
             guard target.url.resolvingSymlinksInPath() == document.url.resolvingSymlinksInPath() else { return nil }
-            guard let fragment = target.fragment else { return try position(page: 0) }
+            guard let fragment = target.fragment else { return try position(page: 0, viewport: viewport) }
             href = fragment.removingPercentEncoding ?? fragment
         }
         if document.format == .djvu, href == "#+1" || href == "#-1" {
@@ -1209,28 +1258,37 @@ actor Pages {
             return restored
         }
         guard let position = try document.native?.resolve(href) else { return nil }
-        return try self.position(page: position.page, x: position.x, y: position.y)
+        return try self.position(page: position.page, x: position.x, y: position.y, viewport: viewport)
     }
-    func relayout(fontSize: Double, lineHeight: Double, margin: Double, font: String, theme: String, userCSS: String = "", useDocumentCSS: Bool = true, pageMargins: PageMargins? = nil, textZoom: Double = 1) throws -> Int? {
+    func relayout(fontSize: Double, lineHeight: Double, margin: Double, font: String, theme: String, userCSS: String = "", useDocumentCSS: Bool = true, pageMargins: PageMargins? = nil, textZoom: Double = 1, pageSize: CGSize? = nil, readingPosition: ReadingPosition? = nil, viewport: CGSize? = nil) throws -> Int? {
         try Task.checkCancellation()
-        let style = RasterStyle(fontSize: fontSize, lineHeight: lineHeight, margin: margin, font: font, theme: theme, userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageMargins: pageMargins, textZoom: isMarkdown ? textZoom : 1)
+        let style = RasterStyle(fontSize: fontSize, lineHeight: lineHeight, margin: margin, font: font, theme: theme, userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageMargins: pageMargins, textZoom: isMarkdown ? textZoom : 1, pageSize: pageSize ?? document.style?.pageSize ?? CGSize(width: 420, height: 595))
         guard style != document.style else { return nil }
-        // Sumatra scales chapter:page:pagesInChapter through restyling.
-        // MuPDF HTML flow-pointer bookmarks do not survive CSS reparsing.
+        let started = DispatchTime.now().uptimeNanoseconds
+        NativeReadingPerformance.mark("layout-entry", pages: self, revision: layoutRevision, size: style.pageSize)
+        defer { NativeReadingPerformance.mark("layout-return", pages: self, revision: layoutRevision, started: started, size: style.pageSize) }
+        if let readingPosition {
+            let location = readingPosition.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
+                ?? chapterLayout.location(page: readingPosition.page) ?? PageLocation(page: readingPosition.page)
+            _ = try position(location, x: readingPosition.x, y: readingPosition.y, passage: readingPosition.nativePassage, viewport: viewport)
+        }
         let anchor = document.count > 0 ? try document.native?.anchor(currentPage) : nil
         // A viewport point can lie in a margin. Once resolved, the source glyph
         // remains authoritative through reflow instead of selecting a new
         // nearest glyph from the changed page geometry.
-        let passage = isMarkdown && document.count > 0 ? try savedPosition.nativePassage ?? document.native?.passage(currentPage, at: CGPoint(x: savedPosition.x ?? 0, y: savedPosition.y ?? 0)) : nil
+        let point = CGPoint(x: savedPosition.x ?? 0, y: savedPosition.y ?? 0)
+        let passage = document.count > 0 ? try savedPosition.nativePassage ?? document.native?.passage(currentPage, at: point,
+            in: viewport.map { CGRect(origin: point, size: $0) }) : nil
         guard let count = try document.relayout(style) else { return nil }
+        NativeReadingPerformance.mark("native-layout-return", pages: self, revision: layoutRevision, started: started, size: style.pageSize)
         layoutRevision += 1
         // FinishNonPDFLoading leaves initial chapters unresolved: the saved
         // position may reopen a later chapter, so let restore select it first.
         if let passage, let target = try document.native?.position(for: passage) {
-            _ = try position(page: target.page, x: target.x, y: target.y, passage: target.nativePassage)
+            _ = try position(page: target.page, x: target.x, y: target.y, passage: target.nativePassage, viewport: viewport)
         } else if let anchor {
             let page = try document.native?.page(for: anchor) ?? min(currentPage, count-1)
-            _ = try position(page: page)
+            _ = try position(page: page, viewport: viewport)
         }
         return document.count
     }
@@ -1286,7 +1344,7 @@ enum RasterLayout {
         if fit == "page" || fit == "width" || pixels.width <= viewport.width || pixels.height < viewport.height { factor /= 2 }
         return factor > 1.5 ? min(30, Int(ceil(log2(factor)))) : 0
     }
-    static func tiles(bounds: CGRect, pixelWidth: Int, resolution: Int, visible: CGRect) -> [Tile] {
+    static func tiles(bounds: CGRect, pixelWidth: Int, resolution: Int, visible: CGRect, maximumSize: CGSize? = nil) -> [Tile] {
         guard resolution > 0, pixelWidth > 0, bounds.width > 0, bounds.height > 0 else { return [] }
         let scale = CGFloat(pixelWidth) / bounds.width
         let height = Int(ceil(bounds.height * scale)), divisions = 1 << resolution
@@ -1294,6 +1352,23 @@ enum RasterLayout {
         guard !clip.isNull, !clip.isEmpty else { return [] }
         let pixels = CGRect(x: (clip.minX - bounds.minX) * scale, y: (clip.minY - bounds.minY) * scale,
                             width: clip.width * scale, height: clip.height * scale)
+        if let maximumSize {
+            // Natural reflow chapters can be arbitrarily tall. Grid cells share
+            // integer pixel edges and stay within one viewport in each axis.
+            let width = max(1, Int(floor(maximumSize.width))), stripHeight = max(1, Int(floor(maximumSize.height)))
+            let firstColumn = max(0, Int(floor(pixels.minX)) / width)
+            let lastColumn = min((pixelWidth - 1) / width, (Int(ceil(pixels.maxX)) - 1) / width)
+            let firstRow = max(0, Int(floor(pixels.minY)) / stripHeight)
+            let lastRow = min((height - 1) / stripHeight, (Int(ceil(pixels.maxY)) - 1) / stripHeight)
+            var result = [Tile]()
+            for row in firstRow...lastRow {
+                for column in firstColumn...lastColumn {
+                    let x = column * width, y = row * stripHeight
+                    result.append(Tile(x: x, y: y, width: min(width, pixelWidth - x), height: min(stripHeight, height - y)))
+                }
+            }
+            return result
+        }
         let columns = min(divisions, pixelWidth), rows = min(divisions, height)
         let firstColumn = max(0, ((Int(floor(pixels.minX)) + 1) * columns - 1) / pixelWidth)
         let lastColumn = min(columns - 1, (Int(ceil(pixels.maxX)) * columns - 1) / pixelWidth)
@@ -1386,13 +1461,13 @@ enum RasterLayout {
         }
         return box.applying(transform.inverted())
     }
-    static func size(page: CGSize, viewport: CGSize, columns: Int, rotation: Int, fit: String, zoom: Double, content: CGRect? = nil, limit: Double = ReadingZoom.maximum, uniformWidth: CGFloat? = nil, origin: CGPoint = .zero, facing: FacingPage? = nil, rtl: Bool = false) -> CGSize {
+    static func size(page: CGSize, viewport: CGSize, columns: Int, rotation: Int, fit: String, zoom: Double, content: CGRect? = nil, limit: Double = ReadingZoom.maximum, uniformWidth: CGFloat? = nil, origin: CGPoint = .zero, facing: FacingPage? = nil, rtl: Bool = false, continuous: Bool = false) -> CGSize {
         let rotated = rotation % 180 != 0, width = rotated ? page.height : page.width, height = rotated ? page.width : page.height
         guard width > 0, height > 0 else { return .zero }
         let slot = max(1, (viewport.width - (columns > 1 ? 4 : 0)) / CGFloat(columns))
         // DisplayModel chooses orientation from the whole viewport, before
         // reserving a slot for each facing page.
-        let mode = fit == "orientation" ? (viewport.width > viewport.height ? "width" : "page") : fit
+        let mode = continuous && fit != "custom" ? "width" : fit == "orientation" ? (viewport.width > viewport.height ? "width" : "page") : fit
         let bounds = CGRect(origin: origin, size: page)
         let content = fitContent(content, bounds: bounds, mode: mode)
         let targetWidth = content.map { rotated ? $0.height : $0.width } ?? width
@@ -1422,7 +1497,7 @@ enum RasterLayout {
         if let uniformWidth, fit == "custom" || fit == "actual" {
             requested = ReadingZoom.pageScale(zoom: requested, referenceWidth: Double(uniformWidth), pageWidth: Double(width), uniform: true)
         }
-        let factor = CGFloat(min(requested, ReadingZoom.maximumCanvasExtent / Double(max(width, height))))
+        let factor = CGFloat(continuous ? requested : min(requested, ReadingZoom.maximumCanvasExtent / Double(max(width, height))))
         return CGSize(width: width*factor, height: height*factor)
     }
     static func transform(bounds: CGRect, size: CGSize, rotation: Int) -> CGAffineTransform {
@@ -1514,6 +1589,7 @@ struct RasterSpeechSelection {
     var spokenSelection: RasterSpeechSelection?
     var keyboardAnchor: (page: PageLocation, offset: Int)?
     var keyboardFocus: (page: PageLocation, offset: Int)?
+    var pendingReaderFocus = false
     var cursor: (page: PageLocation, point: CGPoint)?
     var caretRect: CGRect?
     var rectangular = false
@@ -1604,7 +1680,7 @@ struct RasterSpeechSelection {
                 let first = ordered ? start : focus, last = ordered ? focus : start
                 let selected = try await pages.textSelection(from: first.page, offset: first.offset, to: last.page, endOffset: last.offset)
                 let position: ReadingPosition
-                if pages.isMarkdown {
+                if state.isNativeReflow {
                     let viewport = state.currentPosition
                     let passage: NativePassage?
                     if let current = viewport.nativePassage { passage = current }
@@ -1674,19 +1750,43 @@ private struct RasterScrollRequest: Equatable {
 }
 
 @MainActor struct RasterReader: View {
+    static func visiblePageBounds(in view: NSView?, pages: Pages, location: PageLocation) -> CGRect? {
+        guard let canvas = view as? RasterCanvas.Canvas, canvas.pages === pages, canvas.location == location else { return nil }
+        let region = canvas.visibleRect.applying(canvas.pageTransform.inverted())
+        return region.isEmpty ? nil : region
+    }
+    static func recordPosition(in view: NSView?) {
+        if let view { RasterCanvas.Canvas.recordPosition(in: view) }
+    }
     static func pageIsRendered(in view: NSView?, pages: Pages, location: PageLocation) -> Bool {
         guard let canvas = view as? RasterCanvas.Canvas else { return false }
-        return canvas.pages === pages && canvas.location == location && canvas.image != nil && canvas.window != nil
+        return canvas.pages === pages && canvas.location == location &&
+            canvas.readingReady && canvas.window != nil
     }
     static func highlightedMatch(in view: NSView?) -> RasterMatch? {
         (view as? RasterCanvas.Canvas)?.match
     }
+    static func pageSize(in viewport: CGSize, spread: Bool, continuous: Bool = false) -> CGSize {
+        let spread = spread && !continuous
+        let columns: CGFloat = spread ? 2 : 1
+        return CGSize(width: floor((viewport.width - (spread ? 4 : 0)) / columns), height: continuous ? 0 : floor(viewport.height))
+    }
 
     @ObservedObject var state: ReaderState
     let pages: Pages
+    let initialBounds: CGRect?
+    let initialPosition: ReadingPosition?
     @State private var scale: CGFloat = 2
     @State private var pinchStart: Double?
     @State private var viewport = CGSize.zero
+    @State private var viewportFrame = CGSize.zero
+    @State private var liveResizeViewport: CGSize?
+    @State private var liveResizePosition: ReadingPosition?
+    @State private var pendingResizePosition: ReadingPosition?
+    @State private var renderedFlow: String
+    @State private var renderedLayoutRevision: Int?
+    @State private var lastFinitePage: Int?
+    @State private var finitePageDirection = 1
     @State private var estimatedBounds = CGRect(x: 0, y: 0, width: 420, height: 595)
     @State private var firstRenderedRevision: Int?
     @State private var searchTask: Task<Void, Never>?
@@ -1696,25 +1796,65 @@ private struct RasterScrollRequest: Equatable {
     @State private var navigationTask: Task<Void, Never>?
     @State private var searchQuery = ""
     @State private var searchOptions = TextSearchOptions()
+    @State private var searchBackwards = false
     @State private var searchGeneration = 0
     @State private var searchMatches = [RasterMatch]()
     @State private var selectedMatch: RasterMatch?
     @State private var scrollRequest: RasterScrollRequest?
     @StateObject private var selections = RasterSelections()
 
-    init(state: ReaderState, pages: Pages) {
-        self.state = state; self.pages = pages
-        _scrollRequest = State(initialValue: RasterScrollRequest(state.currentPosition))
+    private var reflowPageSize: CGSize {
+        reflowPageSize(in: liveResizeViewport ?? readingViewport)
+    }
+    private var readingViewport: CGSize {
+        if renderedFlow != state.flow, viewportFrame.width > 0 {
+            return ReaderScrollbars.initialReadingViewport(in: viewportFrame, mode: state.scrollbarMode, continuous: state.continuousReflow)
+        }
+        return viewport
+    }
+    private func reflowPageSize(in viewport: CGSize) -> CGSize {
+        Self.pageSize(in: viewport, spread: state.spread && !state.presentation, continuous: state.continuousReflow)
+    }
+
+    private func resizeReflow() {
+        guard liveResizeViewport == nil, state.reflowable, state.count > 0, reflowPageSize.width > 0, viewport.height > 0 else { return }
+        state.send(.style)
+    }
+
+    private func liveResizeChanged(_ resizing: Bool) {
+        if resizing {
+            guard state.reflowable else { return }
+            if let document = state.readerScrollView?.documentView { RasterCanvas.Canvas.recordPosition(in: document) }
+            liveResizePosition = scrollRequest?.position ?? state.currentPosition
+            liveResizeViewport = viewport
+        } else if liveResizeViewport != nil {
+            if reflowPageSize != reflowPageSize(in: viewport) {
+                pendingResizePosition = liveResizePosition
+            }
+            if let position = liveResizePosition { scrollRequest = .init(position) }
+            liveResizePosition = nil
+            liveResizeViewport = nil
+        }
+    }
+
+    init(state: ReaderState, pages: Pages, initialBounds: CGRect? = nil, initialPosition: ReadingPosition? = nil) {
+        self.state = state; self.pages = pages; self.initialBounds = initialBounds; self.initialPosition = initialPosition
+        _estimatedBounds = State(initialValue: initialBounds ?? CGRect(x: 0, y: 0, width: 420, height: 595))
+        _renderedFlow = State(initialValue: state.flow)
+        _scrollRequest = State(initialValue: RasterScrollRequest(initialPosition ?? state.currentPosition))
     }
 
     var body: some View {
         GeometryReader { geometry in
-            let initialPosition = state.currentPosition
-            let pageViewport = viewport.width > 0 && viewport.height > 0 ? viewport : geometry.size
+            let pageViewport = liveResizeViewport ?? (viewport.width > 0 && viewport.height > 0 ? viewport : geometry.size)
             ZStack {
                 background
                 if state.count > 0 {
-                    if state.flow == "continuous", !state.presentation { continuous().onAppear { scrollRequest = .init(initialPosition) } }
+                    if (state.reflowable ? renderedFlow : state.flow) == "continuous", !state.presentation {
+                        continuous().onAppear {
+                            if !state.reflowable { scrollRequest = .init(state.currentPosition) }
+                        }
+                    }
                     else {
                         ScrollView([.horizontal, .vertical]) {
                             row(Array(state.visiblePages), size: pageViewport)
@@ -1722,13 +1862,32 @@ private struct RasterScrollRequest: Equatable {
                                 .padding(.horizontal, state.freePan ? pageViewport.width / 2 : 0)
                                 .padding(.vertical, state.freePan ? pageViewport.height / 2 : 0)
                         }
-                        .onAppear { scrollRequest = .init(initialPosition) }
+                        .onAppear {
+                            // Reflow restores its source in the style command.
+                            // A newly mounted surface must not replay an old
+                            // paginated point over that restored destination.
+                            if !state.reflowable { scrollRequest = .init(state.currentPosition) }
+                        }
                     }
                 }
             }
             .focusable()
-            .onAppear { viewport = geometry.size }
-            .onChange(of: geometry.size) { viewport = $0 }
+            .onAppear {
+                lastFinitePage = state.page
+                viewportFrame = geometry.size
+                viewport = ReaderScrollbars.initialReadingViewport(in: geometry.size, mode: state.scrollbarMode, continuous: state.flow == "continuous" && !state.presentation)
+                if state.reflowable, initialBounds == nil {
+                    estimatedBounds = CGRect(origin: .zero, size: Self.pageSize(in: geometry.size, spread: state.spread && !state.presentation))
+                }
+            }
+            .onChange(of: geometry.size) { size in
+                viewportFrame = size
+                viewport = ReaderScrollbars.initialReadingViewport(in: size, mode: state.scrollbarMode, continuous: state.flow == "continuous" && !state.presentation)
+            }
+            .onChange(of: state.page) { page in
+                if let lastFinitePage, page != lastFinitePage { finitePageDirection = page > lastFinitePage ? 1 : -1 }
+                lastFinitePage = page
+            }
             .onMoveCommand { direction in
                 switch direction {
                 case .up: state.scroll(.up)
@@ -1743,7 +1902,22 @@ private struct RasterScrollRequest: Equatable {
                 state.setZoom((pinchStart ?? state.zoom) * Double(value))
             }.onEnded { _ in pinchStart = nil })
         }
-        .background(WindowScale(scale: $scale).frame(width: 0, height: 0))
+        .onChange(of: reflowPageSize) { _ in resizeReflow() }
+        .onChange(of: initialBounds) { bounds in
+            if let bounds { estimatedBounds = bounds }
+        }
+        .onChange(of: initialPosition) { position in
+            // Home-to-document mounting can retain the pre-layout request.
+            // Publish the source-resolved destination with its initial bounds.
+            if state.isNativeReflow, let position { scrollRequest = .init(position) }
+        }
+        .onChange(of: state.reflowable) { reflowable in
+            if reflowable, initialBounds == nil, reflowPageSize.width > 0, viewport.height > 0 {
+                estimatedBounds = CGRect(origin: .zero, size: Self.pageSize(in: viewport, spread: state.spread && !state.presentation && !state.continuousReflow))
+            }
+            resizeReflow()
+        }
+        .background(WindowScale(scale: $scale, liveResizeChanged: liveResizeChanged).frame(width: 0, height: 0))
         .onAppear {
             guard pages.isPDF else { return }
             let documentID = state.document?.id
@@ -1785,6 +1959,9 @@ private struct RasterScrollRequest: Equatable {
             } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
         }
         .task(id: firstRenderedRevision) {
+            // Whole-book chapter counting starts only after actual visible
+            // pixels, so an unpainted natural canvas cannot queue it ahead of
+            // the first viewport's native tile requests.
             guard firstRenderedRevision == state.renderRevision else { return }
             let documentID = state.document?.id, revision = state.renderRevision
             let table = await pages.chapterLayout
@@ -1836,7 +2013,7 @@ private struct RasterScrollRequest: Equatable {
             guard state.count > 0 else { return }
             let documentID = state.document?.id
             do {
-                let limit = try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
+                let limit = state.continuousReflow ? state.configuredZoomMaximum : try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
                 guard !Task.isCancelled, documentID == state.document?.id else { return }
                 state.zoomLimit = limit
                 if state.fit == "custom" { state.zoom = ReadingZoom.clamp(state.zoom, limit: limit) }
@@ -1876,6 +2053,12 @@ private struct RasterScrollRequest: Equatable {
         // numbers move. Scroll notifications may still be awaiting UI delivery.
         if let document = state.readerScrollView?.documentView { RasterCanvas.Canvas.recordPosition(in: document) }
         guard state.applyChapterLayout(table) else { return }
+        if selectedMatch?.location != nil || searchMatches.contains(where: { $0.location != nil }) {
+            selectedMatch = selectedMatch.map(projectSearchMatch)
+            searchMatches = searchMatches.map(projectSearchMatch)
+            if !searchMatches.isEmpty { publishSearchMatches(searchMatches) }
+            else { state.selectedSearchTarget = selectedMatch.map { "raster-search:\($0.page):\($0.index)" } }
+        }
         // SyncWithEngineLayout preserves the position being read, rather than
         // replaying the last explicit jump after the user has scrolled away.
         scrollRequest = .init(state.currentPosition)
@@ -1886,24 +2069,39 @@ private struct RasterScrollRequest: Equatable {
         state.discardNativePassage()
     }
     private func row(_ indices: [Int], size: CGSize) -> some View {
-        HStack(alignment: .top, spacing: state.spread ? 4 : 0) {
+        let next = finitePageDirection > 0 ? (indices.last ?? -1) + 1 : (indices.first ?? 0) - 1
+        let nextRow = (0..<state.count).contains(next) ? PageRows.range(page: next, count: state.count,
+            spread: state.spread && state.isFixed && !state.presentation, cover: state.cover,
+            landscape: state.landscapeAsSpread ? state.landscapePages : []) : nil
+        let predictedIndex = nextRow.map { finitePageDirection > 0 ? $0.lowerBound : $0.upperBound - 1 }
+        let predictedLocation = predictedIndex.map { state.pageLocation($0) }
+        return HStack(alignment: .top, spacing: state.spread ? 4 : 0) {
             ForEach((state.rtl ? Array(indices.reversed()) : indices).map { state.pageLocation($0) }, id: \.self) { location in
                 let index = state.pageNumber(location)
                 RasterPage(state: state, pages: pages, index: index, location: location, viewport: size, scale: scale,
+                           continuousReflow: false,
                            columns: pages.isPDF && state.spread ? 2 : indices.count,
                            facingPage: pages.isPDF ? indices.first { $0 != index } : nil, match: selectedMatch?.contains(index) == true ? selectedMatch : nil, scrollRequest: $scrollRequest,
                            cancelNavigation: cancelNavigation,
                            selections: selections,
-                           estimate: estimatedBounds, updateEstimate: { estimatedBounds = $0 }, didRender: { firstRenderedRevision = state.renderRevision },
-                           didResizeViewport: { size in if viewport != size { viewport = size } })
+                           estimate: estimatedBounds, updateEstimate: { estimatedBounds = $0 }, didRender: { firstRenderedRevision = state.renderRevision }, didPaintMatch: countAfterMatchPaint,
+                           didResizeViewport: { size in if viewport != size { viewport = size } },
+                           finitePrediction: index == indices.first && liveResizeViewport == nil && scrollRequest == nil && indices.count < 3 && size.width > 0 && size.height > 0
+                               ? predictedLocation.map { target in
+                                   RasterPage.FinitePrediction(target: target, visible: Set(indices.map { state.pageLocation($0) }),
+                                       columns: pages.isPDF && state.spread ? 2 : nextRow!.count,
+                                       facingPage: pages.isPDF ? nextRow!.first { $0 != predictedIndex! } : nil)
+                               } : nil)
             }
         }
     }
     private func continuous() -> some View {
-        RasterViewport(state: state, pages: pages, scale: scale, match: selectedMatch,
+        RasterViewport(state: state, pages: pages, scale: scale, continuousReflow: state.reflowable, match: selectedMatch,
             request: $scrollRequest, cancelNavigation: cancelNavigation, selections: selections,
-            estimate: estimatedBounds, updateEstimate: { estimatedBounds = $0 },
-            didRender: { firstRenderedRevision = state.renderRevision })
+            estimate: estimatedBounds, updateEstimate: { if !state.reflowable { estimatedBounds = $0 } },
+            didRender: { firstRenderedRevision = state.renderRevision }, didPaintMatch: countAfterMatchPaint,
+            liveResizeViewport: liveResizeViewport,
+            didResizeViewport: { size in if viewport != size { viewport = size } })
     }
     func savePosition(location: PageLocation, x: Double? = nil, y: Double? = nil) {
         // Geometry already identifies the stable chapter and page. Recording it
@@ -1914,24 +2112,55 @@ private struct RasterScrollRequest: Equatable {
     private func searchStatus() {
         state.status = !state.searchCounting && selectedMatch == nil && searchMatches.isEmpty ? L("No matches") : state.searchCountText
     }
+    private func projectSearchMatch(_ match: RasterMatch) -> RasterMatch {
+        guard let location = match.location else { return match }
+        return RasterMatch(page: state.pageNumber(location), index: match.index, rects: match.rects,
+            context: match.context, source: match.source, fragments: match.fragments, location: location)
+    }
+    private func publishSearchMatches(_ matches: [RasterMatch]) {
+        searchMatches = matches.map(projectSearchMatch).sorted { $0.page == $1.page ? $0.index < $1.index : $0.page < $1.page }
+        selections.searchRects = searchMatches.reduce(into: [:]) { result, match in
+            for fragment in match.fragments ?? [RasterMatchFragment(page: match.page, start: match.index, length: 0, rects: match.rects)] {
+                result[fragment.page, default: []] += fragment.rects
+            }
+        }
+        state.searchResults = searchMatches.map { ContentsItem(title: String(format: L("Page %d"), $0.page + 1) + ": " + $0.context,
+            target: "raster-search:\($0.page):\($0.index)") }
+        state.selectedSearchTarget = selectedMatch.map { "raster-search:\($0.page):\($0.index)" }
+        searchStatus()
+    }
     private func show(_ match: RasterMatch) {
+        let match = projectSearchMatch(match)
         selectedMatch = match
         state.selectedSearchTarget = "raster-search:\(match.page):\(match.index)"
-        state.send(.preservePosition(ReadingPosition(page: match.page, x: match.rects.first.map { Double($0.minX) }, y: match.rects.first.map { Double($0.minY) })))
+        state.send(.preservePosition(ReadingPosition(page: match.page, x: match.rects.first.map { Double($0.minX) }, y: match.rects.first.map { Double($0.minY) }, anchor: match.location.flatMap { state.chapterLayout?.bookmark($0) })))
         searchStatus()
+    }
+    private var countAfterMatchPaint: ((RasterMatch) -> Void)? {
+        guard pages.isMarkdown, !searchCountStarted else { return nil }
+        return { match in searchMatchPainted(match) }
+    }
+    private func searchMatchPainted(_ match: RasterMatch) {
+        guard pages.isMarkdown, !searchCountStarted, findTask == nil,
+              selectedMatch == match, !searchQuery.isEmpty else { return }
+        // Native counting shares the decoder actor with navigation and tiles.
+        // Let the selected passage reach the screen before queuing that scan.
+        NativeReadingPerformance.mark("search-match-painted", pages: pages, revision: state.renderRevision, page: match.page)
+        countMatches(searchQuery, options: searchOptions, start: match.page)
     }
     private func clearSearch(preservingSearch: Bool = false) {
         searchTask?.cancel(); searchTask = nil; findTask?.cancel(); findTask = nil
         searchGeneration &+= 1; searchCountStarted = false; searchMatches = []
         if preservingSearch {
             selectedMatch = selectedMatch.map { RasterMatch(page: $0.page, index: $0.index, rects: [],
-                context: $0.context, source: $0.source, fragments: []) }
+                context: $0.context, source: $0.source, fragments: [], location: $0.location) }
         } else { searchQuery = ""; selectedMatch = nil }
         selections.searchRects = [:]; state.searchResults = []; state.status = ""
     }
-    private func countMatches(_ query: String, options: TextSearchOptions, start: Int, count: Int,
-                              restoring source: NativeSourceAnchor? = nil) {
+    private func countMatches(_ query: String, options: TextSearchOptions, start: Int,
+                              restoring source: NativeSourceAnchor? = nil, excludingChapters: Set<Int> = []) {
         let documentID = state.document?.id, generation = searchGeneration
+        let startLocation = state.pageLocation(start)
         searchCountStarted = true
         state.searchCounting = true
         state.status = L("Searching…")
@@ -1969,6 +2198,50 @@ private struct RasterScrollRequest: Equatable {
                     publish(); searchTask = nil; state.searchCounting = false; searchStatus()
                     return
                 }
+                if await pages.hasChapters, options.allowedPages == nil {
+                    let chapters = await pages.chapterLayout.chapterCount
+                    for offset in 0...chapters {
+                        try Task.checkCancellation()
+                        let chapter = (startLocation.chapter + offset) % chapters
+                        // The immediately preceding find already proved these
+                        // chapters negative for this query and layout.
+                        if excludingChapters.contains(chapter) { continue }
+                        if try await pages.searchChapterMayMatch(query, chapter: chapter, options: options) == false {
+                            await Task.yield(); continue
+                        }
+                        let count = try await pages.searchPageCount(chapter)
+                        guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
+                        applyLayout(await pages.chapterLayout)
+                        let lower = offset == 0 ? startLocation.page : 0
+                        let upper = offset == chapters ? startLocation.page : count
+                        for page in lower..<max(lower, upper) {
+                            let location = PageLocation(chapter: chapter, page: page)
+                            let remaining = 999 - all.count
+                            let found = try await pages.matches(query, location: location, options: options, maximum: remaining + 1)
+                            guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
+                            applyLayout(await pages.chapterLayout)
+                            all += found.prefix(remaining)
+                            if found.count > remaining { state.searchCountCapped = true }
+                            if (offset == 0 && page == lower && !all.isEmpty) || state.searchCountCapped ||
+                                (published == 0 ? all.count >= 16 : all.count - published >= 100 && Date().timeIntervalSince(lastPublication) >= 0.5) {
+                                publishSearchMatches(all); published = all.count; lastPublication = Date()
+                            }
+                            if state.searchCountCapped { break }
+                            await Task.yield()
+                        }
+                        if state.searchCountCapped { break }
+                        await Task.yield()
+                    }
+                    publishSearchMatches(all); searchTask = nil; state.searchCounting = false; searchStatus()
+                    return
+                }
+                // Reflow makes chapter counts lazy again. The find cursor and
+                // the count both need the complete document, including chapters
+                // that have not yet been painted at the new viewport size.
+                let table = try await pages.ensureFullLayout()
+                guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
+                applyLayout(table)
+                let count = table.totalPages, start = state.pageNumber(startLocation)
                 // CountThread always scans forward from the first navigated
                 // page. The 1,000th hit proves "999+"; exactly 999 is not capped.
                 for offset in 0..<count {
@@ -2009,6 +2282,8 @@ private struct RasterScrollRequest: Equatable {
     }
     private func find(_ query: String, backwards: Bool, options: TextSearchOptions, fromSelection: Bool, inResults: Bool) {
         guard !query.isEmpty else { clearSearch(); return }
+        NativeReadingPerformance.mark("find-request", pages: pages, revision: state.renderRevision, page: state.page)
+        searchBackwards = backwards
         let sameSearch = query == searchQuery && options == searchOptions
         if sameSearch, inResults, !fromSelection, !searchMatches.isEmpty {
             // FindWindow::MoveResultSelection walks the published list while
@@ -2025,7 +2300,7 @@ private struct RasterScrollRequest: Equatable {
         let previousMatch = !fromSelection && sameSearch ? selectedMatch.flatMap { match in
             state.readerScrollView?.documentView.map { RasterCanvas.Canvas.isVisible(state.pageLocation(match.page), in: $0) } == true ? match : nil
         } : nil
-        let startLocation = (backwards ? selected.keys.min() : selected.keys.max()) ?? state.pageLocation(previousMatch?.page ?? state.page)
+        let startLocation = (backwards ? selected.keys.min() : selected.keys.max()) ?? previousMatch?.location ?? state.pageLocation(previousMatch?.page ?? state.page)
         let rtl = state.rtl
         if !sameSearch { clearSearch(); searchQuery = query; searchOptions = options }
         findTask?.cancel()
@@ -2034,13 +2309,14 @@ private struct RasterScrollRequest: Equatable {
         findTask = Task {
             defer { if !Task.isCancelled, generation == searchGeneration { findTask = nil } }
             do {
-                let table = try await pages.ensureFullLayout()
+                let chapterSearch = await pages.hasChapters && options.allowedPages == nil
+                let table = chapterSearch ? await pages.chapterLayout : try await pages.ensureFullLayout()
                 guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
                 applyLayout(table)
                 let count = table.totalPages, start = state.pageNumber(startLocation)
                 guard count > 0 else { state.searchCounting = false; state.status = L("No matches"); return }
                 func beyondSelection(_ match: RasterMatch) -> Bool {
-                    let candidateRects = match.rects(on: start)
+                    let candidateRects = match.rects(on: match.location == startLocation ? match.page : start)
                     if candidateRects.isEmpty { return true }
                     guard let boxes = selected[startLocation]?.bounds, let selection = backwards ? boxes.first : boxes.last,
                           let rect = backwards ? candidateRects.last : candidateRects.first else { return true }
@@ -2071,7 +2347,59 @@ private struct RasterScrollRequest: Equatable {
                     }
                     if let match {
                         show(match)
-                        if !searchCountStarted { countMatches(query, options: options, start: match.page, count: count) }
+                    } else {
+                        selectedMatch = nil; state.selectedSearchTarget = nil
+                        if !searchCountStarted { state.searchCounting = false }
+                        searchStatus()
+                    }
+                    return
+                }
+                if chapterSearch {
+                    let chapters = table.chapterCount
+                    let restricted = previousMatch != nil || !selected.isEmpty
+                    var negativeChapters = Set<Int>()
+                    chapterLoop: for offset in 0...chapters {
+                        try Task.checkCancellation()
+                        let chapter = (startLocation.chapter + (backwards ? -offset : offset) + chapters) % chapters
+                        if try await pages.searchChapterMayMatch(query, chapter: chapter, options: options) == false {
+                            negativeChapters.insert(chapter)
+                            await Task.yield(); continue
+                        }
+                        let pageCount = try await pages.searchPageCount(chapter)
+                        guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
+                        applyLayout(await pages.chapterLayout)
+                        let indices: [Int]
+                        if backwards {
+                            let upper = offset == 0 ? startLocation.page : pageCount - 1
+                            let lower = offset == chapters ? startLocation.page + (restricted ? 0 : 1) : 0
+                            indices = upper >= lower ? Array(stride(from: upper, through: lower, by: -1)) : []
+                        } else {
+                            let lower = offset == 0 ? startLocation.page : 0
+                            let upper = offset == chapters ? startLocation.page + (restricted ? 1 : 0) : pageCount
+                            indices = Array(lower..<max(lower, upper))
+                        }
+                        for page in indices {
+                            let location = PageLocation(chapter: chapter, page: page)
+                            let firstPage = offset == 0 && page == startLocation.page
+                            var after = firstPage ? previousMatch?.index : nil
+                            repeat {
+                                let found = try await pages.matches(query, location: location, options: options, after: after,
+                                    backwards: backwards, maximum: firstPage && !selected.isEmpty ? 16 : 1)
+                                guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
+                                applyLayout(await pages.chapterLayout)
+                                if let first = found.first(where: { !firstPage || beyondSelection($0) }) {
+                                    match = first; break chapterLoop
+                                }
+                                guard let last = found.last else { break }
+                                after = last.index
+                            } while true
+                            await Task.yield()
+                        }
+                        await Task.yield()
+                    }
+                    if let match {
+                        show(match)
+                        if !searchCountStarted { countMatches(query, options: options, start: match.page, excludingChapters: negativeChapters) }
                     } else {
                         selectedMatch = nil; state.selectedSearchTarget = nil
                         if !searchCountStarted { state.searchCounting = false }
@@ -2102,7 +2430,7 @@ private struct RasterScrollRequest: Equatable {
                 if let match {
                     show(match)
                     if !searchCountStarted {
-                        countMatches(query, options: options, start: match.page, count: count)
+                        countMatches(query, options: options, start: match.page)
                     }
                 } else {
                     // The completed, wrapped find already proved there are no
@@ -2247,26 +2575,44 @@ private struct RasterScrollRequest: Equatable {
             }
         case .style, .zoom:
             acknowledge = false
-            clearSearch(preservingSearch: pages.isMarkdown); styleTask?.cancel(); navigationTask?.cancel()
-            let searchRevision = searchGeneration
+            styleTask?.cancel(); navigationTask?.cancel()
             let preserveSelection = pages.isMarkdown
             state.clearChapterContentsPages()
             let font = state.font, size = state.fontSize, line = state.lineHeight, margin = state.margin, theme = state.resolvedTheme
             let userCSS = state.effectiveUserCSS, useDocumentCSS = state.useDocumentCSS
             let pageMargins = state.pageMargins
             let textZoom = pages.isMarkdown ? state.zoom : 1
+            let layoutFlow = state.flow, naturalLayout = state.continuousReflow
+            let layoutViewport = readingViewport
+            let pageSize = state.reflowable && reflowPageSize.width > 0 && layoutViewport.height > 0 ? reflowPageSize : nil
+            let capturedReflowPosition = state.pendingReflowPosition
+            let capturedResizePosition = pendingResizePosition
+            let layoutPosition = capturedReflowPosition ?? capturedResizePosition ?? scrollRequest?.position ?? state.currentPosition
             styleTask = Task {
                 defer { state.didHandleCommand(command.revision) }
                 do {
                     await selections.finish()
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     let selectedSource = preserveSelection ? selections.sourceRange : nil
-                    let before = try await pages.position(state.pageLocation(state.page), x: state.location.x, y: state.location.y,
-                                                          passage: state.location.nativePassage)
-                    guard try await pages.relayout(fontSize: size, lineHeight: line, margin: margin, font: font, theme: theme, userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageMargins: pageMargins, textZoom: textZoom) != nil,
-                          !Task.isCancelled, documentID == state.document?.id else { return }
+                    if renderedLayoutRevision == nil { renderedLayoutRevision = await pages.layoutRevision }
+                    let before = layoutPosition.nativePassage == nil ? await pages.layoutPosition : layoutPosition
+                    let selectedFindPassage: NativePassage?
+                    if state.isNativeReflow, !pages.isMarkdown, let match = selectedMatch, let rect = match.rects.first {
+                        selectedFindPassage = try await pages.capturePassage(.init(page: match.page, x: Double(rect.midX), y: Double(rect.midY)), theme: theme, userCSS: userCSS)
+                    } else { selectedFindPassage = nil }
+                    let changed = try await pages.relayout(fontSize: size, lineHeight: line, margin: margin, font: font, theme: theme, userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageMargins: pageMargins, textZoom: textZoom, pageSize: pageSize, readingPosition: layoutPosition, viewport: viewport)
+                    let layoutRevision = await pages.layoutRevision
+                    guard !Task.isCancelled, documentID == state.document?.id else { return }
+                    if changed == nil, renderedFlow == layoutFlow, renderedLayoutRevision == layoutRevision {
+                        if state.pendingReflowPosition == capturedReflowPosition { state.pendingReflowPosition = nil }
+                        if pendingResizePosition == capturedResizePosition { pendingResizePosition = nil }
+                        return
+                    }
+                    clearSearch(preservingSearch: state.reflowable)
+                    let searchRevision = searchGeneration
                     selections.clear(state); state.selectedText = ""
                     let position = await pages.layoutPosition
+                    let bounds = try await pages.bounds(position.page)
                     let source = before.nativePassage, current = position.nativePassage
                     let sameSource = source != nil && source?.sourceRevision == current?.sourceRevision &&
                         source?.styleSignature == current?.styleSignature
@@ -2275,22 +2621,41 @@ private struct RasterScrollRequest: Equatable {
                         restoredSelection = try await pages.selection(from: range.start, to: range.end, sources: range.sources)
                     }
                     else { restoredSelection = [:] }
-                    let zoomLimit = try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
+                    let zoomLimit = naturalLayout ? state.configuredZoomMaximum : try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     let table = await pages.chapterLayout
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     applyLayout(table)
+                    estimatedBounds = bounds
                     state.renderRevision += 1
                     if preserveSelection { selections.restore(restoredSelection, state: state) }
                     state.zoomLimit = zoomLimit
                     if state.fit == "custom" { state.zoom = ReadingZoom.clamp(state.zoom, limit: zoomLimit) }
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     state.updatePosition(position); scrollRequest = .init(state.currentPosition)
+                    // Mount the new scrolling surface only after its native
+                    // geometry and source destination are ready. A natural
+                    // chapter must not be measured as an old finite page.
+                    viewport = layoutViewport
+                    renderedFlow = layoutFlow
+                    renderedLayoutRevision = layoutRevision
+                    // A menu action may have captured the next source while
+                    // this style awaited its native work. Finish only our handoff.
+                    if state.pendingReflowPosition == capturedReflowPosition { state.pendingReflowPosition = nil }
+                    if pendingResizePosition == capturedResizePosition { pendingResizePosition = nil }
                     if searchRevision == searchGeneration, !searchQuery.isEmpty {
                         let matchSource = sameSource ? selectedMatch?.source : nil
                         if !sameSource { selectedMatch = nil }
-                        countMatches(searchQuery, options: searchOptions, start: position.page,
-                                     count: table.totalPages, restoring: matchSource)
+                        if let selectedFindPassage, let match = try await pages.match(searchQuery, at: selectedFindPassage, options: searchOptions) {
+                            guard !Task.isCancelled, documentID == state.document?.id, searchRevision == searchGeneration else { return }
+                            selectedMatch = match
+                            state.selectedSearchTarget = "raster-search:\(match.page):\(match.index)"
+                            countMatches(searchQuery, options: searchOptions, start: position.page)
+                        } else if state.showFind, await pages.hasChapters {
+                            find(searchQuery, backwards: searchBackwards, options: searchOptions, fromSelection: false, inResults: false)
+                        } else {
+                            countMatches(searchQuery, options: searchOptions, start: position.page, restoring: matchSource)
+                        }
                     }
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
             }
@@ -2358,7 +2723,7 @@ private struct RasterScrollRequest: Equatable {
                 defer { state.didHandleCommand(command.revision) }
                 do {
                     let revision = await pages.layoutRevision
-                    let restored = try await pages.restore(saved, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme)
+                    let restored = try await pages.restore(saved, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme, viewport: viewport)
                     let updatedRevision = await pages.layoutRevision
                     let zoomLimit = try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
                     let landscape = try await pages.landscapePages(rotation: state.rotation)
@@ -2394,7 +2759,7 @@ private struct RasterScrollRequest: Equatable {
                     do {
                         var target: (url: URL, fragment: String?)?
                         if let readingDocument { target = await pages.fileTarget(href, relativeTo: readingDocument.url) }
-                        let position = pages.isPDF && target != nil ? nil : try await pages.resolve(href, from: sourcePosition)
+                        let position = pages.isPDF && target != nil ? nil : try await pages.resolve(href, from: sourcePosition, viewport: viewport)
                         // A missing local fragment must not reopen the current markup file.
                         if position == nil, let target, let readingDocument,
                            pages.isPDF || target.url.resolvingSymlinksInPath() != readingDocument.url.resolvingSymlinksInPath() {
@@ -2588,9 +2953,33 @@ private struct RasterScrollRequest: Equatable {
 
 private struct WindowScale: NSViewRepresentable {
     @Binding var scale: CGFloat
-    func makeNSView(context: Context) -> NSView { NSView() }
-    func updateNSView(_ view: NSView, context: Context) {
+    let liveResizeChanged: (Bool) -> Void
+    func makeNSView(context: Context) -> View { View() }
+    func updateNSView(_ view: View, context: Context) {
+        view.liveResizeChanged = liveResizeChanged
         DispatchQueue.main.async { let value = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2; if scale != value { scale = value } }
+    }
+    static func dismantleNSView(_ view: View, coordinator: ()) { view.detach() }
+
+    final class View: NSView {
+        var liveResizeChanged: ((Bool) -> Void)?
+        private var observers = [NSObjectProtocol]()
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            detachObservers()
+            guard let window else { return }
+            for (name, resizing) in [(NSWindow.willStartLiveResizeNotification, true), (NSWindow.didEndLiveResizeNotification, false)] {
+                observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.liveResizeChanged?(resizing) }
+                })
+            }
+        }
+        private func detachObservers() {
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers.removeAll()
+        }
+        func detach() { detachObservers(); liveResizeChanged = nil }
+        deinit { observers.forEach(NotificationCenter.default.removeObserver) }
     }
 }
 // The page geometry is the translated Sumatra DocumentLayout, not a lazy
@@ -2599,6 +2988,7 @@ private struct WindowScale: NSViewRepresentable {
 @MainActor private struct RasterViewport: NSViewRepresentable {
     let state: ReaderState, pages: Pages
     let scale: CGFloat
+    let continuousReflow: Bool
     let match: RasterMatch?
     @Binding var request: RasterScrollRequest?
     let cancelNavigation: () -> Void
@@ -2606,6 +2996,9 @@ private struct WindowScale: NSViewRepresentable {
     let estimate: CGRect
     let updateEstimate: (CGRect) -> Void
     let didRender: () -> Void
+    let didPaintMatch: ((RasterMatch) -> Void)?
+    let liveResizeViewport: CGSize?
+    let didResizeViewport: (CGSize) -> Void
 
     func makeNSView(context: Context) -> Scroll { Scroll() }
     func updateNSView(_ view: Scroll, context: Context) { view.configure(self) }
@@ -2622,6 +3015,7 @@ private struct WindowScale: NSViewRepresentable {
             let fit: String
             let zoom: Double, limit: Double
             let spread: Bool, cover: Bool, rtl: Bool, uniform: Bool, trim: Bool, freePan: Bool
+            let continuousReflow: Bool
             let landscape: Set<Int>
             let estimate: CGRect
         }
@@ -2669,6 +3063,13 @@ private struct WindowScale: NSViewRepresentable {
         private var observer: NSObjectProtocol?
         private var arranging = false
         private var positionScheduled = false
+        private struct Prediction: Equatable {
+            let document: UUID?, layout: LayoutKey, visible: CGRect, location: PageLocation, render: String
+        }
+        private var prediction: Prediction?
+        private var predictionTask: Task<Void, Never>?
+        private var scrollDirection = 1
+        private var lastScrollY: CGFloat = 0
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -2684,12 +3085,13 @@ private struct WindowScale: NSViewRepresentable {
         deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 
         func detach() {
+            cancelPrediction()
             owner = nil
             for view in cells.values { view.removeFromSuperview() }
             cells.removeAll()
         }
         override func scrollWheel(with event: NSEvent) {
-            if owner?.pages.isMarkdown == true, event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 {
+            if owner?.state.isNativeReflow == true, event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 {
                 owner?.cancelNavigation()
             }
             super.scrollWheel(with: event)
@@ -2701,36 +3103,45 @@ private struct WindowScale: NSViewRepresentable {
             owner = value
             arranging = true
             ReaderScrollbars.apply(to: self, mode: value.state.scrollbarMode)
-            let state = value.state, viewport = contentView.bounds.size
+            let state = value.state, viewport = value.liveResizeViewport ?? contentView.bounds.size
             let next = LayoutKey(viewport: viewport, count: state.count,
                 generation: state.chapterLayout?.generation ?? 0, revision: state.renderRevision, rotation: state.rotation,
-                fit: state.fit, zoom: state.fit == "custom" ? state.rasterZoom : 1, limit: state.zoomLimit,
-                spread: state.spread, cover: state.cover, rtl: state.rtl, uniform: state.uniformPageWidth,
-                trim: state.trimEmptyMargins, freePan: state.freePan,
-                landscape: state.landscapeAsSpread ? state.landscapePages : [], estimate: value.estimate)
+                fit: value.continuousReflow && state.fit != "custom" ? "width" : state.fit,
+                zoom: state.fit == "custom" ? state.rasterZoom : 1, limit: state.zoomLimit,
+                spread: state.spread && !value.continuousReflow, cover: state.cover && !value.continuousReflow,
+                rtl: state.rtl, uniform: state.uniformPageWidth && !value.continuousReflow,
+                trim: state.trimEmptyMargins && !value.continuousReflow, freePan: state.freePan && !value.continuousReflow,
+                continuousReflow: value.continuousReflow,
+                landscape: state.landscapeAsSpread && !value.continuousReflow ? state.landscapePages : [], estimate: value.estimate)
             let target = pending?.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
                 .map { state.pageNumber($0) } ?? pending?.page ?? state.page
             let targetRow = PageRows.range(page: target, count: next.count, spread: next.spread,
                 cover: next.cover, landscape: next.landscape).lowerBound
-            if key != next || (ReadingZoom.usesContent(next.fit) && pending != nil && contentPage != targetRow) {
+            let changed = key != next || (ReadingZoom.usesContent(next.fit) && pending != nil && contentPage != targetRow)
+            if changed {
+                cancelPrediction()
                 if key?.revision != next.revision { measured.removeAll() }
                 contentPage = targetRow
                 key = next
                 relayout()
                 if let saved { go(to: saved) }
             } else if let pending { go(to: pending) }
-            updateCells(refresh: true)
+            // Live resize uses the frozen layout until the drag ends. Replacing
+            // its hosting roots on every clip-size update needlessly repaints
+            // that same canvas and restarts SwiftUI reconciliation.
+            updateCells(refresh: changed || value.liveResizeViewport == nil)
+            if value.liveResizeViewport != nil { cancelPrediction() }
             arranging = false
             if case .pages(let current) = state.document?.content, current === value.pages { state.readerScrollView = self }
             schedulePosition()
         }
         override func layout() {
             super.layout()
-            if key?.viewport != contentView.bounds.size { schedulePosition() }
+            if key?.viewport != (owner?.liveResizeViewport ?? contentView.bounds.size) { schedulePosition() }
         }
         private func relayout() {
             guard let owner, let key, key.viewport.width > 0, key.viewport.height > 0 else { return }
-            let uniform = owner.pages.isMarkdown && !key.trim && !key.uniform && key.landscape.isEmpty
+            let uniform = owner.state.reflowable && !key.continuousReflow && !key.trim && !key.uniform && key.landscape.isEmpty
                 && measured.values.allSatisfy { $0.bounds == key.estimate }
             if uniform { locations.removeAll(); boxes.removeAll() }
             else {
@@ -2786,13 +3197,13 @@ private struct WindowScale: NSViewRepresentable {
                     } else {
                         sizes[index] = RasterLayout.size(page: boxes[index].size, viewport: key.viewport,
                             columns: owner.pages.isPDF && key.spread ? 2 : row.count, rotation: key.rotation, fit: key.fit, zoom: key.zoom,
-                            content: value?.content, limit: key.limit, uniformWidth: key.uniform ? value?.referenceWidth : nil, origin: boxes[index].origin)
+                            content: value?.content, limit: key.limit, uniformWidth: key.uniform ? value?.referenceWidth : nil, origin: boxes[index].origin, continuous: key.continuousReflow)
                     }
                 }
             }
             geometry = .listed(PageRows.layout(displaySizes: sizes, viewport: key.viewport, page: owner.state.page,
                 continuous: true, spread: key.spread, cover: key.cover, rtl: key.rtl, landscape: key.landscape,
-                freePan: key.freePan, spacing: CGSize(width: 4, height: 4), inset: .zero))
+                freePan: key.freePan, spacing: CGSize(width: 4, height: key.continuousReflow ? 0 : 4), inset: .zero))
             canvas.frame = CGRect(origin: .zero, size: geometry?.canvas ?? key.viewport)
         }
         private func rowFrame(_ row: Range<Int>) -> CGRect {
@@ -2886,6 +3297,18 @@ private struct WindowScale: NSViewRepresentable {
             // Like the PDF viewport, retain the source of an active drag or
             // selection after it leaves the viewport; its responder owns it.
             var visibleIDs = Set(needed.map { location($0.index) })
+            // A source destination can extend beyond an unseen chapter's
+            // estimated height. Measure its row before consuming the jump.
+            if let request = owner.request?.position {
+                let target = request.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
+                    .map { owner.state.pageNumber($0) } ?? request.page
+                if (0..<geometry.pageCount).contains(target) {
+                    let range = PageRows.range(page: target, count: key.count, spread: key.spread, cover: key.cover, landscape: key.landscape)
+                    for index in range where !visibleIDs.contains(location(index)) {
+                        needed.append((index, range.count)); visibleIDs.insert(location(index))
+                    }
+                }
+            }
             if owner.state.nativePDFFormEditor != nil, let index = owner.state.nativePDFFormPage,
                (0..<geometry.pageCount).contains(index), !visibleIDs.contains(location(index)) {
                 let range = PageRows.range(page: index, count: key.count, spread: key.spread, cover: key.cover, landscape: key.landscape)
@@ -2915,15 +3338,7 @@ private struct WindowScale: NSViewRepresentable {
             for item in needed {
                 let index = item.index, location = location(index)
                 guard let placement = geometry.placement(page: index) else { continue }
-                let page = RasterPage(state: owner.state, pages: owner.pages, index: index, location: location,
-                    viewport: key.viewport, scale: owner.scale, columns: owner.pages.isPDF && key.spread ? 2 : item.columns, facingPage: nil,
-                    match: owner.match?.contains(index) == true ? owner.match : nil, scrollRequest: owner.$request,
-                    cancelNavigation: owner.cancelNavigation, selections: owner.selections,
-                    estimate: measured[location]?.bounds ?? key.estimate, updateEstimate: owner.updateEstimate,
-                    didRender: owner.didRender, displaySize: ReadingZoom.usesContent(key.fit) ? placement.frame.size : nil,
-                    measure: { [weak self] bounds, content, reference in
-                        self?.measure(location, value: Measurement(bounds: bounds, content: content, referenceWidth: reference))
-                    })
+                let page = page(at: index, columns: item.columns)
                 if let view = cells[location] {
                     if refresh { view.rootView = page }
                     view.frame = placement.frame
@@ -2932,6 +3347,87 @@ private struct WindowScale: NSViewRepresentable {
                     view.sizingOptions = []
                     view.frame = placement.frame
                     cells[location] = view; canvas.addSubview(view)
+                }
+            }
+        }
+        private func page(at index: Int, columns: Int) -> RasterPage {
+            let owner = owner!, key = key!, location = location(index)
+            let placement = geometry!.placement(page: index)!
+            return RasterPage(state: owner.state, pages: owner.pages, index: index, location: location,
+                    viewport: key.viewport, scale: owner.scale, continuousReflow: key.continuousReflow,
+                    columns: owner.pages.isPDF && key.spread ? 2 : columns, facingPage: nil,
+                    match: owner.match?.contains(index) == true ? owner.match : nil, scrollRequest: owner.$request,
+                    cancelNavigation: owner.cancelNavigation, selections: owner.selections,
+                    estimate: measured[location]?.bounds ?? key.estimate, updateEstimate: owner.updateEstimate,
+                    didRender: owner.didRender, didPaintMatch: owner.didPaintMatch, displaySize: ReadingZoom.usesContent(key.fit) ? placement.frame.size : nil,
+                    measure: { [weak self] bounds, content, reference in
+                        self?.measure(location, value: Measurement(bounds: bounds, content: content, referenceWidth: reference))
+                    })
+        }
+        private func cancelPrediction() {
+            predictionTask?.cancel(); predictionTask = nil; prediction = nil
+        }
+        func visibleCanvasesArePainted() -> Bool {
+            guard let owner, let geometry, geometry.rowCount > 0, owner.liveResizeViewport == nil else { return false }
+            let visible = contentView.bounds
+            for row in row(at: visible.minY)...row(at: visible.maxY) where rowFrame(geometry.range(row: row)).intersects(visible) {
+                for index in geometry.range(row: row) {
+                    guard let host = cells[location(index)], let canvas = RasterCanvas.Canvas.find(in: host),
+                          canvas.readingReady, canvas.viewportTileSize != nil || canvas.hasPaintedPreview else { return false }
+                }
+            }
+            return true
+        }
+        func predictNaturalTileAfterPainting() {
+            guard let owner, let key, let geometry, key.continuousReflow,
+                  owner.request == nil, window != nil,
+                  case .pages(let current) = owner.state.document?.content, current === owner.pages,
+                  visibleCanvasesArePainted() else { return }
+            let visible = contentView.bounds
+            let rows = (row(at: visible.minY)...row(at: visible.maxY))
+                .filter { rowFrame(geometry.range(row: $0)).intersects(visible) }
+            guard let edge = scrollDirection > 0 ? rows.last : rows.first else { return }
+            let range = geometry.range(row: edge)
+            let index = scrollDirection > 0 ? range.upperBound - 1 : range.lowerBound
+            guard let host = cells[location(index)], let canvas = RasterCanvas.Canvas.find(in: host) else { return }
+            canvas.predictViewportTile(direction: scrollDirection)
+        }
+        func predictAfterPainting() {
+            guard let owner, let key, let geometry, !key.continuousReflow,
+                  owner.liveResizeViewport == nil, owner.request == nil, window != nil,
+                  case .pages(let current) = owner.state.document?.content, current === owner.pages,
+                  geometry.rowCount > 0 else { return }
+            let visible = contentView.bounds
+            let first = row(at: visible.minY), last = row(at: visible.maxY)
+            let visibleCount = (first...last).filter { rowFrame(geometry.range(row: $0)).intersects(visible) }
+                .reduce(0) { $0 + geometry.range(row: $1).count }
+            // The decoder retains three previews. Leave every visible preview
+            // in that cache when a short viewport includes multiple rows.
+            guard visibleCount < 3 else { cancelPrediction(); return }
+            guard visibleCanvasesArePainted() else { return }
+            let next = scrollDirection > 0 ? last + 1 : first - 1
+            guard (0..<geometry.rowCount).contains(next) else { cancelPrediction(); return }
+            let range = geometry.range(row: next)
+            let index = scrollDirection > 0 ? range.lowerBound : range.upperBound - 1
+            let page = page(at: index, columns: range.count)
+            let token = Prediction(document: owner.state.document?.id, layout: key, visible: visible,
+                location: page.location, render: page.renderID)
+            guard prediction != token else { return }
+            cancelPrediction(); prediction = token
+            // RenderCache predicts only after visible output is painted. Warm
+            // one neighboring page in the existing three-image cache; no
+            // offscreen view, annotations or accessibility tasks are mounted.
+            predictionTask = Task(priority: .utility) { [weak self] in
+                NativeReadingPerformance.mark("page-prediction-start", pages: page.pages, revision: key.revision, page: index)
+                do {
+                    _ = try await page.renderResult()
+                    guard !Task.isCancelled, let self, self.prediction == token else { return }
+                    self.predictionTask = nil
+                    NativeReadingPerformance.mark("page-prediction-ready", pages: page.pages, revision: key.revision, page: index)
+                } catch {
+                    // A speculative failure must not replace the current book
+                    // with an error. The visible request reports real failures.
+                    if let self, self.prediction == token { self.predictionTask = nil }
                 }
             }
         }
@@ -2950,7 +3446,7 @@ private struct WindowScale: NSViewRepresentable {
                 let row = PageRows.range(page: index, count: key.count, spread: key.spread, cover: key.cover, landscape: key.landscape)
                 let size = RasterLayout.size(page: box.size, viewport: key.viewport, columns: owner.pages.isPDF && key.spread ? 2 : row.count,
                     rotation: key.rotation, fit: key.fit, zoom: key.zoom, content: value.content,
-                    limit: key.limit, uniformWidth: key.uniform ? value.referenceWidth : nil, origin: box.origin)
+                    limit: key.limit, uniformWidth: key.uniform ? value.referenceWidth : nil, origin: box.origin, continuous: key.continuousReflow)
                 // Most reflow pages share the known media box. Rendering one
                 // must not rebuild tens of thousands of unchanged page frames.
                 var changedUniformBounds = false
@@ -2971,6 +3467,9 @@ private struct WindowScale: NSViewRepresentable {
         }
         private func viewportChanged() {
             guard !arranging else { return }
+            let y = contentView.bounds.minY
+            if y != lastScrollY { scrollDirection = y > lastScrollY ? 1 : -1; lastScrollY = y }
+            if prediction?.visible != contentView.bounds { cancelPrediction() }
             if key?.viewport == contentView.bounds.size { updateCells() }
             schedulePosition()
         }
@@ -2980,10 +3479,15 @@ private struct WindowScale: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 guard let self, let owner = self.owner else { return }
                 self.positionScheduled = false
-                if self.key?.viewport != self.contentView.bounds.size || self.key?.count != owner.state.count ||
+                if self.key?.revision != owner.state.renderRevision ||
+                    self.key?.viewport != (owner.liveResizeViewport ?? self.contentView.bounds.size) || self.key?.count != owner.state.count ||
                     self.key?.generation != (owner.state.chapterLayout?.generation ?? 0) {
                     self.configure(owner); return
                 }
+                // Mount the measured canvas before publishing its clip size.
+                // An empty document temporarily hides an automatic legacy bar.
+                let size = self.contentView.safeAreaRect.size
+                if size.width > 0, size.height > 0 { owner.didResizeViewport(size) }
                 if let request = owner.request?.position {
                     let location = request.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
                         ?? owner.state.pageLocation(request.page)
@@ -3010,18 +3514,22 @@ private struct WindowScale: NSViewRepresentable {
                   case .pages(let current) = owner.state.document?.content, current === owner.pages else { return }
             owner.state.updatePosition(position, preservingNativePassage: true)
             let location = owner.state.pageLocation(position.page)
-            func pageCanvas(_ view: NSView) -> RasterCanvas.Canvas? {
-                if let view = view as? RasterCanvas.Canvas { return view }
-                return view.subviews.lazy.compactMap(pageCanvas).first
-            }
-            if let host = cells[location], let view = pageCanvas(host) { owner.state.readerFocusView = view }
+            if let host = cells[location], let view = RasterCanvas.Canvas.find(in: host) { owner.state.readerFocusView = view }
         }
     }
 }
 
 @MainActor private struct RasterPage: View {
+    struct FinitePrediction: Equatable {
+        let target: PageLocation
+        let visible: Set<PageLocation>
+        let columns: Int
+        let facingPage: Int?
+    }
     @ObservedObject var state: ReaderState
-    let pages: Pages, index: Int, location: PageLocation, viewport: CGSize, scale: CGFloat, columns: Int
+    let pages: Pages, index: Int, location: PageLocation, viewport: CGSize, scale: CGFloat
+    let continuousReflow: Bool
+    let columns: Int
     let facingPage: Int?
     let match: RasterMatch?
     @Binding var scrollRequest: RasterScrollRequest?
@@ -3030,9 +3538,11 @@ private struct WindowScale: NSViewRepresentable {
     let estimate: CGRect
     let updateEstimate: (CGRect) -> Void
     let didRender: () -> Void
+    var didPaintMatch: ((RasterMatch) -> Void)? = nil
     var displaySize: CGSize? = nil
     var measure: ((CGRect, CGRect?, CGFloat?) -> Void)?
     var didResizeViewport: ((CGSize) -> Void)?
+    var finitePrediction: FinitePrediction? = nil
     @State private var measuredBounds: CGRect?
     @State private var content: CGRect?
     @State private var referenceWidth: CGFloat?
@@ -3058,13 +3568,26 @@ private struct WindowScale: NSViewRepresentable {
     }
     // Local measurements and computed zoom are outputs. Continuous content fit
     // instead receives its authoritative display size from the viewport owner.
-    private var renderID: String {
-        "\(viewport):\(scale):\(columns):\(String(describing: facingPage)):\(String(describing: displaySize)):\(state.rotation):\(state.rtl):\(state.fit):\(state.fit == "custom" ? state.rasterZoom : 1):\(state.configuredZoomMaximum):\(state.trimEmptyMargins):\(state.showFitContentArea):\(state.uniformPageWidth):\(state.showTransparencyGrid):\(String(describing: pdfStyle)):\(state.engineeringEnhance):\(state.renderRevision)"
+    private var viewportTileSize: CGSize? {
+        guard continuousReflow else { return nil }
+        let size = CGSize(width: viewport.width * scale, height: viewport.height * scale)
+        return state.rotation % 180 == 0 ? size : CGSize(width: size.height, height: size.width)
+    }
+    var renderID: String {
+        "\(viewport):\(scale):\(columns):\(String(describing: facingPage)):\(String(describing: displaySize)):\(state.rotation):\(state.rtl):\(state.fit):\(state.fit == "custom" ? state.rasterZoom : 1):\(state.configuredZoomMaximum):\(state.trimEmptyMargins):\(state.showFitContentArea):\(state.uniformPageWidth):\(state.showTransparencyGrid):\(String(describing: pdfStyle)):\(state.engineeringEnhance):\(state.renderRevision):\(continuousReflow)"
+    }
+    func renderResult(_ prediction: FinitePrediction? = nil) async throws -> Pages.RenderedPage {
+        return try await pages.render(prediction?.target ?? location, viewport: viewport, scale: scale, columns: prediction?.columns ?? columns,
+                        rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, maximumZoom: state.configuredZoomMaximum,
+                        trim: state.trimEmptyMargins && !continuousReflow, showContent: state.showFitContentArea,
+                        uniform: state.uniformPageWidth && !continuousReflow, transparent: state.showTransparencyGrid,
+                        pdfStyle: pdfStyle, engineeringAuto: state.engineeringEnhance == "auto",
+                        maximumTileSize: NSScreen.main.map { CGSize(width: $0.frame.width * scale, height: $0.frame.height * scale) }, facingPage: prediction?.facingPage ?? facingPage, displaySize: prediction == nil ? displaySize : nil, rtl: state.rtl, viewportOnly: continuousReflow)
     }
     var body: some View {
-        let visible = state.trimEmptyMargins ? content ?? bounds : bounds
-        let size = displaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, content: content, limit: state.zoomLimit, uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin, facing: facing, rtl: state.rtl)
-        RasterCanvas(state: state, pages: pages, page: index, location: location, image: image, imageCollection: imageCollection, readingReady: renderedID == renderID && image != nil, pixelWidth: pixelWidth, tileResolution: renderedID == renderID ? tileResolution : 0, pdfStyle: renderedStyle, imageBounds: imageBounds, pageBoxes: pageBoxes, contentBounds: content, pageBounds: bounds, visibleBounds: visible, links: links, pdfAnnotations: pdfAnnotations, pdfLinks: pdfLinks, match: match, rotation: state.rotation, request: $scrollRequest, cancelNavigation: cancelNavigation, displaySize: size, focus: index == state.page ? RasterLayout.contentFocus(bounds: visible, content: content, display: size, rotation: state.rotation, mode: state.fit, facing: facing, rtl: state.rtl) : nil, selections: selections, didResizeViewport: didResizeViewport)
+        let visible = state.trimEmptyMargins && !continuousReflow ? content ?? bounds : bounds
+        let size = displaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, content: content, limit: state.zoomLimit, uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin, facing: facing, rtl: state.rtl, continuous: continuousReflow)
+        RasterCanvas(state: state, pages: pages, page: index, location: location, image: image, imageCollection: imageCollection, readingReady: renderedID == renderID && (image != nil || continuousReflow), pixelWidth: pixelWidth, tileResolution: renderedID == renderID ? tileResolution : 0, pdfStyle: renderedStyle, imageBounds: imageBounds, pageBoxes: pageBoxes, contentBounds: content, pageBounds: bounds, visibleBounds: visible, links: links, pdfAnnotations: pdfAnnotations, pdfLinks: pdfLinks, match: match, rotation: state.rotation, request: $scrollRequest, cancelNavigation: cancelNavigation, displaySize: size, focus: index == state.page ? RasterLayout.contentFocus(bounds: visible, content: content, display: size, rotation: state.rotation, mode: state.fit, facing: facing, rtl: state.rtl) : nil, selections: selections, didResizeViewport: didResizeViewport, didPaint: didRender, didPaintMatch: didPaintMatch, viewportTileSize: viewportTileSize, finitePrediction: finitePrediction, predictionID: renderID, renderPredictedPage: finitePrediction.map { prediction in { _ = try await renderResult(prediction) } })
             .frame(width: size.width, height: size.height)
             .task(id: state.renderRevision) {
                 guard pages.isPDF else { return }
@@ -3089,12 +3612,7 @@ private struct WindowScale: NSViewRepresentable {
                 let documentID = state.document?.id, request = renderID
                 NativeReadingPerformance.mark("render-request", pages: pages, revision: state.renderRevision, page: index)
                 do {
-                    let result = try await pages.render(location, viewport: viewport, scale: scale, columns: columns,
-                        rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, maximumZoom: state.configuredZoomMaximum,
-                        trim: state.trimEmptyMargins, showContent: state.showFitContentArea,
-                        uniform: state.uniformPageWidth, transparent: state.showTransparencyGrid,
-                        pdfStyle: pdfStyle, engineeringAuto: state.engineeringEnhance == "auto",
-                        maximumTileSize: NSScreen.main.map { CGSize(width: $0.frame.width * scale, height: $0.frame.height * scale) }, facingPage: facingPage, displaySize: displaySize, rtl: state.rtl)
+                    let result = try await renderResult()
                     guard !Task.isCancelled, documentID == state.document?.id, request == renderID else { return }
                     NativeReadingPerformance.mark("render-publish", pages: pages, revision: state.renderRevision, page: index)
                     if result.imageCollection {
@@ -3109,17 +3627,16 @@ private struct WindowScale: NSViewRepresentable {
                         if state.fit == "custom" { state.zoom = ReadingZoom.clamp(state.zoom, limit: result.limit) }
                     }
                     measuredBounds = result.bounds; content = result.content; referenceWidth = result.referenceWidth; facing = result.facing
-                    let measured = result.bounds, visible = state.trimEmptyMargins ? result.content ?? measured : measured
+                    let measured = result.bounds, visible = state.trimEmptyMargins && !continuousReflow ? result.content ?? measured : measured
                     if location == state.pageLocation(state.page) {
-                        state.pageFitZoom = Double(RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: "page", zoom: 1, limit: result.limit, origin: visible.origin, facing: result.facing).width / (state.rotation % 180 == 0 ? visible.width : visible.height))
-                        state.widthFitZoom = Double(RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: "width", zoom: 1, limit: result.limit, origin: visible.origin, facing: result.facing).width / (state.rotation % 180 == 0 ? visible.width : visible.height))
+                        state.pageFitZoom = Double(RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: "page", zoom: 1, limit: result.limit, origin: visible.origin, facing: result.facing, continuous: continuousReflow).width / (state.rotation % 180 == 0 ? visible.width : visible.height))
+                        state.widthFitZoom = Double(RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: "width", zoom: 1, limit: result.limit, origin: visible.origin, facing: result.facing, continuous: continuousReflow).width / (state.rotation % 180 == 0 ? visible.width : visible.height))
                         if !pages.isMarkdown, state.fit != "custom", !(state.uniformPageWidth && state.fit == "actual") { state.zoom = Double(result.display.width / (state.rotation % 180 == 0 ? visible.width : visible.height)) }
                     }
                     image = result.image; links = result.links; imageCollection = result.imageCollection
                     renderedStyle = result.pdfStyle
                     pixelWidth = result.pixelWidth; tileResolution = result.tileResolution; renderedID = request
                     measure?(result.bounds, result.content, result.referenceWidth)
-                    didRender()
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
             }
             .onDisappear { image = nil }
@@ -3178,6 +3695,7 @@ struct NativeReadingAccessibilitySnapshot {
         let document: UUID?
         let location: PageLocation
         let revision: Int
+        var region: CGRect? = nil
     }
     weak var view: NSView?
     var transform = CGAffineTransform.identity
@@ -3254,7 +3772,7 @@ struct NativeReadingAccessibilitySnapshot {
     }
 }
 
-@MainActor private struct RasterCanvas: NSViewRepresentable {
+@MainActor struct RasterCanvas: NSViewRepresentable {
     let state: ReaderState, pages: Pages, page: Int
     let location: PageLocation
     let image: CGImage?
@@ -3269,15 +3787,32 @@ struct NativeReadingAccessibilitySnapshot {
     let pdfAnnotations: [PDFAnnotationSnapshot]
     let pdfLinks: [PDFLinkSnapshot]
     let match: RasterMatch?, rotation: Int
-    @Binding var request: RasterScrollRequest?
+    @Binding fileprivate var request: RasterScrollRequest?
     let cancelNavigation: () -> Void
     let displaySize: CGSize
     let focus: CGRect?
-    @ObservedObject var selections: RasterSelections
+    @ObservedObject fileprivate var selections: RasterSelections
     let didResizeViewport: ((CGSize) -> Void)?
+    let didPaint: () -> Void
+    var didPaintMatch: ((RasterMatch) -> Void)? = nil
+    var viewportTileSize: CGSize? = nil
+    fileprivate var finitePrediction: RasterPage.FinitePrediction? = nil
+    var predictionID = ""
+    var renderPredictedPage: (@MainActor () async throws -> Void)? = nil
     func makeNSView(context: Context) -> Canvas { Canvas() }
     func updateNSView(_ view: Canvas, context: Context) {
         let imageChanged = view.image !== image
+        let predictionToken = finitePrediction.map {
+            Canvas.FinitePredictionToken(document: state.document?.id, source: location, render: predictionID, request: $0)
+        }
+        if view.finitePredictionToken != predictionToken { view.cancelFinitePrediction() }
+        view.finitePredictionToken = predictionToken
+        view.renderPredictedPage = renderPredictedPage
+        if view.pages !== pages || view.tileDocumentID != state.document?.id || view.location != location ||
+            (view.viewportTileSize != nil && viewportTileSize == nil) {
+            view.clearTiles()
+        }
+        view.tileDocumentID = state.document?.id
         if view.pages !== pages || view.location != location || (view.comment != nil && view.renderRevision != state.renderRevision) ||
             view.rotation != rotation || view.lastDisplaySize != displaySize ||
             view.commentDocumentID != state.document?.id || !state.annotationsVisible {
@@ -3289,12 +3824,16 @@ struct NativeReadingAccessibilitySnapshot {
         view.lastDisplaySize = displaySize; view.lastFocus = focus
         view.state = state; view.pages = pages; view.page = page; view.location = location; view.image = image; view.pageBounds = pageBounds
         view.imageCollection = imageCollection
-        view.readingReady = readingReady
+        view.renderingReady = readingReady
+        view.viewportTileSize = viewportTileSize
+        view.readingReady = readingReady && viewportTileSize == nil
         view.pixelWidth = pixelWidth; view.tileResolution = tileResolution
         view.pdfStyle = pdfStyle
         view.scrollRequest = $request
         view.cancelNavigation = cancelNavigation
         view.didResizeViewport = didResizeViewport
+        view.didPaint = didPaint
+        view.didPaintMatch = didPaintMatch
         view.imageBounds = imageBounds
         view.pageBoxes = pageBoxes
         view.contentBounds = contentBounds
@@ -3336,6 +3875,7 @@ struct NativeReadingAccessibilitySnapshot {
         view.match = match; view.rotation = rotation; view.needsDisplay = true; view.needsLayout = true
         view.updateTiles()
         view.updateReadingAccessibility()
+        view.restoreReaderFocus()
         if imageChanged, readingReady { NativeReadingPerformance.mark("canvas-image", pages: pages, revision: state.renderRevision, page: page) }
         view.updateLinkHints()
         let keyboard = state.keyboardLinkFollowing || state.keyboardTextSelection
@@ -3347,7 +3887,7 @@ struct NativeReadingAccessibilitySnapshot {
             view.scrollToVisible(first.applying(view.pageTransform).insetBy(dx: -12, dy: -12))
         }
         if !state.speechRequested, selections.keyboardFocus?.page == location, let selected = selections.caretRect {
-            if view.scrollToVisible(selected.applying(view.pageTransform).insetBy(dx: -12, dy: -12)), pages.isMarkdown {
+            if view.scrollToVisible(selected.applying(view.pageTransform).insetBy(dx: -12, dy: -12)), state.isNativeReflow {
                 cancelNavigation()
             }
         }
@@ -3364,7 +3904,7 @@ struct NativeReadingAccessibilitySnapshot {
             view.schedulePosition()
         } else if !(view.enclosingScrollView is RasterViewport.Scroll),
            let requested, requested.page == page,
-           (explicitRequest != nil || requested != view.lastRequest), image != nil {
+           (explicitRequest != nil || requested != view.lastRequest), readingReady {
             view.lastRequest = requested
             DispatchQueue.main.async { [weak view] in
                 guard request == explicitRequest, let view, view.page == page, view.lastRequest == requested else { return }
@@ -3372,7 +3912,7 @@ struct NativeReadingAccessibilitySnapshot {
                 scroll.layoutSubtreeIfNeeded(); document.layoutSubtreeIfNeeded()
                 guard request == explicitRequest, view.page == page, view.location == location,
                       view.lastRequest == requested, view.enclosingScrollView === scroll,
-                      view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
+                      view.readingReady, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
                 let clip = scroll.contentView, visible = clip.safeAreaRect
                 var bounds = clip.bounds
                 // An unanchored page starts at its displayed top-left,
@@ -3392,6 +3932,16 @@ struct NativeReadingAccessibilitySnapshot {
         }
     }
     final class Canvas: NSView, NSUserInterfaceValidations {
+        struct FinitePredictionToken: Equatable {
+            let document: UUID?
+            let source: PageLocation
+            let render: String
+            fileprivate let request: RasterPage.FinitePrediction
+        }
+        static func find(in view: NSView) -> Canvas? {
+            if let canvas = view as? Canvas { return canvas }
+            return view.subviews.lazy.compactMap { find(in: $0) }.first
+        }
         static func isVisible(_ location: PageLocation, in view: NSView) -> Bool {
             if let canvas = view as? Canvas, canvas.location == location,
                canvas.window != nil, !canvas.isHiddenOrHasHiddenAncestor {
@@ -3452,15 +4002,23 @@ struct NativeReadingAccessibilitySnapshot {
             return result.isNull || result.isEmpty ? nil : result
         }
         weak var state: ReaderState?
-        weak var selections: RasterSelections?
+        fileprivate weak var selections: RasterSelections?
         var pages: Pages?, page = 0, pageBounds = CGRect.zero, visibleBounds = CGRect.zero, rotation = 0
         var image: CGImage? {
-            didSet { if image !== oldValue { traceFirstPaint = true } }
+            didSet { if image !== oldValue { traceFirstPaint = true; hasPaintedPreview = false } }
         }
+        private(set) var hasPaintedPreview = false
+        var finitePredictionToken: FinitePredictionToken?
+        var renderPredictedPage: (@MainActor () async throws -> Void)?
+        private var finitePredictionStarted: FinitePredictionToken?
+        private var finitePredictionTask: Task<Void, Never>?
         private var traceFirstPaint = false
         var location = PageLocation(page: 0)
         var imageCollection = false
         var pixelWidth = 0, tileResolution = 0
+        var viewportTileSize: CGSize?
+        var tileDocumentID: UUID?
+        var renderingReady = false
         var pdfStyle: PDFColors.Style? {
             didSet { if oldValue != pdfStyle { previewTask?.cancel(); preview?.close() } }
         }
@@ -3468,14 +4026,23 @@ struct NativeReadingAccessibilitySnapshot {
             let location: PageLocation
             let revision: Int, rotation: Int, width: Int, resolution: Int
             let transparent: Bool
+            let viewportTileSize: CGSize?
             let pdfStyle: PDFColors.Style?
-            let pageBounds: CGRect, visibleBounds: CGRect, displaySize: CGSize
+            let pageBounds: CGRect
         }
         private var tileKey: TileKey?
         private var tileImages = [RasterLayout.Tile: CGImage]()
+        private var previousTiles: (key: TileKey, images: [RasterLayout.Tile: CGImage],
+                                    transform: CGAffineTransform, origin: CGPoint)?
+        private var paintedTileGeometry: (transform: CGAffineTransform, origin: CGPoint)?
+        private var paintedTiles = Set<RasterLayout.Tile>()
         private var tileTasks = [RasterLayout.Tile: Task<Void, Never>]()
-        var scrollRequest: Binding<RasterScrollRequest?>?
+        private var tilePredictionTask: Task<Void, Never>?
+        private var tilePredictionViewport: CGRect?
+        fileprivate var scrollRequest: Binding<RasterScrollRequest?>?
         var cancelNavigation: (() -> Void)?
+        var didPaint: (() -> Void)?
+        var didPaintMatch: ((RasterMatch) -> Void)?
         var didResizeViewport: ((CGSize) -> Void)?
         var imageBounds = [CGRect]()
         var pageBoxes = [CGRect?]()
@@ -3534,11 +4101,15 @@ struct NativeReadingAccessibilitySnapshot {
             let allowed = !pages.isPDF || state.nativePDFInfo?.permissions.accessibility == true
             guard allowed else { readingAccessibility.clear(); return }
             let documentID = state.document?.id, revision = renderRevision, location = location
-            let identity = NativeReadingAccessibilityPage.Identity(pages: ObjectIdentifier(pages), document: documentID, location: location, revision: revision)
+            // Reflow geometry can still describe the outgoing natural chapter
+            // after a mode change removes its viewport tiling metadata.
+            let region = state.reflowable ? visibleRect.applying(pageTransform.inverted()).intersection(pageBounds) : nil
+            let identity = NativeReadingAccessibilityPage.Identity(pages: ObjectIdentifier(pages), document: documentID, location: location, revision: revision, region: region)
             readingAccessibility.invalidate(unless: identity)
             guard readingReady, window != nil, !isHiddenOrHasHiddenAncestor, !visibleRect.isEmpty else { return }
             readingAccessibility.update(identity: identity, allowed: allowed, words: {
                 try Task.checkCancellation()
+                if let region { return try await pages.selection(areas: [location: region])[location]?.words ?? [] }
                 return try await pages.words(location)
             }, failure: { [weak state] error in
                 guard state?.document?.id == documentID, state?.renderRevision == revision else { return }
@@ -3748,21 +4319,48 @@ struct NativeReadingAccessibilitySnapshot {
             annotationDrag = nil; erasePoints = []; needsDisplay = true
             window?.invalidateCursorRects(for: self)
         }
-        private func clearTiles() {
+        func clearTiles(retainingOutput: Bool = false) {
+            // RenderCache::PaintTile keeps the old pixels behind a replacement.
+            // Natural chapters have no whole-page preview, so retain one tile
+            // generation until the new visible tiles have actually drawn.
+            if retainingOutput, previousTiles == nil, let tileKey, let paintedTileGeometry,
+               !paintedTiles.isEmpty, viewportTileSize != nil {
+                previousTiles = (tileKey, tileImages, paintedTileGeometry.transform, paintedTileGeometry.origin)
+            } else if !retainingOutput { previousTiles = nil }
             for task in tileTasks.values { task.cancel() }
-            tileTasks.removeAll(); tileImages.removeAll(); tileKey = nil
+            tilePredictionTask?.cancel(); tilePredictionTask = nil; tilePredictionViewport = nil
+            tileTasks.removeAll(); tileImages.removeAll(); paintedTiles.removeAll(); tileKey = nil
+            paintedTileGeometry = nil
+            if viewportTileSize != nil { readingReady = false; traceFirstPaint = true }
+        }
+        private func updateViewportReadingReady() {
+            guard let viewportTileSize else { return }
+            let visible = visibleRect.applying(pageTransform.inverted())
+            let requested = RasterLayout.tiles(bounds: pageBounds, pixelWidth: pixelWidth, resolution: tileResolution,
+                visible: visible, maximumSize: viewportTileSize)
+            let ready = renderingReady && !requested.isEmpty && requested.allSatisfy {
+                tileImages[$0] != nil && paintedTiles.contains($0)
+            }
+            let changed = readingReady != ready
+            readingReady = ready
+            if ready { previousTiles = nil }
+            if changed, ready { updateReadingAccessibility(); restoreReaderFocus() }
         }
         func updateTiles() {
-            guard window != nil, !isHiddenOrHasHiddenAncestor, tileResolution > 0,
+            guard window != nil, !isHiddenOrHasHiddenAncestor,
                   let pages, let state, case .pages(let current) = state.document?.content, current === pages,
                   bounds.width > 0, bounds.height > 0 else { clearTiles(); return }
+            guard tileResolution > 0 else { clearTiles(retainingOutput: viewportTileSize != nil); return }
             let key = TileKey(location: location, revision: renderRevision, rotation: rotation,
-                width: pixelWidth, resolution: tileResolution, transparent: imageCollection && state.showTransparencyGrid, pdfStyle: pdfStyle, pageBounds: pageBounds,
-                visibleBounds: visibleBounds, displaySize: bounds.size)
-            if tileKey != key { clearTiles(); tileKey = key }
+                width: pixelWidth, resolution: tileResolution, transparent: imageCollection && state.showTransparencyGrid, viewportTileSize: viewportTileSize, pdfStyle: pdfStyle, pageBounds: pageBounds)
+            if tileKey != key { clearTiles(retainingOutput: viewportTileSize != nil); tileKey = key }
             let visible = visibleRect.applying(pageTransform.inverted())
-            let requested = RasterLayout.tiles(bounds: pageBounds, pixelWidth: pixelWidth, resolution: tileResolution, visible: visible)
+            let requested = RasterLayout.tiles(bounds: pageBounds, pixelWidth: pixelWidth, resolution: tileResolution, visible: visible, maximumSize: viewportTileSize)
             let wanted = Set(requested)
+            let viewport = visibleRect
+            if tilePredictionViewport != viewport || window?.inLiveResize == true {
+                tilePredictionTask?.cancel(); tilePredictionTask = nil; tilePredictionViewport = nil
+            }
             for (tile, task) in tileTasks where !wanted.contains(tile) { task.cancel() }
             tileTasks = tileTasks.filter { wanted.contains($0.key) }
             let pixelScale = CGFloat(pixelWidth) / pageBounds.width
@@ -3776,10 +4374,12 @@ struct NativeReadingAccessibilitySnapshot {
                 if wanted.contains(tile) { return true }
                 let cost = image.bytesPerRow * image.height
                 guard !visible.isEmpty, bytes + cost <= 64 * 1024 * 1024,
-                      tileResolution == 1 || tile.rect.insetBy(dx: -CGFloat(tile.width), dy: -CGFloat(tile.height)).intersects(pixels) else { return false }
+                      (viewportTileSize == nil && tileResolution == 1) || tile.rect.insetBy(dx: -CGFloat(tile.width), dy: -CGFloat(tile.height)).intersects(pixels) else { return false }
                 bytes += cost
                 return true
             }
+            paintedTiles.formIntersection(tileImages.keys)
+            updateViewportReadingReady()
             let documentID = state.document?.id
             for tile in requested where tileImages[tile] == nil && tileTasks[tile] == nil {
                 tileTasks[tile] = Task { [weak self] in
@@ -3799,27 +4399,139 @@ struct NativeReadingAccessibilitySnapshot {
                 }
             }
         }
+        func predictViewportTile(direction: Int) {
+            guard viewportTileSize != nil, readingReady, !visibleRect.isEmpty,
+                  window?.inLiveResize == false, let key = tileKey, let pages, let state,
+                  tilePredictionViewport != visibleRect else { return }
+            let viewport = visibleRect
+            let next = viewport.offsetBy(dx: 0, dy: CGFloat(direction) * viewport.height)
+                .applying(pageTransform.inverted())
+            let tiles = RasterLayout.tiles(bounds: pageBounds, pixelWidth: pixelWidth, resolution: tileResolution,
+                visible: next, maximumSize: viewportTileSize)
+            let candidates = direction > 0 ? tiles : tiles.reversed().map { $0 }
+            guard let tile = candidates.first(where: { tileImages[$0] == nil && tileTasks[$0] == nil }) else { return }
+            let bytes = tileImages.values.reduce(0) { $0 + $1.bytesPerRow * $1.height }
+            guard bytes + tile.width * tile.height * 4 <= 64 * 1024 * 1024 else { return }
+            tilePredictionViewport = viewport
+            let documentID = state.document?.id
+            tilePredictionTask = Task(priority: .utility) { [weak self] in
+                NativeReadingPerformance.mark("tile-prediction-start", pages: pages, revision: key.revision, page: self?.page ?? -1)
+                do {
+                    let bitmap = try await pages.image(key.location, width: key.width, transparent: key.transparent,
+                        region: tile.rect, pdfStyle: key.pdfStyle)
+                    guard !Task.isCancelled, let self, self.tileKey == key,
+                          self.tilePredictionViewport == viewport, self.state?.document?.id == documentID else { return }
+                    self.tileImages[tile] = bitmap; self.tilePredictionTask = nil
+                    NativeReadingPerformance.mark("tile-prediction-ready", pages: pages, revision: key.revision, page: self.page)
+                } catch {
+                    if let self, self.tilePredictionViewport == viewport { self.tilePredictionTask = nil }
+                }
+            }
+        }
+        func cancelFinitePrediction() {
+            finitePredictionTask?.cancel(); finitePredictionTask = nil; finitePredictionStarted = nil
+        }
+        private func predictFinitePage() {
+            guard viewportTileSize == nil, readingReady, hasPaintedPreview,
+                  let token = finitePredictionToken, finitePredictionStarted != token,
+                  let state, let pages, let scroll = enclosingScrollView,
+                  !(scroll is RasterViewport.Scroll), let document = scroll.documentView,
+                  window != nil, window?.inLiveResize == false,
+                  scrollRequest?.wrappedValue == nil,
+                  case .pages(let current) = state.document?.content, current === pages,
+                  state.document?.id == token.document, state.renderRevision == renderRevision,
+                  let render = renderPredictedPage else { return }
+            var missing = token.request.visible
+            func check(_ view: NSView) -> Bool {
+                if let canvas = view as? Canvas, missing.contains(canvas.location), canvas.pages === pages {
+                    guard canvas.window != nil, canvas.readingReady, canvas.hasPaintedPreview else { return false }
+                    missing.remove(canvas.location)
+                }
+                return view.subviews.allSatisfy(check)
+            }
+            guard check(document), missing.isEmpty else { return }
+            finitePredictionStarted = token
+            let revision = renderRevision, target = state.pageNumber(token.request.target)
+            finitePredictionTask = Task(priority: .utility) { [weak self] in
+                NativeReadingPerformance.mark("page-prediction-start", pages: pages, revision: revision, page: target)
+                do {
+                    try await render()
+                    guard !Task.isCancelled, let self, self.finitePredictionToken == token,
+                          self.state?.document?.id == token.document else { return }
+                    self.finitePredictionTask = nil
+                    NativeReadingPerformance.mark("page-prediction-ready", pages: pages, revision: revision, page: target)
+                } catch {
+                    if let self, self.finitePredictionToken == token { self.finitePredictionTask = nil }
+                }
+            }
+        }
+        private func predictFiniteRowAfterPainting() {
+            guard let document = enclosingScrollView?.documentView else { return }
+            func visit(_ view: NSView) {
+                if let canvas = view as? Canvas, canvas.finitePredictionToken != nil { canvas.predictFinitePage() }
+                for child in view.subviews { visit(child) }
+            }
+            visit(document)
+        }
         override func draw(_ dirtyRect: NSRect) {
-            guard let image, let context = NSGraphicsContext.current?.cgContext, pageBounds.width > 0 else { return }
+            guard image != nil || viewportTileSize != nil,
+                  let context = NSGraphicsContext.current?.cgContext, pageBounds.width > 0 else { return }
             if state?.showTransparencyGrid == true, imageCollection || pages?.isPDF == true { ReaderPageGrid.checkerboard(in: context, rect: pageBounds.applying(pageTransform)) }
             context.saveGState(); context.concatenate(pageTransform)
-            NSImage(cgImage: image, size: pageBounds.size).draw(in: pageBounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            if let image {
+                NSImage(cgImage: image, size: pageBounds.size).draw(in: pageBounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                hasPaintedPreview = true
+            } else {
+                context.setFillColor(ReaderTheme.color(state?.palette.background ?? 0xffffff).cgColor)
+                context.fill(pageBounds)
+            }
             context.restoreGState()
+            func paintTiles(_ images: [RasterLayout.Tile: CGImage], width: Int, page: CGRect,
+                            transform: CGAffineTransform, current: Bool) {
+                let pixelScale = CGFloat(width) / page.width
+                for (tile, bitmap) in images {
+                    let rect = CGRect(x: page.minX + CGFloat(tile.x) / pixelScale,
+                                      y: page.minY + CGFloat(tile.y) / pixelScale,
+                                      width: CGFloat(tile.width) / pixelScale, height: CGFloat(tile.height) / pixelScale)
+                    guard rect.applying(transform).intersects(dirtyRect) else { continue }
+                    context.saveGState(); context.clip(to: rect.applying(transform))
+                    if state?.showTransparencyGrid == true, imageCollection || pages?.isPDF == true { ReaderPageGrid.checkerboard(in: context, rect: page.applying(transform)) }
+                    context.concatenate(transform); context.interpolationQuality = .none
+                    NSImage(cgImage: bitmap, size: rect.size).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                    context.restoreGState()
+                    if current { paintedTiles.insert(tile) }
+                }
+            }
+            if let previousTiles {
+                // Reflow can move the source passage to a different chapter Y.
+                // Keep the old painted viewport anchored there while its new
+                // geometry arrives, using the old tile scale and transform.
+                var transform = previousTiles.transform
+                transform.tx += visibleRect.minX - previousTiles.origin.x
+                transform.ty += visibleRect.minY - previousTiles.origin.y
+                paintTiles(previousTiles.images, width: previousTiles.key.width, page: previousTiles.key.pageBounds,
+                           transform: transform, current: false)
+            }
+            paintTiles(tileImages, width: pixelWidth, page: pageBounds, transform: pageTransform, current: true)
+            if !paintedTiles.isEmpty { paintedTileGeometry = (pageTransform, visibleRect.origin) }
+            updateViewportReadingReady()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.predictFiniteRowAfterPainting()
+                if let scroll = self.enclosingScrollView as? RasterViewport.Scroll {
+                    scroll.predictNaturalTileAfterPainting()
+                    scroll.predictAfterPainting()
+                }
+            }
             if traceFirstPaint, readingReady, window != nil, !visibleRect.isEmpty {
                 traceFirstPaint = false
                 NativeReadingPerformance.mark("canvas-first-draw", pages: pages, revision: renderRevision, page: page)
-            }
-            let pixelScale = CGFloat(pixelWidth) / pageBounds.width
-            for (tile, bitmap) in tileImages {
-                let rect = CGRect(x: pageBounds.minX + CGFloat(tile.x) / pixelScale,
-                                  y: pageBounds.minY + CGFloat(tile.y) / pixelScale,
-                                  width: CGFloat(tile.width) / pixelScale, height: CGFloat(tile.height) / pixelScale)
-                guard rect.applying(pageTransform).intersects(dirtyRect) else { continue }
-                context.saveGState(); context.clip(to: rect.applying(pageTransform))
-                if state?.showTransparencyGrid == true, imageCollection || pages?.isPDF == true { ReaderPageGrid.checkerboard(in: context, rect: pageBounds.applying(pageTransform)) }
-                context.concatenate(pageTransform); context.interpolationQuality = .none
-                NSImage(cgImage: bitmap, size: rect.size).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-                context.restoreGState()
+                let documentID = state?.document?.id, revision = renderRevision
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.window != nil, self.state?.document?.id == documentID,
+                          self.renderRevision == revision, self.readingReady else { return }
+                    self.didPaint?()
+                }
             }
             if let state, !imageCollection {
                 ReaderPageGrid.draw(in: context, bounds: pageBounds, visible: visibleRect.applying(pageTransform.inverted()).intersection(visibleBounds), transform: pageTransform, state: state)
@@ -3829,6 +4541,20 @@ struct NativeReadingAccessibilitySnapshot {
             for rect in selections?.searchRects[page] ?? [] { context.fill(rect) }
             context.setFillColor(NSColor.systemOrange.withAlphaComponent(0.5).cgColor)
             for rect in match?.rects(on: page) ?? [] { context.fill(rect) }
+            if let match, didPaintMatch != nil, readingReady, window != nil,
+               match.rects(on: page).contains(where: {
+                   $0.applying(pageTransform).intersects(visibleRect.intersection(dirtyRect))
+               }) {
+                let documentID = state?.document?.id, revision = renderRevision
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.window != nil, self.state?.document?.id == documentID,
+                          self.renderRevision == revision, self.readingReady, self.match == match,
+                          match.rects(on: self.page).contains(where: {
+                              $0.applying(self.pageTransform).intersects(self.visibleRect)
+                          }) else { return }
+                    self.didPaintMatch?(match)
+                }
+            }
             context.setFillColor(NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35).cgColor)
             for rect in selections?.values[location]?.bounds ?? [] { context.fill(rect) }
             context.setFillColor(NSColor.systemYellow.withAlphaComponent(0.5).cgColor)
@@ -3908,7 +4634,7 @@ struct NativeReadingAccessibilitySnapshot {
             }
         }
         override func scrollWheel(with event: NSEvent) {
-            if pages?.isMarkdown == true, event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 {
+            if state?.isNativeReflow == true, event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 {
                 cancelNavigation?()
             }
             super.scrollWheel(with: event)
@@ -4327,10 +5053,13 @@ struct NativeReadingAccessibilitySnapshot {
             if item.action == #selector(copy(_:)), pages?.isPDF == true { return state?.nativePDFInfo?.permissions.copy == true }
             return true
         }
+        private var hintedLinks: [RasterLink] {
+            viewportTileSize == nil ? links : links.filter { visibleRect.intersects($0.bounds.applying(pageTransform)) }
+        }
         func updateLinkHints() {
             removeAllToolTips()
             if state?.hoverPreview == true {
-                for link in links { addToolTip(link.bounds.applying(pageTransform), owner: link.uri as NSString, userData: nil) }
+                for link in hintedLinks { addToolTip(link.bounds.applying(pageTransform), owner: link.uri as NSString, userData: nil) }
             }
             window?.invalidateCursorRects(for: self)
             updateTrackingAreas()
@@ -4342,7 +5071,7 @@ struct NativeReadingAccessibilitySnapshot {
                 addTrackingArea(area); linkTracking.append(area)
             }
             if state?.hoverPreview == true {
-                for link in links where !["http", "https", "mailto", "ftp"].contains(URL(string: link.uri)?.scheme?.lowercased() ?? "") && (pages?.isPDF != true || link.uri.hasPrefix("#")) {
+                for link in hintedLinks where !["http", "https", "mailto", "ftp"].contains(URL(string: link.uri)?.scheme?.lowercased() ?? "") && (pages?.isPDF != true || link.uri.hasPrefix("#")) {
                     let area = NSTrackingArea(rect: link.bounds.applying(pageTransform), options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self, userInfo: ["uri": link.uri])
                     addTrackingArea(area); linkTracking.append(area)
                 }
@@ -4383,6 +5112,7 @@ struct NativeReadingAccessibilitySnapshot {
         }
         override func layout() {
             super.layout()
+            if window?.inLiveResize == true { cancelFinitePrediction() }
             if let field = formWidget { formEditor?.updateFrame(field.bounds.applying(pageTransform)) }
             schedulePosition()
         }
@@ -4400,7 +5130,7 @@ struct NativeReadingAccessibilitySnapshot {
             var ready = Set<PageLocation>()
             func collect(_ node: NSView) {
                 if let canvas = node as? Canvas, canvas.pages === pages,
-                   expected.contains(canvas.location), canvas.image != nil,
+                   expected.contains(canvas.location), canvas.readingReady,
                    abs(canvas.bounds.width - canvas.lastDisplaySize.width) < 1,
                    abs(canvas.bounds.height - canvas.lastDisplaySize.height) < 1 {
                     ready.insert(canvas.location)
@@ -4442,17 +5172,35 @@ struct NativeReadingAccessibilitySnapshot {
             super.viewDidMoveToWindow()
             if let observer = scrollObserver { NotificationCenter.default.removeObserver(observer) }; scrollObserver = nil
             guard window != nil, let scroll = enclosingScrollView else { return }
-            if let state, case .pages(let current) = state.document?.content, current === pages { state.readerScrollView = scroll }
+            if let state, case .pages(let current) = state.document?.content, current === pages {
+                state.readerScrollView = scroll
+                ReaderScrollbars.apply(to: scroll, mode: state.scrollbarMode)
+            }
             scroll.contentView.postsBoundsChangedNotifications = true
             scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.schedulePosition() }
             }
             schedulePosition()
+            restoreReaderFocus()
+        }
+        func restoreReaderFocus() {
+            guard readingReady, page == state?.page else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let selections = self.selections, selections.pendingReaderFocus,
+                      let state = self.state, self.page == state.page, self.readingReady,
+                      case .pages(let current) = state.document?.content, current === self.pages,
+                      let window = self.window else { return }
+                selections.pendingReaderFocus = false
+                if window.firstResponder == nil || window.firstResponder === window || window.firstResponder is Canvas {
+                    window.makeFirstResponder(self)
+                }
+            }
         }
         private func scrolled() {
             updateTiles()
             guard window != nil, bounds.width > 0, bounds.height > 0 else { return }
             updateReadingAccessibility()
+            if viewportTileSize != nil { updateLinkHints() }
             selections?.visibleBounds[location] = visibleRect.applying(pageTransform.inverted())
             if let scroll = enclosingScrollView as? RasterViewport.Scroll { scroll.recordPosition(); return }
             guard scrollRequest?.wrappedValue == nil, let state,
@@ -4469,6 +5217,8 @@ struct NativeReadingAccessibilitySnapshot {
         }
         override func viewWillMove(toWindow newWindow: NSWindow?) {
             if newWindow == nil {
+                cancelFinitePrediction()
+                if window?.firstResponder === self { selections?.pendingReaderFocus = true }
                 readingAccessibility.clear()
                 closeComment()
                 clearTiles()

@@ -37,11 +37,12 @@ final class PDFTextFeaturesTests: XCTestCase {
     @MainActor
     func testTextSearchUsesUTF16RangesAndFindsEveryMatch() throws {
         let source = "😀 Match MATCH match"
-        XCTAssertEqual(try TextReader.Coordinator.matches(source, query: "match"), [
+        let options = TextSearchOptions()
+        XCTAssertEqual(try options.ranges(in: source, query: "match"), [
             NSRange(location: 3, length: 5), NSRange(location: 9, length: 5), NSRange(location: 15, length: 5),
         ])
-        XCTAssertEqual(try TextReader.Coordinator.matches(String(repeating: "a ", count: 1_201), query: "a").count, 1_201)
-        XCTAssertTrue(try TextReader.Coordinator.matches(source, query: "").isEmpty)
+        XCTAssertEqual(try options.ranges(in: String(repeating: "a ", count: 1_201), query: "a").count, 1_201)
+        XCTAssertTrue(try options.ranges(in: source, query: "").isEmpty)
     }
 
     @MainActor

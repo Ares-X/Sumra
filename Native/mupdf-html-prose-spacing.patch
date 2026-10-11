@@ -1,0 +1,256 @@
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -199,6 +199,7 @@
+ 	PRO_WIDOWS,
+ 	PRO_WIDTH,
+ 	PRO_WORD_SPACING,
++	PRO_SUMRA_PROSE_SPACING,
+ 
+ 	/* Number of real properties. */
+ 	NUM_PROPERTIES,
+@@ -309,6 +310,7 @@
+ 	unsigned int rowspan : 10; /* Needs to be able to represent 1-1000 */
+ 	unsigned int colspan : 10; /* Needs to be able to represent 1-1000 */
+ 	unsigned int white_space : 3;
++	unsigned int compact_prose_spacing : 1;
+ 	unsigned int vertical_align : 4;
+ 	unsigned int page_break_before : 3;
+ 	unsigned int page_break_after : 3;
+@@ -523,6 +525,7 @@
+ 	unsigned int list_item : 16;
+ 	unsigned int suppress_border: 4;
+ 	unsigned int collapsed_cell : 1;
++	unsigned int compact_empty_prose : 1;
+ 
+ 	// to indicate when an inline formatting context has been finished (when interrupted by a block level block)
+ 	unsigned int stop : 1;
+--- a/source/html/css-parse.c
++++ b/source/html/css-parse.c
+@@ -191,6 +191,10 @@
+ static fz_css_property *fz_new_css_property(fz_context *ctx, fz_pool *pool, const char *name, fz_css_value *value, int spec)
+ {
+ 	struct css_property_info *info = css_property_lookup(name, strlen(name));
++	/* Private reader property; keep the public generated CSS table upstream. */
++	static struct css_property_info prose_spacing = { "-sumra-prose-spacing", PRO_SUMRA_PROSE_SPACING };
++	if (!strcmp(name, prose_spacing.name))
++		info = &prose_spacing;
+ 	if (info)
+ 	{
+ 		fz_css_property *prop = fz_pool_alloc(ctx, pool, sizeof *prop);
+@@ -1175,6 +1179,8 @@
+ 
+ const char *fz_css_property_name(int key)
+ {
++	if (key == PRO_SUMRA_PROSE_SPACING)
++		return "-sumra-prose-spacing";
+ 	const char *name = "unknown";
+ 	size_t i;
+ 	for (i = 0; i < nelem(css_property_list); ++i)
+--- a/source/html/css-apply.c
++++ b/source/html/css-apply.c
+@@ -1284,6 +1284,7 @@
+ 		name == PRO_TEXT_TRANSFORM ||
+ 		name == PRO_VISIBILITY ||
+ 		name == PRO_WHITE_SPACE ||
++		name == PRO_SUMRA_PROSE_SPACING ||
+ 		name == PRO_WIDOWS ||
+ 		name == PRO_WORD_SPACING ||
+ 		name == PRO_HYPHENS ||
+@@ -1859,6 +1860,8 @@
+ 
+ 	style->visibility = visibility_from_property(match);
+ 	style->white_space = white_space_from_property(match);
++	value = value_from_property(match, PRO_SUMRA_PROSE_SPACING);
++	style->compact_prose_spacing = value && !strcmp(value->data, "compact");
+ 	style->text_decoration = text_decoration_from_property(match);
+ 	style->page_break_before = page_break_from_property(match, PRO_PAGE_BREAK_BEFORE);
+ 	style->page_break_after = page_break_from_property(match, PRO_PAGE_BREAK_AFTER);
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -857,8 +857,72 @@
+ 	/* Unless we've overflowed word is already only one cluster. Don't try breaking here again! */
+ 	if (w <= max_w)
+ 		node->atomic = 1;
++}
++
++static int prose_spacing_word_is_blank(fz_html_flow *node)
++{
++	const char *text = fz_html_flow_text(node);
++	int rune;
++	while (*text)
++	{
++		text += fz_chartorune(&rune, text);
++		if (!fz_is_unicode_whitespace(rune))
++			return 0;
++	}
++	return 1;
++}
++
++static int prose_spacing_line_is_blank(fz_html_tree *tree, fz_html_flow *a, fz_html_flow *b)
++{
++	for (; a != b; a = fz_html_flow_next(tree, a))
++	{
++		const fz_css_style *style = fz_html_flow_box(tree, a)->style;
++		if (!style->compact_prose_spacing || style->white_space != WS_NORMAL)
++			return 0;
++		if (a->type == FLOW_WORD)
++		{
++			if (!prose_spacing_word_is_blank(a))
++				return 0;
++		}
++		else if (a->type != FLOW_BREAK && a->type != FLOW_SBREAK &&
++			a->type != FLOW_ANCHOR && a->type != FLOW_SPACE)
++			return 0;
++	}
++	return 1;
+ }
+ 
++static int prose_spacing_children_are_blank(fz_html_tree *tree, fz_html_box *box)
++{
++	for (; box; box = box->next)
++	{
++		if (box->type == BOX_FLOW)
++		{
++			if (!prose_spacing_line_is_blank(tree, box->u.flow.head, NULL))
++				return 0;
++		}
++		else if (box->type != BOX_INLINE)
++			return 0;
++		else if (!box->style->compact_prose_spacing || box->style->white_space != WS_NORMAL ||
++			box->style->page_break_before != PB_AUTO || box->style->page_break_after != PB_AUTO)
++			return 0;
++		if (!prose_spacing_children_are_blank(tree, box->down))
++			return 0;
++	}
++	return 1;
++}
++
++static int prose_spacing_paragraph_is_blank(fz_html_tree *tree, fz_html_box *box)
++{
++	const fz_css_style *style = box->style;
++	return box->type == BOX_BLOCK && !strcmp(box->tag, "p") &&
++		style->compact_prose_spacing && style->white_space == WS_NORMAL &&
++		style->page_break_before == PB_AUTO && style->page_break_after == PB_AUTO &&
++		style->position == POS_STATIC && style->height.unit == N_AUTO &&
++		style->padding[T].value == 0 && style->padding[B].value == 0 &&
++		!style->border_style_0 && !style->border_style_2 &&
++		prose_spacing_children_are_blank(tree, box->down);
++}
++
+ /*
+ 	Layout a BOX_FLOW.
+ 
+@@ -874,6 +938,7 @@
+ 	float line_w, candidate_w, desperate_w, indent, bounds_w;
+ 	int justify_align;
+ 	int align;
++	int compact_prose = 0;
+ 	fz_html_restarter *restart = ld->restart;
+ 
+ 	float em = box->s.layout.em;
+@@ -939,6 +1004,15 @@
+ 	/* If we have nothing to flow, nothing to do. */
+ 	if (!box->u.flow.head)
+ 		return;
++	compact_prose = top->compact_empty_prose;
++	/* Image-only and empty blocks retain their authored line geometry. */
++	if (top->style->compact_prose_spacing && top->style->white_space == WS_NORMAL)
++		for (node = box->u.flow.head; node; node = fz_html_flow_next(tree, node))
++			if (node->type == FLOW_WORD && !prose_spacing_word_is_blank(node))
++			{
++				compact_prose = 1;
++				break;
++			}
+ 
+ 	/* Measure the size of all the words and images in the flow. */
+ 	node = box->u.flow.head;
+@@ -1106,7 +1180,14 @@
+ 			for (fz_html_flow *scan = line; empty_soft_line && scan != break_at; scan = fz_html_flow_next(tree, scan))
+ 				if (scan->type != FLOW_SBREAK && scan->type != FLOW_ANCHOR)
+ 					empty_soft_line = 0;
+-			if (!empty_soft_line && flush_line(tree, ctx, box, ld, break_w, line_align, indent, line, break_at, restart))
++			/* Keep a single hard newline, but give whitespace-only prose rows
++			 * no vertical advance. Position every retained source node so named
++			 * anchors and source bookmarks remain valid after each reflow. */
++			int empty_prose_line = compact_prose && candidate && candidate->type == FLOW_BREAK &&
++				prose_spacing_line_is_blank(tree, line, break_at);
++			if (empty_prose_line)
++				layout_line(tree, ctx, indent, bounds_w, break_w, line_align, line, break_at, box, 0, 0);
++			else if (!empty_soft_line && flush_line(tree, ctx, box, ld, break_w, line_align, indent, line, break_at, restart))
+ 				return;
+ 
+ 			line = break_at;
+@@ -1138,7 +1219,10 @@
+ 	if (line)
+ 	{
+ 		int line_align = (align == TA_JUSTIFY) ? justify_align : align;
+-		flush_line(tree, ctx, box, ld, line_w, line_align, indent, line, NULL, restart);
++		if (compact_prose && prose_spacing_line_is_blank(tree, line, NULL))
++			layout_line(tree, ctx, indent, bounds_w, line_w, line_align, line, NULL, box, 0, 0);
++		else
++			flush_line(tree, ctx, box, ld, line_w, line_align, indent, line, NULL, restart);
+ 	}
+ 
+ 	ld->used[T] = box->s.layout.y;
+@@ -2999,7 +3083,7 @@
+ 
+ // Compute new em, padding, border, margin.
+ // Also compute layout x and w.
+-static void layout_update_styles(fz_context *ctx, fz_html_box *box, fz_html_box *top)
++static void layout_update_styles(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, fz_html_box *top)
+ {
+ 	float top_em = top->s.layout.em;
+ 	float top_baseline = top->s.layout.baseline;
+@@ -3007,6 +3091,7 @@
+ 	while (box)
+ 	{
+ 		const fz_css_style *style = box->style;
++		box->compact_empty_prose = prose_spacing_paragraph_is_blank(tree, box);
+ 		float em = box->s.layout.em = fz_from_css_number(style->font_size, top_em, top_em, top_em);
+ 
+ 		if (style->vertical_align == VA_SUPER)
+@@ -3026,6 +3111,8 @@
+ 			margin[R] = fz_from_css_number(style->margin[R], em, top_w, 0);
+ 			margin[B] = fz_from_css_number(style->margin[B], em, top_w, 0);
+ 			margin[L] = fz_from_css_number(style->margin[L], em, top_w, 0);
++			if (box->compact_empty_prose)
++				margin[T] = margin[B] = 0;
+ 
+ 			padding[T] = fz_from_css_number(style->padding[T], em, top_w, 0);
+ 			padding[R] = fz_from_css_number(style->padding[R], em, top_w, 0);
+@@ -3059,7 +3146,7 @@
+ 		}
+ 
+ 		if (box->down)
+-			layout_update_styles(ctx, box->down, box);
++			layout_update_styles(tree, ctx, box->down, box);
+ 
+ 		box = box->next;
+ 	}
+@@ -3200,7 +3287,7 @@
+ 	for (child = here->down; child; child = child->next)
+ 	{
+ 		/* Ignore absolute or fixed position blocks. */
+-		if (child->style->position != POS_FIXED && child->style->position != POS_ABSOLUTE)
++		if (!child->compact_empty_prose && child->style->position != POS_FIXED && child->style->position != POS_ABSOLUTE)
+ 		{
+ 			if (first == NULL)
+ 				first = child;
+@@ -3245,7 +3332,7 @@
+ 		if (here->down)
+ 			layout_collapse_margin_with_siblings(ctx, here->down);
+ 
+-		if (here->style->position != POS_ABSOLUTE && here->style->position != POS_FIXED)
++		if (!here->compact_empty_prose && here->style->position != POS_ABSOLUTE && here->style->position != POS_FIXED)
+ 		{
+ 			if (prev && is_layout_box(prev) && is_layout_box(here))
+ 			{
+@@ -3449,7 +3536,7 @@
+ 			box->s.layout.baseline = 0;
+ 			box->s.layout.x = start_x;
+ 			box->s.layout.w = page_w;
+-			layout_update_styles(ctx, box->down, box);
++			layout_update_styles(tree, ctx, box->down, box);
+ 			width_cache = fz_calloc(ctx, WIDTH_CACHE_SIZE, sizeof(*width_cache));
+ 			layout_update_widths(tree, ctx, tree->pool, box->down, box, ld.hb_buf, no_pagination, width_cache);
+ 			layout_collapse_margins(ctx, box->down, box);

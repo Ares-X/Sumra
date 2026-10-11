@@ -2,18 +2,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ "$(uname -s)" = Darwin ] || { echo "The .app requires the macOS SDK; swift test works on Linux." >&2; exit 1; }
-CORE=""; BUILD_CONFIGURATION=debug
+BUILD_CONFIGURATION=debug
 for option in "$@"; do
     case "$option" in
-        --core) CORE=--core ;;
         --release) BUILD_CONFIGURATION=release ;;
-        *) echo "Usage: $0 [--core] [--release]" >&2; exit 1 ;;
+        *) echo "Usage: $0 [--release]" >&2; exit 1 ;;
     esac
 done
-# Full builds compile native engines; CHM renderer modules are vendored in Resources.
-if [ "$CORE" != --core ]; then
-    ./scripts/build-engines.sh
-fi
+# Compile native engines; CHM renderer modules are vendored in Resources.
+./scripts/build-engines.sh
 # Run the unified checks separately with scripts/check-source.sh.
 BUILD_FLAGS=(-c "$BUILD_CONFIGURATION")
 if [ "$BUILD_CONFIGURATION" = release ]; then BUILD_FLAGS+=(-Xswiftc -Osize -Xlinker -dead_strip); fi
@@ -43,8 +40,10 @@ if [ "$BUILD_CONFIGURATION" = release ]; then strip -x "$APP/MacOS/Sumra"; fi
 # Keep one resource copy. BrowserReader uses this path in an app, Bundle.module in swift run.
 cp -R Sources/Sumra/Resources/Reader "$APP/Resources/Reader"
 cp -R Sources/Sumra/Resources/Localizations "$APP/Resources/Localizations"
-if [ "$CORE" != --core ]; then mkdir -p "$APP/Resources/Tools"; cp build/native-macos13/bin/clit "$APP/Resources/Tools/clit"; chmod 755 "$APP/Resources/Tools/clit"; fi
-python3 scripts/bundle.py "$APP" ${CORE:+"$CORE"}
+mkdir -p "$APP/Resources/Tools"
+cp build/native-macos13/bin/clit "$APP/Resources/Tools/clit"
+chmod 755 "$APP/Resources/Tools/clit"
+swift scripts/bundle.swift "$APP"
 codesign --verify --deep --strict "$APP/.."
 # Publish only a completely packaged and verified bundle. Keep the preceding
 # app recoverable, including if promotion fails after moving it out of the way.

@@ -20,6 +20,7 @@ final class BrowserPrintSnapshotTests: XCTestCase {
         guard case .browser(let source) = state.document?.content else { throw ReadError("Expected browser fixture") }
         state.font = "system"; state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32; state.theme = "light"
         state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
+        state.flow = "continuous"; state.spread = false
         let coordinator = BrowserReader.Coordinator(state: state, source: source)
         let view = coordinator.makeView(frame: CGRect(x: 0, y: 0, width: 700, height: 500))
         let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)

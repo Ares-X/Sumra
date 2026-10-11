@@ -341,6 +341,86 @@ final class LegacyBookTests: XCTestCase {
         XCTAssertTrue(content.resources.isEmpty)
     }
 
+    func testMobiGeneratesContentsFromRepeatedStandaloneChapterParagraphs() throws {
+        let html = "<html><body><p>正文里提到第一章，不是标题。</p>" +
+            "<p>第一章 开始</p><p>普通正文。</p><p>第二章 继续</p>" +
+            "<p>第九章只是正文中的一句话。</p><p>第三章 结束</p></body></html>"
+        let raw = Data(html.utf8)
+        let content = try XCTUnwrap(LegacyText.mobiContent(book(text: [raw], length: raw.count,
+            compression: 1, resources: [])))
+        let rendered = String(decoding: content.html, as: UTF8.self)
+        let titles = ["第一章 开始", "第二章 继续", "第三章 结束"]
+        XCTAssertEqual(content.outline.map(\.title), titles)
+        for title in titles {
+            let offset = try XCTUnwrap(raw.range(of: Data("<p>\(title)</p>".utf8))).lowerBound
+            XCTAssertTrue(rendered.contains("<a id=\"mobi-filepos-\(offset)\"></a><p>\(title)</p>"))
+            XCTAssertTrue(content.outline.contains { $0.target == "#mobi-filepos-\(offset)" })
+        }
+        XCTAssertEqual(rendered.components(separatedBy: "<a id=\"mobi-filepos-").count - 1, 3)
+        let withoutDestinations = rendered.replacingOccurrences(of: #"<a id="mobi-filepos-\d+"></a>"#,
+            with: "", options: .regularExpression)
+        XCTAssertEqual(withoutDestinations, html)
+    }
+
+    func testMobiDetectsChapterLinesInsideLongBreakSeparatedParagraphs() throws {
+        let titles = ["第一章 剧变", "第二章 起点", "第三章 归来", "第四章 转折", "第五章 终局"]
+        let html = "<html><body><p height='0pt' width='0pt'>" +
+            (["正文提到第一章，但这不是标题。"] + titles.flatMap { ["<br></br>\($0)", "<br></br>普通正文。"] })
+                .joined() + "</p></body></html>"
+        let raw = Data(html.utf8)
+        let content = try XCTUnwrap(LegacyText.mobiContent(book(text: [raw], length: raw.count,
+            compression: 1, resources: [])))
+        XCTAssertEqual(content.outline.map(\.title), titles)
+        let rendered = String(decoding: content.html, as: UTF8.self)
+        for title in titles {
+            let phrase = try XCTUnwrap("</br>\(title)".data(using: .utf8))
+            let offset = try XCTUnwrap(raw.range(of: phrase)).lowerBound + Data("</br>".utf8).count
+            XCTAssertTrue(content.outline.contains { $0.title == title && $0.target == "#mobi-filepos-\(offset)" })
+            XCTAssertTrue(rendered.contains("</br><a id=\"mobi-filepos-\(offset)\"></a>\(title)"))
+        }
+        XCTAssertEqual(rendered.replacingOccurrences(of: #"<a id="mobi-filepos-\d+"></a>"#,
+            with: "", options: .regularExpression), html)
+    }
+
+    func testMobiAuthorContentsTakePrecedenceOverDetectedChapterParagraphs() throws {
+        var html = "<html><head><guide><reference type='toc' filepos='00000000'/></guide></head><body>" +
+            "<p id='toc'><a filepos='11111111'>Author section</a></p><mbp:pagebreak/>" +
+            "<p>第一章 开始</p><p>第二章 继续</p></body></html>"
+        let original = Data(html.utf8)
+        let toc = try XCTUnwrap(original.range(of: Data("<p id='toc'>".utf8))).lowerBound
+        let first = try XCTUnwrap(original.range(of: Data("<p>第一章".utf8))).lowerBound
+        html = html.replacingOccurrences(of: "00000000", with: String(format: "%08d", toc))
+            .replacingOccurrences(of: "11111111", with: String(format: "%08d", first))
+        let content = try XCTUnwrap(LegacyText.mobiContent(book(text: [Data(html.utf8)], length: html.utf8.count,
+            compression: 1, resources: [])))
+        XCTAssertEqual(content.outline.map(\.title), ["Author section"])
+        XCTAssertEqual(content.outline.map(\.target), ["#mobi-filepos-\(first)"])
+        let rendered = String(decoding: content.html, as: UTF8.self)
+        XCTAssertEqual(rendered.components(separatedBy: "<a id=\"mobi-filepos-\(first)\"").count - 1, 1)
+        XCTAssertEqual(rendered.components(separatedBy: "<a id=\"mobi-filepos-").count - 1, 2)
+    }
+
+    func testMobiGeneratedContentsKeepOriginalUTF8AndGBKByteOffsets() throws {
+        let gbk = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringConvertWindowsCodepageToEncoding(936)))
+        for (encoding, codepage) in [(String.Encoding.utf8, 65001), (gbk, 936)] {
+            let html = "<html><body><p>前文</p><p>第一章 起点</p><p>正文。</p>" +
+                "<p>第二章 过程</p><p>第三章 终点</p></body></html>"
+            let raw = try XCTUnwrap(html.data(using: encoding))
+            var input = book(text: [raw], length: raw.count, compression: 1, resources: [])
+            put(codepage, integer(input, 78, 4) + 28, 4, in: &input)
+            let content = try XCTUnwrap(LegacyText.mobiContent(input))
+            let rendered = String(decoding: content.html, as: UTF8.self)
+            XCTAssertEqual(content.outline.map(\.title), ["第一章 起点", "第二章 过程", "第三章 终点"])
+            for title in content.outline.map(\.title) {
+                let source = try XCTUnwrap("<p>\(title)</p>".data(using: encoding))
+                let offset = try XCTUnwrap(raw.range(of: source)).lowerBound
+                XCTAssertTrue(content.outline.contains { $0.title == title && $0.target == "#mobi-filepos-\(offset)" })
+                XCTAssertTrue(rendered.contains("<a id=\"mobi-filepos-\(offset)\"></a><p>\(title)</p>"))
+            }
+        }
+    }
+
     func testMobiFilePositionCodepageAndMalformedTargetDoNotDamageMarkup() throws {
         var raw = Data("<html><body>caf".utf8); raw.append(0xe9)
         let target = raw.count

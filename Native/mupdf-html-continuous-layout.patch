@@ -1,0 +1,95 @@
+diff --git a/include/mupdf/fitz/document.h b/include/mupdf/fitz/document.h
+--- a/include/mupdf/fitz/document.h
++++ b/include/mupdf/fitz/document.h
+@@ -685,6 +685,9 @@
+ 	em: Default font size in points.
+ */
+ void fz_layout_document(fz_context *ctx, fz_document *doc, float w, float h, float em);
++
++/** Lay out reflowable chapters at their natural content height without pagination. */
++void fz_layout_document_continuous(fz_context *ctx, fz_document *doc, float w, float em);
+ 
+ /**
+ 	Create a bookmark for the given page, which can be used to find
+diff --git a/source/fitz/document.c b/source/fitz/document.c
+--- a/source/fitz/document.c
++++ b/source/fitz/document.c
+@@ -823,23 +823,33 @@
+ 	}
+ }
+ 
++static void
++set_document_layout(fz_document *doc, float w, float h, float em)
++{
++	if (doc && doc->layout && (doc->layout_w != w || doc->layout_h != h || doc->layout_em != em))
++	{
++		doc->layout_w = w;
++		doc->layout_h = h;
++		doc->layout_em = em;
++		doc->did_layout = FZ_LAYOUT_NEEDS_UPDATE;
++	}
++}
++
+ void
+ fz_layout_document(fz_context *ctx, fz_document *doc, float w, float h, float em)
+ {
+-	if (doc && doc->layout)
+-	{
+-		if (w <= 0) w = FZ_DEFAULT_LAYOUT_W;
+-		if (h <= 0) h = FZ_DEFAULT_LAYOUT_H;
+-		if (em <= 0) em = FZ_DEFAULT_LAYOUT_EM;
+-
+-		if (doc->layout_w != w || doc->layout_h != h || doc->layout_em != em)
+-		{
+-			doc->layout_w = w;
+-			doc->layout_h = h;
+-			doc->layout_em = em;
+-			doc->did_layout = FZ_LAYOUT_NEEDS_UPDATE;
+-		}
+-	}
++	if (w <= 0) w = FZ_DEFAULT_LAYOUT_W;
++	if (h <= 0) h = FZ_DEFAULT_LAYOUT_H;
++	if (em <= 0) em = FZ_DEFAULT_LAYOUT_EM;
++	set_document_layout(doc, w, h, em);
++}
++
++void
++fz_layout_document_continuous(fz_context *ctx, fz_document *doc, float w, float em)
++{
++	if (w <= 0) w = FZ_DEFAULT_LAYOUT_W;
++	if (em <= 0) em = FZ_DEFAULT_LAYOUT_EM;
++	set_document_layout(doc, w, 0, em);
+ }
+ 
+ int
+diff --git a/source/html/html-layout.c b/source/html/html-layout.c
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -1152,7 +1152,7 @@
+ 	float page_h = ld->page[B] - ld->page[T];
+ 	float page_top = ld->page[T];
+ 	float avail;
+-	if (ld->no_pagination)
++	if (ld->no_pagination || page_h <= 0)
+ 		return start_b + spacing;
+ 	avail = page_h - fmodf(start_b - page_top, page_h);
+ 	if (spacing > avail)
+@@ -3440,7 +3440,7 @@
+ 		h = html->meta_h;
+ 		em = 16;
+ 	}
+-	else
++	else if (h > 0)
+ 	{
+ 		w = fz_max(w, html->meta_w);
+ 		h = fz_max(h, html->meta_h);
+@@ -3478,7 +3478,8 @@
+ 	update_draw_groups(html->tree.root, 1);
+ 
+ 	if (h == 0)
+-		html->page_h = html->tree.root->s.layout.b;
++		/* An empty chapter has one empty text line as its natural canvas. */
++		html->page_h = html->tree.root->s.layout.b > 0 ? html->tree.root->s.layout.b : em;
+ 
+ 	/* Remember how we're laid out so we can avoid needless
+ 	 * relayouts in future. */

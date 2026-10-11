@@ -47,6 +47,46 @@ final class NativePDFSourceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: source), Data("External replacement".utf8))
     }
 
+    func testSnapshotAcceptsMetadataChangesAfterItsSourceCheckpoint() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let source = directory.url.appendingPathComponent("source.pdf")
+        let original = Data("Original PDF bytes".utf8)
+        try original.write(to: source)
+        let expected = try XCTUnwrap(NativeFile.FileCheckpoint(source))
+        let metadata = Data("benign metadata".utf8)
+        XCTAssertEqual(source.path.withCString { path in
+            metadata.withUnsafeBytes { setxattr(path, "com.sumra.test-metadata", $0.baseAddress, $0.count, 0, 0) }
+        }, 0)
+        let changed = try XCTUnwrap(NativeFile.FileVersion(source))
+        XCTAssertNotEqual(changed, expected.version)
+        XCTAssertTrue(expected.version.matchesContentMetadata(changed))
+        let snapshot = try NativeFile.PDFSource(source, expected: expected)
+        XCTAssertEqual(try Data(contentsOf: snapshot.url), original)
+        XCTAssertEqual(try Data(contentsOf: source), original)
+    }
+
+    func testSnapshotRejectsChangedBytesWithRestoredModificationTime() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let source = directory.url.appendingPathComponent("source.pdf")
+        let original = Data("Original PDF bytes".utf8), replacement = Data("Modified PDF bytes".utf8)
+        XCTAssertEqual(original.count, replacement.count)
+        try original.write(to: source)
+        let expected = try XCTUnwrap(NativeFile.FileCheckpoint(source))
+        let writer = try FileHandle(forWritingTo: source)
+        try writer.write(contentsOf: replacement); try writer.close()
+        var times = [timespec(tv_sec: 0, tv_nsec: Int(UTIME_OMIT)),
+                     timespec(tv_sec: expected.version.modifiedSeconds, tv_nsec: expected.version.modifiedNanoseconds)]
+        XCTAssertEqual(source.path.withCString { utimensat(AT_FDCWD, $0, &times, 0) }, 0)
+        let changed = try XCTUnwrap(NativeFile.FileVersion(source))
+        XCTAssertTrue(expected.version.matchesContentMetadata(changed))
+        XCTAssertThrowsError(try NativeFile.PDFSource(source, expected: expected)) {
+            XCTAssertTrue($0.localizedDescription.contains("changed while opening"))
+        }
+        XCTAssertEqual(try Data(contentsOf: source), replacement)
+    }
+
     func testSnapshotRejectsDifferentBytesEvenWithTheExpectedSourceMetadata() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }

@@ -9,6 +9,8 @@ struct ReaderView: View {
     @AppStorage("findFloating") private var findFloating = false
     @AppStorage("sidebarRight") private var sidebarRight = false
     @FocusState private var sidebarFocused: Bool
+    @State private var initialNativeCanvas: (document: UUID, bounds: CGRect, position: ReadingPosition)?
+    @State private var initialNativeViewport: (document: UUID, size: CGSize)?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
@@ -217,11 +219,16 @@ struct ReaderView: View {
 
     private var layoutOptions: some View {
         Menu {
-            if state.isFixed {
-                menuCommands([.autoLayout, .paged, .continuous, .twoPages, .coverOnItsOwn, .rightToLeft])
+            if state.supportsPagination {
+                if state.isFixed { menuCommands([.autoLayout]) }
+                menuCommands([.paged, .continuous, .twoPages])
+                if state.isFixed { menuCommands([.coverOnItsOwn]) }
+                menuCommands([.rightToLeft])
                 Divider()
-                menuCommands([.rotateLeft, .rotateRight])
-                Divider()
+                if state.isFixed {
+                    menuCommands([.rotateLeft, .rotateRight])
+                    Divider()
+                }
             }
             if state.isText || state.isBrowser || state.reflowable {
                 TypographyMenu(state: state)
@@ -405,32 +412,51 @@ struct ReaderView: View {
         case .browser(let source):
             BrowserReader(state: state, source: source)
         case .pages(let pages):
-            RasterReader(state: state, pages: pages)
-                .task {
+            RasterReader(state: state, pages: pages,
+                initialBounds: initialNativeCanvas?.document == document.id ? initialNativeCanvas?.bounds : nil,
+                initialPosition: initialNativeCanvas?.document == document.id ? initialNativeCanvas?.position : nil)
+                .background(ReaderInitialViewport { size in
+                    initialNativeViewport = (document.id, size)
+                })
+                .task(id: initialNativeViewport?.document) {
+                    guard let viewport = initialNativeViewport, viewport.document == document.id else { return }
                     let started = DispatchTime.now().uptimeNanoseconds
                     NativeReadingPerformance.mark("prepare-request", pages: pages, revision: state.renderRevision)
                     defer { NativeReadingPerformance.mark("prepare-return", pages: pages, revision: state.renderRevision, started: started) }
                     do {
+                        var initial = state.currentPosition
+                        let bookmark = initial.anchor.flatMap(ChapterTable.bookmarkLocation)
+                        // Legacy finite-page records must resolve their source
+                        // in the recorded geometry before entering natural flow.
+                        let legacyPages = initial.nativePassage == nil && bookmark.map { $0.count != 1 } == true
+                        let continuous = state.flow == "continuous" && !state.presentation
+                        let initialViewport = ReaderScrollbars.initialReadingViewport(in: viewport.size, mode: state.scrollbarMode, continuous: continuous)
+                        let initialPageSize = legacyPages ? nil : RasterReader.pageSize(in: initialViewport,
+                            spread: state.spread && !state.presentation,
+                            continuous: continuous)
                         NativeReadingPerformance.mark("relayout-request", pages: pages, revision: state.renderRevision)
                         _ = try await pages.relayout(
                             fontSize: state.fontSize, lineHeight: state.lineHeight,
                             margin: state.margin, font: state.font, theme: state.resolvedTheme,
                             userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS, pageMargins: state.pageMargins,
-                            textZoom: pages.isMarkdown ? state.zoom : 1)
+                            textZoom: pages.isMarkdown ? state.zoom : 1,
+                            pageSize: initialPageSize, viewport: initialViewport)
                         NativeReadingPerformance.mark("relayout-return", pages: pages, revision: state.renderRevision)
                         let prepared = try await pages.prepare()
-                        var initial = state.currentPosition
                         if pages.isPDF, state.useDocumentOpenAction, let page = try await pages.pdfInitialPage() { initial.page = page }
-                        let restored = try await pages.restore(initial, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme)
+                        let restored = try await pages.restore(initial, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme,
+                            viewport: initialViewport)
                         let count = await pages.count
                         let chapterLayout = await pages.chapterLayout
                         try await pages.seedImageBounds(page: restored.page, uniform: state.uniformPageWidth)
                         let zoomLimit = try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
                         let landscape = try await pages.landscapePages(rotation: state.rotation)
                         let pdfInfo = pages.isPDF ? try await pages.pdfInfo() : nil
+                        let initialBounds = try await pages.bounds(restored.page)
                         guard !Task.isCancelled,
                               case .pages(let current)? = state.document?.content,
                               current === pages else { return }
+                        initialNativeCanvas = (document.id, initialBounds, restored)
                         state.outline = prepared.outline
                         if pages.isPDF { state.useDocumentOpenAction = false }
                         state.nativePDFInfo = pdfInfo
@@ -451,6 +477,40 @@ struct ReaderView: View {
                         state.error = error.localizedDescription
                     }
                 }
+        }
+    }
+}
+
+// SwiftUI's first size proposal can precede the window's actual reader layout.
+// Measure its mounted AppKit surface after applying the pending window layout.
+struct ReaderInitialViewport: NSViewRepresentable {
+    let measured: (CGSize) -> Void
+    func makeNSView(context: Context) -> View { View(measured: measured) }
+    func updateNSView(_ view: View, context: Context) { view.measured = measured }
+
+    final class View: NSView {
+        var measured: (CGSize) -> Void
+        private var delivered = false
+        private var scheduled = false
+
+        init(measured: @escaping (CGSize) -> Void) { self.measured = measured; super.init(frame: .zero) }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); measureAfterLayout() }
+        override func layout() { super.layout(); measureAfterLayout() }
+
+        private func measureAfterLayout() {
+            guard !delivered, !scheduled, window != nil else { return }
+            scheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.scheduled = false
+                guard !self.delivered, let window = self.window else { return }
+                window.contentView?.layoutSubtreeIfNeeded()
+                guard !self.bounds.isEmpty else { return }
+                self.delivered = true
+                self.measured(self.bounds.size)
+            }
         }
     }
 }
@@ -890,15 +950,14 @@ struct TypographyMenu: View {
                     Text(L("Sans Serif")).tag("sans-serif")
                     Text(L("Monospace")).tag("monospace")
                 }
-                .onChange(of: state.font) { _ in state.applyTypography() }
+                .onChange(of: state.font) { _ in state.applyTypography(overrideDocumentStyles: true) }
 
                 Stepper(String(format: L("Font %d pt"), Int(state.fontSize)), value: $state.fontSize, in: 10...36, step: 1)
-                    .onChange(of: state.fontSize) { _ in state.applyTypography() }
+                    .onChange(of: state.fontSize) { _ in state.applyTypography(overrideDocumentStyles: true) }
 
                 Stepper(String(format: L("Line %.1f"), state.lineHeight), value: $state.lineHeight, in: 1...2.4, step: 0.1)
-                    .onChange(of: state.lineHeight) { _ in state.applyTypography() }
+                    .onChange(of: state.lineHeight) { _ in state.applyTypography(overrideDocumentStyles: true) }
             }
-            .disabled(state.isCHM && state.useDocumentCSS)
 
             Stepper(String(format: L("Margin %d"), Int(state.margin)), value: Binding(
                 get: { state.margin },

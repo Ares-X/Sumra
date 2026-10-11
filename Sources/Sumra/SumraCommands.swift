@@ -137,7 +137,7 @@ struct SumraCommands: Commands {
                 buttons([.fitPage, .fitWidth, .fitHeight, .fitOrientation, .shrinkToFit, .fitContent, .fitVisible, .zoomToSelection])
             }
             Menu(L("Document Colors")) {
-                buttons([.setTheme, .toggleLightDark, .documentColorsOff, .documentColorsSmart, .documentColorsLegacy, .customDocumentColors, .invertColors, .grayscale, .preserveImages])
+                buttons([.setTheme, .toggleLightDark, .documentColorsOff, .documentColorsSmart, .documentColorsLegacy, .customDocumentColors, .invertColors, .grayscale, .preserveImages, .enhanceScans])
                 Divider()
                 buttons([.engineeringOff, .engineeringAuto, .engineeringOn])
             }
