@@ -651,6 +651,44 @@ defect cannot be assigned as its cause. The first-open investigation remains
 open; non-reproduction is not a resolution, and this follow-up is not a new
 public release.
 
+### Signed initial-publication candidate (2026-10-12)
+
+The private Actions candidate `1a0ffdcc`, executable `EC4D5E64`, was installed
+through Sparkle and checked against its signed archive. The normal public
+0.2.2 release remains unchanged. Fresh-process original-book runs retained the
+saved 100-character passage and published the final initial geometry once:
+
+| Original | Viewport width | Load to first canvas | Native layout | Stable footprint | Lifetime peak |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| B04 | 1265 pt | 2.449 s | 1.845 s | 514.7 MiB | 760.7 MiB |
+| B02 | 1265 pt | 1.523 s | 0.980 s | 365.9 MiB | 617.6 MiB |
+| B04, restored narrow window | 770 pt | 2.517 s | 1.911 s | 502.9 MiB | 750.2 MiB |
+
+The two wide-window runs each requested three renders before the first canvas,
+compared with 25 requests in the preceding diagnostic B04 run. The narrow run
+used six requests. Dense AX observations in that narrow window first found the
+correct original passage at 2.693 seconds. Each run required one native layout.
+
+Actual single-page, two-page and continuous round trips returned both books to
+their original passage and scroll position. B04 mode layouts took
+0.553/0.568/0.537 seconds; B02 took 0.390/0.390/0.399 seconds. The sampled mode
+sessions peaked at 825.9/778.3 MiB and settled at 532.1/391.7 MiB respectively;
+these are the sampled intervals, not an every-frame memory claim. The B04
+two-page surface was visually inspected, and B02 exposed one/two painted page
+elements in the corresponding modes.
+
+Two initial B04 test runs restored only the generic reading record, overlooking
+the authoritative `:markdown:paged` record. They are excluded from original
+saved-position acceptance. Both records were then restored from the valid source
+snapshot with the app closed, and the later source-match checks above passed.
+
+The original 13.528-second measurement was first readable AX-body readiness,
+not an instrumented first-paint timestamp. Its delayed AX replies and changing
+page/scroll controls do not identify the historical cause. Additional local,
+content-free timing now separates AX task scheduling, native region extraction
+and main-thread snapshot publication from canvas drawing. Focused accessibility
+regressions pass; no new public release or resolution of that anomaly is claimed.
+
 ### User manual resize feedback (2026-10-11)
 
 For the requested normal-app manual window-edge drag check on the original

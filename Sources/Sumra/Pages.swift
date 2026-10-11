@@ -13,9 +13,9 @@ enum NativeReadingPerformance {
     private static let logger = Logger(subsystem: "com.leaf.reader", category: "native-reading")
     // Initial-prepare flags: 1 = source passage, 2 = legacy finite geometry,
     // 4 = single-page bookmark, 8 = continuous flow. No document text is logged.
-    static func mark(_ stage: String, pages: Pages? = nil, revision: Int = -1, page: Int = -1, started: UInt64? = nil, size: CGSize = .zero, persistent: Bool = false, flags: Int = 0) {
+    static func mark(_ stage: String, pages: Pages? = nil, pagesIdentity: ObjectIdentifier? = nil, revision: Int = -1, page: Int = -1, started: UInt64? = nil, size: CGSize = .zero, persistent: Bool = false, flags: Int = 0) {
         let now = DispatchTime.now().uptimeNanoseconds
-        let owner = pages.map { UInt(bitPattern: ObjectIdentifier($0)) } ?? 0
+        let owner = (pages.map { ObjectIdentifier($0) } ?? pagesIdentity).map { UInt(bitPattern: $0) } ?? 0
         logger.log(level: persistent ? .default : .debug, "\(stage, privacy: .public) monotonic_ns=\(now, privacy: .public) owner=\(owner, privacy: .public) revision=\(revision, privacy: .public) page=\(page, privacy: .public) duration_ns=\(started.map { now &- $0 } ?? 0, privacy: .public) width=\(Double(size.width), privacy: .public) height=\(Double(size.height), privacy: .public) flags=\(flags, privacy: .public)")
     }
 }
@@ -3750,11 +3750,21 @@ struct NativeReadingAccessibilitySnapshot {
         guard allowed else { clear(); return }
         guard self.identity != identity else { return }
         clear(); self.identity = identity
+        let scheduled = DispatchTime.now().uptimeNanoseconds
+        NativeReadingPerformance.mark("ax-task-scheduled", pagesIdentity: identity.pages,
+            revision: identity.revision, page: identity.location.page, size: identity.region?.size ?? .zero)
         task = Task { [weak self] in
             do {
+                NativeReadingPerformance.mark("ax-task-entry", pagesIdentity: identity.pages,
+                    revision: identity.revision, page: identity.location.page, started: scheduled)
                 let words = try await words()
                 guard !Task.isCancelled, let self, self.identity == identity else { return }
+                let snapshotStarted = DispatchTime.now().uptimeNanoseconds
+                NativeReadingPerformance.mark("ax-snapshot-entry", pagesIdentity: identity.pages,
+                    revision: identity.revision, page: identity.location.page)
                 self.snapshot = NativeReadingAccessibilitySnapshot(words: words)
+                NativeReadingPerformance.mark("ax-snapshot-publish", pagesIdentity: identity.pages,
+                    revision: identity.revision, page: identity.location.page, started: snapshotStarted)
                 self.task = nil
                 if let view = self.view, view.window != nil {
                     NSAccessibility.post(element: self, notification: .valueChanged)
@@ -4150,8 +4160,15 @@ struct NativeReadingAccessibilitySnapshot {
             guard readingReady, window != nil, !isHiddenOrHasHiddenAncestor, !visibleRect.isEmpty else { return }
             readingAccessibility.update(identity: identity, allowed: allowed, words: {
                 try Task.checkCancellation()
-                if let region { return try await pages.selection(areas: [location: region])[location]?.words ?? [] }
-                return try await pages.words(location)
+                let started = DispatchTime.now().uptimeNanoseconds
+                NativeReadingPerformance.mark("ax-text-entry", pages: pages, revision: revision,
+                    page: location.page, size: region?.size ?? .zero, flags: region == nil ? 0 : 1)
+                let words: [RasterWord]
+                if let region { words = try await pages.selection(areas: [location: region])[location]?.words ?? [] }
+                else { words = try await pages.words(location) }
+                NativeReadingPerformance.mark("ax-text-return", pages: pages, revision: revision,
+                    page: location.page, started: started, size: region?.size ?? .zero, flags: region == nil ? 0 : 1)
+                return words
             }, failure: { [weak state] error in
                 guard state?.document?.id == documentID, state?.renderRevision == revision else { return }
                 state?.error = error.localizedDescription
