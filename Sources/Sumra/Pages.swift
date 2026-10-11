@@ -1793,6 +1793,7 @@ private struct RasterScrollRequest: Equatable {
     @State private var searchCountStarted = false
     @State private var findTask: Task<Void, Never>?
     @State private var styleTask: Task<Void, Never>?
+    @State private var styleCommandRevision: Int?
     @State private var navigationTask: Task<Void, Never>?
     @State private var searchQuery = ""
     @State private var searchOptions = TextSearchOptions()
@@ -1937,7 +1938,11 @@ private struct RasterScrollRequest: Equatable {
             let documentID = state.document?.id
             for await table in await pages.layouts() {
                 guard !Task.isCancelled, documentID == state.document?.id else { return }
-                if state.chapterLayout != nil { applyLayout(table) }
+                // Reflow publishes native chapter counts before its source
+                // destination and replacement surface are committed. The style
+                // command owns that publication; applying it here would make
+                // the outgoing finite row render the new natural chapter.
+                if state.chapterLayout != nil, styleCommandRevision == nil { applyLayout(table) }
             }
         }
         .task(id: state.annotationsVisible) {
@@ -2576,6 +2581,7 @@ private struct RasterScrollRequest: Equatable {
         case .style, .zoom:
             acknowledge = false
             styleTask?.cancel(); navigationTask?.cancel()
+            styleCommandRevision = command.revision
             let preserveSelection = pages.isMarkdown
             state.clearChapterContentsPages()
             let font = state.font, size = state.fontSize, line = state.lineHeight, margin = state.margin, theme = state.resolvedTheme
@@ -2589,7 +2595,10 @@ private struct RasterScrollRequest: Equatable {
             let capturedResizePosition = pendingResizePosition
             let layoutPosition = capturedReflowPosition ?? capturedResizePosition ?? scrollRequest?.position ?? state.currentPosition
             styleTask = Task {
-                defer { state.didHandleCommand(command.revision) }
+                defer {
+                    if styleCommandRevision == command.revision { styleCommandRevision = nil }
+                    state.didHandleCommand(command.revision)
+                }
                 do {
                     await selections.finish()
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
@@ -2639,6 +2648,7 @@ private struct RasterScrollRequest: Equatable {
                     viewport = layoutViewport
                     renderedFlow = layoutFlow
                     renderedLayoutRevision = layoutRevision
+                    styleCommandRevision = nil
                     // A menu action may have captured the next source while
                     // this style awaited its native work. Finish only our handoff.
                     if state.pendingReflowPosition == capturedReflowPosition { state.pendingReflowPosition = nil }

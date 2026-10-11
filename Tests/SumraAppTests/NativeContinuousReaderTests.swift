@@ -62,6 +62,78 @@ final class NativeContinuousReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testReturningFromLaterSpreadPageRestoresTheNaturalPassage() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let oldFlow = defaults.object(forKey: "flow"), oldSpread = defaults.object(forKey: "spread")
+        defer { defaults.set(oldFlow, forKey: "flow"); defaults.set(oldSpread, forKey: "spread") }
+        let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("later-mode-handoff.md")
+        try (0..<2_000).map { "Paragraph \($0): Visible prose keeps its source passage across reading modes.\n\n" }
+            .joined().write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.flow = "continuous"; state.spread = false; state.fit = "width"
+        state.theme = "light"; state.fontSize = 17; state.lineHeight = 1.4
+        state.userCSS = ""; state.pageMargins = nil; state.automaticLayout = false
+        state.showContents = false; state.scrollbarMode = "hidden"
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 620, height: 400),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
+        func paint() {
+            host.layoutSubtreeIfNeeded()
+            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+        }
+        func settle(natural: Bool, preservingFinitePages: Bool = false, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                paint(); try await Task.sleep(nanoseconds: 10_000_000)
+                if preservingFinitePages {
+                    func inspect(_ view: NSView) {
+                        if let canvas = view as? RasterCanvas.Canvas, canvas.viewportTileSize == nil {
+                            XCTAssertLessThan(canvas.pageBounds.height, 500,
+                                "The outgoing finite surface must not render a natural chapter", line: line)
+                        }
+                        for child in view.subviews { inspect(child) }
+                    }
+                    inspect(host)
+                }
+                if let canvas = state.readerFocusView as? RasterCanvas.Canvas,
+                   (canvas.viewportTileSize != nil) == natural,
+                   RasterReader.pageIsRendered(in: canvas, pages: pages, location: state.pageLocation(state.page)),
+                   state.pendingReflowPosition == nil { return }
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Mode handoff did not paint the restored passage", line: line)
+        }
+        try await settle(natural: true)
+        state.send(.preservePosition(.init(page: 0, x: 0, y: 10_000)))
+        try await settle(natural: true)
+        // Let the actual viewport acquire its native source glyph, then require
+        // both paginations to settle before returning from a nonzero page.
+        for _ in 0..<20 { paint(); try await Task.sleep(nanoseconds: 10_000_000) }
+        let original = try XCTUnwrap(state.currentPosition.nativePassage)
+        state.setFlow("paged")
+        try await settle(natural: false)
+        XCTAssertGreaterThan(state.page, 0)
+        state.captureReflowPosition(); state.spread = true
+        try await settle(natural: false)
+        XCTAssertGreaterThan(state.page, 0)
+        state.setFlow("continuous")
+        try await settle(natural: true, preservingFinitePages: true)
+        XCTAssertEqual(state.count, 1)
+        XCTAssertEqual(state.pageLocation(state.page), .init(page: 0))
+        let restored = try XCTUnwrap(state.currentPosition.nativePassage)
+        XCTAssertEqual(restored.source, original.source)
+        let canvas = try XCTUnwrap(state.readerFocusView as? RasterCanvas.Canvas)
+        XCTAssertNotNil(canvas.viewportTileSize)
+        XCTAssertGreaterThan(canvas.pageBounds.height, 10_000)
+        XCTAssertGreaterThan(try XCTUnwrap(state.readerScrollView).contentView.bounds.minY, 9_000)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
     func testResizeKeepsPaintedTextWhileReplacementRenderingWaits() async throws {
         let engine = try NativeFile.libraryURL(for: .mupdf)
         guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine is required") }
