@@ -732,6 +732,26 @@ legacy style (16), preferred legacy style (32), and autohiding (64). The affecte
 ordering change still requires signed original-book verification and does not
 resolve the historical 13.528-second record by itself.
 
+Signed `a35c8fae` verification falsified that ordering-only fix. Matched quiet
+B04 opens painted in 2.345 and 2.555 seconds and retained the saved passage.
+The first run had 13 configurations/three render requests, but its repeat had
+542 configurations/nine requests. Both actual and preferred scroller style
+remained legacy, with AppKit autohiding enabled throughout. Stable footprints
+were 516.3/501.1 MiB; lifetime peaks were 764.6/743.6 MiB. AX snapshots followed
+the first run's canvas by 8.376 milliseconds. The delayed manual AX reads are
+not used as open timings.
+
+The next correction assigns legacy smart-scrollbar visibility to the existing
+natural document-geometry owner. It evaluates overflow at the full viewport,
+reserves vertical space when needed, and commits only that final canvas frame.
+Overlay behavior and custom-zoom panning keep their existing AppKit policy.
+Its full-viewport cache is invalidated when leaving that policy and reevaluated
+on document measurement or window changes. Seventeen focused initial-geometry,
+continuous-reading, EPUB mode-position and prediction checks pass, including
+short-document scrollbar removal, resize restoration, hidden-to-smart policy
+changes and custom-zoom panning. Signed original-book verification remains
+pending; no historical-cause conclusion is claimed.
+
 ### User manual resize feedback (2026-10-11)
 
 For the requested normal-app manual window-edge drag check on the original

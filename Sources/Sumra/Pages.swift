@@ -3038,7 +3038,7 @@ private struct WindowScale: NSViewRepresentable {
             let bounds: CGRect, content: CGRect?, referenceWidth: CGFloat?
         }
         private struct LayoutKey: Equatable {
-            let viewport: CGSize
+            var viewport: CGSize
             let count: Int, generation: Int, revision: Int, rotation: Int
             let fit: String
             let zoom: Double, limit: Double
@@ -3082,6 +3082,7 @@ private struct WindowScale: NSViewRepresentable {
         private var owner: RasterViewport?
         private let canvas = DocumentView()
         private var key: LayoutKey?
+        private var naturalScrollbarKey: LayoutKey?
         private var geometry: Geometry?
         private var locations = [PageLocation]()
         private var boxes = [CGRect]()
@@ -3124,22 +3125,32 @@ private struct WindowScale: NSViewRepresentable {
             }
             super.scrollWheel(with: event)
         }
-        func configure(_ value: RasterViewport) {
+        private var explicitNaturalScroller: Bool {
+            owner?.continuousReflow == true && owner?.state.fit != "custom" && owner?.state.scrollbarMode == "smart"
+                && NSScroller.preferredScrollerStyle == .legacy
+        }
+        func configure(_ value: RasterViewport, remeasure: Bool = false) {
             guard !arranging else { return }
             let pending = value.request?.position
             let saved = pending ?? position()
             owner = value
             arranging = true
+            if !explicitNaturalScroller { naturalScrollbarKey = nil }
+            if key?.revision != value.state.renderRevision { measured.removeAll() }
             // Natural width-fit never needs a horizontal bar. Reserving both
             // axes before fitting makes legacy autohiding alternate between
             // the full frame and the smaller clip while the canvas mounts.
             ReaderScrollbars.apply(to: self, mode: value.state.scrollbarMode,
-                horizontal: !value.continuousReflow || value.state.fit == "custom")
-            // AppKit may leave a pending autohide retile after changing the
-            // document frame. Resolve it before using the clip as layout input.
+                horizontal: !value.continuousReflow || value.state.fit == "custom",
+                vertical: explicitNaturalScroller ? hasVerticalScroller : true,
+                autohide: explicitNaturalScroller ? false : nil)
             tile()
-            let state = value.state, viewport = value.liveResizeViewport ?? contentView.bounds.size
-            let next = LayoutKey(viewport: viewport, count: state.count,
+            let state = value.state
+            let viewport = explicitNaturalScroller && value.liveResizeViewport == nil
+                ? NSScrollView.contentSize(forFrameSize: frame.size, horizontalScrollerClass: nil,
+                    verticalScrollerClass: nil, borderType: .noBorder, controlSize: .regular, scrollerStyle: .legacy)
+                : value.liveResizeViewport ?? contentView.bounds.size
+            var next = LayoutKey(viewport: viewport, count: state.count,
                 generation: state.chapterLayout?.generation ?? 0, revision: state.renderRevision, rotation: state.rotation,
                 fit: value.continuousReflow && state.fit != "custom" ? "width" : state.fit,
                 zoom: state.fit == "custom" ? state.rasterZoom : 1, limit: state.zoomLimit,
@@ -3148,22 +3159,41 @@ private struct WindowScale: NSViewRepresentable {
                 trim: state.trimEmptyMargins && !value.continuousReflow, freePan: state.freePan && !value.continuousReflow,
                 continuousReflow: value.continuousReflow,
                 landscape: state.landscapeAsSpread && !value.continuousReflow ? state.landscapePages : [], estimate: value.estimate)
+            var preparedGeometry: Geometry?
+            if explicitNaturalScroller, value.liveResizeViewport == nil {
+                if naturalScrollbarKey != next || remeasure {
+                    naturalScrollbarKey = next
+                    // Like DisplayModel::Relayout, decide overflow from the full
+                    // viewport, then reserve the bar before committing geometry.
+                    // AppKit autohiding while restoring a tall chapter otherwise
+                    // feeds alternating clip widths back into this same layout.
+                    preparedGeometry = layoutGeometry(next)
+                    let vertical = (preparedGeometry?.canvas.height ?? 0) > viewport.height
+                    ReaderScrollbars.apply(to: self, mode: state.scrollbarMode,
+                        horizontal: false, vertical: vertical, autohide: false)
+                    tile()
+                    next.viewport = contentView.bounds.size
+                    if next.viewport != viewport { preparedGeometry = layoutGeometry(next) }
+                } else if let key { next.viewport = key.viewport }
+            }
             let target = pending?.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
                 .map { state.pageNumber($0) } ?? pending?.page ?? state.page
             let targetRow = PageRows.range(page: target, count: next.count, spread: next.spread,
                 cover: next.cover, landscape: next.landscape).lowerBound
-            let changed = key != next || (ReadingZoom.usesContent(next.fit) && pending != nil && contentPage != targetRow)
+            let changed = key != next || remeasure || (ReadingZoom.usesContent(next.fit) && pending != nil && contentPage != targetRow)
             NativeReadingPerformance.mark("viewport-configure", pages: value.pages, revision: state.renderRevision,
-                                          page: state.page, size: viewport,
+                                          page: state.page, size: next.viewport,
                                           flags: (changed ? 1 : 0) | (value.liveResizeViewport == nil ? 0 : 2) | (value.continuousReflow ? 8 : 0)
                                               | (scrollerStyle == .legacy ? 16 : 0) | (NSScroller.preferredScrollerStyle == .legacy ? 32 : 0)
                                               | (autohidesScrollers ? 64 : 0))
             if changed {
                 cancelPrediction()
-                if key?.revision != next.revision { measured.removeAll() }
                 contentPage = targetRow
                 key = next
-                relayout()
+                if let preparedGeometry {
+                    geometry = preparedGeometry
+                    canvas.frame = CGRect(origin: .zero, size: preparedGeometry.canvas)
+                } else { relayout() }
                 if let saved { go(to: saved) }
             } else if let pending { go(to: pending) }
             // Live resize uses the frozen layout until the drag ends. Replacing
@@ -3180,7 +3210,12 @@ private struct WindowScale: NSViewRepresentable {
             if key?.viewport != (owner?.liveResizeViewport ?? contentView.bounds.size) { schedulePosition() }
         }
         private func relayout() {
-            guard let owner, let key, key.viewport.width > 0, key.viewport.height > 0 else { return }
+            guard let key else { return }
+            geometry = layoutGeometry(key)
+            canvas.frame = CGRect(origin: .zero, size: geometry?.canvas ?? key.viewport)
+        }
+        private func layoutGeometry(_ key: LayoutKey) -> Geometry? {
+            guard let owner, key.viewport.width > 0, key.viewport.height > 0 else { return nil }
             let uniform = owner.state.reflowable && !key.continuousReflow && !key.trim && !key.uniform && key.landscape.isEmpty
                 && measured.values.allSatisfy { $0.bounds == key.estimate }
             if uniform { locations.removeAll(); boxes.removeAll() }
@@ -3218,11 +3253,9 @@ private struct WindowScale: NSViewRepresentable {
                     return RasterLayout.size(page: bounds.size, viewport: key.viewport, columns: columns,
                         rotation: key.rotation, fit: key.fit, zoom: key.zoom, limit: key.limit, origin: bounds.origin)
                 }
-                geometry = PageRows.uniformLayout(singleSize: displaySize(columns: 1), pairSize: displaySize(columns: 2),
+                return PageRows.uniformLayout(singleSize: displaySize(columns: 1), pairSize: displaySize(columns: 2),
                     count: key.count, viewport: key.viewport, spread: key.spread, cover: key.cover, rtl: key.rtl,
                     freePan: key.freePan, spacing: CGSize(width: 4, height: 4), inset: .zero).map(Geometry.uniform)
-                canvas.frame = CGRect(origin: .zero, size: geometry?.canvas ?? key.viewport)
-                return
             }
             let rows = PageRows.ranges(count: key.count, spread: key.spread, cover: key.cover, landscape: key.landscape)
             var sizes = [CGSize](repeating: .zero, count: key.count)
@@ -3241,10 +3274,9 @@ private struct WindowScale: NSViewRepresentable {
                     }
                 }
             }
-            geometry = .listed(PageRows.layout(displaySizes: sizes, viewport: key.viewport, page: owner.state.page,
+            return .listed(PageRows.layout(displaySizes: sizes, viewport: key.viewport, page: owner.state.page,
                 continuous: true, spread: key.spread, cover: key.cover, rtl: key.rtl, landscape: key.landscape,
                 freePan: key.freePan, spacing: CGSize(width: 4, height: key.continuousReflow ? 0 : 4), inset: .zero))
-            canvas.frame = CGRect(origin: .zero, size: geometry?.canvas ?? key.viewport)
         }
         private func rowFrame(_ row: Range<Int>) -> CGRect {
             row.reduce(CGRect.null) { result, index in geometry?.placement(page: index).map { result.union($0.frame) } ?? result }
@@ -3498,6 +3530,7 @@ private struct WindowScale: NSViewRepresentable {
                     return
                 }
             }
+            if explicitNaturalScroller { configure(owner, remeasure: true); return }
             arranging = true
             relayout()
             if let saved { go(to: saved) }

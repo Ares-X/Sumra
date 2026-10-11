@@ -396,6 +396,9 @@ final class NativeContinuousReaderTests: XCTestCase {
         }
         try await waitForPaint()
         let scroll = try XCTUnwrap(state.readerScrollView)
+        if NSScroller.preferredScrollerStyle == .legacy {
+            XCTAssertFalse(scroll.autohidesScrollers, "Natural overflow owns legacy visibility before restoring its reading position")
+        }
         window.setContentSize(CGSize(width: 890, height: 768))
         try await waitForPaint()
         // The first painted frame can precede the command acknowledgement.
@@ -419,6 +422,13 @@ final class NativeContinuousReaderTests: XCTestCase {
         XCTAssertEqual(finalRevision, revision, "A settled clip must not start another native reflow")
         XCTAssertEqual(state.renderRevision, renderedRevision, "A settled clip must not rebuild the visible surface")
         XCTAssertTrue(RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: 0)))
+
+        state.scrollbarMode = "hidden"
+        try await waitForPaint()
+        XCTAssertFalse(scroll.hasVerticalScroller)
+        state.scrollbarMode = "smart"
+        try await waitForPaint()
+        XCTAssertTrue(scroll.hasVerticalScroller, "Returning to smart mode must restore a needed vertical bar")
 
         // Width-fit owns one scrolling axis, while explicit zoom must still
         // allow panning across an enlarged natural chapter.
@@ -445,6 +455,52 @@ final class NativeContinuousReaderTests: XCTestCase {
         try await waitForWidth(false)
         XCTAssertFalse(scroll.hasHorizontalScroller)
         XCTAssertEqual(clip.bounds.minX, 0, accuracy: 0.5)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testSmartLegacyNaturalScrollbarHidesWhenTheDocumentFits() async throws {
+        _ = NSApplication.shared
+        guard NSScroller.preferredScrollerStyle == .legacy else { throw XCTSkip("Requires the system's legacy scrollbar preference") }
+        let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("short-natural.html")
+        try ("<html><body>" + String(repeating: "<p>A short document follows the available reading height.</p>", count: 8) + "</body></html>")
+            .write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .html), state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.reflowable = true; state.searchable = true; state.automaticLayout = false
+        state.flow = "continuous"; state.fit = "width"; state.spread = false
+        state.fontSize = 17; state.lineHeight = 1.4; state.font = "serif"; state.theme = "light"; state.margin = 32
+        state.userCSS = ""; state.pageMargins = nil; state.scrollbarMode = "smart"
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 620, height: 180),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
+        func settle(overflow: Bool, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(5)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+                if let scroll = state.readerScrollView,
+                   scroll.hasVerticalScroller == overflow,
+                   (scroll.documentView!.frame.height > scroll.contentView.bounds.height) == overflow,
+                   RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: 0)) {
+                    XCTAssertFalse(scroll.autohidesScrollers, line: line)
+                    XCTAssertFalse(scroll.hasHorizontalScroller, line: line)
+                    let expectedWidth = overflow ? 620 - NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 620
+                    XCTAssertEqual(scroll.contentView.bounds.width, expectedWidth, accuracy: 0.5, line: line)
+                    return
+                }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Natural scrollbar did not follow document overflow", line: line)
+        }
+        try await settle(overflow: true)
+        window.setContentSize(CGSize(width: 620, height: 1_000))
+        try await settle(overflow: false)
+        window.setContentSize(CGSize(width: 620, height: 180))
+        try await settle(overflow: true)
         XCTAssertNil(state.error)
     }
 }
