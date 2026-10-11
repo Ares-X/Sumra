@@ -14,6 +14,56 @@ This report describes sampled validation of 25 locally supplied books. The books
 
 The recorded 25/25 functional sweep exited successfully for opening, sampled rendering and navigation; originals remained byte-identical by inventory checks. This was a bounded local probe, with separate older app-window observations. It does not establish every page, whole-book search/selection, low memory, smooth trackpad use or the current loaded binary's behavior. CHM follows its own WebKit navigation checks. Some source outline targets are missing or empty by design; an empty MOBI outline is not automatically a parser failure.
 
+## Published 0.2.2 Actions acceptance (2026-10-11)
+
+The public app was built from `ad996417fdd2a061f7399cfb10c601e59366a6f0`;
+its executable UUID is `D5A599B0-D4AA-3DD9-8F15-74630815496A`. The final
+changed-owner checks use this app. Earlier corpus observations below retain
+their own binary identities.
+
+| Original Markdown | Source open to first painted canvas | First chapter layout | Single/Two/Continuous layout | End-of-session physical footprint | Process lifetime peak |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| B02, 14.17 MB | 1.434 s | 0.898 s | 0.390–0.397 s | 527 MiB | 971 MiB |
+| B04, 20.65 MB | 2.308 s | 1.755 s | 0.542–0.544 s | 656 MiB | 968 MiB |
+
+These are separate fresh-process observations on an M3 Max running macOS
+27.0.1, with different window geometry. Memory includes mode switching,
+completed Find and Contents navigation; it is not a first-open-only sample
+or an upstream performance comparison. Both books passed actual Single/Two
+Page turns, same-chapter continuous wheel movement, completed 47/336-result
+Find and Next, Contents destinations, and fresh-process restoration of the
+same 100-character source passage and exact recorded scroll fraction.
+
+The mode owner now publishes chapter geometry with the committed reading
+surface. Queued requests from the preceding mode are canceled before location
+projection or rendering, preventing an obsolete finite-page request from
+rasterizing a newly natural-height chapter. Nine focused reader/rendering
+checks passed after red/green regressions. Final runtime logs confirm discarded
+obsolete requests and viewport rendering below 0.039 seconds in these sessions.
+The final EPUB check also preserves its entire 415-character continuous
+passage from the preceding double-page spread. TXT and CHM checks use their
+unchanged owners and separately identified earlier GUI captures.
+
+[Candidate build](https://github.com/Ares-X/Sumra/actions/runs/38146117699)
+and [publication](https://github.com/Ares-X/Sumra/actions/runs/38147751273)
+succeeded. All six [public release assets](https://github.com/Ares-X/Sumra/releases/tag/v0.2.2)
+downloaded anonymously and matched the accepted hashes. Strict application
+signing and the Sparkle update signature passed. A real public 0.2.1 client
+downloaded, installed and relaunched as 0.2.2; its 181 files and five symlinks
+match the accepted app. The same bytes were loaded into canonical
+`dist/Sumra.app`, where B04 restoration and continuous movement passed again.
+
+The first B04 readiness observation immediately after updating was 13.528
+seconds. Its cause remains undetermined: reader debug events were not retained
+for that run, and no matching security-policy event was found. Two subsequent
+fresh processes painted the first canvas in 2.450 and 2.351 seconds. The slow
+observation is retained as an anomaly, not attributed to the OS or omitted from
+acceptance. All nine shipped Mach-O files include arm64 with a minimum system
+version no newer than macOS 13; physical macOS 13 execution remains unexercised.
+
+Private receipts retain the original inventory, GUI captures, performance
+events, release correspondence and process/output retirement evidence.
+
 ## Completed original-book workflow sweep (2026-10-11)
 
 The subsequent large-Markdown follow-up was loaded as `0DC4E5D7` and repeated

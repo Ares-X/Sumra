@@ -608,6 +608,23 @@ unexercised. `bundle-compatibility.json`, `final-title-loaded-process.txt`,
 `corpus-integrity-final-effects.json` and the final changed-path window captures
 retain the separate source, packaged, loaded and original-book evidence.
 
+### Published Actions build (2026-10-11)
+
+The final 0.2.2 app, source `ad996417` and executable `D5A599B0`, supersedes
+the historical local builds above. Original B02/B04 first painted canvases
+were observed at 1.434/2.308 seconds; first chapter layouts took 0.898/1.755
+seconds, and mode layouts took 0.390–0.544 seconds. Reading sessions including
+mode changes, search and Contents peaked at 968–971 MiB physical footprint.
+These scopes and the actual reading/reopening checks are recorded in the
+[published corpus acceptance](BOOK_CORPUS_ACCEPTANCE.md#published-022-actions-acceptance-2026-10-11).
+
+Publication and a real 0.2.1-to-0.2.2 Sparkle installation passed with the
+accepted bytes. Immediately after updating, one B04 GUI readiness observation
+took 13.528 seconds with no retained reader trace explaining the delay.
+Two further fresh processes, including the canonical normal app, painted the
+first canvas in 2.450/2.351 seconds. The unexplained initial observation remains
+in the record; no OS cause or universal timing guarantee is inferred.
+
 ### User manual resize feedback (2026-10-11)
 
 For the requested normal-app manual window-edge drag check on the original
