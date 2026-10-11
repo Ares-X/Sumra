@@ -716,6 +716,22 @@ horizontal bar reduced reading height. Initial geometry, continuous reading,
 mode-position and prediction checks pass after the change. Signed original-book
 verification of this fix is pending; the historical anomaly remains open.
 
+The signed `fe7291b8` partial fix was then checked on original B04 with the
+matched quiet-open inputs: first canvas 2.424 seconds, saved passage retained,
+518.6 MiB stable footprint and 765.2 MiB lifetime peak. The unwanted horizontal
+footprint disappeared, but 523 viewport configurations and nine render requests
+still preceded the canvas, alternating vertical-bar visibility for about
+173 milliseconds. A repeat of the preceding source had painted in 2.449 seconds
+with three requests, confirming that the feedback loop is intermittent.
+
+The owner now asks AppKit to finish `NSScrollView.tile()` before deriving its
+layout key from the clip; synchronous retile notifications stay inside the
+existing arrangement transaction. Debug viewport flags also distinguish actual
+legacy style (16), preferred legacy style (32), and autohiding (64). The affected
+16 geometry, continuous reading, mode-position and prediction tests pass. This
+ordering change still requires signed original-book verification and does not
+resolve the historical 13.528-second record by itself.
+
 ### User manual resize feedback (2026-10-11)
 
 For the requested normal-app manual window-edge drag check on the original

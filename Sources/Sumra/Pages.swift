@@ -3135,6 +3135,9 @@ private struct WindowScale: NSViewRepresentable {
             // the full frame and the smaller clip while the canvas mounts.
             ReaderScrollbars.apply(to: self, mode: value.state.scrollbarMode,
                 horizontal: !value.continuousReflow || value.state.fit == "custom")
+            // AppKit may leave a pending autohide retile after changing the
+            // document frame. Resolve it before using the clip as layout input.
+            tile()
             let state = value.state, viewport = value.liveResizeViewport ?? contentView.bounds.size
             let next = LayoutKey(viewport: viewport, count: state.count,
                 generation: state.chapterLayout?.generation ?? 0, revision: state.renderRevision, rotation: state.rotation,
@@ -3152,7 +3155,9 @@ private struct WindowScale: NSViewRepresentable {
             let changed = key != next || (ReadingZoom.usesContent(next.fit) && pending != nil && contentPage != targetRow)
             NativeReadingPerformance.mark("viewport-configure", pages: value.pages, revision: state.renderRevision,
                                           page: state.page, size: viewport,
-                                          flags: (changed ? 1 : 0) | (value.liveResizeViewport == nil ? 0 : 2) | (value.continuousReflow ? 8 : 0))
+                                          flags: (changed ? 1 : 0) | (value.liveResizeViewport == nil ? 0 : 2) | (value.continuousReflow ? 8 : 0)
+                                              | (scrollerStyle == .legacy ? 16 : 0) | (NSScroller.preferredScrollerStyle == .legacy ? 32 : 0)
+                                              | (autohidesScrollers ? 64 : 0))
             if changed {
                 cancelPrediction()
                 if key?.revision != next.revision { measured.removeAll() }
