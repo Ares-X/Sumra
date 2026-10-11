@@ -752,6 +752,17 @@ short-document scrollbar removal, resize restoration, hidden-to-smart policy
 changes and custom-zoom panning. Signed original-book verification remains
 pending; no historical-cause conclusion is claimed.
 
+The `a6a0f596` candidate was built by Actions run `38158780617`. Its 181 app
+file hashes match the retained source/build provenance; deep strict code-signing
+and the Sparkle Ed25519 signature pass. All nine shipped Mach-O files contain
+ARM64 and declare minimum macOS versions no higher than 13.0. Executable UUID:
+`471B210C-BFDD-3406-9383-B3200C6BEAB1`. The ZIP SHA-256 is
+`05a7cfe24a342eea143f1ac96bd478584e193892c7b2b6536df0f09f5caf5532`.
+The GUI tool then reported a locked Mac, so actual original-book verification
+of this candidate is still pending manual unlock. The idle legacy update
+fixture and native log stream were stopped; prior traces, original-book hashes
+and signed recovery archives remain retained. The public release is unchanged.
+
 ### User manual resize feedback (2026-10-11)
 
 For the requested normal-app manual window-edge drag check on the original
