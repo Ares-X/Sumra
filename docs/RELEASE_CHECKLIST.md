@@ -32,6 +32,12 @@ pre-change TextReader and remains unresolved; its assertions are retained.
 The [deep review](SUMATRA_DEEP_IMPLEMENTATION_REVIEW_20261012.md) records the exact
 comparison and pending GUI evidence. This is not an accepted release candidate.
 
+The third careful review fixes Markdown opening-policy and cross-book position
+leakage, and removes unused native search fragment ranges and their flatten/map
+work. All 75 related checks and the native rebuild pass. Standard-system-scroll
+diagnostics do not establish real gesture behavior; the original wheel failure
+and first-open incident remain open. See the same deep review for current evidence.
+
 The latest original-book workflow sweep and changed-owner findings are in
 [the corpus acceptance report](BOOK_CORPUS_ACCEPTANCE.md#completed-original-book-workflow-sweep-2026-10-11)
 and [the performance report](LARGE_TEXT_PERFORMANCE_20261010.md#final-pagination-follow-up-october-11).

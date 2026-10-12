@@ -19,10 +19,10 @@ final class NativeMarkdownDocumentFindTests: XCTestCase {
                                  filePath: StaticString = #filePath, line: UInt = #line) throws {
         let fragments = try XCTUnwrap(match.fragments, file: filePath, line: line)
         XCTAssertEqual(fragments.map(\.page), pages, file: filePath, line: line)
+        let text = try XCTUnwrap(file.text(match.page), file: filePath, line: line) as NSString
+        XCTAssertGreaterThanOrEqual(match.index, 0, file: filePath, line: line)
+        XCTAssertLessThan(match.index, text.length, file: filePath, line: line)
         for fragment in fragments {
-            let text = try XCTUnwrap(file.text(fragment.page), file: filePath, line: line) as NSString
-            XCTAssertGreaterThan(fragment.length, 0, file: filePath, line: line)
-            XCTAssertLessThanOrEqual(fragment.start + fragment.length, text.length, file: filePath, line: line)
             XCTAssertTrue(fragment.rects.contains { $0.width > 0 && $0.height > 0 },
                           file: filePath, line: line)
         }

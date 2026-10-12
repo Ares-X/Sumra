@@ -1982,49 +1982,65 @@ static void markdown_write_hit(SumraMuPDFDocument *d, SumraJSON *json, const Mar
              * extract the hit's existing flow regions; never fill the page cache. */
             page = continuous ? region_stext_at(d, 0, page_number, hit->region, NULL)
                 : stext_at(d, 0, page_number, NULL, NULL);
-            fz_try(ctx) {
-                buffer = fz_new_buffer_from_flattened_stext_page(ctx, page, FZ_TEXT_FLATTEN_KEEP_PARAGRAPHS, &map);
-            } fz_catch(ctx) { map = NULL; fz_rethrow(ctx); }
-            const char *text = fz_string_from_buffer(ctx, buffer);
-            size_t utf16 = 0, start = SIZE_MAX, end = 0;
-            for (size_t at = 0, serial = 0; text[at]; ++serial) {
-                if ((serial & 1023) == 0 && cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
-                int rune, bytes = fz_chartorune(&rune, text + at);
-                fz_stext_char *ch = map[serial].ch;
-                if (ch && ch->source_node) {
-                    SumraSource source = source_of(ch);
-                    if (!source_less(source, hit->first) && !source_less(last, source)) {
-                        if (start == SIZE_MAX) start = utf16;
-                        end = utf16 + (rune > 0xffff ? 2 : 1);
-                    }
-                }
-                at += bytes; utf16 += rune > 0xffff ? 2 : 1;
-            }
-            if (start != SIZE_MAX) {
-                if (emitted++) lf_json(json, ",");
-                lf_json(json, "{\"page\":"); lf_json_number(json, page_number);
-                lf_json(json, ",\"start\":"); markdown_json_index(json, continuous ? hit->source_index : start);
-                lf_json(json, ",\"length\":"); lf_json_number(json, end - start);
-                lf_json(json, ",\"rects\":[");
-                int rectangles = 0;
-                size_t visited = 0;
-                for (fz_stext_block *block = page->first_block; block; block = block->next) {
-                    if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
-                    for (fz_stext_line *line = block->u.t.first_line; line; line = line->next)
-                        for (fz_stext_char *ch = line->first_char; ch; ch = ch->next) {
-                            if (((++visited) & 1023) == 0 && cancelled && cancelled())
-                                fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
-                            if (!ch->source_node) continue;
-                            SumraSource source = source_of(ch);
-                            if (source_less(source, hit->first) || source_less(last, source)) continue;
-                            fz_rect rect = fz_rect_from_quad(fz_search_source_quad(line, ch));
-                            if (fz_is_empty_rect(rect)) continue;
-                            if (rectangles++) lf_json(json, ",");
-                            lf_json_rect(json, rect.x0, rect.y0, rect.x1 - rect.x0, rect.y1 - rect.y0);
+            size_t start = SIZE_MAX;
+            if (!continuous) {
+                // Paginated navigation still uses the first fragment's real
+                // UTF-16 offset. Continuous navigation uses the source ordinal.
+                fz_try(ctx) {
+                    buffer = fz_new_buffer_from_flattened_stext_page(ctx, page, FZ_TEXT_FLATTEN_KEEP_PARAGRAPHS, &map);
+                } fz_catch(ctx) { map = NULL; fz_rethrow(ctx); }
+                const char *text = fz_string_from_buffer(ctx, buffer);
+                size_t utf16 = 0;
+                for (size_t at = 0, serial = 0; text[at]; ++serial) {
+                    if ((serial & 1023) == 0 && cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
+                    int rune, bytes = fz_chartorune(&rune, text + at);
+                    fz_stext_char *ch = map[serial].ch;
+                    if (ch && ch->source_node) {
+                        SumraSource source = source_of(ch);
+                        if (!source_less(source, hit->first) && !source_less(last, source)) {
+                            start = utf16;
+                            break;
                         }
+                    }
+                    at += bytes; utf16 += rune > 0xffff ? 2 : 1;
                 }
-                lf_json(json, "]}");
+            }
+            int source_present = start != SIZE_MAX;
+            size_t fragment_start = json->len;
+            if (emitted) lf_json(json, ",");
+            lf_json(json, "{\"page\":"); lf_json_number(json, page_number);
+            lf_json(json, ",\"rects\":[");
+            int rectangles = 0;
+            size_t visited = 0;
+            for (fz_stext_block *block = page->first_block; block; block = block->next) {
+                if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
+                for (fz_stext_line *line = block->u.t.first_line; line; line = line->next)
+                    for (fz_stext_char *ch = line->first_char; ch; ch = ch->next) {
+                        if (((++visited) & 1023) == 0 && cancelled && cancelled())
+                            fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
+                        if (!ch->source_node) continue;
+                        SumraSource source = source_of(ch);
+                        if (source_less(source, hit->first) || source_less(last, source)) continue;
+                        // util.c::do_flatten drops soft hyphens and a joined
+                        // line's final character. Presence is independent of
+                        // ink bounds, so spaces still identify a fragment.
+                        if (continuous && ch->c != 0xad &&
+                            (ch->next || !(line->flags & FZ_STEXT_LINE_FLAGS_JOINED))) source_present = 1;
+                        fz_rect rect = fz_rect_from_quad(fz_search_source_quad(line, ch));
+                        if (fz_is_empty_rect(rect)) continue;
+                        if (rectangles++) lf_json(json, ",");
+                        lf_json_rect(json, rect.x0, rect.y0, rect.x1 - rect.x0, rect.y1 - rect.y0);
+                    }
+            }
+            lf_json(json, "]}");
+            if (source_present) {
+                ++emitted;
                 if (owner_page < 0) { owner_page = page_number; owner_index = continuous ? hit->source_index : start; }
+            } else if (!json->failed) {
+                // Discard a fragment with no flattened source, using the output
+                // buffer already owned by this result instead of a second one.
+                json->len = fragment_start;
+                json->data[fragment_start] = 0;
             }
         }
         fz_always(ctx) { fz_free(ctx, map); fz_drop_buffer(ctx, buffer); fz_drop_stext_page(ctx, page); }

@@ -1069,7 +1069,7 @@ final class NativeFile {
                       after?.part ?? 0, Int64(maximum), nil, 0, cancelled, &error)
         }
         if Task.isCancelled { if let pointer { free(pointer) }; throw CancellationError() }
-        struct Fragment: Decodable { let page, start, length: Int; let rects: [[Double]] }
+        struct Fragment: Decodable { let page: Int; let rects: [[Double]] }
         struct Hit: Decodable {
             let source: NativeSourceAnchor
             let page, index: Int
@@ -1081,8 +1081,7 @@ final class NativeFile {
         return result.matches.compactMap { hit in
             guard hit.page >= 0, !hit.fragments.isEmpty else { return nil }
             let fragments = hit.fragments.map { fragment in
-                RasterMatchFragment(page: fragment.page, start: fragment.start, length: fragment.length,
-                                    rects: fragment.rects.map { CGRect(raster: $0) })
+                RasterMatchFragment(page: fragment.page, rects: fragment.rects.map { CGRect(raster: $0) })
             }
             return RasterMatch(page: hit.page, index: hit.index, rects: fragments.first?.rects ?? [],
                                context: hit.context, source: hit.source, fragments: fragments)

@@ -22,8 +22,6 @@ enum NativeReadingPerformance {
 
 struct RasterMatchFragment: Equatable {
     let page: Int
-    let start: Int
-    let length: Int
     let rects: [CGRect]
 }
 struct RasterMatch: Equatable {
@@ -2181,7 +2179,7 @@ private struct RasterScrollRequest: Equatable {
     private func publishSearchMatches(_ matches: [RasterMatch]) {
         searchMatches = matches.map(projectSearchMatch).sorted { $0.page == $1.page ? $0.index < $1.index : $0.page < $1.page }
         selections.searchRects = searchMatches.reduce(into: [:]) { result, match in
-            for fragment in match.fragments ?? [RasterMatchFragment(page: match.page, start: match.index, length: 0, rects: match.rects)] {
+            for fragment in match.fragments ?? [RasterMatchFragment(page: match.page, rects: match.rects)] {
                 result[fragment.page, default: []] += fragment.rects
             }
         }
@@ -2315,7 +2313,7 @@ private struct RasterScrollRequest: Equatable {
                     let accepted = found.prefix(remaining)
                     all += accepted
                     for match in accepted {
-                        for fragment in match.fragments ?? [RasterMatchFragment(page: match.page, start: match.index, length: 0, rects: match.rects)] {
+                        for fragment in match.fragments ?? [RasterMatchFragment(page: match.page, rects: match.rects)] {
                             rects[fragment.page, default: []] += fragment.rects
                         }
                     }

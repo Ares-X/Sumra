@@ -1,5 +1,24 @@
 # Function-first cleanup
 
+## October 12 careful review
+
+The subsequent careful review found two actual position-restoration failures:
+an opening used the departing book's history policy, and a deactivation save
+during opening could leak the departing book's in-memory Markdown coordinates.
+Initial restoration now reads only that book's persisted state using the
+opening request's policy. Same-book mode switches retain their in-memory state;
+the premature clearing at load entry is removed. The regression fails before
+the fix and after the incomplete policy-only correction, then passes with the
+final owner separation.
+
+Unused Markdown fragment offsets are removed from both sides of the native
+boundary. Continuous search no longer allocates flattened text and a character
+map merely to compute those fields; its existing geometry walk establishes source
+presence using upstream flattening rules. The result buffer is reused directly.
+Paginated navigation keeps its actual UTF-16 index. Seventy-five relevant checks
+and the native rebuild pass. The deep review records the system-wheel control
+probe's limits; no product workaround or weakened assertion is introduced.
+
 ## October 12 second pass
 
 The second pass removes internal paths with no product consumer: PageRows'

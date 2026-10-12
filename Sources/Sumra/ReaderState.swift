@@ -1515,8 +1515,7 @@ extension ReaderState {
 }
 
 extension ReaderState {
-    private func savedMarkdownPosition(_ renderer: MarkdownRenderer, for url: URL) -> ReadingPosition? {
-        if let position = markdownPositions[renderer] { return position }
+    private func persistedMarkdownPosition(_ renderer: MarkdownRenderer, for url: URL, recordsHistory: Bool) -> ReadingPosition? {
         guard recordsHistory, !UserDefaults.standard.bool(forKey: "disableReadingState") else { return nil }
         let key = "position:" + url.standardizedFileURL.path + ":markdown:" + renderer.rawValue
         return UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(ReadingPosition.self, from: $0) }
@@ -1542,7 +1541,7 @@ extension ReaderState {
                                                    openedSignature: document.markdownSourceSignature) else { return false }
         if let saved = filePosition { markdownPositions[.compatible] = saved }
         requestedPosition = Self.markdownRendererDestination(.paged,
-            saved: savedMarkdownPosition(.paged, for: document.url) ?? ReadingPosition(),
+            saved: markdownPositions[.paged] ?? persistedMarkdownPosition(.paged, for: document.url, recordsHistory: recordsHistory) ?? ReadingPosition(),
             readingSettings: currentPosition)
         load(document.url, reloading: true, password: password,
              markdownRenderer: .paged, retainedMarkdownPreference: .automatic)
@@ -2122,7 +2121,6 @@ private extension ReaderState {
         NativeReadingPerformance.mark("load-entry", persistent: true)
         defer { NativeReadingPerformance.mark("load-dispatched", revision: generation, started: loadStarted, persistent: true) }
         persist()
-        if !reloading { markdownPositions = [:] }
         generation &+= 1
         let currentGeneration = generation
         let openingPosition = requestedPosition
@@ -2185,7 +2183,7 @@ private extension ReaderState {
                             let mode = position.markdownRenderer ?? (position.markdownPassage == nil ? nil : .compatible)
                             return mode == nil || mode == renderer ? position : nil
                         }
-                        restoredPosition = matchingExplicit ?? savedMarkdownPosition(renderer, for: opened.url)
+                        restoredPosition = matchingExplicit ?? persistedMarkdownPosition(renderer, for: opened.url, recordsHistory: openingHistory)
                         if restoredPosition == nil, renderer == .compatible, legacy?.markdownRenderer == nil {
                             restoredPosition = legacy
                         }
@@ -2233,14 +2231,14 @@ private extension ReaderState {
                 let reloadedPosition: ReadingPosition?
                 if reloading, rememberMarkdownPreference, let renderer = opened.markdownRenderer {
                     reloadedPosition = Self.markdownRendererDestination(renderer,
-                        saved: openingPosition ?? savedMarkdownPosition(renderer, for: opened.url) ?? ReadingPosition())
+                        saved: openingPosition ?? markdownPositions[renderer] ?? persistedMarkdownPosition(renderer, for: opened.url, recordsHistory: openingHistory) ?? ReadingPosition())
                 } else if changedMarkdownRenderer {
                     if let renderer = opened.markdownRenderer {
                         let explicit = openingPosition.flatMap { position -> ReadingPosition? in
                             let mode = position.markdownRenderer ?? (position.markdownPassage == nil ? nil : .compatible)
                             return mode == renderer ? position : nil
                         }
-                        reloadedPosition = explicit ?? savedMarkdownPosition(renderer, for: opened.url) ?? ReadingPosition()
+                        reloadedPosition = explicit ?? markdownPositions[renderer] ?? persistedMarkdownPosition(renderer, for: opened.url, recordsHistory: openingHistory) ?? ReadingPosition()
                     } else { reloadedPosition = ReadingPosition() }
                 } else if reloading, let openingPosition {
                     reloadedPosition = openingPosition

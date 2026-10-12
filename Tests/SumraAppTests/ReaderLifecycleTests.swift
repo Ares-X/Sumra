@@ -7,6 +7,60 @@ import XCTest
 
 final class ReaderLifecycleTests: XCTestCase {
     @MainActor
+    func testMarkdownOpeningUsesItsOwnHistoryPolicyAndPosition() async throws {
+        let directory = try TemporaryDirectory()
+        let url = directory.url.appendingPathComponent("history.md").standardizedFileURL
+        let other = directory.url.appendingPathComponent("other.md").standardizedFileURL
+        try "# Saved reading position\n\nMarkdown lifecycle fixture.\n".write(to: url, atomically: true, encoding: .utf8)
+        try "# New document\n\nA different Markdown book.\n".write(to: other, atomically: true, encoding: .utf8)
+        let defaults = UserDefaults.standard
+        let positionKey = "position:" + url.path
+        let modeKey = positionKey + ":markdown:compatible"
+        let rendererKey = MarkdownRenderer.preferenceKey(for: url)
+        let keys = ["disableReadingState", "disableHistory", "formatDefaults", "documentOpenHistory", positionKey, modeKey, rendererKey,
+                    "position:" + other.path, "position:" + other.path + ":markdown:compatible", MarkdownRenderer.preferenceKey(for: other)]
+        let previous = keys.map { ($0, defaults.object(forKey: $0)) }
+        let recent = NSDocumentController.shared.recentDocumentURLs
+        let state = ReaderState(recordsHistory: true)
+        defer {
+            state.windowClosed()
+            ReaderFiles.setRecent(recent)
+            for (key, value) in previous { defaults.set(value, forKey: key) }
+            withExtendedLifetime(directory) {}
+        }
+        defaults.set(false, forKey: "disableReadingState")
+        defaults.set(false, forKey: "disableHistory")
+        defaults.set("{}", forKey: "formatDefaults")
+        defaults.set(MarkdownRenderer.compatible.rawValue, forKey: rendererKey)
+        defaults.set(MarkdownRenderer.compatible.rawValue, forKey: MarkdownRenderer.preferenceKey(for: other))
+        let saved = ReadingPosition(page: 0, x: 7, y: 321, markdownRenderer: .compatible)
+        defaults.set(try JSONEncoder().encode(saved), forKey: modeKey)
+
+        // The outgoing state allows history, but this opening must not restore it.
+        state.openWithoutHistory(url)
+        try await waitUntilIdle(state)
+        XCTAssertNil(state.error)
+        XCTAssertEqual(state.document?.markdownRenderer, .compatible)
+        XCTAssertNil(state.currentPosition.y)
+
+        // The outgoing state now disables history; a normal opening restores it.
+        state.open(url)
+        try await waitUntilIdle(state)
+        XCTAssertNil(state.error)
+        XCTAssertEqual(state.currentPosition.x, saved.x)
+        XCTAssertEqual(state.currentPosition.y, saved.y)
+
+        // Window deactivation can persist the still-readable outgoing document
+        // while its replacement opens. That position must remain with its book.
+        state.open(other)
+        state.persist()
+        try await waitUntilIdle(state)
+        XCTAssertNil(state.error)
+        XCTAssertEqual(state.document?.url, other)
+        XCTAssertNil(state.currentPosition.y)
+    }
+
+    @MainActor
     func testDelayedFilePickerCreatesWindowsAfterItsReaderClosed() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard, previous = defaults.object(forKey: "disableHistory")
