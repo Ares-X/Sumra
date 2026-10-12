@@ -169,6 +169,49 @@ final class MarkdownRoutingTests: XCTestCase {
         XCTAssertNil(state.currentPosition.markdownPassage)
         XCTAssertEqual(state.document?.markdownPreference, .paged)
         XCTAssertFalse(state.escalateMarkdownLayoutLimit())
+
+        state.setMarkdownRenderer(.automatic)
+        try await waitForLoad(state)
+        XCTAssertEqual(state.document?.markdownPreference, .automatic)
+        XCTAssertEqual(state.document?.markdownRenderer, .compatible)
+        XCTAssertEqual(state.currentPosition.markdownPassage, passage)
+        XCTAssertEqual(state.currentPosition.y, 230)
+
+        state.setMarkdownRenderer(.paged)
+        try await waitForLoad(state)
+        XCTAssertEqual(state.currentPosition.page, 2)
+        XCTAssertNil(state.currentPosition.markdownPassage)
+    }
+
+    @MainActor
+    func testAutomaticSwitchReportsOpeningFailureWithoutReplacingTheReadableDocument() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let url = directory.url.appendingPathComponent("removed.md")
+        try "# Opened\n\nThe mounted document survives a failed mode change.\n".write(to: url, atomically: true, encoding: .utf8)
+        let key = MarkdownRenderer.preferenceKey(for: url)
+        let previous = UserDefaults.standard.object(forKey: key)
+        defer { UserDefaults.standard.set(previous, forKey: key) }
+        let state = ReaderState(recordsHistory: false)
+        defer { state.close() }
+        state.openWithoutHistory(url, at: .init(markdownRenderer: .paged))
+        try await waitForLoad(state)
+        let mounted = try XCTUnwrap(state.document?.id)
+        try FileManager.default.removeItem(at: url)
+
+        state.setMarkdownRenderer(.automatic)
+        XCTAssertTrue(state.busy, "Automatic routing belongs to the asynchronous opening operation")
+        XCTAssertNil(state.error)
+        let deadline = Date().addingTimeInterval(5)
+        while state.busy && Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertFalse(state.busy, "The failed opening operation must finish")
+        XCTAssertNotNil(state.error)
+        XCTAssertEqual(state.document?.id, mounted)
+        XCTAssertEqual(state.document?.markdownRenderer, .paged)
+        XCTAssertNotEqual(UserDefaults.standard.string(forKey: key), MarkdownRenderer.automatic.rawValue)
     }
 
     @MainActor

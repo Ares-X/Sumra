@@ -903,7 +903,7 @@ actor Pages {
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
-                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false) async throws -> RenderedPage {
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false) async throws -> RenderedPage {
         try Task.checkCancellation()
         // This location request belongs to a mounted reader surface. Native
         // reflow can finish before that surface is replaced, leaving its
@@ -917,13 +917,13 @@ actor Pages {
         if uniform { _ = try document.bounds(0) }
         return try await render(index(location), viewport: viewport, scale: scale, columns: columns, rotation: rotation,
             fit: fit, zoom: zoom, maximumZoom: maximumZoom, trim: trim, showContent: showContent,
-            uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto, maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl, viewportOnly: viewportOnly)
+            uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto, maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl, viewportOnly: viewportOnly, preheating: preheating)
     }
     func render(_ page: Int, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
-                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false) async throws -> RenderedPage {
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false) async throws -> RenderedPage {
         let started = DispatchTime.now().uptimeNanoseconds
         NativeReadingPerformance.mark("render-actor-entry", pages: self, revision: layoutRevision, page: page,
                                       size: viewport, flags: viewportOnly ? 8 : 0)
@@ -963,8 +963,8 @@ actor Pages {
             let style = try document.displayStyle(pdfStyle, engineeringAuto: engineeringAuto, cancellation: cancellation)
             let image: CGImage? = viewportOnly ? nil : try document.image(page, width: previewWidth,
                 transparent: document.isImageCollection && transparent, pdfStyle: style, cancellation: cancellation)
-            return (measured, content, referenceWidth, facing, display, image, pixelWidth, tileResolution, isPDF ? [] : try links(page), document.isImageCollection,
-                    try landscapePages(rotation: rotation), limit, document.estimatedBounds, style)
+            return (measured, content, referenceWidth, facing, display, image, pixelWidth, tileResolution, preheating || isPDF ? [] : try links(page), document.isImageCollection,
+                    preheating ? [] : try landscapePages(rotation: rotation), limit, document.estimatedBounds, style)
         } onCancel: { cancellation?.cancel() }
     }
     func zoomLimit(rotation: Int, maximumZoom: Double = ReadingZoom.maximum, uniform: Bool = false) throws -> Double {
@@ -3093,7 +3093,7 @@ private struct WindowScale: NSViewRepresentable {
         private var arranging = false
         private var positionScheduled = false
         private struct Prediction: Equatable {
-            let document: UUID?, layout: LayoutKey, visible: CGRect, location: PageLocation, render: String
+            let document: UUID?, layout: LayoutKey, location: PageLocation, render: String
         }
         private var prediction: Prediction?
         private var predictionTask: Task<Void, Never>?
@@ -3482,7 +3482,7 @@ private struct WindowScale: NSViewRepresentable {
             let range = geometry.range(row: next)
             let index = scrollDirection > 0 ? range.lowerBound : range.upperBound - 1
             let page = page(at: index, columns: range.count)
-            let token = Prediction(document: owner.state.document?.id, layout: key, visible: visible,
+            let token = Prediction(document: owner.state.document?.id, layout: key,
                 location: page.location, render: page.renderID)
             guard prediction != token else { return }
             cancelPrediction(); prediction = token
@@ -3492,7 +3492,7 @@ private struct WindowScale: NSViewRepresentable {
             predictionTask = Task(priority: .utility) { [weak self] in
                 NativeReadingPerformance.mark("page-prediction-start", pages: page.pages, revision: key.revision, page: index)
                 do {
-                    _ = try await page.renderResult()
+                    _ = try await page.renderResult(preheating: true)
                     guard !Task.isCancelled, let self, self.prediction == token else { return }
                     self.predictionTask = nil
                     NativeReadingPerformance.mark("page-prediction-ready", pages: page.pages, revision: key.revision, page: index)
@@ -3542,8 +3542,20 @@ private struct WindowScale: NSViewRepresentable {
             guard !arranging else { return }
             let y = contentView.bounds.minY
             if y != lastScrollY { scrollDirection = y > lastScrollY ? 1 : -1; lastScrollY = y }
-            if prediction?.visible != contentView.bounds { cancelPrediction() }
+            if let prediction, let key, let geometry, let owner {
+                let first = row(at: contentView.bounds.minY), last = row(at: contentView.bounds.maxY)
+                let next = scrollDirection > 0 ? last + 1 : first - 1
+                let visible = geometry.range(row: first).lowerBound..<geometry.range(row: last).upperBound
+                let target = owner.state.pageNumber(prediction.location)
+                let neighbor = (0..<geometry.rowCount).contains(next) ? geometry.range(row: next) : 0..<0
+                if prediction.layout != key || (!visible.contains(target) && !neighbor.contains(target)) {
+                    cancelPrediction()
+                }
+            }
             if key?.viewport == contentView.bounds.size { updateCells() }
+            for host in cells.values {
+                RasterCanvas.Canvas.find(in: host)?.updatePredictionDirection(scrollDirection)
+            }
             schedulePosition()
         }
         private func schedulePosition() {
@@ -3649,18 +3661,18 @@ private struct WindowScale: NSViewRepresentable {
     var renderID: String {
         "\(viewport):\(scale):\(columns):\(String(describing: facingPage)):\(String(describing: displaySize)):\(state.rotation):\(state.rtl):\(state.fit):\(state.fit == "custom" ? state.rasterZoom : 1):\(state.configuredZoomMaximum):\(state.trimEmptyMargins):\(state.showFitContentArea):\(state.uniformPageWidth):\(state.showTransparencyGrid):\(String(describing: pdfStyle)):\(state.engineeringEnhance):\(state.renderRevision):\(continuousReflow)"
     }
-    func renderResult(_ prediction: FinitePrediction? = nil) async throws -> Pages.RenderedPage {
+    func renderResult(_ prediction: FinitePrediction? = nil, preheating: Bool = false) async throws -> Pages.RenderedPage {
         return try await pages.render(prediction?.target ?? location, viewport: viewport, scale: scale, columns: prediction?.columns ?? columns,
                         rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, maximumZoom: state.configuredZoomMaximum,
                         trim: state.trimEmptyMargins && !continuousReflow, showContent: state.showFitContentArea,
                         uniform: state.uniformPageWidth && !continuousReflow, transparent: state.showTransparencyGrid,
                         pdfStyle: pdfStyle, engineeringAuto: state.engineeringEnhance == "auto",
-                        maximumTileSize: NSScreen.main.map { CGSize(width: $0.frame.width * scale, height: $0.frame.height * scale) }, facingPage: prediction?.facingPage ?? facingPage, displaySize: prediction == nil ? displaySize : nil, rtl: state.rtl, viewportOnly: continuousReflow)
+                        maximumTileSize: NSScreen.main.map { CGSize(width: $0.frame.width * scale, height: $0.frame.height * scale) }, facingPage: prediction?.facingPage ?? facingPage, displaySize: prediction == nil ? displaySize : nil, rtl: state.rtl, viewportOnly: continuousReflow, preheating: preheating)
     }
     var body: some View {
         let visible = state.trimEmptyMargins && !continuousReflow ? content ?? bounds : bounds
         let size = displaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, content: content, limit: state.zoomLimit, uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin, facing: facing, rtl: state.rtl, continuous: continuousReflow)
-        RasterCanvas(state: state, pages: pages, page: index, location: location, image: image, imageCollection: imageCollection, readingReady: renderedID == renderID && (image != nil || continuousReflow), pixelWidth: pixelWidth, tileResolution: renderedID == renderID ? tileResolution : 0, pdfStyle: renderedStyle, imageBounds: imageBounds, pageBoxes: pageBoxes, contentBounds: content, pageBounds: bounds, visibleBounds: visible, links: links, pdfAnnotations: pdfAnnotations, pdfLinks: pdfLinks, match: match, rotation: state.rotation, request: $scrollRequest, cancelNavigation: cancelNavigation, displaySize: size, focus: index == state.page ? RasterLayout.contentFocus(bounds: visible, content: content, display: size, rotation: state.rotation, mode: state.fit, facing: facing, rtl: state.rtl) : nil, selections: selections, didResizeViewport: didResizeViewport, didPaint: didRender, didPaintMatch: didPaintMatch, viewportTileSize: viewportTileSize, finitePrediction: finitePrediction, predictionID: renderID, renderPredictedPage: finitePrediction.map { prediction in { _ = try await renderResult(prediction) } })
+        RasterCanvas(state: state, pages: pages, page: index, location: location, image: image, imageCollection: imageCollection, readingReady: renderedID == renderID && (image != nil || continuousReflow), pixelWidth: pixelWidth, tileResolution: renderedID == renderID ? tileResolution : 0, pdfStyle: renderedStyle, imageBounds: imageBounds, pageBoxes: pageBoxes, contentBounds: content, pageBounds: bounds, visibleBounds: visible, links: links, pdfAnnotations: pdfAnnotations, pdfLinks: pdfLinks, match: match, rotation: state.rotation, request: $scrollRequest, cancelNavigation: cancelNavigation, displaySize: size, focus: index == state.page ? RasterLayout.contentFocus(bounds: visible, content: content, display: size, rotation: state.rotation, mode: state.fit, facing: facing, rtl: state.rtl) : nil, selections: selections, didResizeViewport: didResizeViewport, didPaint: didRender, didPaintMatch: didPaintMatch, viewportTileSize: viewportTileSize, finitePrediction: finitePrediction, predictionID: renderID, renderPredictedPage: finitePrediction.map { prediction in { _ = try await renderResult(prediction, preheating: true) } })
             .frame(width: size.width, height: size.height)
             .task(id: state.renderRevision) {
                 guard pages.isPDF else { return }
@@ -4133,6 +4145,8 @@ struct NativeReadingAccessibilitySnapshot {
         private var tileTasks = [RasterLayout.Tile: Task<Void, Never>]()
         private var tilePredictionTask: Task<Void, Never>?
         private var tilePredictionViewport: CGRect?
+        private var tilePredictionTile: RasterLayout.Tile?
+        private var tilePredictionDirection = 1
         fileprivate var scrollRequest: Binding<RasterScrollRequest?>?
         var cancelNavigation: (() -> Void)?
         var didPaint: (() -> Void)?
@@ -4429,7 +4443,7 @@ struct NativeReadingAccessibilitySnapshot {
                 previousTiles = (tileKey, tileImages, paintedTileGeometry.transform, paintedTileGeometry.origin)
             } else if !retainingOutput { previousTiles = nil }
             for task in tileTasks.values { task.cancel() }
-            tilePredictionTask?.cancel(); tilePredictionTask = nil; tilePredictionViewport = nil
+            tilePredictionTask = nil; tilePredictionViewport = nil; tilePredictionTile = nil
             tileTasks.removeAll(); tileImages.removeAll(); paintedTiles.removeAll(); tileKey = nil
             paintedTileGeometry = nil
             if viewportTileSize != nil { readingReady = false; traceFirstPaint = true }
@@ -4458,12 +4472,14 @@ struct NativeReadingAccessibilitySnapshot {
             let visible = visibleRect.applying(pageTransform.inverted())
             let requested = RasterLayout.tiles(bounds: pageBounds, pixelWidth: pixelWidth, resolution: tileResolution, visible: visible, maximumSize: viewportTileSize)
             let wanted = Set(requested)
-            let viewport = visibleRect
-            if tilePredictionViewport != viewport || window?.inLiveResize == true {
-                tilePredictionTask?.cancel(); tilePredictionTask = nil; tilePredictionViewport = nil
+            // RenderCache::RequestRendering preserves the same tile request as
+            // it enters the viewport; pixel scrolling does not change its key.
+            if let tile = tilePredictionTile,
+               window?.inLiveResize == true || (!wanted.contains(tile) && !predictionTiles(direction: tilePredictionDirection).contains(tile)) {
+                cancelTilePrediction()
             }
-            for (tile, task) in tileTasks where !wanted.contains(tile) { task.cancel() }
-            tileTasks = tileTasks.filter { wanted.contains($0.key) }
+            for (tile, task) in tileTasks where !wanted.contains(tile) && tile != tilePredictionTile { task.cancel() }
+            tileTasks = tileTasks.filter { wanted.contains($0.key) || $0.key == tilePredictionTile }
             let pixelScale = CGFloat(pixelWidth) / pageBounds.width
             let pixels = visible.offsetBy(dx: -pageBounds.minX, dy: -pageBounds.minY)
                 .applying(CGAffineTransform(scaleX: pixelScale, y: pixelScale))
@@ -4500,34 +4516,56 @@ struct NativeReadingAccessibilitySnapshot {
                 }
             }
         }
-        func predictViewportTile(direction: Int) {
-            guard viewportTileSize != nil, readingReady, !visibleRect.isEmpty,
-                  window?.inLiveResize == false, let key = tileKey, let pages, let state,
-                  tilePredictionViewport != visibleRect else { return }
-            let viewport = visibleRect
-            let next = viewport.offsetBy(dx: 0, dy: CGFloat(direction) * viewport.height)
+        private func predictionTiles(direction: Int) -> [RasterLayout.Tile] {
+            let next = visibleRect.offsetBy(dx: 0, dy: CGFloat(direction) * visibleRect.height)
                 .applying(pageTransform.inverted())
             let tiles = RasterLayout.tiles(bounds: pageBounds, pixelWidth: pixelWidth, resolution: tileResolution,
                 visible: next, maximumSize: viewportTileSize)
-            let candidates = direction > 0 ? tiles : tiles.reversed().map { $0 }
+            return direction > 0 ? tiles : tiles.reversed().map { $0 }
+        }
+        private func cancelTilePrediction() {
+            if let tile = tilePredictionTile { tileTasks.removeValue(forKey: tile)?.cancel() }
+            tilePredictionTask = nil; tilePredictionViewport = nil; tilePredictionTile = nil
+        }
+        func updatePredictionDirection(_ direction: Int) {
+            tilePredictionDirection = direction
+            guard let tile = tilePredictionTile else { return }
+            let visible = RasterLayout.tiles(bounds: pageBounds, pixelWidth: pixelWidth, resolution: tileResolution,
+                visible: visibleRect.applying(pageTransform.inverted()), maximumSize: viewportTileSize)
+            if !visible.contains(tile) && !predictionTiles(direction: direction).contains(tile) { cancelTilePrediction() }
+        }
+        func predictViewportTile(direction: Int) {
+            updatePredictionDirection(direction)
+            guard viewportTileSize != nil, readingReady, !visibleRect.isEmpty,
+                  window?.inLiveResize == false, let key = tileKey, let pages, let state,
+                  tilePredictionTask == nil else { return }
+            let candidates = predictionTiles(direction: direction)
             guard let tile = candidates.first(where: { tileImages[$0] == nil && tileTasks[$0] == nil }) else { return }
             let bytes = tileImages.values.reduce(0) { $0 + $1.bytesPerRow * $1.height }
             guard bytes + tile.width * tile.height * 4 <= 64 * 1024 * 1024 else { return }
-            tilePredictionViewport = viewport
+            tilePredictionViewport = visibleRect; tilePredictionTile = tile; tilePredictionDirection = direction
             let documentID = state.document?.id
-            tilePredictionTask = Task(priority: .utility) { [weak self] in
+            let task = Task(priority: .utility) { [weak self] in
                 NativeReadingPerformance.mark("tile-prediction-start", pages: pages, revision: key.revision, page: self?.page ?? -1)
                 do {
                     let bitmap = try await pages.image(key.location, width: key.width, transparent: key.transparent,
                         region: tile.rect, pdfStyle: key.pdfStyle)
                     guard !Task.isCancelled, let self, self.tileKey == key,
-                          self.tilePredictionViewport == viewport, self.state?.document?.id == documentID else { return }
-                    self.tileImages[tile] = bitmap; self.tilePredictionTask = nil
+                          self.tilePredictionTile == tile, self.state?.document?.id == documentID else { return }
+                    self.tileImages[tile] = bitmap; self.tileTasks.removeValue(forKey: tile)
+                    self.tilePredictionTask = nil; self.tilePredictionTile = nil
                     NativeReadingPerformance.mark("tile-prediction-ready", pages: pages, revision: key.revision, page: self.page)
+                    self.updateTiles(); self.needsDisplay = true
                 } catch {
-                    if let self, self.tilePredictionViewport == viewport { self.tilePredictionTask = nil }
+                    if !Task.isCancelled, let self, self.tileKey == key, self.tilePredictionTile == tile {
+                        self.tileTasks.removeValue(forKey: tile); self.tilePredictionTask = nil; self.tilePredictionTile = nil
+                        let visible = RasterLayout.tiles(bounds: self.pageBounds, pixelWidth: self.pixelWidth, resolution: self.tileResolution,
+                            visible: self.visibleRect.applying(self.pageTransform.inverted()), maximumSize: self.viewportTileSize)
+                        if visible.contains(tile) { self.state?.error = error.localizedDescription }
+                    }
                 }
             }
+            tilePredictionTask = task; tileTasks[tile] = task
         }
         func cancelFinitePrediction() {
             finitePredictionTask?.cancel(); finitePredictionTask = nil; finitePredictionStarted = nil

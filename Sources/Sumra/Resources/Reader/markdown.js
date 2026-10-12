@@ -848,7 +848,7 @@
     const fetchDocument = async (url, signal) => {
         // Searches and full-document text already have this page's live DOM.
         // Do not fetch/decode/parse a second complete copy of the current book.
-        if (mainFrame && !config.chm && withoutHash(url) === withoutHash(pageURL())) return document
+        if (mainFrame && withoutHash(localURL(url)) === withoutHash(pageURL())) return document
         const response = await (signal ? fetch(url, { signal }) : fetch(url))
         if (signal?.aborted) throw new DOMException('Search cancelled', 'AbortError')
         if (!response.ok) throw Error(`Cannot read document (${response.status})`)

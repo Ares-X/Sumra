@@ -630,12 +630,55 @@ final class BrowserReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testSearchReusesReflowedCurrentCHMTopicAndNavigatesSiblingMatch() async throws {
+        let full = String(repeating: "中", count: 35)
+        let text = (0..<4).map { "\(full)\n收尾第\($0)段文字。" }.joined(separator: "\n\n")
+        let needle = "中\n收尾第2段文字。"
+        let (state, view) = try await loadedReaderFixture(topic: ("/active.txt", Data(text.utf8)),
+            home: "/ACTIVE.TXT", additionalTopics: [("/sibling.txt", Data(needle.utf8))])
+        let coordinator = try XCTUnwrap(view.navigationDelegate as? BrowserReader.Coordinator)
+        let result = try await evaluate("""
+        const fetched = [], originalFetch = window.fetch;
+        window.fetch = (...args) => { fetched.push(new URL(args[0],location.href).pathname); return originalFetch(...args); };
+        try {
+            await window.leafCommand({name:'find',text:needle,matchCase:true});
+            return {fetched, prose:document.querySelectorAll('.sumra-chm-prose').length,
+                source:document.querySelector('pre').textContent,
+                match:window.__sumatraFind.currentRange()?.toString()};
+        } finally { window.fetch = originalFetch; }
+        """, in: view, arguments: ["needle": needle]) as? [String: Any]
+        XCTAssertEqual(result?["prose"] as? Int, 4)
+        XCTAssertEqual(result?["source"] as? String, text)
+        XCTAssertEqual(result?["match"] as? String, needle)
+        let fetched = try XCTUnwrap(result?["fetched"] as? [String])
+        XCTAssertFalse(fetched.contains("/entry/active.txt"))
+        XCTAssertEqual(fetched.filter { $0 == "/entry/sibling.txt" }.count, 1)
+        try await waitUntil { state.searchResults.count == 2 || state.error != nil }
+        XCTAssertEqual(state.searchResults.count, 2)
+        let target = try XCTUnwrap(state.searchResults.first { $0.target.contains("sibling.txt") }?.target)
+        XCTAssertTrue(target.contains("#sumra-search="))
+        state.send(.href(target))
+        let navigation = state.command
+        coordinator.command = navigation.revision
+        coordinator.deliver(navigation, to: view)
+        try await waitUntil { coordinator.ready && coordinator.displayedURL?.path == "/entry/sibling.txt" || state.error != nil }
+        let navigatedMatch = try await evaluate("return window.__sumatraFind.currentRange()?.toString()", in: view) as? String
+        XCTAssertEqual(navigatedMatch, needle)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
     func testCrossTopicSearchUsesDeclaredEncodingAndLiteralPlainText() async throws {
         let encoded = Data("<meta charset='windows-1252'><p>".utf8) + Data([0x63,0x61,0x66,0xe9]) + Data("</p>".utf8)
         let chinese = Data("<meta charset='gbk'><p>".utf8) + Data([0xb2,0xe2,0xca,0xd4]) + Data("</p>".utf8)
-        let (state, view) = try await loadedReaderFixture(additionalTopics: [
+        let (state, view) = try await loadedReaderFixture(home: "/LEGACY.HTM", additionalTopics: [
             ("/legacy.htm", encoded), ("/chinese.htm", chinese), ("/literal.txt", Data("Keep <literal> intact".utf8))
         ])
+        _ = try await evaluate("""
+        window.searchFetches = [];
+        const originalFetch = window.fetch;
+        window.fetch = (...args) => { window.searchFetches.push(new URL(args[0],location.href).pathname); return originalFetch(...args); };
+        """, in: view)
         _ = try await evaluate("await window.leafCommand({name:'find',text:'café'})", in: view)
         try await waitUntil { state.searchResults.count == 1 || state.error != nil }
         XCTAssertTrue(state.searchResults.first?.title.contains("café") == true)
@@ -648,6 +691,10 @@ final class BrowserReaderTests: XCTestCase {
         try await waitUntil { state.searchResults.first?.target.contains("literal.txt") == true || state.error != nil }
         XCTAssertEqual(state.searchResults.count, 1)
         XCTAssertTrue(state.searchResults.first?.title.contains("<literal>") == true)
+        let fetched = try await evaluate("return window.searchFetches", in: view) as? [String]
+        XCTAssertFalse(try XCTUnwrap(fetched).contains("/entry/legacy.htm"))
+        XCTAssertEqual(fetched?.filter { $0 == "/entry/chinese.htm" }.count, 3)
+        XCTAssertEqual(fetched?.filter { $0 == "/entry/literal.txt" }.count, 3)
         XCTAssertNil(state.error)
     }
 

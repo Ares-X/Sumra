@@ -229,6 +229,40 @@ final class ReaderPredictionTests: XCTestCase {
         let first = try XCTUnwrap(initialTiles.min(by: { $0.key.y < $1.key.y }))
         XCTAssertEqual(scroll.documentView?.subviews.count, 1)
 
+        // Hold the actual decoder so scrolling can exercise a prediction that
+        // has not completed. Pixel motion must not throw that useful work away.
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        let blocked = Task.detached { await pages.holdPredictionRendering(entered, until: release) }
+        defer { release.signal() }
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 1))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        try await waitFor(host, state: state) {
+            unwrapped(field("tilePredictionTask", in: canvas)) as? Task<Void, Never> != nil
+        }
+        let prediction = try XCTUnwrap(unwrapped(field("tilePredictionTask", in: canvas)) as? Task<Void, Never>)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 2))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        paint(host)
+        try await Task.sleep(nanoseconds: 10_000_000)
+        paint(host)
+        XCTAssertFalse(prediction.isCancelled, "A one-pixel scroll must retain the useful predicted tile")
+        let predictedTile = try XCTUnwrap(unwrapped(field("tilePredictionTile", in: canvas)) as? RasterLayout.Tile)
+        // Enter the predicted strip while the decoder remains held. The visible
+        // request must join its existing task rather than cancel and rerender it.
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 321))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        paint(host)
+        try await Task.sleep(nanoseconds: 10_000_000)
+        paint(host)
+        XCTAssertFalse(prediction.isCancelled, "Making a predicted tile visible must continue its render")
+        release.signal(); await blocked.value; await prediction.value
+        try await waitFor(host, state: state) {
+            RasterReader.pageIsRendered(in: canvas, pages: pages, location: .init(page: 0))
+        }
+        XCTAssertNotNil((field("tileImages", in: canvas) as? [RasterLayout.Tile: CGImage])?[predictedTile],
+                        "The retained prediction must produce the visible tile pixels")
+
         state.send(.preservePosition(.init(page: 0, x: 0, y: 250)))
         try await waitFor(host, state: state) {
             scroll.contentView.bounds.minY >= 249 &&

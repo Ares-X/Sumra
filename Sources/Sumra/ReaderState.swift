@@ -1525,11 +1525,14 @@ extension ReaderState {
     }
 
     func setMarkdownRenderer(_ preference: MarkdownRenderer, at position: ReadingPosition? = nil) {
-        guard !busy, let document, document.markdownRenderer != nil else { return }
-        do {
-            switchMarkdownRenderer(preference, effective: try preference.effective(for: document.url),
-                                   at: position, rememberPreference: true)
-        } catch { self.error = error.localizedDescription }
+        guard !busy, let document, let current = document.markdownRenderer,
+              document.markdownPreference != preference || position != nil else { return }
+        if let saved = filePosition { markdownPositions[current] = saved }
+        requestedPosition = position
+        // The opening worker owns automatic routing; do not scan the file on
+        // the main actor before asking that same worker to open it.
+        load(document.url, reloading: true, password: password,
+             markdownRenderer: preference, rememberMarkdownPreference: true)
     }
 
     /// Browser layout failed in automatic mode; keep that policy so a later
@@ -1539,23 +1542,13 @@ extension ReaderState {
               document?.markdownRenderer == .compatible, let document,
               MarkdownRenderer.rememberLayoutLimit(for: document.url,
                                                    openedSignature: document.markdownSourceSignature) else { return false }
-        switchMarkdownRenderer(.automatic, effective: .paged, at: nil, rememberPreference: false)
-        return true
-    }
-
-    private func switchMarkdownRenderer(_ preference: MarkdownRenderer, effective: MarkdownRenderer,
-                                        at position: ReadingPosition?, rememberPreference: Bool) {
-        guard let document, let current = document.markdownRenderer else { return }
-        guard current != effective || document.markdownPreference != preference || position != nil else { return }
-        if let saved = filePosition { markdownPositions[current] = saved }
-        let destination = Self.markdownRendererDestination(effective,
-            saved: position ?? savedMarkdownPosition(effective, for: document.url) ?? ReadingPosition(),
-            readingSettings: rememberPreference ? nil : currentPosition)
-        requestedPosition = destination
+        if let saved = filePosition { markdownPositions[.compatible] = saved }
+        requestedPosition = Self.markdownRendererDestination(.paged,
+            saved: savedMarkdownPosition(.paged, for: document.url) ?? ReadingPosition(),
+            readingSettings: currentPosition)
         load(document.url, reloading: true, password: password,
-             markdownRenderer: rememberPreference ? preference : effective,
-             retainedMarkdownPreference: rememberPreference ? nil : preference,
-             rememberMarkdownPreference: rememberPreference)
+             markdownRenderer: .paged, retainedMarkdownPreference: .automatic)
+        return true
     }
 
     static func markdownRendererDestination(_ effective: MarkdownRenderer, saved: ReadingPosition,
@@ -2245,7 +2238,10 @@ private extension ReaderState {
                 let changedMarkdownRenderer = reloading && document?.markdownRenderer != opened.markdownRenderer
                     && (document?.markdownRenderer != nil || opened.markdownRenderer != nil)
                 let reloadedPosition: ReadingPosition?
-                if changedMarkdownRenderer {
+                if reloading, rememberMarkdownPreference, let renderer = opened.markdownRenderer {
+                    reloadedPosition = Self.markdownRendererDestination(renderer,
+                        saved: openingPosition ?? savedMarkdownPosition(renderer, for: opened.url) ?? ReadingPosition())
+                } else if changedMarkdownRenderer {
                     if let renderer = opened.markdownRenderer {
                         let explicit = openingPosition.flatMap { position -> ReadingPosition? in
                             let mode = position.markdownRenderer ?? (position.markdownPassage == nil ? nil : .compatible)

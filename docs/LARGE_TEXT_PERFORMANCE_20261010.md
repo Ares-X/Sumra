@@ -771,3 +771,97 @@ flashing/body-disappearance check passes for that reported workflow. The reply
 does not independently identify the loaded build, and supplies no instrumented
 frame-by-frame timing or memory measurement. See the
 [corpus acceptance record](BOOK_CORPUS_ACCEPTANCE.md#user-manual-resize-feedback-2026-10-11).
+
+## Upstream performance audit while GUI access is unavailable (2026-10-12)
+
+Source inspection, implementation and local integration checks continued while
+the GUI tool reported that automatic unlock had failed. This batch compares
+Sumatra `012d997f6a3a5c5c97b878e1a340db3bffde8c0e` with MuPDF
+`f030eda1e472268667805f438e38cee8f1da61f8`. MuPDF upstream comparisons use the
+committed source, rather than Sumra's patched dependency checkout.
+
+### Demonstrated redundant work removed
+
+| Owner | Previous behavior | Change and relevant evidence |
+| --- | --- | --- |
+| Continuous-page and natural-tile prediction, `Pages.swift` | Every change to the visible pixel rectangle cancelled an otherwise useful prediction. A predicted tile becoming visible could start a second render. | Keep predictions by document, layout and target. The visible tile joins the existing render task. A held-decoder test moves one pixel, then enters the predicted strip, and verifies that the same uncancelled task supplies the visible pixels. This follows `RenderCache.cpp:744–778` request identity and deduplication. |
+| Page preheating, `Pages.swift` | Prediction requested links and image-collection landscape metadata even though it discarded the resulting page model. | Preheating requests the pixels without those unconsumed metadata results. A native HTML integration test verifies bitmap reuse and that visible rendering still supplies its links. Sumatra prediction requests bitmap rendering through `RenderCache.cpp:1278–1295` and `PageRenderService.cpp:154–156`. |
+| Explicit Markdown mode changes, `ReaderState.swift` | Choosing automatic mode scanned the source on the main actor, then opening performed the same routing decision again. | The existing opening worker decides the renderer once, and publication restores that renderer's saved coordinates. Tests cover mode-specific passage/page restoration and a failed open leaving the mounted document and preference intact. The source scan applies below the 8 MiB size threshold; this finding does not explain the historical 20.65 MB book's 13.528-second open. |
+| Current CHM topic search, `markdown.js` | Search excluded CHM from current-DOM reuse, refetching, decoding and parsing the topic already displayed and reflowed. | Reuse its live DOM after existing CHM path canonicalization. WebKit tests verify zero current-topic fetches, declared legacy encodings, cross-line Chinese search in reflowed text, and navigation to a sibling result. Other topics retain their existing fetch path. |
+
+### What is upstream, platform adaptation, or custom work
+
+PDF and EPUB decoding, chapter parsing and the core layout model use MuPDF.
+Sumatra's single-chapter route calls `fz_count_pages()` during opening
+(`EngineMupdf.cpp:4940–4975`); upstream HTML performs complete HTML parsing and
+layout (`html-doc.c:199–208`). EPUB reuses parsed chapter HTML through
+`fz_find_html` / `fz_store_html` (`epub-doc.c:454–498`). These are source facts,
+not measurements showing that a Windows Sumatra build takes 13.528 seconds on
+the same book. No such runtime comparison was performed.
+
+The existing visible tile grid, retained old pixels during replacement and
+direction-based adjacent-page prediction have identifiable Sumatra counterparts
+in `RenderCache.cpp`. Natural chapter flow uses viewport-sized tiles to provide
+the requested continuous prose without rendering an entire long chapter into a
+single bitmap. TXT uses AppKit's TextKit 2 viewport layout and shared content
+storage; it is a platform implementation rather than a new text layout engine.
+
+The following Sumra changes are custom and require input-specific acceptance:
+
+- **Automatic Markdown routing:** the 8 MiB/source-density policy responds to
+  observed WebKit layout limits. It is not a Sumatra policy. The duplicated
+  main-actor decision above was unnecessary and is removed.
+- **Chinese CHM hard-wrap reflow:** source-text inspection and DOM paragraph
+  construction implement the requested smart reflow. The current upstream CHM
+  text collection does not supply this heuristic. Its original-book display
+  evidence does not substitute for a fresh first-layout CPU/memory measurement.
+- **Generated-Markdown XML parsing:** the fast path avoids Gumbo when generated
+  Markdown contains no raw HTML, after checking the AST. The retained original
+  B02 native measurement improved from 1.30755 to 0.96480 seconds; B04, with
+  6,916 raw-HTML nodes, retained the ordinary parser and changed only from
+  1.85059 to 1.82096 seconds. This is not a universal first-open improvement.
+- **Compact flow handles and text-width caching:** the 32-bit handles trade
+  pointer storage for directory lookups, and the existing width cache trades
+  repeated font measurement for hash lookups. They are local patches with real
+  layout consumers, not a verbatim Sumatra implementation. Their cost must be
+  checked against the retained original-book measurements before broader claims.
+- **Stable source anchors and regional text drawing:** added text-item and
+  extracted-character fields consume memory, while serving selection, copying,
+  reflow position restoration and visible-region rendering. Removing them would
+  remove those existing behaviors; their cost remains part of the measured
+  native layout and memory budget.
+
+A further bounded opportunity remains: `Pages.image()` creates its MuPDF
+cancellation cookie before `RasterDocument.image()` checks the whole-page bitmap
+cache. A cache hit therefore still opens a library reference, resolves cookie
+functions and allocates a cookie. This was not changed in this batch, and no
+measurement establishes it as a major first-open cost.
+
+The audit also checked an entity-decoding suspicion in the generated XML path.
+Committed upstream Gumbo output already passes through XML entity emission;
+the local path reproduces that behavior. It is not evidence of a new
+Sumra-specific performance regression or the historical opening delay.
+
+### Validation and remaining acceptance
+
+The first two test runs exposed fixture mistakes: a replacement CHM home path
+did not preserve the binary fixture's fixed field length, and an expected
+opening-error test used a success-only waiting helper. Both fixture errors were
+corrected without weakening the production failure behavior. The affected
+32 checks then passed, including prediction, initial layout, natural rendering,
+native position restoration, Markdown routing and real WebKit topic search.
+Three additional EPUB mode-position and reading-mode checks passed. The release
+build also passed; its executable contains ARM64 and declares minimum macOS
+13.0. This does not establish runtime acceptance on macOS 13 or an M1 machine.
+
+Receipts are in `build/validation-upstream-audit-20261012`. These are source and
+local integration results. This batch has not been loaded and accepted against
+the user's original books in the graphical reader; no first-open, mode-switch,
+resize or memory improvement is claimed for that workflow yet. The historical
+13.528-second cause remains unresolved, the public release is unchanged, and
+the release goal is not complete.
+
+All three audit agents' unused Serena/SourceKit process pairs were identified
+by their session logs and stopped on completion. The root agent's now-unused
+pair was also stopped. A pre-existing shared SourceKit process remains running;
+unrelated projects' processes were left alone.

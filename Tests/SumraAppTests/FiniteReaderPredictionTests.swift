@@ -58,6 +58,29 @@ final class FiniteReaderPredictionTests: XCTestCase {
         return folder
     }
 
+    func testPreheatedPixelsAreReusedAndVisibleLinksRemainAvailable() async throws {
+        let engine = try NativeFile.libraryURL(for: .mupdf)
+        guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine is required") }
+        let directory = try TemporaryDirectory()
+        let input = directory.url.appendingPathComponent("preheat-links.html")
+        try "<html><body><p>Reader prediction</p><a href='https://example.com/reading'>Open reading reference</a></body></html>"
+            .write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .html)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 24, font: "serif",
+            theme: "light", userCSS: "", pageSize: CGSize(width: 640, height: 450))
+        let viewport = CGSize(width: 640, height: 450)
+        let warmed = try await pages.render(PageLocation(page: 0), viewport: viewport, scale: 1,
+            columns: 1, rotation: 0, fit: "width", zoom: 1, preheating: true)
+        let visible = try await pages.render(PageLocation(page: 0), viewport: viewport, scale: 1,
+            columns: 1, rotation: 0, fit: "width", zoom: 1)
+        XCTAssertTrue(try XCTUnwrap(warmed.image) === XCTUnwrap(visible.image),
+                      "The visible reader should reuse the preheated pixels")
+        XCTAssertEqual(visible.links.count, 1)
+        XCTAssertEqual(visible.links.first?.uri, "https://example.com/reading",
+                       "Pixel preheating must not suppress the later visible page's links")
+        withExtendedLifetime(directory) {}
+    }
+
     func testSinglePagePredictionFollowsNavigationDirection() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()
