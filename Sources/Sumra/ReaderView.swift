@@ -420,6 +420,9 @@ struct ReaderView: View {
                 })
                 .task(id: initialNativeViewport?.document) {
                     guard let viewport = initialNativeViewport, viewport.document == document.id else { return }
+                    let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+                        reason: "Prepare document for reading")
+                    defer { ProcessInfo.processInfo.endActivity(activity) }
                     let started = DispatchTime.now().uptimeNanoseconds
                     NativeReadingPerformance.mark("prepare-request", pages: pages, revision: state.renderRevision, persistent: true)
                     defer { NativeReadingPerformance.mark("prepare-return", pages: pages, revision: state.renderRevision, started: started, persistent: true) }

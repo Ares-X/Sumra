@@ -1,5 +1,51 @@
 # Large text performance investigation (2026-10-10)
 
+## October 13 slow-open attribution
+
+The original 13.528-second receipt timed repeated AX/screenshot observations,
+starting after the file chooser and its first capture. Its final condition was
+readable AX text and legal page coordinates, rather than a canvas draw. The
+concurrent full settings, stage clocks and thread sample were not retained.
+The later 640-point CSS spacer was introduced 71 minutes afterward and cannot
+explain the original event. That historical event remains unresolved.
+
+The unchanged 20.65 MB B04 was reopened in the exact signed `989e646` normal
+app (`C0FD01CD-A16A-3C3C-87F5-3F9EECAEAEE8`). Current slow opens are real
+native-layout delays, including one without continuous AX/screenshot polling:
+
+| Actual opening | Initial layout | Load-entry to first canvas draw |
+| --- | ---: | ---: |
+| Fresh process with readiness observations | 6.125 s | 8.445 s |
+| Same process, synchronized thread sample | 1.925 s | 2.644 s |
+| Fresh process, synchronized thread sample | 1.920 s | 2.442 s |
+| Reopen without continuous readiness observations | 5.707 s | 8.655 s |
+| New process, processor-core counters | 5.487 s | 7.531 s |
+
+The last run used 6.184 seconds of process CPU, of which only 0.072 seconds
+were on performance cores; page-wait time was 0.023 seconds. V6 Mach time
+counters were converted using the host's 125/3 timebase. The visible reader
+was not the foreground application, and the target's effective suppression
+flag was set. Background GUI actions are therefore not interchangeable with
+foreground timing evidence. Earlier stack samples alone cannot establish their
+processor-core distribution. The slow sample's worker was executing native
+chapter layout, not waiting on a dominant lock.
+
+The candidate uses Apple's existing `ProcessInfo` activity API during the
+initial asynchronous native preparation task, paired with `endActivity` in
+`defer`. User-requested preparation may finish without being deferred by App
+Nap; idle system sleep remains allowed. No global power setting, dependency,
+thread-priority override or persistent activity is introduced. The scoped API
+is available before the macOS 13 deployment target. Signed-candidate original-
+book validation is still required; this patch is not yet a verified fix for
+the historical 13.528-second event.
+
+The generated palette was independently checked with the exact signed engine:
+one versus two copies both lay out in 1.66–1.72 seconds, so it was not changed
+as a purported cause. All reopened observations retained the same source
+passage and 0.0042069324 scrollbar position. Private samples, captures and
+content-free counters remain in
+`build/validation-latency-attribution-20261013`.
+
 ## Final pagination follow-up (October 11)
 
 The loaded release candidate `0DC4E5D7-1A46-3AF2-83D3-4746BA29F0CE`
