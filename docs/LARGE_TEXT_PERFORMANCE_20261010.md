@@ -30,14 +30,25 @@ foreground timing evidence. Earlier stack samples alone cannot establish their
 processor-core distribution. The slow sample's worker was executing native
 chapter layout, not waiting on a dominant lock.
 
-The candidate uses Apple's existing `ProcessInfo` activity API during the
-initial asynchronous native preparation task, paired with `endActivity` in
-`defer`. User-requested preparation may finish without being deferred by App
-Nap; idle system sleep remains allowed. No global power setting, dependency,
-thread-priority override or persistent activity is introduced. The scoped API
-is available before the macOS 13 deployment target. Signed-candidate original-
-book validation is still required; this patch is not yet a verified fix for
-the historical 13.528-second event.
+The old signed app was then reopened with strategy-bit sampling synchronized
+to its actual layout: all 56 samples during its 5.941-second layout had
+effective suppression set, and first canvas draw took 8.773 seconds.
+The first signed `863c515` candidate, using the identical MuPDF binary
+`733ABEDE`, began from the same suppressed background state. Its layout took
+1.859 seconds and first draw 3.939 seconds; none of the 18 layout samples were
+suppressed, and idle suppression returned afterward. Sampled physical footprint
+peaked at 790 MB and ended at 541 MB. This is a reproduced slow-path correction,
+not a retrospective proof of the original event's unique cause.
+
+The remaining delay in that candidate included suppressed source decoding
+(0.772 seconds) and visible-page rendering. The next candidate uses Apple's
+existing `ProcessInfo` activity API in the opening, initial preparation and
+visible-page tasks, paired with `endActivity` in `defer`. These are separate
+asynchronous owners of actual requested work. Neighbor predictions keep their
+background priority. Idle system sleep remains allowed; no global power
+setting, dependency, thread-priority override or persistent activity is
+introduced. The API predates the macOS 13 target. Final signed-candidate
+validation remains pending; the original 13.528-second event remains unresolved.
 
 The generated palette was independently checked with the exact signed engine:
 one versus two copies both lay out in 1.66–1.72 seconds, so it was not changed

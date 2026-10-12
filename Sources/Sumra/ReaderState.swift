@@ -2141,7 +2141,10 @@ private extension ReaderState {
         error = nil
         status = reloading ? L("Reloading…") : String(format: L("Opening %@…"), url.lastPathComponent)
 
+        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+            reason: "Open document")
         loading = Task {
+            defer { ProcessInfo.processInfo.endActivity(activity) }
             NativeReadingPerformance.mark("load-task-entry", revision: currentGeneration, started: loadStarted, persistent: true)
             defer { NativeReadingPerformance.mark("load-task-return", revision: currentGeneration, started: loadStarted, persistent: true) }
             let worker = Task.detached(priority: .userInitiated) {

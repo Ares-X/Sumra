@@ -3732,6 +3732,9 @@ private struct WindowScale: NSViewRepresentable {
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
             }
             .task(id: renderID) {
+                let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+                    reason: "Render visible page")
+                defer { ProcessInfo.processInfo.endActivity(activity) }
                 let documentID = state.document?.id, request = renderID
                 NativeReadingPerformance.mark("render-request", pages: pages, revision: state.renderRevision, page: index,
                                               size: viewport, flags: continuousReflow ? 8 : 0)
