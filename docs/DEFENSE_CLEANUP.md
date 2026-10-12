@@ -37,7 +37,12 @@ original EPUB restoration assertions exposed a distinct legacy two-part
 bookmark failure. Initial layout now treats a later page as finite pagination
 even without a saved count; unresolved chapter starts retain direct natural
 layout. No fallback chain or weakened source assertion is added. Final signed
-GUI progress acceptance is pending; the historical 13.528 s cause remains open.
+GUI single-canvas progress acceptance passes in Action `38274383226`, including
+original-book mode changes and full quit/reopen. The original EPUB then exposed
+unstable percentages from lazy estimated chapter heights. Home uses its stable
+chapter position for multi-chapter reading; only complete single canvases show
+the actual scroll percentage. The display correction needs a fresh signed GUI
+check. The historical 13.528 s cause remains open.
 
 ## October 12 second pass
 

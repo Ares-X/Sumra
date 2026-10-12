@@ -18,7 +18,7 @@ MuPDF 对比读取已提交的上游文件，避免把本地补丁当作上游�
 | PDF / 原生页面 / 预热计算并排序整本已测量尺寸，返回值却无人消费 | 只对实际显示的图片集合计算估算尺寸，其他路径使用已取得的测量值 | Sumatra `DisplayModel.cpp:957–1005` 的尺寸估算用于图片集合；保留该真实消费者与初始相邻图片测量策略 |
 | Markdown 初次 WebKit 导航与同页跳转再次检查源文件并决定 renderer | 当前已挂载文件及其 symlink alias 保留已选择的 renderer；真正的 sibling 文件继续执行类型与路由决定 | Sumatra `MarkdownModel::OnDocumentComplete` 更新显示文件身份。检查原文件变化、同文件 alias、不同行文密度的 sibling 与显式 reload |
 | 浏览器更新源文件身份时求出了不会使用的有效 Markdown renderer | preference 查询有唯一 owner；实际 renderer 决定仍在打开 worker 执行，身份 retarget 不再扫源码密度 | 更新文件身份与打开决定各有实际调用者；与上一行使用同一策略 owner |
-| 未分页章节目标的 bookmark.count=0 被当成旧有限分页位置，触发整章旧几何布局 | 只有 count>1 的真实旧分页记录做迁移；未解析章节直接使用最终自然几何 | Sumatra `DisplayModel::SyncWithEngineLayout` 与既有 ChapterTable。新 EPUB 用例检查正确章节、source、一次布局和一次发布；真实旧分页精确恢复用例保留 |
+| 未分页章节起点的 bookmark.count=0 被当成旧有限分页位置，触发整章旧几何布局 | count>1 或位置在后续页的真实旧分页记录做迁移；未解析章节起点直接使用最终自然几何 | Sumatra `DisplayModel::SyncWithEngineLayout` 与既有 ChapterTable。新 EPUB 用例检查正确章节、source、一次布局和一次发布；真实旧分页精确恢复用例保留 |
 | 每次字号、主题、位置样式更新都遍历所有出版社 CSS / imports / inline style | 初始加载、stylesheet load、文档 CSS 开关承担规范化；日常 style update 不再重复遍历 | WebKit 已负责样式级联。实际 WebKit 用例检查重要作者颜色覆盖、背景图片保留、用户 CSS、CHM 字体/段落、模式与 source 位置 |
 | 全文提取还保留每个 text node 和累计 offset 数组，没有生产消费者 | 删除数组与 indexed 分支；生产搜索继续使用有取消与让步的 streaming scan | 旧 Sumatra `BrowserDocView.cpp:95–110,166–182` 的全量字符串/节点索引会增加当前阅读器的物化成本。CHM 用实际 DOM Range 检查搜索 offset 与原文完整性 |
 | 已捆绑 MuPDF 的计数 ABI 仍有旧接口 fallback | MuPDF 使用必需的 checked count ABI；其他实际解码器保留自己的 count ABI | 同一应用捆绑的 engine 与 caller 一起发布，不需要内部旧 ABI 兼容链；失败原因仍原样传播 |
@@ -181,15 +181,26 @@ physical footprint 809 MB，末 5 秒中位数 514 MB。单页、双页与返回
 
 签名客户端 Home 实际将自然正文的“第 1 页／共 1 页”显示为 100%，而 B04
 实际滚动比例仅 0.0042069324。两个现有 native 滚动 owner 直接用文档与 clip
-几何记录可选 scrollFraction；Home 显示其百分比，固定分页仍按页数显示。
+几何记录可选 scrollFraction；Home 对完整单画布显示百分比，固定分页仍按页数显示。
 隐藏滚动条不影响记录。旧自然流记录没有比例时不再推断 100%；模式目标只使用
 所属坐标的比例，兼容浏览器模式清除 native 比例。真实隐藏滚动视图首／中／末
-位置通过捕获→JSON 保存检查。Home 的最终签名 GUI 显示尚待新构建验收。
+位置通过捕获→JSON 保存检查。Action `38274383226` / `37dc3ac` 的签名 GUI
+确认 B04 Home 显示 0.4%，与实际滚动比例完全一致；完全退出重开和
+Single/Two/Continuous 往返均恢复同一原文与比例。首次 canvas draw 2.304 s，
+自然布局 1.846 s，采样峰值 physical footprint 779 MB，末 5 秒中位数 527 MB。
+模式往返后为 452 MB。六个发布资产和 Ed25519 更新签名通过，应用 181 文件
+与 Action inventory 完全一致，没有重签名。
+
+实际多章节 EPUB B01 重开恢复了全部已捕获原文，但相同 source 的全画布滚动
+比例从 0.0161819 变为 0.00356286：尚未布局章节使用估算高度，比例随布局变化。
+Home 因此只在完整单画布显示滚动百分比；多章节自然流使用已有稳定章节位置，
+标为 Chapter，而不把临时估算高度当成全书阅读进度。这个显示修复尚待新签名 GUI
+复验，不改 source 恢复或原生布局。
 
 相关检查发现旧两段式 EPUB bookmark `20:1` 的 source 恢复失败：没有 count
 被当成未分页章节，旧有限页坐标直接进入自然正文。撤去新增比例捕获时仍有相同
 12 处失败。初始布局判断现在保留后续页代表旧有限分页这一语义；未解析的章节
 起点仍直接使用自然几何，不增加整章旧布局。原恢复断言保留。
 修复后 15 项相关 source、滚动比例、PDF 与模式恢复检查全部通过；旧 EPUB 的
-12 处坐标断言全部恢复通过。两项初始布局检查也通过，未分页章节只布局一次，
+12 处坐标断言全部恢复通过。四项初始布局检查也通过，未分页章节只布局一次，
 真实旧有限分页仍先解析 source 再使用最终自然几何。

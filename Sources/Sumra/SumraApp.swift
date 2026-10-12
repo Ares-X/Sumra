@@ -800,12 +800,18 @@ struct DocumentFileBrowser: View {
     @ViewBuilder private func readingProgress(_ url: URL) -> some View {
         if let data = UserDefaults.standard.data(forKey: "position:" + url.path), let position = try? JSONDecoder().decode(ReadingPosition.self, from: data) {
             VStack(alignment: .trailing, spacing: 4) {
-                if let fraction = position.scrollFraction {
+                // Lazy chapter heights change as EPUB chapters are laid out.
+                // Only a complete single canvas has a stable scroll percentage.
+                if position.pageCount == 1, let fraction = position.scrollFraction {
                     Text(fraction, format: .percent.precision(.fractionLength(0...1))).font(.caption).foregroundStyle(.secondary)
                     ProgressView(value: fraction).frame(width: 72)
                         .accessibilityLabel(L("Reading progress"))
                 } else {
-                    Text(String(format: L("Page %d"), position.page + 1)).font(.caption).foregroundStyle(.secondary)
+                    if let count = position.pageCount, count > 1, position.flow == "continuous", let passage = position.nativePassage {
+                        Text(String(format: L("Chapter %@"), String(passage.chapter + 1))).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text(String(format: L("Page %d"), position.page + 1)).font(.caption).foregroundStyle(.secondary)
+                    }
                     if let count = position.pageCount, count > 0,
                        !(count == 1 && position.flow == "continuous" && (position.markdownRenderer == .paged || position.nativePassage != nil)) {
                         ProgressView(value: min(1, Double(position.page + 1) / Double(count))).frame(width: 72)

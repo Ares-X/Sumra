@@ -29,8 +29,12 @@ shipped identity while retaining strict source and user-style checks. Its real
 signed upgrade replay, Single/Two/Continuous cycle and fresh-process reopen
 restore the original passage. First canvas draw is 2.480 s, natural layout
 1.875 s, sampled peak physical footprint 809 MB and settled median 514 MB.
-Home's actual continuous progress incorrectly displayed 100%; the direct
-viewport-fraction fix still needs its final signed GUI check. A legacy two-part
+Action `38274383226` verifies B04 Home's 0.4% actual scroll progress, full quit/
+reopen and Single/Two/Continuous restoration; first canvas draw is 2.304 s,
+natural layout 1.846 s and sampled peak/settled physical footprint 779/527 MB.
+Original multi-chapter EPUB restoration also passes, but its estimated canvas
+height changes the scrollbar fraction. Home now uses stable chapter progress
+for that case; its final signed display check is pending. A legacy two-part
 EPUB bookmark restoration regression is also corrected at initial layout;
 its original source assertions remain. The performance/release goal is not
 complete. The October 11 results
