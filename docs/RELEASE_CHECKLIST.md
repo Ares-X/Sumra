@@ -34,7 +34,16 @@ reopen and Single/Two/Continuous restoration; first canvas draw is 2.304 s,
 natural layout 1.846 s and sampled peak/settled physical footprint 779/527 MB.
 Original multi-chapter EPUB restoration also passes, but its estimated canvas
 height changes the scrollbar fraction. Home now uses stable chapter progress
-for that case; its final signed display check is pending. A legacy two-part
+for that case. Action `38277846630` at `989e646` passes final signed display
+checks: EPUB keeps Chapter 3 and the same progress before/after reopening with
+512 captured characters unchanged; MOBI's actual/Home fraction matches at
+19.6%, and B04 remains 0.4%. The normal app contains the exact signed candidate
+files; all nine Mach-O files include ARM64 and require no system newer than
+macOS 13. Its fresh-process B04 check paints in 2.268 s, lays out in 1.779 s,
+and samples 799 MB peak / 547 MB settled physical footprint while preserving
+the original passage and fraction. Originals remain unchanged; all owned GUI,
+sampling and log processes exit after acceptance. Physical macOS 13 execution
+remains unexercised. A legacy two-part
 EPUB bookmark restoration regression is also corrected at initial layout;
 its original source assertions remain. The performance/release goal is not
 complete. The October 11 results

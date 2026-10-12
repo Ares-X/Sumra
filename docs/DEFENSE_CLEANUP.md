@@ -41,8 +41,10 @@ GUI single-canvas progress acceptance passes in Action `38274383226`, including
 original-book mode changes and full quit/reopen. The original EPUB then exposed
 unstable percentages from lazy estimated chapter heights. Home uses its stable
 chapter position for multi-chapter reading; only complete single canvases show
-the actual scroll percentage. The display correction needs a fresh signed GUI
-check. The historical 13.528 s cause remains open.
+the actual scroll percentage. Action `38277846630` passes the final original
+EPUB, MOBI and Markdown Home checks, including unchanged EPUB source on reopen.
+The normal app uses those exact signed files. The historical 13.528 s cause
+remains open, and no new public Release is promoted.
 
 ## October 12 second pass
 
