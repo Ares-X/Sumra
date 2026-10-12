@@ -6,13 +6,9 @@ import CoreGraphics
 /// Zero-based Sumatra DisplayModel row grouping and DocumentLayout's
 /// CollectFacingRows (012d997f6a3a5c5c97b878e1a340db3bffde8c0e).
 public enum PageRows {
-    public struct Placement: Equatable {
-        public var frame: CGRect
-        public let scale: Double
-    }
     public struct Layout {
         /// Original page indices; pages outside the paged row are nil.
-        public let pages: [Placement?]
+        public let pages: [CGRect?]
         public let canvas: CGSize
         /// The rows actually placed, in document order even in RTL mode.
         public let rows: [Range<Int>]
@@ -96,7 +92,7 @@ public enum PageRows {
                 : firstY + CGFloat(row) * (spread ? pairStride : singleSize.height + spacing.height)
         }
 
-        public func placement(page: Int) -> Placement? {
+        public func frame(page: Int) -> CGRect? {
             guard (0..<count).contains(page) else { return nil }
             let row = !spread ? page : (cover ? (page == 0 ? 0 : 1 + (page - 1) / 2) : page / 2)
             let range = range(row: row)
@@ -106,7 +102,7 @@ public enum PageRows {
             else if cover && page == 0 || page != range.lowerBound { x = firstX + columnWidth + spacing.width }
             else { x = firstX + columnWidth - size.width }
             let mirroredX = (rtl && spread ? mirrorWidth - x - size.width : x) + slackX
-            return Placement(frame: CGRect(origin: CGPoint(x: mirroredX, y: rowY(row)), size: size), scale: 1)
+            return CGRect(origin: CGPoint(x: mirroredX, y: rowY(row)), size: size)
         }
     }
 
@@ -118,28 +114,6 @@ public enum PageRows {
                       cover: cover, rtl: rtl, freePan: freePan, spacing: spacing, inset: inset)
     }
 
-    /// The PDF uniform-width entry point keeps its original per-page scales.
-    /// Sizes are already cropped and rotated; all row geometry is shared below.
-    public static func layout(sizes: [CGSize], viewport: CGSize, page: Int, continuous: Bool,
-                              spread: Bool, cover: Bool, rtl: Bool, zoom: Double,
-                              spacing: CGSize = CGSize(width: 8, height: 8),
-                              inset: CGSize = CGSize(width: 4, height: 4)) -> Layout {
-        guard let first = sizes.first, zoom.isFinite, zoom > 0,
-              sizes.allSatisfy({ $0.width.isFinite && $0.height.isFinite && $0.width > 0 && $0.height > 0 }) else {
-            return Layout(pages: Array(repeating: nil, count: sizes.count), canvas: viewport, rows: [])
-        }
-        let scales = sizes.map {
-            ReadingZoom.pageScale(zoom: zoom, referenceWidth: Double(first.width), pageWidth: Double($0.width), uniform: true)
-        }
-        let displaySizes = zip(sizes, scales).map { CGSize(width: $0.0.width * CGFloat($0.1), height: $0.0.height * CGFloat($0.1)) }
-        let geometry = layout(displaySizes: displaySizes, viewport: viewport, page: page, continuous: continuous,
-            spread: spread, cover: cover, rtl: rtl, spacing: spacing, inset: inset)
-        let pages = geometry.pages.enumerated().map { index, placement in
-            placement.map { Placement(frame: $0.frame, scale: scales[index]) }
-        }
-        return Layout(pages: pages, canvas: geometry.canvas, rows: geometry.rows)
-    }
-
     /// Translated from DocumentLayout::Relayout, RelayoutFacingWithSpreads and
     /// FinishRelayout. Inputs already include zoom, crop and rotation; the result
     /// uses AppKit points and never measures or renders document pages.
@@ -147,7 +121,7 @@ public enum PageRows {
                               spread: Bool, cover: Bool, rtl: Bool, landscape: Set<Int> = [], freePan: Bool = false,
                               spacing: CGSize = CGSize(width: 8, height: 8),
                               inset: CGSize = CGSize(width: 4, height: 4)) -> Layout {
-        var pages = [Placement?](repeating: nil, count: displaySizes.count)
+        var pages = [CGRect?](repeating: nil, count: displaySizes.count)
         guard !displaySizes.isEmpty,
               displaySizes.allSatisfy({ $0.width.isFinite && $0.height.isFinite && $0.width > 0 && $0.height > 0 }) else {
             return Layout(pages: pages, canvas: viewport, rows: [])
@@ -161,7 +135,7 @@ public enum PageRows {
             var height: CGFloat = 0
             for (offset, index) in row.enumerated() {
                 let size = displaySizes[index]
-                pages[index] = Placement(frame: CGRect(origin: CGPoint(x: 0, y: y), size: size), scale: 1)
+                pages[index] = CGRect(origin: CGPoint(x: 0, y: y), size: size)
                 if spansColumns { spreadWidth = max(spreadWidth, size.width) }
                 else {
                     let column = spread && cover && index == 0 ? 1 : offset
@@ -184,14 +158,14 @@ public enum PageRows {
             let spansColumns = spread && landscape.contains(row.lowerBound)
             for (offset, index) in row.enumerated() {
                 guard var placement = pages[index] else { continue }
-                let width = placement.frame.width
+                let width = placement.width
                 var x: CGFloat
                 if !spread { x = dx + (columns[0] - width) / 2 }
                 else if spansColumns || cover && index == 0 && !continuous { x = dx + (pageWidth - width) / 2 }
                 else if cover && index == 0 || offset == 1 { x = dx + columns[0] + spacing.width }
                 else { x = dx + columns[0] - width }
                 if rtl && spread { x = canvas.width - x - width }
-                placement.frame.origin = CGPoint(x: x + slack.width, y: placement.frame.minY + dy + slack.height)
+                placement.origin = CGPoint(x: x + slack.width, y: placement.minY + dy + slack.height)
                 pages[index] = placement
             }
         }

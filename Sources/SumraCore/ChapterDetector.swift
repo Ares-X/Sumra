@@ -25,9 +25,7 @@ public enum ChapterDetector{
     public static func detect(_ text:String)->[DetectedChapter]{index(text).chapters}
 
     /// Scan line positions and chapter candidates together without retaining a second array of lines.
-    public static func index(_ text:String)->(lines:[Int],chapters:[DetectedChapter]){scan(text,chapters:true)}
-
-    private static func scan(_ text:String,chapters:Bool)->(lines:[Int],chapters:[DetectedChapter]){
+    public static func index(_ text:String)->(lines:[Int],chapters:[DetectedChapter]){
         let value=text as NSString
         var offsets=[0],end=0,contentsEnd=0,line=0,previousBlank=true
         var candidates:[(Int,String,Int,Bool)]=[]
@@ -35,29 +33,27 @@ public enum ChapterDetector{
             if Task.isCancelled{return([],[])}
             let start=end
             value.getLineStart(nil,end:&end,contentsEnd:&contentsEnd,for:NSRange(location:start,length:0))
-            if chapters{
-                let raw=NSRange(location:start,length:contentsEnd-start)
-                let blank=value.rangeOfCharacter(from:nonWhitespace,options:[],range:raw).location==NSNotFound
-                if blank,let last=candidates.indices.last,candidates[last].0==line-1{candidates[last].2+=1}
-                let first=blank ? NSNotFound:value.rangeOfCharacter(from:titleCharacters,options:[],range:raw).location
-                if first != NSNotFound{
-                    let last=value.rangeOfCharacter(from:titleCharacters,options:.backwards,range:raw)
-                    let title=value.substring(with:NSRange(location:first,length:NSMaxRange(last)-first))
-                    let range=NSRange(location:0,length:(title as NSString).length)
-                    // Ordinary prose need not traverse graphemes to reject a heading.
-                    // Keep the 80-grapheme limit for the structural candidates.
-                    if let (family,match)=patterns.lazy.enumerated().compactMap({i,p in p.firstMatch(in:title,range:range).map{(i,$0)}}).first,
-                       title.index(title.startIndex,offsetBy:81,limitedBy:title.endIndex)==nil,!endsLikeProse(title){
-                        let tail=family==0 ? (title as NSString).substring(from:NSMaxRange(match.range(at:1))):""
-                        // A compact numbered line with sentence punctuation can be a hard-wrapped
-                        // body fragment. Require a paragraph boundary unless its title is separated.
-                        let needsBoundary=tail.first.map{!$0.isWhitespace && !"-—:：".contains($0)}==true
-                            && tail.contains{"，,。！？!?；;".contains($0)}
-                        candidates.append((line,title,family*3+(previousBlank ? 1:0),needsBoundary))
-                    }
+            let raw=NSRange(location:start,length:contentsEnd-start)
+            let blank=value.rangeOfCharacter(from:nonWhitespace,options:[],range:raw).location==NSNotFound
+            if blank,let last=candidates.indices.last,candidates[last].0==line-1{candidates[last].2+=1}
+            let first=blank ? NSNotFound:value.rangeOfCharacter(from:titleCharacters,options:[],range:raw).location
+            if first != NSNotFound{
+                let last=value.rangeOfCharacter(from:titleCharacters,options:.backwards,range:raw)
+                let title=value.substring(with:NSRange(location:first,length:NSMaxRange(last)-first))
+                let range=NSRange(location:0,length:(title as NSString).length)
+                // Ordinary prose need not traverse graphemes to reject a heading.
+                // Keep the 80-grapheme limit for the structural candidates.
+                if let (family,match)=patterns.lazy.enumerated().compactMap({i,p in p.firstMatch(in:title,range:range).map{(i,$0)}}).first,
+                   title.index(title.startIndex,offsetBy:81,limitedBy:title.endIndex)==nil,!endsLikeProse(title){
+                    let tail=family==0 ? (title as NSString).substring(from:NSMaxRange(match.range(at:1))):""
+                    // A compact numbered line with sentence punctuation can be a hard-wrapped
+                    // body fragment. Require a paragraph boundary unless its title is separated.
+                    let needsBoundary=tail.first.map{!$0.isWhitespace && !"-—:：".contains($0)}==true
+                        && tail.contains{"，,。！？!?；;".contains($0)}
+                    candidates.append((line,title,family*3+(previousBlank ? 1:0),needsBoundary))
                 }
-                previousBlank=blank
             }
+            previousBlank=blank
             if end<value.length{offsets.append(end)}
             line+=1
         }
@@ -85,7 +81,4 @@ public enum ChapterDetector{
         }
         return 1
     }
-
-    /// Foundation's line boundaries keep TXT navigation consistent with CRLF, CR and Unicode newlines.
-    public static func lineOffsets(_ text:String)->[Int]{scan(text,chapters:false).lines}
 }

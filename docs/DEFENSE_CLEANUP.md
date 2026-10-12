@@ -1,5 +1,29 @@
 # Function-first cleanup
 
+## October 12 second pass
+
+The second pass removes internal paths with no product consumer: PageRows'
+old scaling entry and frame/scale wrapper, raw Palm and test-only decompression
+adapters, ChapterDetector's line-only scan branch, two PDF signing adapters,
+unread signer metadata, signature-dialog coordinate flags, and unused search
+result geometry. Geometry returns CGRect directly, PDF extraction consumes the
+already parsed Palm database, and text navigation uses its existing restoration
+owner. Synthesized Codable keys replace ReadingPosition's identical key list.
+
+The browser search decoder has one authoritative caller. Its unused independent
+fetch/parser branch and Promise chain are replaced by direct sequential scanning;
+ordering, bounded results, cancellation and active read failures remain intact.
+One-time style initialization and immutable page identity no longer have state
+wrappers. Signature and annotation preset validation stay at their actual input
+owners; multi-page annotation translation runs once. Native PDF bounds lookup
+and reflow loading use MuPDF's existing validation and layout owners.
+
+Related tests now exercise the production APIs; obsolete and tautological
+assertions are removed. Source/save permissions and persisted-position migration
+still have current consumers. The historical 13.528-second opening incident and
+signed-candidate original-book GUI acceptance remain open in the
+[release checklist](RELEASE_CHECKLIST.md).
+
 The [October 12 deep upstream review](SUMATRA_DEEP_IMPLEMENTATION_REVIEW_20261012.md)
 records removal of the MOBI repacker, file-reopening PDF inspection, unused
 browser indexes, repeated source/CSS work and render-cache overhead, with their

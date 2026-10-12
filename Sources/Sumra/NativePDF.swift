@@ -189,7 +189,6 @@ extension NativeFile {
                      bounds: CGRect, reason: String = "", location: String = "", image: URL? = nil,
                      appearance: PDFSignatureAppearance = .standard) throws {
         try NativePDFTools.validateDestination(source: sourceURL, destination: destination)
-        try NativePDFTools.validateSignature(fieldName: fieldName, page: page, bounds: bounds)
         try Task.checkCancellation()
         try validatePDFSource()
         let temporary = try TemporaryDirectory(), snapshot = temporary.url.appendingPathComponent("current.pdf")

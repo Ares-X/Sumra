@@ -28,9 +28,7 @@ struct PDFSignatureInfo: Decodable, Sendable {
         let certificateDER: [Data]?
         let certificateTrusted: Bool
         let trustError: String?
-        let trustErrorCode: Int?
         let signingTime: Double?
-        let signingTimeError: String?
         let timestampTime: Double?
         let timestampCertificateCount: Int
         let timestampCertificateDER: [Data]?
@@ -312,16 +310,6 @@ enum NativePDFTools {
     enum SigningIdentity: @unchecked Sendable {
         case pkcs12(URL, password: String)
         case keychain(SecIdentity)
-    }
-
-    static func sign(source: URL, destination: URL, identity: URL, password: String, fieldName: String = "Signature", page: Int = 0, bounds: CGRect = .zero, documentPassword: String = "", reason: String = "", location: String = "", image: URL? = nil, appearance: PDFSignatureAppearance = .standard) throws {
-        try sign(source: source, destination: destination, identity: .pkcs12(identity, password: password), fieldName: fieldName,
-            page: page, bounds: bounds, documentPassword: documentPassword, reason: reason, location: location, image: image, appearance: appearance)
-    }
-
-    static func sign(source: URL, destination: URL, identity: SecIdentity, fieldName: String = "Signature", page: Int = 0, bounds: CGRect = .zero, documentPassword: String = "", reason: String = "", location: String = "", image: URL? = nil, appearance: PDFSignatureAppearance = .standard) throws {
-        try sign(source: source, destination: destination, identity: .keychain(identity), fieldName: fieldName,
-            page: page, bounds: bounds, documentPassword: documentPassword, reason: reason, location: location, image: image, appearance: appearance)
     }
 
     static func sign(source: URL, destination: URL, identity: SigningIdentity, fieldName: String = "Signature", page: Int = 0, bounds: CGRect = .zero, boundsInPDFSpace: Bool = false, documentPassword: String = "", reason: String = "", location: String = "", image: URL? = nil, appearance: PDFSignatureAppearance = .standard) throws {

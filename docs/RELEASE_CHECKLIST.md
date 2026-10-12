@@ -26,6 +26,12 @@ the original books; the Mac is currently locked and automatic unlock failed.
 The performance/release goal is not complete. The October 11 results below
 describe that earlier candidate, not acceptance of the new changes.
 
+The second source simplification pass has passing core, native and release-build
+checks. One continuous-wheel integration case fails identically with the
+pre-change TextReader and remains unresolved; its assertions are retained.
+The [deep review](SUMATRA_DEEP_IMPLEMENTATION_REVIEW_20261012.md) records the exact
+comparison and pending GUI evidence. This is not an accepted release candidate.
+
 The latest original-book workflow sweep and changed-owner findings are in
 [the corpus acceptance report](BOOK_CORPUS_ACCEPTANCE.md#completed-original-book-workflow-sweep-2026-10-11)
 and [the performance report](LARGE_TEXT_PERFORMANCE_20261010.md#final-pagination-follow-up-october-11).

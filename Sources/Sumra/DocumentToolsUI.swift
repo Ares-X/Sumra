@@ -102,11 +102,10 @@ private func toolInput(_ title: String, message: String = "", secure: Bool = fal
 private struct SignatureOptions {
     var identity: NativePDFTools.SigningIdentity
     var field: String, page: Int, bounds: CGRect, reason: String, location: String
-    var boundsInPDFSpace: Bool
     var image: URL?
     var appearance: PDFSignatureAppearance
 
-    @MainActor static func choose(fields: [PDFSignatureInfo.Field], page: Int, count: Int, selection: (page: Int, bounds: CGRect)?, selectedField: String?, selectionInPDFSpace: Bool = true, isCurrent: () -> Bool = { true }) throws -> Self? {
+    @MainActor static func choose(fields: [PDFSignatureInfo.Field], page: Int, count: Int, selection: (page: Int, bounds: CGRect)?, selectedField: String?, isCurrent: () -> Bool) throws -> Self? {
         guard count > 0 else { throw ReadError("Open and unlock the PDF before signing") }
         let source = NSAlert(); source.messageText = L("Signing Identity")
         source.addButton(withTitle: L("Choose from Keychain…")); source.addButton(withTitle: L("Choose PKCS#12 File…")); source.addButton(withTitle: L("Cancel"))
@@ -191,7 +190,7 @@ private struct SignatureOptions {
             guard panel.runModal() == .OK, isCurrent() else { return nil }
             imageURL = panel.url
         }
-        return .init(identity: identity, field: field.stringValue, page: page - 1, bounds: rectangle, reason: reason.stringValue, location: location.stringValue, boundsInPDFSpace: useSelection && selectionInPDFSpace, image: imageURL, appearance: appearance)
+        return .init(identity: identity, field: field.stringValue, page: page - 1, bounds: rectangle, reason: reason.stringValue, location: location.stringValue, image: imageURL, appearance: appearance)
     }
 }
 
@@ -564,7 +563,7 @@ extension ReaderState {
                 guard current(), canEditPDF else { return }
                 guard let options = try SignatureOptions.choose(fields: signatures.signatures, page: page,
                     count: info.pageCount, selection: selection, selectedField: selectedField,
-                    selectionInPDFSpace: false, isCurrent: current), current(), canEditPDF else { return }
+                    isCurrent: current), current(), canEditPDF else { return }
                 let panel = NSSavePanel(); panel.allowedFileTypes = ["pdf"]
                 panel.nameFieldStringValue = reading.url.deletingPathExtension().lastPathComponent + "-signed.pdf"
                 panel.message = L("Creates a signed copy with the current unsaved edits. Existing signatures retain their original signed byte ranges. The open document is unchanged.")

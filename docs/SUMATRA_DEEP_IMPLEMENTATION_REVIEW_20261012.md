@@ -36,7 +36,34 @@ MuPDF 对比读取已提交的上游文件，避免把本地补丁当作上游�
 - **source anchors、compact handles、width cache**：分别服务重开/重排位置、降低 flow 存储、复用实际字体测量。上游 live flow pointer bookmark 不能跨重新解析持久化。没有证据支持删掉这些功能或缓存。
 - **边界检查**：源文件版本、保存目的地、实际密码权限、归档/格式记录边界、外部输出快照保护现有数据与消费者。本批未添加新的 dependency、重试、推断 fallback 或任意输入上限。
 
-## 验证与未完成的验收
+## 第二轮无效路径与设计检查
+
+以 `cee5afbd2c34a8675a018d1da4295ae3ca2a73f3` 为基准，再次核对生产调用者、实际输入与上游 owner。
+
+- 页面几何只消费已缩放尺寸：删除仅由测试调用的旧缩放入口、恒为 1 的 scale 和单字段 Placement 包装，直接使用 CGRect。缩放由现有 ReadingZoom / RasterLayout 承担，行布局测试迁到实际 displaySizes 入口。
+- Palm 正文由 palmContent 消费，Print Replica 由 PDF 提取消费：删除没有产品调用者的 raw Palm 分支和测试解压转换包装；MOBI PDF 提取复用已经解析的数据库。章节与行偏移由同一次 index 扫描产生，删除仅测试使用的第二扫描入口及其开关。
+- PDF 签名使用 SigningIdentity：删除没有产品调用者的 URL / SecIdentity 适配器、未读取的证书元数据及 C 输出、签名对话框的无效坐标标记。重复签名校验在 sign 合并；批注 preset 的校验和多页 edit 翻译在实际输入 owner 执行一次。
+- 文本页跳转直接使用 restore；浏览器当前页直接使用 immutable identity。搜索只使用实际调用者提供的解码器，删除独立 fetch/parser fallback、Promise 链、恒真的 scroll 参数、重复样式初始化状态及不可能的零宽 literal-match 分支。
+- 删除没有消费者的 RasterMatch.lastRects 和与合成 Codable 完全相同的手写键表。MuPDF bounds 使用上游页查找的合法性检查；源码 anchor 的 page loader 已确保布局，无需额外计数。内部旧 lf_count 没有 MuPDF 调用者，codec 的真实 lf_count 保留。
+
+完整页/瓦片缓存、章节 generation、实际读取取消、旧阅读位置迁移、保存源版本与密码权限有当前消费者；本轮没有用删除这些功能来减少代码。
+四个子agent完成后，核对会话日志与父子关系，停止三组闲置 Serena/SourceKit 进程；PDF 与 native 任务报告的同一组 PID 只清理一次，共享服务保留。
+
+本轮原生重建与 ARM64/macOS 13 发布构建通过；101 项 core 检查通过，283 项 reader/native 检查中 282 项通过。
+连续小幅滚轮的一项用例出现三处断言失败，不能报告整组通过。使用修改前的 TextReader 单独复测，结果相同；
+直接交给 NSScrollView 也没有位移，换正式滚轮事件或显示测试窗口均未解决。探针和无效尝试已撤回，原测试未削弱。
+界面工具再次确认 Mac 锁定且自动解锁失败；尚不能把这个失败归因于锁屏，也没有证据支持加入产品 workaround。
+该用例需在可用界面下定位，签名客户端的原书验收仍未完成。
+
+本轮再次读取同一 20.65 MB Markdown B04 原文件：打开 0.165 s，首次自然布局 1.699 s，
+首块区域像素 0.004 s；单页、双列、返回连续布局分别为 0.205 / 0.533 / 0.519 s。
+换字体重新打开并恢复 source 用时 1.845 s；测试进程峰值 RSS 为 605,323,264 字节。
+source / sourceRevision、模式往返、重开检查通过，原文件前后 SHA-256 相同。
+这是独立原生测试进程，未清除系统文件缓存，没有写用户偏好或阅读记录；
+不能代替客户端首屏、总内存和历史 13.528 秒事件的验证。
+本轮日志与收据保留在 `build/validation-minimal-round2-20261012`，临时测试与源码比较副本已退休。
+
+## 首批验证与未完成的验收
 
 原生引擎重建成功。初次集成验证通过 29 项 core 与 62 项 reader/native 检查；
 浏览器样式、CHM 重排/搜索与阅读模式 15 项通过。

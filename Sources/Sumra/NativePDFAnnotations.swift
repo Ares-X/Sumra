@@ -159,7 +159,6 @@ enum NativePDFAnnotations {
     // Returns true only when a selection was consumed by a completed mutation.
     static func perform(_ kind: String, preset: PDFAnnotationPreset?, selection: [Int: RasterSelection],
                         state: ReaderState, pages: Pages, pasteTarget: (page: Int, point: CGPoint)? = nil) async throws -> Bool {
-        try preset?.validate()
         if kind == "copy" || kind == "cut" {
             _ = try await NativePDFClipboard.copy(state: state, pages: pages, cut: kind == "cut")
             return false
@@ -188,7 +187,8 @@ enum NativePDFAnnotations {
         } else if PDFAnnotationProperties.isTextMarkup(type) || kind == "redact" && !selection.isEmpty {
             let text = selection.keys.sorted().compactMap { selection[$0]?.text }.joined(separator: "\n")
             guard !text.isEmpty || kind == "redact" else { state.status = L("Select text to annotate"); return false }
-            let items = try selection.keys.sorted().compactMap { page -> PDFAnnotationCreation? in
+            let presetEdits = try PDFAnnotationProperties.edits(for: preset, type: type, selectedText: text)
+            let items = selection.keys.sorted().compactMap { page -> PDFAnnotationCreation? in
                 guard let selected = selection[page], !selected.bounds.isEmpty else { return nil }
                 let quads: [PDFAnnotationEdit.Quad]
                 if let original = selected.quads {
@@ -203,7 +203,7 @@ enum NativePDFAnnotations {
                     }
                 }
                 return .init(page: page, type: type, bounds: selected.bounds.reduce(.null) { $0.union($1) },
-                    edits: [.quads(quads)] + (try PDFAnnotationProperties.edits(for: preset, type: type, selectedText: text)))
+                    edits: [.quads(quads)] + presetEdits)
             }
             try await finish(items, preset: preset, selectedText: text, state: state, pages: pages)
             return !items.isEmpty && current()

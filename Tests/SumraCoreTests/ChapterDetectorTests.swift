@@ -45,7 +45,6 @@ final class ChapterDetectorTests: XCTestCase {
             + title + "👨‍👩‍👧‍👦\r\n\r\n" + String(repeating: "ordinary prose ", count: 1_000)
         let result = ChapterDetector.index(text)
         XCTAssertEqual(result.chapters, [.init(title: title, line: 0)])
-        XCTAssertEqual(result.lines, ChapterDetector.lineOffsets(text))
         for ending in ["。", "！", "?", ";", ","] {
             XCTAssertTrue(ChapterDetector.detect("Chapter 1 a title" + ending).isEmpty)
         }
@@ -60,7 +59,6 @@ final class ChapterDetectorTests: XCTestCase {
             .init(title: "第一章 开始", line: 0),
             .init(title: "第三章 收束", line: 6)
         ])
-        XCTAssertEqual(index.lines, ChapterDetector.lineOffsets(text))
     }
 
     func testRejectedProseDoesNotEstablishChapterFamilyConsistency() {

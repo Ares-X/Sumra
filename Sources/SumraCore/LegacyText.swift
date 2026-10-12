@@ -21,19 +21,21 @@ public enum LegacyText{
         var out=Data();for i in b[p...]{out.append(contentsOf: dict[Int(i)])};return out
     }
 
-    public static func palm(_ data:Data,replica:Bool=false)throws->Data{
-        let database = try PalmDatabase(data)
-        guard replica || ["TEXtREAd", "TEXtTlDc", "DataPlkr"].contains(database.creator) else { throw ReadError("Unsupported Palm database") }
-        if replica, try be(database.record(0), 12, 2) != 0 { throw ReadError("Encrypted Kindle document") }
+    public static func palmPDF(_ data: Data) throws -> Data {
+        try palmPDF(PalmDatabase(data))
+    }
+
+    private static func palmPDF(_ database: PalmDatabase) throws -> Data {
+        let header = database.record(0)
+        if try be(header, 12, 2) != 0 { throw ReadError("Encrypted Kindle document") }
         var flags = 0
-        if replica, database.creator == "BOOKMOBI" {
-            let header = database.record(0), info = try MobiHeader(header)
+        if database.creator == "BOOKMOBI" {
+            let info = try MobiHeader(header)
             // Print Replica version 4 can have a long MOBI header without
             // valid trailer flags (MobiDoc.cpp PrintReplicaTrailerInfo).
             if info.length >= 228, try be(header, 16 + 88, 4) >= 5 { flags = info.flags }
         }
-        let raw = try database.text(flags: flags, recover: !replica).data
-        return replica ? try printReplica(raw) : raw
+        return try printReplica(database.text(flags: flags, recover: false).data)
     }
 
     /// EngineCreate also recognizes Print Replica inside .mobi/.prc/.azw.
@@ -44,7 +46,7 @@ public enum LegacyText{
         let header = database.record(0), info = try MobiHeader(header)
         let type = info.length >= 116 ? try be(header, 24, 4) : 0
         guard type == 8 || database.record(1).starts(with: Data("%MOP".utf8)) else { return nil }
-        return try palm(data, replica: true)
+        return try palmPDF(database)
     }
 
     /// Inspect only the PDB header and record table for ambiguous PDF/MOBI
@@ -595,12 +597,6 @@ public enum LegacyText{
         let pdf=raw.subdata(in:offset..<offset+length)
         guard pdf.starts(with:Data("%PDF-".utf8))else{throw ReadError("First %MOP section is not PDF")}
         return pdf
-    }
-
-    static func unpackPalm(_ bytes: [UInt8]) throws -> [UInt8] {
-        var output = Data()
-        try unpackPalm(bytes, into: &output)
-        return Array(output)
     }
 
     // MobiDoc::PalmdocUncompress appends to the document buffer. This also

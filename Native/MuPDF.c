@@ -647,7 +647,6 @@ API int lf_count_error(SumraMuPDFDocument *d, char *error) {
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); return -1; }
     return n;
 }
-API int lf_count(SumraMuPDFDocument *d) { char error[512]; return lf_count_error(d, error); }
 API char *lf_html_source(SumraMuPDFDocument *d, char *error) {
     fz_buffer *buffer = NULL; char *out = NULL; fz_var(buffer); fz_var(out);
     fz_try(d->ctx) {
@@ -736,7 +735,7 @@ API int lf_bounds_at(SumraMuPDFDocument *d, int chapter, int index, float *bound
         fz_rect r;
         pdf_document *pdf = pdf_specifics(d->ctx, d->doc);
         if (pdf) {
-            if (chapter != 0 || index < 0 || index >= pdf_count_pages(d->ctx, pdf))
+            if (chapter != 0)
                 fz_throw(d->ctx, FZ_ERROR_ARGUMENT, "Page out of range");
             // EngineMupdf::FinishLoading reads geometry without loading every
             // page's annotations, links and transparency resources.
@@ -2369,7 +2368,6 @@ API char *lf_html_anchor_position(void *opaque, int chapter, uint32_t node, uint
     SumraMuPDFDocument *d = opaque;
     fz_stext_page *text = NULL; SumraJSON j = {0}; fz_var(text); fz_var(j);
     fz_try(d->ctx) {
-        (void)fz_count_chapter_pages(d->ctx, d->doc, chapter); // Ensure current layout is complete.
         // Every reflow page has the same canvas. Reuse the loaded chapter page
         // as its HTML carrier; resolve and draw the source in one operation.
         int page = -1;

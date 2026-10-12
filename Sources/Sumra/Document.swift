@@ -349,10 +349,7 @@ struct ReadingDocument: Identifiable {
             return .init(url: url, content: .pages(try Pages(source, format: .pdf, password: password)), temporary: temporary)
 
         case .replica:
-            let data = try LegacyText.palm(
-                Data(contentsOf: url, options: .mappedIfSafe),
-                replica: true
-            )
+            let data = try LegacyText.palmPDF(Data(contentsOf: url, options: .mappedIfSafe))
             return try embeddedPDF(data, url: url, password: password)
 
         case .text:

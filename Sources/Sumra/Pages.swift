@@ -41,7 +41,6 @@ struct RasterMatch: Equatable {
         fragments?.contains(where: { $0.page == page }) ?? (self.page == page)
     }
     var lastPage: Int { fragments?.last?.page ?? page }
-    var lastRects: [CGRect] { fragments?.last?.rects ?? rects }
 }
 fileprivate struct RasterStyle: Equatable {
     let fontSize: Double, lineHeight: Double, margin: Double
@@ -3102,8 +3101,8 @@ private struct WindowScale: NSViewRepresentable {
             func range(row: Int) -> Range<Int> {
                 switch self { case .listed(let layout): layout.rows[row]; case .uniform(let layout): layout.range(row: row) }
             }
-            func placement(page: Int) -> PageRows.Placement? {
-                switch self { case .listed(let layout): layout.pages[page]; case .uniform(let layout): layout.placement(page: page) }
+            func frame(page: Int) -> CGRect? {
+                switch self { case .listed(let layout): layout.pages[page]; case .uniform(let layout): layout.frame(page: page) }
             }
             func row(atY y: CGFloat, frame: (Range<Int>) -> CGRect) -> Int {
                 switch self {
@@ -3318,7 +3317,7 @@ private struct WindowScale: NSViewRepresentable {
                 freePan: key.freePan, spacing: CGSize(width: 4, height: key.continuousReflow ? 0 : 4), inset: .zero))
         }
         private func rowFrame(_ row: Range<Int>) -> CGRect {
-            row.reduce(CGRect.null) { result, index in geometry?.placement(page: index).map { result.union($0.frame) } ?? result }
+            row.reduce(CGRect.null) { result, index in geometry?.frame(page: index).map { result.union($0) } ?? result }
         }
         // Rows have fixed coordinates until an actual layout/measurement change.
         // Reuse the PDF adapter's binary search; scrolling never walks the book.
@@ -3336,14 +3335,14 @@ private struct WindowScale: NSViewRepresentable {
         private func position() -> ReadingPosition? {
             guard let owner, let key, let geometry, geometry.rowCount > 0 else { return nil }
             let range = geometry.range(row: row(at: contentView.bounds.minY)), index = range.lowerBound
-            guard let placement = geometry.placement(page: index) else { return nil }
+            guard let frame = geometry.frame(page: index) else { return nil }
             var point = contentView.bounds.origin
             if !key.freePan {
                 point.x = max(rowFrame(range).minX, point.x)
-                point.y = max(placement.frame.minY, point.y)
+                point.y = max(frame.minY, point.y)
             }
-            point.x -= placement.frame.minX; point.y -= placement.frame.minY
-            point = point.applying(RasterLayout.transform(bounds: box(index), size: placement.frame.size, rotation: key.rotation).inverted())
+            point.x -= frame.minX; point.y -= frame.minY
+            point = point.applying(RasterLayout.transform(bounds: box(index), size: frame.size, rotation: key.rotation).inverted())
             let location = location(index)
             return ReadingPosition(page: owner.state.pageNumber(location), x: Double(point.x), y: Double(point.y),
                 anchor: owner.state.reflowable ? owner.state.chapterLayout?.bookmark(location) : nil)
@@ -3352,25 +3351,25 @@ private struct WindowScale: NSViewRepresentable {
             guard let owner, let key, let geometry, geometry.pageCount > 0 else { return }
             let index = position.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
                 .map { owner.state.pageNumber($0) } ?? position.page
-            guard (0..<geometry.pageCount).contains(index), let placement = geometry.placement(page: index) else { return }
-            let transform = RasterLayout.transform(bounds: box(index), size: placement.frame.size, rotation: key.rotation)
+            guard (0..<geometry.pageCount).contains(index), let frame = geometry.frame(page: index) else { return }
+            let transform = RasterLayout.transform(bounds: box(index), size: frame.size, rotation: key.rotation)
             let origin = CGPoint.zero.applying(transform.inverted())
             var fallback = origin
             if ReadingZoom.usesContent(key.fit) {
                 let row = PageRows.range(page: index, count: key.count, spread: key.spread, cover: key.cover, landscape: key.landscape)
                 let content = row.reduce(CGRect.null) { union, page in
-                    guard let placed = geometry.placement(page: page) else { return union }
+                    guard let placed = geometry.frame(page: page) else { return union }
                     let bounds = box(page)
                     let fitted = RasterLayout.fitContent(measured[location(page)]?.content, bounds: bounds, mode: key.fit) ?? bounds
-                    let rect = fitted.applying(RasterLayout.transform(bounds: bounds, size: placed.frame.size, rotation: key.rotation))
-                        .offsetBy(dx: placed.frame.minX, dy: placed.frame.minY)
+                    let rect = fitted.applying(RasterLayout.transform(bounds: bounds, size: placed.size, rotation: key.rotation))
+                        .offsetBy(dx: placed.minX, dy: placed.minY)
                     return union.union(rect)
                 }
-                fallback = CGPoint(x: content.minX - placement.frame.minX, y: content.minY - placement.frame.minY).applying(transform.inverted())
+                fallback = CGPoint(x: content.minX - frame.minX, y: content.minY - frame.minY).applying(transform.inverted())
             }
             let point = CGPoint(x: position.x ?? Double(fallback.x), y: position.y ?? Double(fallback.y)).applying(transform)
             var bounds = contentView.bounds
-            bounds.origin = CGPoint(x: placement.frame.minX + point.x, y: placement.frame.minY + point.y)
+            bounds.origin = CGPoint(x: frame.minX + point.x, y: frame.minY + point.y)
             // DocumentLayout centers a narrow canvas in the usable clip width,
             // after the native scrollers have taken their space.
             if geometry.canvas.width <= bounds.width { bounds.origin.x = 0 }
@@ -3385,12 +3384,12 @@ private struct WindowScale: NSViewRepresentable {
             let first = geometry.range(row: row(at: rect.minY)).lowerBound
             let last = geometry.range(row: row(at: rect.maxY)).upperBound
             for index in first..<last {
-                guard let placement = geometry.placement(page: index) else { continue }
-                let intersection = rect.intersection(placement.frame)
+                guard let frame = geometry.frame(page: index) else { continue }
+                let intersection = rect.intersection(frame)
                 guard !intersection.isNull, !intersection.isEmpty else { continue }
-                let local = intersection.offsetBy(dx: -placement.frame.minX, dy: -placement.frame.minY)
+                let local = intersection.offsetBy(dx: -frame.minX, dy: -frame.minY)
                 result[location(index)] = local.applying(RasterLayout.transform(bounds: box(index),
-                    size: placement.frame.size, rotation: key.rotation).inverted())
+                    size: frame.size, rotation: key.rotation).inverted())
             }
             return result
         }
@@ -3448,29 +3447,29 @@ private struct WindowScale: NSViewRepresentable {
             for (location, view) in cells where !ids.contains(location) { view.removeFromSuperview(); cells[location] = nil }
             for item in needed {
                 let index = item.index, location = location(index)
-                guard let placement = geometry.placement(page: index) else { continue }
+                guard let frame = geometry.frame(page: index) else { continue }
                 let page = page(at: index, columns: item.columns)
                 if let view = cells[location] {
                     if refresh { view.rootView = page }
-                    view.frame = placement.frame
+                    view.frame = frame
                 } else {
                     let view = NSHostingView(rootView: page)
                     view.sizingOptions = []
-                    view.frame = placement.frame
+                    view.frame = frame
                     cells[location] = view; canvas.addSubview(view)
                 }
             }
         }
         private func page(at index: Int, columns: Int) -> RasterPage {
             let owner = owner!, key = key!, location = location(index)
-            let placement = geometry!.placement(page: index)!
+            let frame = geometry!.frame(page: index)!
             return RasterPage(state: owner.state, pages: owner.pages, index: index, location: location,
                     viewport: key.viewport, scale: owner.scale, continuousReflow: key.continuousReflow,
                     columns: owner.pages.isPDF && key.spread ? 2 : columns, facingPage: nil,
                     match: owner.match?.contains(index) == true ? owner.match : nil, scrollRequest: owner.$request,
                     cancelNavigation: owner.cancelNavigation, selections: owner.selections,
                     estimate: measured[location]?.bounds ?? key.estimate, updateEstimate: owner.updateEstimate,
-                    didRender: owner.didRender, didPaintMatch: owner.didPaintMatch, displaySize: ReadingZoom.usesContent(key.fit) ? placement.frame.size : nil,
+                    didRender: owner.didRender, didPaintMatch: owner.didPaintMatch, displaySize: ReadingZoom.usesContent(key.fit) ? frame.size : nil,
                     measure: { [weak self] bounds, content, reference in
                         self?.measure(location, value: Measurement(bounds: bounds, content: content, referenceWidth: reference))
                     })
@@ -3552,7 +3551,7 @@ private struct WindowScale: NSViewRepresentable {
             }
             let index = owner.state.pageNumber(location)
             if let key, let geometry, (0..<geometry.pageCount).contains(index), self.location(index) == location,
-               let placement = geometry.placement(page: index) {
+               let frame = geometry.frame(page: index) {
                 let box = key.trim ? value.content ?? value.bounds : value.bounds
                 let row = PageRows.range(page: index, count: key.count, spread: key.spread, cover: key.cover, landscape: key.landscape)
                 let size = RasterLayout.size(page: box.size, viewport: key.viewport, columns: owner.pages.isPDF && key.spread ? 2 : row.count,
@@ -3563,7 +3562,7 @@ private struct WindowScale: NSViewRepresentable {
                 var changedUniformBounds = false
                 if case .some(.uniform(_)) = self.geometry { changedUniformBounds = value.bounds != key.estimate }
                 if !changedUniformBounds && (ReadingZoom.usesContent(key.fit)
-                    ? (!row.contains(contentPage) && box == self.box(index)) : size == placement.frame.size) {
+                    ? (!row.contains(contentPage) && box == self.box(index)) : size == frame.size) {
                     if case .some(.listed(_)) = self.geometry { boxes[index] = box }
                     schedulePosition()
                     return

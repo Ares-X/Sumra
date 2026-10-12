@@ -29,8 +29,7 @@
         const alias = pages.findIndex(page => canonical(page) === canonical(here))
         return alias >= 0 ? alias : config.page
     })()
-    const pageIndex = () => currentPage
-    const pageURL = () => pages[pageIndex()] || withoutHash(location.href)
+    const pageURL = () => pages[currentPage] || withoutHash(location.href)
     const finder = window.__sumatraFind
     let typography = initial.text, userCSS = initial.userCSS || '', useDocumentCSS = initial.useDocumentCSS !== false
     let margins = initial.pageMargins || [], interaction = {}, linkDigits = '', pointer = null
@@ -351,7 +350,7 @@
         if (!mainFrame || !ready || restoring || printViewport) return
         snapPage()
         rememberReadingViewport()
-        post('position', { page: pageIndex(), count: pages.length, label: String(pageIndex() + 1),
+        post('position', { page: currentPage, count: pages.length, label: String(currentPage + 1),
             anchor: pageURL(), x: window.scrollX, y: window.scrollY, markdownPassage: savedReadingPassage() })
         // System WebKit saturates its root layout coordinates at this extent.
         // Automatic Markdown reading can reopen through the paged reader;
@@ -388,7 +387,7 @@
         const hit = hits[selected]
         post('searchHit', { target: hit.target })
         post('status', { message: `${selected + 1} / ${hits.length}${hitsCapped ? '+' : ''} matches` })
-        if (hit.page === pageIndex()) finder.gotoMatch(hit.index)
+        if (hit.page === currentPage) finder.gotoMatch(hit.index)
         else post('navigate', { href: hit.target })
     }
     window.__sumatra__ = { notify(method, generation, current, total, capped = false) {
@@ -399,18 +398,18 @@
                 if (ready && !restoring && !printViewport) rememberReadingViewport()
             }
             const index = current - 1
-            selected = hits.findIndex(hit => hit.page === pageIndex() && hit.index === index)
+            selected = hits.findIndex(hit => hit.page === currentPage && hit.index === index)
             // A page-local miss cannot finish a multi-file search. The global
             // findAllResult owns "No matches" after every requested page is read.
             if (ready && current > 0) {
-                post('searchHit', { target: searchTarget(pageIndex(), index) })
+                post('searchHit', { target: searchTarget(currentPage, index) })
                 post('status', { message: selected >= 0 ? `${selected + 1} / ${hits.length}${hitsCapped ? '+' : ''} matches`
                     : `${current} / ${total}${capped ? '+' : ''} matches` })
             }
         } else if (method === 'findAllResult') {
             // Upstream records are page US local-index US snippet, joined with RS.
             const records = total ? total.split('\x1e') : []
-            const currentTarget = finder.currentRange() && searchTarget(pageIndex(), Math.max(0, currentMatch))
+            const currentTarget = finder.currentRange() && searchTarget(currentPage, Math.max(0, currentMatch))
             hits = records.map(record => {
                 const [page, index, title] = record.split('\x1f'), p = Number(page) - 1, i = Number(index)
                 return { page: p, index: i, title, target: searchTarget(p, i), depth: 0 }
@@ -427,9 +426,9 @@
     let currentMatch = -1
     const selectRelative = (backwards, range) => {
         const index = range ? finder.indexFromRange(range, backwards) : currentMatch
-        const local = hits.findIndex(hit => hit.page === pageIndex() && hit.index === index)
+        const local = hits.findIndex(hit => hit.page === currentPage && hit.index === index)
         if (local >= 0) { selectHit(local); return }
-        const candidates = hits.map((hit, index) => ({ hit, index })).filter(({ hit }) => backwards ? hit.page < pageIndex() : hit.page > pageIndex())
+        const candidates = hits.map((hit, index) => ({ hit, index })).filter(({ hit }) => backwards ? hit.page < currentPage : hit.page > currentPage)
         const candidate = backwards ? candidates.at(-1) : candidates[0]
         selectHit(candidate?.index ?? (backwards ? hits.length - 1 : 0))
     }
@@ -803,7 +802,7 @@
             speechNodes.push({ node, from, to, start: spoken.length }); spoken += node.data.slice(from, to)
         }
         if (!spoken) throw Error('No text in the selection')
-        post('readAloud', { text: spoken, ...(selected ? {} : { page: pageIndex() }), startOffset: 0 })
+        post('readAloud', { text: spoken, ...(selected ? {} : { page: currentPage }), startOffset: 0 })
     }
     const highlightSpeech = command => {
         CSS.highlights?.delete('sumra-speech')
@@ -902,7 +901,7 @@
     }
     const restore = async position => {
         const anchor = position?.anchor || pages[position?.page] || location.href, destination = new URL(anchor, location.href)
-        if (withoutHash(destination.href) !== withoutHash(location.href) && position?.page !== pageIndex()) return go(destination.href)
+        if (withoutHash(destination.href) !== withoutHash(location.href) && position?.page !== currentPage) return go(destination.href)
         // An authored fragment creates a new history item. Set restoration on
         // the current item, including cached pages, before applying our position.
         if (mainFrame) history.scrollRestoration = 'manual'
@@ -994,8 +993,8 @@
     const turnPages = count => {
         if (!count) return
         const bottom = paged() ? pageExtent() : Math.max(0, document.documentElement.scrollHeight - innerHeight)
-        if (count > 0 && pageOffset() >= bottom - 1 && pageIndex() + 1 < pages.length) return navigatePage(pageIndex() + 1)
-        else if (count < 0 && pageOffset() <= 0 && pageIndex() > 0) { const url = new URL(pages[pageIndex() - 1]); url.hash = 'sumra-end'; return go(url) }
+        if (count > 0 && pageOffset() >= bottom - 1 && currentPage + 1 < pages.length) return navigatePage(currentPage + 1)
+        else if (count < 0 && pageOffset() <= 0 && currentPage > 0) { const url = new URL(pages[currentPage - 1]); url.hash = 'sumra-end'; return go(url) }
         else {
             if (paged()) scrollTo({left: (pageOffset() + innerWidth * count) * pageDirection(), top: 0, behavior: 'instant'})
             else scrollBy(0, innerHeight * count)
@@ -1018,8 +1017,8 @@
         case 'scroll': return scroll(command)
         case 'page': return navigatePage(command.number)
         case 'location': {
-            if (command.text === 'first') { if (pageIndex() === 0) scrollTo(0, 0); else return navigatePage(0); reportPosition(); break }
-            if (command.text === 'last') { if (pageIndex() === pages.length - 1) scrollEnd(0); else { const url = new URL(pages.at(-1)); url.hash = 'sumra-end'; return go(url) }; reportPosition(); break }
+            if (command.text === 'first') { if (currentPage === 0) scrollTo(0, 0); else return navigatePage(0); reportPosition(); break }
+            if (command.text === 'last') { if (currentPage === pages.length - 1) scrollEnd(0); else { const url = new URL(pages.at(-1)); url.hash = 'sumra-end'; return go(url) }; reportPosition(); break }
             const [page, part = 1] = command.text.split(':').map(Number)
             if (!Number.isSafeInteger(page) || page < 1 || page > pages.length || part !== 1) throw Error('Page not found')
             return navigatePage(page - 1)
@@ -1028,7 +1027,7 @@
             const url = localURL(command.text), search = readSearchTarget(url.href)
             if (withoutHash(url.href) === withoutHash(location.href)) {
                 if (search && searchKey === JSON.stringify({ text: search.text, matchCase: !!search.matchCase, matchWholeWords: !!search.matchWholeWords })) finder.gotoMatch(search.index)
-                else if (search || url.hash) return restore({ page: pageIndex(), anchor: url.href })
+                else if (search || url.hash) return restore({ page: currentPage, anchor: url.href })
                 else scrollTo(0, 0)
             } else return go(url.href)
             reportPosition()
@@ -1074,7 +1073,7 @@
         if (!entireDocument) return selectedText() || finder.textFromRange(visibleRange())
         const text = []
         for (let page = 0; page < pages.length; page++) {
-            const doc = page === pageIndex() ? document : await fetchDocument(pages[page])
+            const doc = page === currentPage ? document : await fetchDocument(pages[page])
             text.push(finder.textFromBody(doc.body).text)
         }
         return text.join('\n\n')
@@ -1505,7 +1504,7 @@
     window.addEventListener('scroll', () => scheduleRangeHighlights(), { passive: true, capture: true })
     window.addEventListener('resize', resizeReadingViewport, { passive: true })
     window.addEventListener('hashchange', () => {
-        if (ready) restore({ page: pageIndex(), anchor: location.href }).catch(error => post('error', { message: error.message }))
+        if (ready) restore({ page: currentPage, anchor: location.href }).catch(error => post('error', { message: error.message }))
     })
     window.addEventListener('pagehide', () => {
         ++activationRevision; ++restoreRevision; restoring = false

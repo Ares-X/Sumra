@@ -8,18 +8,15 @@ var matches = [];
 var cur = -1;
 var curHl = null;
 var gen = 0;
-var styleDone = false;
 var kMaxMatches = 5000;
 var pendingYields = new Map();
-function ensureStyle() {
-  if (styleDone) { return; }
-  styleDone = true;
-  try {
-    var ss = new CSSStyleSheet();
-    ss.replaceSync("::highlight(sumatra-find){background-color:#ffee70;color:#000;} ::highlight(sumatra-find-cur){background-color:#ff9632;color:#000;}");
-    document.adoptedStyleSheets = document.adoptedStyleSheets.concat([ss]);
-  } catch (e) {}
-}
+// Install Find rules with the initial reader styles so the first scan does not
+// trigger a separate full-document style update after yielding.
+try {
+  var ss = new CSSStyleSheet();
+  ss.replaceSync("::highlight(sumatra-find){background-color:#ffee70;color:#000;} ::highlight(sumatra-find-cur){background-color:#ff9632;color:#000;}");
+  document.adoptedStyleSheets = document.adoptedStyleSheets.concat([ss]);
+} catch (e) {}
 function post() {
   window.__sumatra__.notify("findResult", gen, cur + 1, matches.length, matches.length >= kMaxMatches);
 }
@@ -171,7 +168,6 @@ async function scanText(body, term, matchCase, wholeWord, withRanges, withSnippe
       if (!m || bufferStart + m.index >= limit) { scanPoint = limit; break; }
       var s = bufferStart + m.index, e = s + m[0].length;
       scanPoint = bufferStart + re.lastIndex;
-      if (m.index === re.lastIndex) { scanPoint++; continue; }
       if (wholeWord) {
         if (isWordChar(buffer, s - bufferStart, true) || isWordChar(buffer, e - bufferStart, false)) { continue; }
       }
@@ -252,28 +248,26 @@ function clearHighlights() {
   cur = -1;
   curHl = null;
 }
-function setCur(i, scroll) {
+function setCur(i) {
   if (matches.length === 0) { cur = -1; return; }
   cur = ((i % matches.length) + matches.length) % matches.length;
   if (curHl) {
     curHl.clear();
     curHl.add(matches[cur]);
   }
-  if (scroll) {
-    var r = window.leafFindRangeRect ? window.leafFindRangeRect(matches[cur]) : matches[cur].getBoundingClientRect();
-    var viewport = document.compatMode === "BackCompat" ? document.body : document.documentElement;
-    var width = viewport.clientWidth, height = viewport.clientHeight;
-    var horizontal = r.left < 0 || r.right > width;
-    var vertical = r.top < 0 || r.bottom > height;
-    if (horizontal || vertical) {
-      // Find selects a destination immediately, independently of authored
-      // smooth scrolling and any pending asynchronous viewport scroll.
-      window.scrollTo({
-        left: horizontal ? window.scrollX + r.left - Math.max(0, (width - r.width) / 2) : window.scrollX,
-        top: vertical ? window.scrollY + r.top - height / 3 : window.scrollY,
-        behavior: "instant"
-      });
-    }
+  var r = window.leafFindRangeRect ? window.leafFindRangeRect(matches[cur]) : matches[cur].getBoundingClientRect();
+  var viewport = document.compatMode === "BackCompat" ? document.body : document.documentElement;
+  var width = viewport.clientWidth, height = viewport.clientHeight;
+  var horizontal = r.left < 0 || r.right > width;
+  var vertical = r.top < 0 || r.bottom > height;
+  if (horizontal || vertical) {
+    // Find selects a destination immediately, independently of authored
+    // smooth scrolling and any pending asynchronous viewport scroll.
+    window.scrollTo({
+      left: horizontal ? window.scrollX + r.left - Math.max(0, (width - r.width) / 2) : window.scrollX,
+      top: vertical ? window.scrollY + r.top - height / 3 : window.scrollY,
+      behavior: "instant"
+    });
   }
 }
 // initIdx >= 0: make that match current (used when jumping to a match on a
@@ -281,7 +275,6 @@ function setCur(i, scroll) {
 async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
   gen = g;
   clearHighlights();
-  ensureStyle();
   if (!term) { post(); return; }
   // Custom Highlights are unavailable in older supported WebKit versions.
   // Matching and navigation still use the same Ranges without changing selection.
@@ -325,7 +318,7 @@ async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
         work.close();
       }
     }
-    setCur(first, true);
+    setCur(first);
   }
   post();
   // Pass only bounded snippets to this query's all-page scan.
@@ -333,52 +326,46 @@ async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
 }
 function gotoMatch(i) {
   if (matches.length === 0) { post(); return; }
-  setCur(i, true);
+  setCur(i);
   post();
 }
 // search every page of the document (urls in page order); pages are fetched
 // sequentially so the match records stay in page order
-function searchAll(urls, term, matchCase, wholeWord, g, loadDocument, currentSnippets) {
+async function searchAll(urls, term, matchCase, wholeWord, g, loadDocument, currentSnippets) {
   var recs = [];
-  var parser = new DOMParser();
-  var chain = Promise.resolve();
-  urls.forEach(function(url, pi) {
-    chain = chain.then(function() {
-      if (g !== gen || recs.length >= kMaxMatches) { return; }
-      // The CHM adapter supplies its existing charset/plain-text decoder.
-      var loaded = loadDocument ? loadDocument(url) : fetch(url).then(function(r) { return r.text(); })
-        .then(function(html) { return parser.parseFromString(html, "text/html"); });
-      return loaded.then(async function(doc) {
-        if (g !== gen) { return; }
-        if (!doc.body) { return; }
-        var snippets = currentSnippets;
-        if (doc !== document || !snippets) {
-          // Sibling documents need only the remaining global result budget,
-          // and snippets rather than live-DOM Range positions.
-          snippets = [];
-          if (!await scanText(doc.body, term, matchCase, wholeWord, false, true, g,
-              function(st, en, snippet) { snippets.push(snippet); }, kMaxMatches - recs.length)) { return; }
-        }
-        if (g !== gen) { return; }
-        for (var i = 0; i < snippets.length && recs.length < kMaxMatches; i++) {
-          recs.push((pi + 1) + "\x1f" + i + "\x1f" + snippets[i]);
-        }
-      }, function(error) {
-        // An obsolete query's failed fetch is cancellation, but an active
-        // scan must not publish a complete count after skipping a page.
-        if (g !== gen) { return; }
-        var name = new URL(url, location.href).pathname.split('/').pop();
-        try { name = decodeURIComponent(name); } catch (e) {}
-        throw new Error("Unable to search " + name + ": " + (error.message || String(error)), { cause: error });
-      });
-    });
-  });
-  return chain.then(function() {
+  for (var pi = 0; pi < urls.length; pi++) {
+    if (g !== gen || recs.length >= kMaxMatches) { break; }
+    var doc;
+    try {
+      // The reader adapter owns decoding and reuses the current page's live DOM.
+      doc = await loadDocument(urls[pi]);
+    } catch (error) {
+      // An obsolete query's failed fetch is cancellation, but an active
+      // scan must not publish a complete count after skipping a page.
+      if (g !== gen) { return; }
+      var name = new URL(urls[pi], location.href).pathname.split('/').pop();
+      try { name = decodeURIComponent(name); } catch (e) {}
+      throw new Error("Unable to search " + name + ": " + (error.message || String(error)), { cause: error });
+    }
     if (g !== gen) { return; }
-    // Scanning stops at the boundary; the remaining total is unknown even
-    // when the document happens to contain exactly this many matches.
-    window.__sumatra__.notify("findAllResult", g, recs.length, recs.join("\x1e"), recs.length >= kMaxMatches);
-  });
+    if (!doc.body) { continue; }
+    var snippets = currentSnippets;
+    if (doc !== document || !snippets) {
+      // Sibling documents need only the remaining global result budget,
+      // and snippets rather than live-DOM Range positions.
+      snippets = [];
+      if (!await scanText(doc.body, term, matchCase, wholeWord, false, true, g,
+          function(st, en, snippet) { snippets.push(snippet); }, kMaxMatches - recs.length)) { return; }
+    }
+    if (g !== gen) { return; }
+    for (var i = 0; i < snippets.length && recs.length < kMaxMatches; i++) {
+      recs.push((pi + 1) + "\x1f" + i + "\x1f" + snippets[i]);
+    }
+  }
+  if (g !== gen) { return; }
+  // Scanning stops at the boundary; the remaining total is unknown even
+  // when the document happens to contain exactly this many matches.
+  window.__sumatra__.notify("findAllResult", g, recs.length, recs.join("\x1e"), recs.length >= kMaxMatches);
 }
 // Sumra's existing Find from Selection command uses the same match Ranges;
 // it must not search a separately normalized string or overwrite the selection.
@@ -396,8 +383,5 @@ function indexFromRange(range, backwards) {
   }
   return -1;
 }
-// Install Find rules with the initial reader styles so the first scan does not
-// trigger a separate full-document style update after yielding.
-ensureStyle();
 window.__sumatraFind = { start: start, gotoMatch: gotoMatch, searchAll: searchAll, report: post, clear: function() { gen++; clearHighlights(); }, textWalker: textWalker, textNodesInRange: textNodesInRange, textFromBody: textFromBody, textFromRange: textFromRange, currentRange: function() { return matches[cur] || null; }, highlightRanges: function() { return curHl ? [] : matches; }, indexFromRange: indexFromRange };
 })();

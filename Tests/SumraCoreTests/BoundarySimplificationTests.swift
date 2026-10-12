@@ -76,7 +76,6 @@ final class BoundarySimplificationTests: XCTestCase {
     }
     func testMalformedLegacyStreamsRemainErrors() {
         XCTAssertThrowsError(try LegacyText.tcr(Data("!!8-Bit!!".utf8)))
-        XCTAssertThrowsError(try LegacyText.unpackPalm([128, 0]))
-        XCTAssertThrowsError(try LegacyText.palm(Data(repeating: 0, count: 77)))
+        XCTAssertThrowsError(try LegacyText.palmContent(Data(repeating: 0, count: 77)))
     }
 }

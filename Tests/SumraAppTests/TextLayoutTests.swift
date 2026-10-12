@@ -635,7 +635,7 @@ final class TextLayoutTests: XCTestCase {
             let repeats = index < 1_000 ? 1 : index < 5_000 ? 1 + index % 80 : 1 + index % 7
             return "Heading \(index) " + String(repeating: "中文与 English 😀 mixed text。", count: repeats) + "\r\n"
         }.joined()
-        let offsets = ChapterDetector.lineOffsets(text)
+        let offsets = ChapterDetector.index(text).lines
         let (window, host, view, state) = try await makeReader(text)
         defer { close(window) }
         for fontSize in [17.0, 24.0, 15.0] {

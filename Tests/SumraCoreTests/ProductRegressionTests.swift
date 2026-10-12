@@ -60,7 +60,7 @@ final class ProductRegressionTests: XCTestCase {
         for newline in ["\n", "\r\n", "\r", "\u{0085}", "\u{2028}", "\u{2029}"] {
             let text = "😀" + newline + "第二行" + newline
             let n = newline.utf16.count
-            XCTAssertEqual(ChapterDetector.lineOffsets(text), [0, 2 + n, 5 + 2 * n], "newline: \(Array(newline.utf16))")
+            XCTAssertEqual(ChapterDetector.index(text).lines, [0, 2 + n, 5 + 2 * n], "newline: \(Array(newline.utf16))")
         }
     }
 
@@ -68,15 +68,15 @@ final class ProductRegressionTests: XCTestCase {
         for control in ["\u{000b}", "\u{000c}"] {
             let text = "正文" + control + "第一章 标题\n\n正文\n\n第二章 标题\n"
             XCTAssertEqual(ChapterDetector.detect(text).map(\.line), [4])
-            XCTAssertEqual(ChapterDetector.lineOffsets("a" + control + "b" + control), [0])
+            XCTAssertEqual(ChapterDetector.index("a" + control + "b" + control).lines, [0])
         }
     }
 
     func testEmptyAndTerminalLines() {
-        XCTAssertEqual(ChapterDetector.lineOffsets(""), [0])
-        XCTAssertEqual(ChapterDetector.lineOffsets("正文"), [0])
-        XCTAssertEqual(ChapterDetector.lineOffsets("\r\n"), [0, 2])
-        XCTAssertEqual(ChapterDetector.lineOffsets("\n\n"), [0, 1, 2])
+        XCTAssertEqual(ChapterDetector.index("").lines, [0])
+        XCTAssertEqual(ChapterDetector.index("正文").lines, [0])
+        XCTAssertEqual(ChapterDetector.index("\r\n").lines, [0, 2])
+        XCTAssertEqual(ChapterDetector.index("\n\n").lines, [0, 1, 2])
     }
 
 }

@@ -212,10 +212,6 @@ struct ReadingPosition: Codable, Hashable {
     // raster navigation always uses Fitz coordinates, including untagged points.
     var pdfCoordinateSpace: String?
 
-    enum CodingKeys: String, CodingKey {
-        case page, pageCount, x, y, anchor, markdownPassage, nativePassage, markdownRenderer, zoom, fit, flow, spread, rtl, cover, rotation, font, fontSize, lineHeight, margin, theme, userCSS, useDocumentCSS, automaticLayout, invertColors, grayscale, documentColors, enhanceScannedPages, preservePDFImages, engineeringEnhance, customTextColor, customBackgroundColor, pageMargins, scrollbarMode, pdfCoordinateSpace
-    }
-
     func convertingPDFCoordinates(_ transform: CGAffineTransform) -> ReadingPosition {
         var result = self
         func axis(_ a: CGFloat, _ x: Double?, _ b: CGFloat, _ y: Double?, _ translation: CGFloat) -> Double? {

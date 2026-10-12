@@ -591,15 +591,10 @@ static pdf_signature_error verifier_certificate(fz_context *ctx, pdf_pkcs7_verif
             lf_json(&verifier->signers, ",\"trustError\":");
             if (trust_error) description = CFErrorCopyDescription(trust_error);
             json_cf_string(&verifier->signers, description);
-            lf_json(&verifier->signers, ",\"trustErrorCode\":");
-            if (trust_error) {
-                char code[64]; snprintf(code, sizeof(code), "%ld", (long)CFErrorGetCode(trust_error)); lf_json(&verifier->signers, code);
-            } else lf_json(&verifier->signers, "null");
             CFAbsoluteTime time = 0;
             OSStatus status = CMSDecoderCopySignerSigningTime(verifier->decoder, i, &time);
             lf_json(&verifier->signers, ",\"signingTime\":");
             if (status == errSecSuccess) json_signature_time(&verifier->signers, time); else lf_json(&verifier->signers, "null");
-            lf_json(&verifier->signers, ",\"signingTimeError\":"); json_status(&verifier->signers, status);
             // Set the offline timestamp policy before requesting timestamp
             // certificate metadata; no default-policy evaluation runs first.
             status = CMSDecoderCopySignerTimestampWithPolicy(verifier->decoder, verifier->timestamp_policies, i, &time);

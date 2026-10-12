@@ -150,8 +150,10 @@ final class LegacyBookTests: XCTestCase {
     }
 
     func testPalmDeclaredLengthDoesNotTruncateDecodedText() throws {
-        XCTAssertEqual(try LegacyText.palm(palm(Data("short".utf8), length: 9)), Data("short".utf8))
-        XCTAssertEqual(try LegacyText.palm(palm(Data("complete".utf8), length: 3)), Data("complete".utf8))
+        XCTAssertEqual(try LegacyText.palmContent(palm(Data("short".utf8), length: 9)).html,
+            try LegacyText.palmContent(palm(Data("short".utf8))).html)
+        XCTAssertEqual(try LegacyText.palmContent(palm(Data("complete".utf8), length: 3)).html,
+            try LegacyText.palmContent(palm(Data("complete".utf8))).html)
     }
 
     func testTealMarkupBookmarksAndLiteralText() throws {
@@ -219,8 +221,8 @@ final class LegacyBookTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(LegacyText.mobiContent(half)).html, first)
         XCTAssertThrowsError(try LegacyText.mobiContent(book(text: [damaged, damaged, first], length: first.count,
             compression: 2, resources: []))) { XCTAssertTrue($0.localizedDescription.contains("Truncated Palm back-reference")) }
-        XCTAssertThrowsError(try LegacyText.palm(book(text: [Data("%PDF-1.7\n".utf8), damaged], length: 9,
-            compression: 2, resources: []), replica: true)) {
+        XCTAssertThrowsError(try LegacyText.palmPDF(book(text: [Data("%PDF-1.7\n".utf8), damaged], length: 9,
+            compression: 2, resources: []))) {
             XCTAssertTrue($0.localizedDescription.contains("Truncated Palm back-reference"), "Binary Print Replica must not accept partial record recovery")
         }
     }
@@ -238,7 +240,8 @@ final class LegacyBookTests: XCTestCase {
         // The same document buffer supports a back-reference into a prior record.
         var header = Data(repeating: 0, count: 16)
         put(2, 0, 2, in: &header); put(6, 4, 4, in: &header); put(2, 8, 2, in: &header)
-        XCTAssertEqual(try LegacyText.palm(pdb([header, Data("abc".utf8), Data([0x80, 24])], creator: "TEXtREAd")), Data("abcabc".utf8))
+        XCTAssertEqual(try LegacyText.palmContent(pdb([header, Data("abc".utf8), Data([0x80, 24])], creator: "TEXtREAd")).html,
+            try LegacyText.palmContent(palm(Data("abcabc".utf8))).html)
         XCTAssertEqual(try XCTUnwrap(LegacyText.mobiContent(book(length: 17))).html, Data("AB".utf8))
     }
 
@@ -426,7 +429,7 @@ final class LegacyBookTests: XCTestCase {
         let header = integer(input, 78, 4)
         put(8, header + 24, 4, in: &input); put(4, header + 16 + 88, 4, in: &input)
         XCTAssertEqual(try LegacyText.mobiPDF(input), pdf)
-        XCTAssertEqual(try LegacyText.palm(input, replica: true), pdf)
+        XCTAssertEqual(try LegacyText.palmPDF(input), pdf)
         XCTAssertNil(try LegacyText.mobiPDF(book(text: [Data("text".utf8)], length: 4, compression: 1, resources: [])))
         put(1, header + 12, 2, in: &input)
         XCTAssertThrowsError(try LegacyText.mobiPDF(input))

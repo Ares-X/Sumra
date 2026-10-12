@@ -87,7 +87,7 @@ import SumraCore
         defer { if acknowledge { state.didHandleCommand(revision) } }
         switch state.command.action {
         case .page(let page):
-            acknowledge = false; c.go(page) { state.didHandleCommand(revision) }
+            acknowledge = false; c.restore(.init(page: page)) { state.didHandleCommand(revision) }
         case .href(let target):
             acknowledge = false; c.go(target) { state.didHandleCommand(revision) }
         case .restore(let position):
@@ -496,14 +496,8 @@ import SumraCore
             restoreCompletion = nil
             positionReport = nil
         }
-        func go(_ n: Int, completion: (() -> Void)? = nil) {
-            guard indexed else { pendingPosition = .init(page: n); restoreCompletion = completion; return }
-            let line = max(0, min(n, lines.count - 1))
-            restore(.init(page: line, anchor: String(lines[line])), completion: completion)
-        }
-
         func go(_ target: String, completion: (() -> Void)? = nil) {
-            if let line = Int(target) { go(line, completion: completion); return }
+            if let line = Int(target) { restore(.init(page: line), completion: completion); return }
             defer { completion?() }
             let parts = target.split(separator: ":")
             guard parts.count == 3, parts[0] == "text", let start = Int(parts[1]), let length = Int(parts[2]),

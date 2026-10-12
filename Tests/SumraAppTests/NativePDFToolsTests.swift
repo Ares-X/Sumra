@@ -2965,8 +2965,7 @@ final class NativePDFToolsTests: XCTestCase {
         XCTAssertFalse(bad.digestError.isEmpty)
 
         let incremented = directory.appendingPathComponent("incremented-signature.pdf")
-        try NativePDFTools.sign(source: source, destination: incremented, identity: identity,
-            password: "fixture", fieldName: "Later", page: 1, reason: "Review approval", location: "Fixture")
+        try NativePDFTools.sign(source: source, destination: incremented, identity: .pkcs12(identity, password: "fixture"), fieldName: "Later", page: 1, reason: "Review approval", location: "Fixture")
         let incrementedBytes = try Data(contentsOf: incremented)
         XCTAssertTrue(incrementedBytes.starts(with: original))
         for signature in try signatures(in: incrementedBytes) {
@@ -3098,7 +3097,7 @@ final class NativePDFToolsTests: XCTestCase {
         XCTAssertEqual(unnamed.name, "")
         let unnamedSigned = directory.appendingPathComponent("unnamed-signed.pdf")
         try NativePDFTools.sign(source: unnamedSource, destination: unnamedSigned,
-            identity: directory.appendingPathComponent("identity.p12"), password: "fixture", fieldName: unnamed.name)
+            identity: .pkcs12(directory.appendingPathComponent("identity.p12"), password: "fixture"), fieldName: unnamed.name)
         let reused = try XCTUnwrap(try NativeFile(unnamedSigned, engine: .mupdf).pdfSignatureInfo().signatures.first)
         XCTAssertEqual(reused.name, "")
         XCTAssertEqual(reused.digestValid, true)
@@ -3150,7 +3149,7 @@ final class NativePDFToolsTests: XCTestCase {
     @MainActor func testCMSSignatureDetectsTamperingAndSurvivesSecondIncrementalSignature() throws {
         let directory = try fixtureDirectory(), identity = try signingIdentity(in: directory), source = try makePDF(in: directory)
         let original = try Data(contentsOf: source), firstURL = directory.appendingPathComponent("signed.pdf")
-        try NativePDFTools.sign(source: source, destination: firstURL, identity: identity, password: "fixture", fieldName: "First", page: 0, bounds: CGRect(x: 30, y: 30, width: 200, height: 60))
+        try NativePDFTools.sign(source: source, destination: firstURL, identity: .pkcs12(identity, password: "fixture"), fieldName: "First", page: 0, bounds: CGRect(x: 30, y: 30, width: 200, height: 60))
         let firstBytes = try Data(contentsOf: firstURL), first = try signatures(in: firstBytes)
         XCTAssertEqual(first.count, 1)
         let firstSignature = try XCTUnwrap(first.first)
@@ -3160,7 +3159,7 @@ final class NativePDFToolsTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: source), original)
         let alias = directory.appendingPathComponent("source-alias.pdf"), aliasSigned = directory.appendingPathComponent("alias-signed.pdf")
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: source)
-        try NativePDFTools.sign(source: alias, destination: aliasSigned, identity: identity, password: "fixture", fieldName: "Alias")
+        try NativePDFTools.sign(source: alias, destination: aliasSigned, identity: .pkcs12(identity, password: "fixture"), fieldName: "Alias")
         XCTAssertEqual(try Data(contentsOf: source), original)
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: alias.path), source.path)
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: aliasSigned.path)[.type] as? FileAttributeType, .typeRegular)
@@ -3177,7 +3176,7 @@ final class NativePDFToolsTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(PDFDocument(url: rewritten)).pageCount, 2)
         XCTAssertEqual(try Data(contentsOf: firstURL), firstBytes)
         let secondURL = directory.appendingPathComponent("signed-twice.pdf")
-        try NativePDFTools.sign(source: firstURL, destination: secondURL, identity: identity, password: "fixture", fieldName: "Second", page: 1)
+        try NativePDFTools.sign(source: firstURL, destination: secondURL, identity: .pkcs12(identity, password: "fixture"), fieldName: "Second", page: 1)
         let secondBytes = try Data(contentsOf: secondURL), both = try signatures(in: secondBytes)
         XCTAssertEqual(both.count, 2)
         XCTAssertTrue(secondBytes.starts(with: firstBytes))
@@ -3196,7 +3195,7 @@ final class NativePDFToolsTests: XCTestCase {
         try XCTUnwrap(form.page(at: 0)).addAnnotation(field)
         try XCTUnwrap(form.dataRepresentation()).write(to: clearableSource)
         let clearableSigned = directory.appendingPathComponent("clearable-signed.pdf")
-        try NativePDFTools.sign(source: clearableSource, destination: clearableSigned, identity: identity, password: "fixture", fieldName: "Clearable")
+        try NativePDFTools.sign(source: clearableSource, destination: clearableSigned, identity: .pkcs12(identity, password: "fixture"), fieldName: "Clearable")
         let clearableBytes = try Data(contentsOf: clearableSigned)
         let signedForm = try XCTUnwrap(PDFDocument(url: clearableSigned))
         let signedField = try XCTUnwrap(signedForm.page(at: 0)?.annotations.first { $0.fieldName == "Clearable" })
@@ -3211,7 +3210,7 @@ final class NativePDFToolsTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: source), original)
 
         let movedSigned = directory.appendingPathComponent("moved-signature.pdf")
-        try NativePDFTools.sign(source: clearableSource, destination: movedSigned, identity: identity, password: "fixture",
+        try NativePDFTools.sign(source: clearableSource, destination: movedSigned, identity: .pkcs12(identity, password: "fixture"),
             fieldName: "Clearable", bounds: CGRect(x: 40, y: 50, width: 150, height: 40))
         let movedForm = try XCTUnwrap(PDFDocument(url: movedSigned))
         let movedField = try XCTUnwrap(movedForm.page(at: 0)?.annotations.first { $0.fieldName == "Clearable" })
@@ -3270,7 +3269,7 @@ final class NativePDFToolsTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(PDFDocument(url: lockedSource)).pageCount, 2)
         let lockedOriginal = try Data(contentsOf: lockedSource)
         let lockedSigned = directory.appendingPathComponent("publisher-signed.pdf")
-        try NativePDFTools.sign(source: lockedSource, destination: lockedSigned, identity: identity, password: "fixture", fieldName: "PublisherLocked")
+        try NativePDFTools.sign(source: lockedSource, destination: lockedSigned, identity: .pkcs12(identity, password: "fixture"), fieldName: "PublisherLocked")
         let lockedBytes = try Data(contentsOf: lockedSigned)
         let lockedSignature = try XCTUnwrap(try signatures(in: lockedBytes).first)
         let lockedVerification = try verify(lockedSignature, in: directory)
