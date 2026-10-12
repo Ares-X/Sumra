@@ -103,6 +103,17 @@ signatures passed, and all nine Mach-O files include ARM64 with minimum systems
 no newer than macOS 13. The loaded normal app uses those exact candidate bytes.
 Physical macOS 13 execution and foreground-only timing remain unexercised.
 
+The original observation method was also replayed on the final signed app in a
+fresh process: file-picker opening, an initial AX/screenshot receipt, then
+continuous full AX/screenshot reads until the original readable-text, legal-page
+and one-natural-page conditions held. It completed after 29 reads in 1.716
+seconds. Concurrent owner events measured 0.165-second decoding, 1.728-second
+layout and 2.378 seconds from load entry to first canvas. These clocks have
+different start/end conditions. The original full settings and exact source
+position are unavailable, so this is not an identical reconstruction of that
+incident. An earlier keyboard attempt left the file picker open and issued no
+load request; its waiting time is excluded.
+
 The historical 13.528-second event remains unresolved. A narrow query of retained
 RunningBoard records for its original PID/bundle and minute found no matching
 records; this does not establish its unique cause. The old measurable slow path
