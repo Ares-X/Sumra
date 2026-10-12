@@ -834,8 +834,11 @@ The following Sumra changes are custom and require input-specific acceptance:
 A further bounded opportunity remains: `Pages.image()` creates its MuPDF
 cancellation cookie before `RasterDocument.image()` checks the whole-page bitmap
 cache. A cache hit therefore still opens a library reference, resolves cookie
-functions and allocates a cookie. This was not changed in this batch, and no
-measurement establishes it as a major first-open cost.
+functions and allocates a cookie. That earlier batch did not change it. The
+subsequent [deep upstream implementation batch](SUMATRA_DEEP_IMPLEMENTATION_REVIEW_20261012.md)
+now checks the normalized request/cache before creating a decode cookie, retaining
+cancellable content/engineering scans. No measurement attributes the historical
+first-open delay to that allocation.
 
 The audit also checked an entity-decoding suspicion in the generated XML path.
 Committed upstream Gumbo output already passes through XML entity emission;

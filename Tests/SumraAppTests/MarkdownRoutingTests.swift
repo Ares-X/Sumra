@@ -6,6 +6,36 @@ import XCTest
 
 final class MarkdownRoutingTests: XCTestCase {
     @MainActor
+    func testMountedMarkdownKeepsItsRendererUntilDocumentReload() throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let source = directory.url.appendingPathComponent("source.md")
+        let alias = directory.url.appendingPathComponent("alias.md")
+        let sibling = directory.url.appendingPathComponent("sibling.md")
+        try "# Source\n\nA small document.\n".write(to: source, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: source)
+        let defaults = UserDefaults.standard
+        let priorFixed = defaults.object(forKey: "useFixedPageUI")
+        defer { defaults.set(priorFixed, forKey: "useFixedPageUI") }
+        defaults.set(false, forKey: "useFixedPageUI")
+        let state = ReaderState(recordsHistory: false)
+        state.document = try ReadingDocument.open(source)
+        XCTAssertEqual(state.document?.markdownRenderer, .compatible)
+
+        // A file event owns reloading changed bytes. Initial WebKit loading and
+        // same-file heading navigation use the renderer already mounted.
+        let dense = Data(String(repeating: "Short paragraph.\n\n", count: 150_000).utf8)
+        try dense.write(to: source)
+        try dense.write(to: sibling)
+        XCTAssertFalse(state.shouldOpenMarkupSibling(source))
+        XCTAssertFalse(state.shouldOpenMarkupSibling(alias))
+        XCTAssertTrue(state.shouldOpenMarkupSibling(sibling))
+        XCTAssertEqual(state.document?.markdownRenderer, .compatible)
+        XCTAssertEqual(try ReadingDocument.open(source, deferReflowLayout: true).markdownRenderer, .paged)
+    }
+
+    @MainActor
     func testMarkupSiblingDecisionUsesInspectedTypeAndSharedPolicy() throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()

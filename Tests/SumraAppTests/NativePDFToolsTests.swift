@@ -1064,7 +1064,7 @@ final class NativePDFToolsTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: source), bytes)
     }
 
-    @MainActor func testPDFInformationAndResourceReportUseOriginalFileWithoutMutation() throws {
+    @MainActor func testPDFInformationAndResourceReportUseLiveDocumentWithoutMutation() throws {
         let directory = try fixtureDirectory(), source = directory.appendingPathComponent("information.pdf")
         let input = rawPDF([
             "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /OutputIntents [<< /S /GTS_PDFA1 >> << /S /GTS_PDFX >>] /AcroForm << /Fields [] /XFA [(template) 8 0 R] >> >>",
@@ -1079,19 +1079,75 @@ final class NativePDFToolsTests: XCTestCase {
             "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceGray /Length 1 >>\nstream\nx\nendstream"
         ])
         try input.write(to: source)
-        let information = try NativePDFTools.information(source: source)
+        let file = try NativeFile(source, engine: .mupdf)
+        let information = try file.pdfInformation()
         XCTAssertEqual(information["PDFVersion"], "1.7")
         XCTAssertEqual(information["Encryption"], "None")
         XCTAssertEqual(information["Linearized"], "No")
         XCTAssertEqual(information["Tagged"], "Yes")
         XCTAssertEqual(information["OutputIntents"], "PDF/X (ISO 15930), PDF/A (ISO 19005)")
         XCTAssertEqual(information["UnsupportedFeatures"], "XFA")
-        let report = try NativePDFTools.resourceReport(source: source)
+        let report = try file.pdfResourceReport()
         XCTAssertTrue(report.contains("PDF-1.7"))
         XCTAssertTrue(report.contains("Mediaboxes (1)"))
         XCTAssertTrue(report.contains("Images (1)"))
         XCTAssertTrue(report.contains("Fonts (2)"))
         XCTAssertEqual(try Data(contentsOf: source), input)
+    }
+
+    func testLivePDFPropertiesRetainResourcesAndUndoAfterSourceReplacementAndUnlink() throws {
+        let directory = try fixtureDirectory(), source = directory.appendingPathComponent("live-properties.pdf")
+        let original = rawPDF([
+            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << /Font << /F1 4 0 R >> >> >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"
+        ])
+        try original.write(to: source)
+        let file = try NativeFile(source, engine: .mupdf)
+        try file.pdfSetEditing(true)
+        let annotation = try file.pdfCreateAnnotation(page: 0, type: "Text", bounds: CGRect(x: 20, y: 30, width: 24, height: 24), edits: [.contents("Unsaved note")])
+        try file.pdfEditAnnotation(page: 0, id: annotation, edits: [.contents("Second edit")])
+        try file.pdfUndo(redo: false)
+        let before = try XCTUnwrap(file.pdfInfo())
+        XCTAssertTrue(before.dirty); XCTAssertNotNil(before.redoTitle)
+        let expected = try file.pdfResourceReport()
+        XCTAssertTrue(expected.contains("Fonts (1)")); XCTAssertTrue(expected.contains("Courier"))
+        for unlink in [false, true] {
+            if unlink { try FileManager.default.removeItem(at: source) }
+            else { try Data("This replacement is not a PDF".utf8).write(to: source, options: .atomic) }
+            XCTAssertEqual(try file.pdfInformation()["Tagged"], "Yes")
+            XCTAssertEqual(try file.pdfResourceReport(), expected)
+            XCTAssertEqual(try file.pdfAnnotations(0).first { $0.id == annotation }?.contents, "Unsaved note")
+            let after = try XCTUnwrap(file.pdfInfo())
+            XCTAssertEqual(after.undoPosition, before.undoPosition)
+            XCTAssertEqual(after.undoSteps, before.undoSteps)
+            XCTAssertEqual(after.undoTitle, before.undoTitle)
+            XCTAssertEqual(after.redoTitle, before.redoTitle)
+            XCTAssertEqual(after.dirty, before.dirty)
+        }
+        try file.pdfUndo(redo: true)
+        XCTAssertEqual(try file.pdfAnnotations(0).first { $0.id == annotation }?.contents, "Second edit")
+    }
+
+    func testLivePDFResourceReportPreservesEmbeddedInvoiceNULBytes() throws {
+        let directory = try fixtureDirectory(), source = directory.appendingPathComponent("invoice.pdf")
+        let metadata = "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:zf='urn:ferd:pdfa:CrossIndustryDocument:invoice:1p0#' zf:Version='1.0' zf:ConformanceLevel='BASIC' zf:DocumentFileName='ZUGFeRD-invoice.xml' zf:DocumentType='INVOICE'/></rdf:RDF></x:xmpmeta>"
+        let invoice = "<invoice>before\0after</invoice>"
+        func stream(_ text: String) -> String { "<< /Length \(text.utf8.count) >>\nstream\n\(text)\nendstream" }
+        try rawPDF([
+            "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R /AF [5 0 R] >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> >>",
+            stream(metadata),
+            "<< /Type /Filespec /F (ZUGFeRD-invoice.xml) /UF (ZUGFeRD-invoice.xml) /AFRelationship /Alternative /EF << /F 6 0 R /UF 6 0 R >> >>",
+            stream(invoice)
+        ]).write(to: source)
+        let file = try NativeFile(source, engine: .mupdf)
+        let report = try file.pdfResourceReport()
+        XCTAssertTrue(report.contains("ZUGFeRD version 1"))
+        XCTAssertTrue(report.contains(invoice), "The report's byte count must preserve content following an embedded NUL")
+        XCTAssertFalse(try XCTUnwrap(file.pdfInfo()).dirty)
     }
 
     @MainActor func testAltiumNamedComponentMenuAndPushButtonNavigation() throws {
@@ -2533,10 +2589,11 @@ final class NativePDFToolsTests: XCTestCase {
         let original = try Data(contentsOf: source)
         let encryptedURL = directory.appendingPathComponent("encrypted.pdf")
         try NativePDFTools.encrypt(source: source, destination: encryptedURL, ownerPassword: "owner秘密", userPassword: "reader中文", permissions: 1 | 32)
-        let information = try NativePDFTools.information(source: encryptedURL, password: "reader中文")
+        let authenticated = try NativeFile(encryptedURL, engine: .mupdf, password: "reader中文")
+        let information = try authenticated.pdfInformation()
         XCTAssertTrue(information["Encryption"]?.contains("256-bit AES") == true)
-        XCTAssertThrowsError(try NativePDFTools.information(source: encryptedURL, password: "incorrect"))
-        XCTAssertTrue(try NativePDFTools.resourceReport(source: encryptedURL, password: "reader中文").contains("Encryption object"))
+        XCTAssertThrowsError(try NativeFile(encryptedURL, engine: .mupdf, password: "incorrect"))
+        XCTAssertTrue(try authenticated.pdfResourceReport().contains("Encryption object"))
         let encryptedBytes = try Data(contentsOf: encryptedURL)
         XCTAssertNotEqual(encryptedBytes, original)
         XCTAssertTrue(latin1(encryptedBytes).contains("/AESV3"), "Encryption must use AES-256, not legacy RC4")

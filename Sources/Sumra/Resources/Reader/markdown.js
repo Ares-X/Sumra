@@ -641,7 +641,6 @@
         if ('flow' in command) flow = command.flow
         if ('spread' in command) spread = command.spread === true
         if ('rtl' in command) rtl = command.rtl === true
-        normalizePublisherColors()
         applyStyle()
     }
     const clearLinkPreview = () => {
@@ -1076,7 +1075,7 @@
         const text = []
         for (let page = 0; page < pages.length; page++) {
             const doc = page === pageIndex() ? document : await fetchDocument(pages[page])
-            text.push(finder.textFromBody(doc.body, false).text)
+            text.push(finder.textFromBody(doc.body).text)
         }
         return text.join('\n\n')
     }

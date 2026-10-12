@@ -436,7 +436,7 @@
 "Use cmd, shift, alt, ctrl plus a letter, arrow, Tab, Home, End, PageUp, PageDown, Delete or F1–F24. Separate bindings with semicolons. Leave blank to disable." = "使用 cmd、shift、alt、ctrl 加字母、方向键、Tab、Home、End、PageUp、PageDown、Delete 或 F1–F24。用分号分隔多个快捷键，留空禁用。";
 "Close Document and Quit If Last" = "关闭文档并在最后一个窗口退出";
 "PDF Resource Information…" = "PDF 资源信息…";
-"Saved source file; unsaved edits are not included." = "以下为已保存源文件的信息，不包含尚未保存的修改。";
+"Current document; unsaved edits are included." = "以下为当前文档的信息，包含尚未保存的修改。";
 "Automatic Scrollbars" = "自动滚动条";
 "Always Show Scrollbars" = "始终显示滚动条";
 "Hide Scrollbars" = "隐藏滚动条";

@@ -20,18 +20,6 @@
  	fz_stext_char *next;
  };
  
---- a/include/mupdf/fitz/html.h
-+++ b/include/mupdf/fitz/html.h
-@@ -28,6 +28,9 @@
- #include "mupdf/fitz/system.h"
- #include "mupdf/fitz/context.h"
- #include "mupdf/fitz/document.h"
-+
-+/* Resolve an HTML flow source character against the current layout. -1 for other handlers or missing source. */
-+int fz_htdoc_source_page(fz_context *ctx, fz_document *doc, uint32_t source_node, uint32_t source_offset);
- 
- /*
- 	HTML types required
 --- a/source/fitz/text.c
 +++ b/source/fitz/text.c
 @@ -124,6 +124,8 @@
@@ -122,57 +110,6 @@
  
  		fz_add_stext_char(ctx, dev, font,
  			rune,
-diff --git a/source/html/html-doc.c b/source/html/html-doc.c
-index bd8193e..962925a 100644
---- a/source/html/html-doc.c
-+++ b/source/html/html-doc.c
-@@ -177,6 +177,46 @@ htdoc_load_page(fz_context *ctx, fz_document *doc_, int chapter, int number)
- 	return (fz_page*)page;
- }
- 
-+static fz_html_flow *htdoc_find_source(fz_html_box *box, uint32_t source_node, uint32_t source_offset)
-+{
-+	for (; box; box = box->next)
-+	{
-+		if (box->type == BOX_FLOW)
-+			for (fz_html_flow *flow = box->u.flow.head; flow; flow = flow->next)
-+			{
-+				if (flow->source_node != source_node)
-+					continue;
-+				size_t len = flow->type == FLOW_WORD ? strlen(flow->content.text) :
-+					(flow->type == FLOW_SPACE || flow->type == FLOW_SHYPHEN ? 1 : 0);
-+				uint32_t flow_offset = fz_html_flow_source_offset(flow);
-+				if (source_offset >= flow_offset && source_offset - flow_offset < len)
-+					return flow;
-+			}
-+		if (fz_html_box_has_boxes(box))
-+		{
-+			fz_html_flow *flow = htdoc_find_source(box->down, source_node, source_offset);
-+			if (flow)
-+				return flow;
-+		}
-+	}
-+	return NULL;
-+}
-+
-+int fz_htdoc_source_page(fz_context *ctx, fz_document *doc_, uint32_t source_node, uint32_t source_offset)
-+{
-+	if (!doc_ || doc_->drop_document != htdoc_drop_document || !source_node)
-+		return -1;
-+	html_document *doc = (html_document *)doc_;
-+	if (!doc->html || !isfinite(doc->html->page_h) || doc->html->page_h <= 0)
-+		return -1;
-+	fz_html_flow *flow = htdoc_find_source(doc->html->tree.root, source_node, source_offset);
-+	if (!flow || !isfinite(flow->y) || flow->y < 0)
-+		return -1;
-+	int page = (int)(flow->y / doc->html->page_h);
-+	int last_page = fmaxf(0, ceilf(doc->html->tree.root->s.layout.b / doc->html->page_h) - 1);
-+	return page < last_page ? page : last_page;
-+}
-+
- static fz_outline *
- htdoc_load_outline(fz_context *ctx, fz_document *doc_)
- {
 diff --git a/source/html/html-imp.h b/source/html/html-imp.h
 index 9c7122e..99f22e2 100644
 --- a/source/html/html-imp.h

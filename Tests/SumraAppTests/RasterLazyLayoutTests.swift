@@ -196,6 +196,38 @@ final class RasterLazyLayoutTests: XCTestCase {
         }
     }
 
+    func testCachedComicPreviewKeepsTheOtherVectorPageAvailableForTiles() async throws {
+        let engine = try NativeFile.libraryURL(for: .mupdf)
+        guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine must be built before native integration tests") }
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        for (name, color) in [("1.svg", "red"), ("2.svg", "blue")] {
+            try "<svg xmlns='http://www.w3.org/2000/svg' width='420' height='595'><path fill='\(color)' d='M0 0H420V595H0Z'/></svg>"
+                .write(to: directory.url.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        let pages = try Pages(directory.url, format: .comic)
+        let firstPreview = try await pages.image(0, width: 200)
+        _ = try await pages.image(1, width: 200)
+        let region = CGRect(x: 40, y: 80, width: 100, height: 120)
+        let before = try await pages.image(1, width: 400, region: region)
+        try FileManager.default.removeItem(at: directory.url.appendingPathComponent("2.svg"))
+
+        let cachedPreview = try await pages.image(0, width: 200)
+        XCTAssertTrue(cachedPreview === firstPreview)
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await pages.image(0, width: 200)
+        }
+        do {
+            _ = try await cancelled.value
+            XCTFail("A cancelled request must not publish its cached preview")
+        } catch is CancellationError {}
+        let after = try await pages.image(1, width: 400, region: region)
+        XCTAssertEqual(after.width, before.width); XCTAssertEqual(after.height, before.height)
+        XCTAssertEqual(after.dataProvider?.data as Data?, before.dataProvider?.data as Data?,
+                       "A cached preview must not close the other page's loaded vector document")
+    }
+
     func testDiscoveredLandscapePageOwnsItsRowWithoutChangingPortraitEstimate() async throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }

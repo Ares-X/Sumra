@@ -1,9 +1,9 @@
 --- a/include/mupdf/fitz/html.h
 +++ b/include/mupdf/fitz/html.h
-@@ -31,6 +31,20 @@
+@@ -31,5 +31,20 @@
+ #include "mupdf/fitz/context.h"
+ #include "mupdf/fitz/document.h"
  
- /* Resolve an HTML flow source character against the current layout. -1 for other handlers or missing source. */
- int fz_htdoc_source_page(fz_context *ctx, fz_document *doc, uint32_t source_node, uint32_t source_offset);
 +
 +/* Visit Markdown's parsed source text in authored order after layout. Page is
 +	derived from the owning flow fragment, so callers need not inspect empty
@@ -18,7 +18,7 @@
 +int fz_htdoc_is_markdown(fz_context *ctx, fz_document *doc);
 +void fz_htdoc_walk_search_source(fz_context *ctx, fz_document *doc,
 +	fz_html_search_char_fn *callback, void *opaque, int (*cancelled)(void));
- 
++
  /* A selected extracted character, retaining identity for ligatures and repeated text. */
  typedef struct
 --- a/include/mupdf/fitz/structured-text.h
@@ -201,12 +201,11 @@
  			}
 --- a/source/html/html-doc.c
 +++ b/source/html/html-doc.c
-@@ -215,6 +215,173 @@
- 	int page = (int)(flow->y / doc->html->page_h);
- 	int last_page = fmaxf(0, ceilf(doc->html->tree.root->s.layout.b / doc->html->page_h) - 1);
- 	return page < last_page ? page : last_page;
-+}
-+
+@@ -177,6 +177,175 @@
+ }
+
+
+
 +int fz_htdoc_is_markdown(fz_context *ctx, fz_document *doc_)
 +{
 +	if (!doc_ || doc_->drop_document != htdoc_drop_document)
@@ -372,6 +371,9 @@
 +	html_search_source_state state = { .ctx = ctx, .doc = doc, .callback = callback,
 +		.opaque = opaque, .cancelled = cancelled };
 +	html_search_walk_box(&state, doc->html->tree.root);
- }
- 
- 
++}
++
++
++
+ typedef struct
+ {

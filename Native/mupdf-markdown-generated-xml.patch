@@ -93,7 +93,7 @@
  
  	if (!buffer_in)
  		fz_throw(ctx, FZ_ERROR_ARGUMENT, "no markdown data");
-@@ -124,6 +128,17 @@
+@@ -124,6 +128,20 @@
  		cmark_parser_feed(parser, src, len);
  
  		document = cmark_parser_finish(parser);
@@ -104,14 +104,17 @@
 +				continue;
 +			type = cmark_node_get_type(cmark_iter_get_node(iter));
 +			if (type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_HTML_INLINE)
++			{
 +				has_raw_html = 1;
++				break;
++			}
 +		}
 +		cmark_iter_free(iter);
 +		iter = NULL;
  
  		out = cmark_render_html_with_mem(document, options, cmark_parser_get_syntax_extensions(parser), mem);
  
-@@ -135,17 +150,22 @@
+@@ -135,17 +153,22 @@
  		parser = NULL;
  
  		buffer_out = fz_new_buffer_from_copied_data(ctx, (unsigned char *)out, strlen(out)+1);
@@ -134,7 +137,7 @@
  		fz_rethrow(ctx);
  	}
  
-@@ -160,11 +180,11 @@
+@@ -160,11 +183,11 @@
  /* MD document handler */
  
  static fz_buffer *

@@ -250,44 +250,6 @@ enum NativePDFTools {
         }
     }
 
-    static func information(source: URL, password: String = "") throws -> [String: String] {
-        try JSONDecoder().decode([String: String].self, from: inspect(source: source, password: password, symbol: "lf_pdf_information"))
-    }
-
-    static func resourceReport(source: URL, password: String = "") throws -> String {
-        guard source.isFileURL else { throw ReadError("Choose a local PDF") }
-        try validatePasswordText(password)
-        typealias Report = @convention(c) (UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafeMutablePointer<Int>, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
-        var result = ""
-        try withEngine("lf_pdf_resource_report", as: Report.self) { fn in
-            var error = [CChar](repeating: 0, count: 512), count = 0
-            guard let bytes = fn(source.path, password, &count, &error) else { try check(0, error: error); return }
-            defer { free(bytes) }
-            // The resource report can contain embedded XML, so use its byte
-            // count rather than truncating at a NUL in that source stream.
-            result = String(decoding: Data(bytes: bytes, count: count), as: UTF8.self)
-        }
-        return result
-    }
-
-    private static func inspect(source: URL, password: String, symbol: String) throws -> Data {
-        guard source.isFileURL else { throw ReadError("Choose a local PDF") }
-        try validatePasswordText(password)
-        typealias Inspect = @convention(c) (UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
-        var result: Data?
-        try withEngine(symbol, as: Inspect.self) { fn in
-            var error = [CChar](repeating: 0, count: 512)
-            guard let bytes = fn(source.path, password, &error) else {
-                try check(0, error: error)
-                return
-            }
-            defer { free(bytes) }
-            result = Data(bytes: bytes, count: strlen(bytes))
-        }
-        guard let result else { throw ReadError("Cannot read PDF information") }
-        return result
-    }
-
     private static let permissionBits = [2, 11, 3, 10, 4, 9, 5, 8]
     private typealias Operation = @convention(c) (UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafePointer<CChar>, Int32, Int32, UnsafeMutablePointer<CChar>) -> Int32
     private typealias Sign = @convention(c) (UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafeRawPointer?, UnsafePointer<CChar>, Int32, UnsafePointer<Float>, Int32, UnsafePointer<CChar>, UnsafePointer<CChar>, UnsafePointer<CChar>, Int32, UnsafeMutablePointer<CChar>) -> Int32

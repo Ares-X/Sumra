@@ -349,7 +349,6 @@ final class NativeFile {
                 return unsafeBitCast(pointer, to: T.self)
             }
             let close = try required("lf_close", Close.self)
-            let pageCount = try required("lf_count", Count.self)
             let isReflowable: Count? = deferReflowLayout && engine == .mupdf ? try required("lf_reflowable", Count.self) : nil
             var error = [CChar](repeating: 0, count: 512)
             if engine == .mupdf, pdfSource == nil {
@@ -395,8 +394,13 @@ final class NativeFile {
             // callers keep the eager open and count path.
             let deferred = (isReflowable?(document) ?? 0) != 0
             if deferred { count = 0 }
-            else if let pointer = dlsym(library, "lf_count_error") { count = Int(unsafeBitCast(pointer, to: CheckedCount.self)(document, &error)) }
-            else { count = Int(pageCount(document)) }
+            else if engine == .mupdf {
+                let pageCount = try required("lf_count_error", CheckedCount.self)
+                count = Int(pageCount(document, &error))
+            } else {
+                let pageCount = try required("lf_count", Count.self)
+                count = Int(pageCount(document))
+            }
             guard deferred || count > 0 else { throw Self.failure(error, "Document has no readable content") }
             var table: ChapterTable?
             if engine == .mupdf, !deferred {

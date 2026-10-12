@@ -22,11 +22,6 @@ final class LegacyBookTests: XCTestCase {
         }
         return data
     }
-    private func records(_ data: Data) -> [Data] {
-        let count = integer(data, 76, 2)
-        let offsets = (0..<count).map { integer(data, 78 + $0 * 8, 4) } + [data.count]
-        return (0..<count).map { data.subdata(in: offsets[$0]..<offsets[$0 + 1]) }
-    }
     private func huff(terminal: Bool = true) -> Data {
         var data = Data(repeating: 0, count: 1304)
         data.replaceSubrange(0..<4, with: Data("HUFF".utf8))
@@ -80,90 +75,78 @@ final class LegacyBookTests: XCTestCase {
         return bytes
     }
 
-    func testHuffRepackPreservesResourcesAndRecordIdentity() throws {
-        let original = book()
-        let rewritten = try LegacyText.mobi(original), before = records(original), after = records(rewritten)
-        XCTAssertEqual(after.count, before.count)
-        XCTAssertEqual(integer(after[0], 0, 2), 1)
-        XCTAssertEqual(integer(after[0], 4, 4), 2)
-        XCTAssertEqual(after[1], Data("AB".utf8))
-        XCTAssertEqual(Array(after.dropFirst(2)), Array(before.dropFirst(2)))
-        for index in after.indices {
-            XCTAssertEqual(rewritten.subdata(in: (82 + index * 8)..<(86 + index * 8)), original.subdata(in: (82 + index * 8)..<(86 + index * 8)))
-        }
+    func testHuffHTMLRetainsRealImageRecordIndexes() throws {
+        let first = image(), third = image(marker: 66)
+        let markup = Data("AB<img recindex=3>".utf8)
+        let content = try XCTUnwrap(LegacyText.mobiContent(book(text: [Data([255])], length: markup.count, tables: [huff(), cdic([(markup, true), (Data("unused".utf8), true)])], resources: [first, Data("FDST metadata".utf8), third])))
+        let html = String(decoding: content.html, as: UTF8.self)
+        XCTAssertTrue(html.contains("AB<img"))
+        XCTAssertTrue(html.contains("src=\"00003\""))
+        XCTAssertFalse(html.contains("recindex="))
+        XCTAssertEqual(content.resources, ["00001": first, "00003": third])
     }
 
     func testNonterminalAndRecursiveDictionaryPhrases() throws {
         let nested = cdic([(Data([254]), false), (Data("phrase".utf8), true)])
-        let output = try LegacyText.mobi(book(text: [Data([255])], length: 6, tables: [huff(terminal: false), nested]))
-        XCTAssertEqual(records(output)[1], Data("phrase".utf8))
+        let output = try XCTUnwrap(LegacyText.mobiContent(book(text: [Data([255])], length: 6, tables: [huff(terminal: false), nested])))
+        XCTAssertEqual(output.html, Data("phrase".utf8))
         let second = cdic([(Data("second".utf8), true), (Data("unused".utf8), true)])
-        let multi = try LegacyText.mobi(book(text: [Data([253])], length: 6, tables: [huff(), nested, second]))
-        XCTAssertEqual(records(multi)[1], Data("second".utf8))
+        let multi = try XCTUnwrap(LegacyText.mobiContent(book(text: [Data([253])], length: 6, tables: [huff(), nested, second])))
+        XCTAssertEqual(multi.html, Data("second".utf8))
     }
 
     func testHuffCannotRecurseOrReadOutsideDictionary() {
         let cyclic = cdic([(Data([255]), false), (Data("B".utf8), true)])
-        XCTAssertThrowsError(try LegacyText.mobi(book(text: [Data([255])], length: 1, tables: [huff(), cyclic]))) {
+        XCTAssertThrowsError(try LegacyText.mobiContent(book(text: [Data([255])], length: 1, tables: [huff(), cyclic]))) {
             XCTAssertTrue($0.localizedDescription.contains("Recursive"))
         }
         var corrupt = cdic([(Data("A".utf8), true), (Data("B".utf8), true)])
         put(65535, 16, 2, in: &corrupt)
-        XCTAssertThrowsError(try LegacyText.mobi(book(tables: [huff(), corrupt])))
-        XCTAssertThrowsError(try LegacyText.mobi(book(text: [Data([252])], length: 1))) {
+        XCTAssertThrowsError(try LegacyText.mobiContent(book(tables: [huff(), corrupt])))
+        XCTAssertThrowsError(try LegacyText.mobiContent(book(text: [Data([252])], length: 1))) {
             XCTAssertTrue($0.localizedDescription.contains("dictionary index"))
         }
     }
 
     func testTrailerRemovalAndDeclaredHeaderBoundary() throws {
         let original = book(text: [Data("Hello".utf8) + Data([0, 0x80, 0, 0, 0x84])], length: 5, compression: 2, flags: 3)
-        let output = records(try LegacyText.mobi(original))
-        XCTAssertEqual(output[1], Data("Hello".utf8))
-        XCTAssertEqual(integer(output[0], 16 + 226, 2), 0)
-        var shortHeader = book(headerLength: 116, headerStorage: 244)
+        XCTAssertEqual(try XCTUnwrap(LegacyText.mobiContent(original)).html, Data("Hello".utf8))
+        var shortHeader = book(text: [Data("Hello".utf8)], length: 5, compression: 1, headerLength: 116, headerStorage: 244)
         let first = integer(shortHeader, 78, 4)
         put(0x5678, first + 242, 2, in: &shortHeader)
-        XCTAssertEqual(integer(records(try LegacyText.mobi(shortHeader))[0], 242, 2), 0x5678)
-        XCTAssertThrowsError(try LegacyText.mobi(book(text: [Data([0, 0, 0, 0xff])], length: 1, compression: 1, flags: 2)))
+        XCTAssertNil(try LegacyText.mobiContent(shortHeader), "Bytes outside the declared header must not become trailer flags")
+        XCTAssertThrowsError(try LegacyText.mobiContent(book(text: [Data([0, 0, 0, 0xff])], length: 1, compression: 1, flags: 2)))
     }
 
-    func testRepackingKeepsUnusedTextRecordsAndAppPointer() throws {
+    func testHuffKeepsUnusedTextRecordsWithoutRewritingContainer() throws {
         var original = book(text: [Data([255]), Data([254]), Data()], length: 2)
         let resourceOffset = integer(original, 78 + 4 * 8, 4)
         put(resourceOffset + 2, 52, 4, in: &original)
-        let output = try LegacyText.mobi(original), parts = records(output)
-        XCTAssertEqual(parts[1], Data("AB".utf8))
-        XCTAssertEqual(parts[2], Data([0]))
-        XCTAssertEqual(parts[3], Data([0]))
-        XCTAssertEqual(integer(output, 52, 4), integer(output, 78 + 4 * 8, 4) + 2)
-        for index in 0..<parts.count - 1 { XCTAssertLessThan(integer(output, 78 + index * 8, 4), integer(output, 78 + (index + 1) * 8, 4)) }
+        XCTAssertEqual(try XCTUnwrap(LegacyText.mobiContent(original)).html, Data("AB".utf8))
     }
 
-    func testRepackSplitsTextForMuPDFWithoutChangingRecordIndexes() throws {
+    func testHuffTextIsNotLimitedByMuPDFRecordCapacity() throws {
         let phrase = Data(repeating: 65, count: 1000)
-        let output = records(try LegacyText.mobi(book(text: [Data(repeating: 255, count: 3), Data(repeating: 255, count: 2)], length: 5000,
-            tables: [huff(), cdic([(phrase, true), (Data("B".utf8), true)])])))
-        XCTAssertEqual(output[1], Data(repeating: 65, count: 4096))
-        XCTAssertEqual(output[2], Data(repeating: 65, count: 904))
-        XCTAssertEqual(output[3], Data("RESOURCE".utf8))
-        XCTAssertThrowsError(try LegacyText.mobi(book(text: [Data(repeating: 255, count: 5)], length: 5000,
-            tables: [huff(), cdic([(phrase, true), (Data("B".utf8), true)])])))
+        for text in [[Data(repeating: 255, count: 3), Data(repeating: 255, count: 2)], [Data(repeating: 255, count: 5)]] {
+            let content = try XCTUnwrap(LegacyText.mobiContent(book(text: text, length: 5000,
+                tables: [huff(), cdic([(phrase, true), (Data("B".utf8), true)])])))
+            XCTAssertEqual(content.html, Data(repeating: 65, count: 5000))
+        }
     }
 
     func testPassthroughAndRealDRMErrors() throws {
         let ordinary = book(text: [Data("AB".utf8)], compression: 1)
-        XCTAssertEqual(try LegacyText.mobi(ordinary), ordinary)
-        XCTAssertEqual(try LegacyText.mobi(Data("ordinary EPUB or FB2 bytes".utf8)), Data("ordinary EPUB or FB2 bytes".utf8))
+        XCTAssertNil(try LegacyText.mobiContent(ordinary))
         var zeroDRM = ordinary
         put(0, integer(zeroDRM, 78, 4) + 16 + 152, 4, in: &zeroDRM)
-        XCTAssertEqual(try LegacyText.mobi(zeroDRM), zeroDRM)
+        XCTAssertNil(try LegacyText.mobiContent(zeroDRM))
         for field in [12, 16 + 152] {
             var encrypted = ordinary
             put(2, integer(encrypted, 78, 4) + field, field == 12 ? 2 : 4, in: &encrypted)
-            XCTAssertThrowsError(try LegacyText.mobi(encrypted)) { XCTAssertTrue($0.localizedDescription.contains("DRM")) }
+            XCTAssertThrowsError(try LegacyText.mobiContent(encrypted)) { XCTAssertTrue($0.localizedDescription.contains("DRM")) }
         }
         var slice = Data([0, 0]); slice.append(book())
-        XCTAssertEqual(records(try LegacyText.mobi(slice.dropFirst(2)))[1], Data("AB".utf8))
+        XCTAssertEqual(try XCTUnwrap(LegacyText.mobiContent(slice.dropFirst(2))).html, Data("AB".utf8))
     }
 
     func testPalmDeclaredLengthDoesNotTruncateDecodedText() throws {
@@ -256,9 +239,7 @@ final class LegacyBookTests: XCTestCase {
         var header = Data(repeating: 0, count: 16)
         put(2, 0, 2, in: &header); put(6, 4, 4, in: &header); put(2, 8, 2, in: &header)
         XCTAssertEqual(try LegacyText.palm(pdb([header, Data("abc".utf8), Data([0x80, 24])], creator: "TEXtREAd")), Data("abcabc".utf8))
-        let repacked = records(try LegacyText.mobi(book(length: 17)))
-        XCTAssertEqual(integer(repacked[0], 4, 4), 2)
-        XCTAssertEqual(repacked[1], Data("AB".utf8))
+        XCTAssertEqual(try XCTUnwrap(LegacyText.mobiContent(book(length: 17))).html, Data("AB".utf8))
     }
 
     func testImageFallbackRequiresTwoImagesAndRetainsDecoderFailureBoundary() throws {

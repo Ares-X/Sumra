@@ -1,5 +1,10 @@
 # Function-first cleanup
 
+The [October 12 deep upstream review](SUMATRA_DEEP_IMPLEMENTATION_REVIEW_20261012.md)
+records removal of the MOBI repacker, file-reopening PDF inspection, unused
+browser indexes, repeated source/CSS work and render-cache overhead, with their
+actual consumers and retained data boundaries.
+
 ## October 11 follow-up
 
 The project-owned Python build, packaging, release-feed and localization tools

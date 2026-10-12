@@ -62,50 +62,6 @@ public enum LegacyText{
         return (try? PalmDatabase.recordOffsets(header, length: length)) != nil
     }
 
-    /// Repack HUFF/CDIC or trailer-bearing MOBI records for the existing MuPDF
-    /// renderer. Preserve every record index, resource, flags and unique ID.
-    /// No renderer or alternate ebook model is introduced.
-    public static func mobi(_ data: Data) throws -> Data {
-        let data = data.startIndex == 0 ? data : data.subdata(in: data.startIndex..<data.endIndex)
-        guard data.count >= 68, data.subdata(in: 60..<68) == Data("BOOKMOBI".utf8) else { return data }
-        let database = try PalmDatabase(data), header = database.record(0), info = try MobiHeader(header)
-        guard info.compression == 17480 || info.flags != 0 else { return data }
-        let text = try database.text(flags: info.flags).data
-        let count = try database.textRecordCount()
-        // MuPDF's mobi_read_data reads at most 4096 bytes from each record.
-        guard text.count <= count * 4096 else { throw ReadError("MOBI text exceeds its 4096-byte record capacity") }
-        var output = data.subdata(in: 0..<database.offsets[0])
-        var rewrittenHeader = header
-        try put(1, in: &rewrittenHeader, at: 0, size: 2)
-        try put(text.count, in: &rewrittenHeader, at: 4, size: 4)
-        try put(count, in: &rewrittenHeader, at: 8, size: 2)
-        try put(min(4096, text.count), in: &rewrittenHeader, at: 10, size: 2)
-        if info.length >= 228 { try put(0, in: &rewrittenHeader, at: 16 + 226, size: 2) }
-        var relocated = [Int]()
-        for index in 0..<database.count {
-            relocated.append(output.count)
-            try put(output.count, in: &output, at: 78 + index * 8, size: 4)
-            if index == 0 { output.append(contentsOf: rewrittenHeader) }
-            else if index <= count {
-                let start = min((index - 1) * 4096, text.count), end = min(index * 4096, text.count)
-                // MuPDF skips duplicate record offsets. Keep unused text
-                // records nonempty; the original text length excludes padding.
-                if start == end { output.append(contentsOf: [0]) }
-                else { output.append(contentsOf: text[start..<end]) }
-            } else { output.append(contentsOf: database.record(index)) }
-        }
-        // PDB app/sort-info pointers are absolute offsets, unlike MOBI resource
-        // references. If present inside a retained record, move them with it.
-        for field in [52, 56] {
-            let offset = try be(data, field, 4)
-            if let index = (0..<database.count).last(where: { database.offsets[$0] <= offset }), offset < data.count {
-                guard index == 0 || index > count else { throw ReadError("MOBI app/sort info points inside compressed text") }
-                try put(relocated[index] + offset - database.offsets[index], in: &output, at: field, size: 4)
-            }
-        }
-        return output
-    }
-
     public struct MobiContent: Sendable {
         public let html: Data
         public let resources: [String: Data]
@@ -114,6 +70,7 @@ public enum LegacyText{
 
     /// MobiDoc's real image record indexes, KindleEmbedToRecIndex and
     /// MaybeSynthesizeImagePages. Output uses the same MuPDF HTML renderer.
+    /// HUFF/CDIC and trailer-bearing text goes directly to the MOBI HTML adapter.
     /// nil leaves ordinary books on the existing MOBI path.
     public static func mobiContent(_ data: Data) throws -> MobiContent? {
         let database = try PalmDatabase(data)
@@ -165,7 +122,7 @@ public enum LegacyText{
         }
         let hasKindleImages = html.range(of: "kindle:embed:", options: .caseInsensitive) != nil
         let contiguous = images.keys.sorted() == Array(1..<(images.count + 1))
-        if pages.isEmpty, images[cover] == nil, !hasKindleImages, contiguous, !decoded.recovered, !navigation.changed { return nil }
+        if info.compression != 17480, info.flags == 0, pages.isEmpty, images[cover] == nil, !hasKindleImages, contiguous, !decoded.recovered, !navigation.changed { return nil }
         func page(_ index: Int) -> String { "<img src=\"\(imageName(index))\">" }
         let pageBreak = "<div style=\"page-break-before:always\"></div>"
         if !pages.isEmpty {
@@ -416,11 +373,6 @@ public enum LegacyText{
         guard offset >= 0, size <= data.count, offset <= data.count - size else { throw ReadError("Truncated Palm/MOBI record") }
         return data[offset..<offset + size].reduce(0) { ($0 << 8) | Int($1) }
     }
-    private static func put(_ value: Int, in data: inout Data, at offset: Int, size: Int) throws {
-        guard value >= 0, value >> (size * 8) == 0 else { throw ReadError("Palm/MOBI field cannot represent the generated value") }
-        for index in 0..<size { data[offset + index] = UInt8(truncatingIfNeeded: value >> (8 * (size - index - 1))) }
-    }
-
     private struct PalmDatabase {
         let data: Data
         let offsets: [Int]

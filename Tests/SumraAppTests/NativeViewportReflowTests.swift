@@ -280,6 +280,41 @@ final class NativeViewportReflowTests: XCTestCase {
         }
     }
 
+    func testSourceLookupReturnsItsActualPageAndClusterGeometryInLongFlow() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = directory.url.appendingPathComponent("LongSourceFlow.html")
+        let prose = String(repeating: "office ﬁ affine a\u{0301} keeps its source position. ", count: 300)
+        try "<html><body><p>\(prose)</p></body></html>".write(to: input, atomically: true, encoding: .utf8)
+        let file = try NativeFile(input, engine: .mupdf)
+        typealias Lookup = @convention(c) (UnsafeMutableRawPointer, Int32, UInt32, UInt32, UInt32, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+        let lookup = try XCTUnwrap(file.symbol("lf_html_anchor_position", Lookup.self))
+        struct Result: Decodable { let page: Int; let rect: [Double] }
+        for height in [CGFloat(0), CGFloat(360)] {
+            _ = try file.relayout(fontSize: 17, lineHeight: 1.4, font: "serif", theme: "light",
+                                  pageSize: CGSize(width: 320, height: height))
+            if height > 0 { XCTAssertGreaterThan(file.count, 5) }
+            let pages = height == 0 ? [0] : [0, file.count / 2, file.count - 1]
+            for page in pages {
+                let glyphs = try file.words(page).filter { $0.source != nil }
+                XCTAssertFalse(glyphs.isEmpty)
+                let space = try XCTUnwrap(glyphs.first { $0.text == " " })
+                for glyph in [glyphs[0], glyphs[glyphs.count / 2], glyphs[glyphs.count - 1], space] {
+                    let source = try XCTUnwrap(glyph.source)
+                    var error = [CChar](repeating: 0, count: 512)
+                    let result = try file.decode(lookup(file.document, 0, source.node, source.offset, source.part, &error),
+                                                 error: error, as: Result?.self)
+                    let resolved = try XCTUnwrap(result)
+                    XCTAssertEqual(resolved.page, page, "Source resolution must return the target's page rather than chapter page zero")
+                    XCTAssertEqual(resolved.rect, glyph.rect)
+                }
+            }
+            var error = [CChar](repeating: 0, count: 512)
+            let missing = try file.decode(lookup(file.document, 0, UInt32.max, 0, 0, &error), error: error, as: Result?.self)
+            XCTAssertNil(missing)
+        }
+    }
+
     func testViewportChangesPaginationAndPreservesTheSourceGlyph() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }

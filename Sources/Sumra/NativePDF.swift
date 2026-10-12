@@ -165,6 +165,23 @@ extension NativeFile {
         return try decode(get(document, &error), error: error, as: PDFSignatureInfo.self)
     }
 
+    func pdfInformation() throws -> [String: String] {
+        typealias Get = @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+        guard let get = symbol("lf_pdf_live_information", Get.self) else { throw ReadError("Incompatible MuPDF engine: lf_pdf_live_information") }
+        var error = [CChar](repeating: 0, count: 512)
+        return try decode(get(document, &error), error: error, as: [String: String].self)
+    }
+
+    func pdfResourceReport() throws -> String {
+        typealias Get = @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<Int>, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+        guard let get = symbol("lf_pdf_live_resource_report", Get.self) else { throw ReadError("Incompatible MuPDF engine: lf_pdf_live_resource_report") }
+        var error = [CChar](repeating: 0, count: 512), length = 0
+        guard let bytes = get(document, &length, &error) else { throw Self.failure(error, "Cannot read PDF resource information") }
+        defer { free(bytes) }
+        // Embedded XML can contain NUL bytes; preserve the upstream byte count.
+        return String(decoding: Data(bytes: bytes, count: length), as: UTF8.self)
+    }
+
     // Pages serializes this whole output operation. A failed signature never
     // changes the live field tree, MuJS state, undo history, or saved position.
     func pdfSignCopy(to destination: URL, sourceURL: URL, password: String,

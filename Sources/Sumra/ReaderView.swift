@@ -428,7 +428,8 @@ struct ReaderView: View {
                         let bookmark = initial.anchor.flatMap(ChapterTable.bookmarkLocation)
                         // Legacy finite-page records must resolve their source
                         // in the recorded geometry before entering natural flow.
-                        let legacyPages = initial.nativePassage == nil && bookmark.map { $0.count != 1 } == true
+                        // An unresolved chapter target has no old pagination.
+                        let legacyPages = initial.nativePassage == nil && bookmark.map { $0.count > 1 } == true
                         let continuous = state.flow == "continuous" && !state.presentation
                         let initialViewport = ReaderScrollbars.initialReadingViewport(in: viewport.size, mode: state.scrollbarMode, continuous: continuous)
                         let pageSize = RasterReader.pageSize(in: initialViewport,

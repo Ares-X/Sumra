@@ -369,7 +369,10 @@ final class BrowserReaderTests: XCTestCase {
             };
             return {source:pre.textContent, searchable:indexed.text,
                 separators:gaps.map(gap => gap.textContent),
-                offsets:gaps.map(gap => indexed.starts[indexed.nodes.indexOf(gap.firstChild)]),
+                offsets:gaps.map(gap => {
+                    const prefix = document.createRange(); prefix.selectNodeContents(pre);
+                    prefix.setEnd(gap.firstChild, 0); return prefix.toString().length;
+                }),
                 distances:gaps.map((gap, index) => edge(prose[index + 1], false).top - edge(prose[index], true).bottom),
                 heights:gaps.map(gap => gap.getBoundingClientRect().height),
                 fontSize:parseFloat(getComputedStyle(pre).fontSize)};
@@ -450,7 +453,10 @@ final class BrowserReaderTests: XCTestCase {
             return {source:pre.textContent, searchable:indexed.text,
                 proseCount:spans.length, firstStyle:spans[0] && getComputedStyle(spans[0]).whiteSpace,
                 softBreaks:spans.map(span => [...span.querySelectorAll('.sumra-chm-softbreak')].map(node => node.textContent)),
-                breakIndex:softBreak && indexed.starts[indexed.nodes.indexOf(softBreak)],
+                breakIndex:softBreak && (() => {
+                    const prefix = document.createRange(); prefix.selectNodeContents(pre);
+                    prefix.setEnd(softBreak, 0); return prefix.toString().length;
+                })(),
                 width:innerWidth, prose:spans[0] && proseGeometry(spans[0]), code:code && lineTops(code),
                 poem:poem && lineTops(poem), ascii:ascii && lineTops(ascii)};
             """, in: view) as? [String: Any]
@@ -535,7 +541,10 @@ final class BrowserReaderTests: XCTestCase {
             columns:getComputedStyle(document.body).columnCount,font:getComputedStyle(pre).fontSize,
             titleWidth:box.width,viewport:innerWidth,centerGap:(glyphs.left+glyphs.right-box.left-box.right)/2,
             firstTop:first.top,lastTop:last.top,ordinaryIndentWidth:ordinaryIndent.width,
-            selected:match?.toString(),startIndex:indexed.starts[indexed.nodes.indexOf(match?.startContainer)]+match?.startOffset,
+            selected:match?.toString(),startIndex:match && (() => {
+                const prefix=document.createRange();prefix.selectNodeContents(pre);
+                prefix.setEnd(match.startContainer,match.startOffset);return prefix.toString().length;
+            })(),
             endOffset:match?.endOffset};
         """, in: view) as? [String: Any]
         XCTAssertEqual(result?["source"] as? String, text)

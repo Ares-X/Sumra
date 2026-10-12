@@ -18,10 +18,18 @@ user-deferred.
 
 ## Current implementation
 
+October 12 source work and its exact upstream comparisons are recorded in
+[the deep implementation review](SUMATRA_DEEP_IMPLEMENTATION_REVIEW_20261012.md).
+The historical 13.528-second first-open observation remains unresolved. The new
+source batch still needs acceptance in the Action-built graphical reader with
+the original books; the Mac is currently locked and automatic unlock failed.
+The performance/release goal is not complete. The October 11 results below
+describe that earlier candidate, not acceptance of the new changes.
+
 The latest original-book workflow sweep and changed-owner findings are in
 [the corpus acceptance report](BOOK_CORPUS_ACCEPTANCE.md#completed-original-book-workflow-sweep-2026-10-11)
 and [the performance report](LARGE_TEXT_PERFORMANCE_20261010.md#final-pagination-follow-up-october-11).
-The 0.2.2 candidate completes the large-Markdown pagination follow-up: both
+The October 11 0.2.2 candidate covered the large-Markdown pagination follow-up: both
 original books passed actual Single/Two/Continuous changes, Find, Contents and
 fresh-process passage restoration. Mode layout is 0.40–0.63 s in these GUI runs;
 first chapter parsing/layout remains 0.94–1.92 s. The final source check passes

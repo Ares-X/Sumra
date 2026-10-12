@@ -2227,7 +2227,7 @@ static void region_drop_device(fz_context *ctx, fz_device *device) {
     fz_drop_device(ctx, device->passthrough);
 }
 static fz_stext_page *filtered_stext_at(SumraMuPDFDocument *d, int chapter, int index, fz_rect region,
-                                      uint32_t source_node, uint32_t source_offset, fz_cookie *cookie) {
+                                      uint32_t source_node, uint32_t source_offset, int *source_page, fz_cookie *cookie) {
     fz_page *page = load_render_page(d, chapter, index, cookie);
     fz_stext_page *text = fz_new_stext_page(d->ctx, fz_bound_page(d->ctx, page));
     fz_device *stext = NULL, *filter = NULL;
@@ -2246,8 +2246,8 @@ static fz_stext_page *filtered_stext_at(SumraMuPDFDocument *d, int chapter, int 
         // drawing owner skip blocks outside the requested viewport.
         filter->begin_structure = NULL;
         filter->end_structure = NULL;
-        if (source_node)
-            fz_run_html_page_source(d->ctx, page, filter, source_node, source_offset);
+        if (source_page)
+            *source_page = fz_run_html_page_source(d->ctx, page, filter, source_node, source_offset);
         else if (!fz_run_html_page_text_region(d->ctx, page, filter, region))
             fz_run_page_contents(d->ctx, page, filter, fz_identity, cookie);
         fz_close_device(d->ctx, filter);
@@ -2258,7 +2258,7 @@ static fz_stext_page *filtered_stext_at(SumraMuPDFDocument *d, int chapter, int 
     return text;
 }
 static fz_stext_page *region_stext_at(SumraMuPDFDocument *d, int chapter, int index, fz_rect region, fz_cookie *cookie) {
-    return filtered_stext_at(d, chapter, index, region, 0, 0, cookie);
+    return filtered_stext_at(d, chapter, index, region, 0, 0, NULL, cookie);
 }
 API char *lf_select_at(SumraMuPDFDocument *d, int chapter, int index, float ax, float ay, float bx, float by, int mode, void *opaque_cookie, char *error) {
     fz_cookie *cookie = opaque_cookie;
@@ -2370,12 +2370,13 @@ API char *lf_html_anchor_position(void *opaque, int chapter, uint32_t node, uint
     fz_stext_page *text = NULL; SumraJSON j = {0}; fz_var(text); fz_var(j);
     fz_try(d->ctx) {
         (void)fz_count_chapter_pages(d->ctx, d->doc, chapter); // Ensure current layout is complete.
-        int page = lf_has_html_source(d)
-            ? (chapter == 0 ? fz_htdoc_source_page(d->ctx, d->doc, node, byte_offset) : -1)
-            : fz_epub_source_page_in_chapter(d->ctx, d->doc, chapter, node, byte_offset);
+        // Every reflow page has the same canvas. Reuse the loaded chapter page
+        // as its HTML carrier; resolve and draw the source in one operation.
+        int page = -1;
+        int carrier = d->render_page && d->render_chapter == chapter ? d->render_index : 0;
+        text = filtered_stext_at(d, chapter, carrier, fz_empty_rect, node, byte_offset, &page, NULL);
         if (page < 0) lf_json(&j, "null");
         else {
-            text = filtered_stext_at(d, chapter, page, fz_empty_rect, node, byte_offset, NULL);
             fz_stext_char *found = NULL;
             for (fz_stext_block *block = text->first_block; block && !found; block = block->next) {
                 if (block->type != FZ_STEXT_BLOCK_TEXT) continue;

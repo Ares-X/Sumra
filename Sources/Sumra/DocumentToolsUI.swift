@@ -227,16 +227,14 @@ extension ReaderState {
 
     func showPDFResourceInformation() {
         guard let reading = document, let pages = nativePDF else { return }
-        let password = documentPassword
         let current = { self.document?.id == reading.id && self.nativePDF === pages }
         Task {
             defer { withExtendedLifetime(reading) {} }
             do {
-                let source = pages.pdfSourceURL
                 guard current() else { return }
-                let report = try await Task.detached { try NativePDFTools.resourceReport(source: source, password: password) }.value
+                let report = try await pages.pdfResourceReport()
                 guard current() else { return }
-                ReaderHelp.show(title: L("PDF Resource Information…"), text: L("Saved source file; unsaved edits are not included.") + "\n\n" + report)
+                ReaderHelp.show(title: L("PDF Resource Information…"), text: L("Current document; unsaved edits are included.") + "\n\n" + report)
             } catch { if current() { self.error = error.localizedDescription } }
         }
     }

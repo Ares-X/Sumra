@@ -44,6 +44,13 @@ enum MarkdownRenderer: String, Codable, CaseIterable, Sendable {
         "markdownRenderer:" + url.standardizedFileURL.path
     }
 
+    static func preference(for url: URL, requested: MarkdownRenderer? = nil) -> MarkdownRenderer {
+        let saved = UserDefaults.standard.string(forKey: preferenceKey(for: url))
+            .flatMap(MarkdownRenderer.init(rawValue:))
+        return requested ?? saved
+            ?? (UserDefaults.standard.bool(forKey: "useFixedPageUI") ? .paged : .automatic)
+    }
+
     static func layoutHintKey(for url: URL) -> String {
         "markdownLayoutLimit:" + url.standardizedFileURL.path
     }
@@ -166,8 +173,7 @@ struct ReadingDocument: Identifiable {
             if let inspected = try? Format.inspect(url, prefix: prefix), inspected.format == .markdown {
                 markdownRenderer = .compatible
                 markdownSourceSignature = MarkdownRenderer.sourceSignature(for: url)
-                markdownPreference = (try? Self.markdownPolicy(for: url, inspected: inspected.format))?.preference
-                    ?? .automatic
+                markdownPreference = MarkdownRenderer.preference(for: url)
             } else {
                 markdownPreference = nil
                 markdownRenderer = nil
@@ -389,13 +395,6 @@ struct ReadingDocument: Identifiable {
                     let outline = content.outline.map { ContentsItem(title: $0.title, target: $0.target, depth: $0.level) }
                     return .init(url: url, content: .pages(try Pages(source, format: .mupdf, outline: outline.isEmpty ? nil : outline, deferReflowLayout: deferReflowLayout)), temporary: directory)
                 }
-                let decoded = try LegacyText.mobi(input)
-                if decoded != input {
-                    let directory = try TemporaryDirectory()
-                    let source = directory.url.appendingPathComponent("document.mobi")
-                    try decoded.write(to: source)
-                    return .init(url: url, content: .pages(try Pages(source, format: .mupdf, deferReflowLayout: deferReflowLayout)), temporary: directory)
-                }
             }
             return .init(url: url, content: .pages(try Pages(url, format: .mupdf, deferReflowLayout: deferReflowLayout)))
 
@@ -448,10 +447,7 @@ struct ReadingDocument: Identifiable {
     static func markdownPolicy(for url: URL, inspected format: Format,
                                requested: MarkdownRenderer? = nil) throws -> (preference: MarkdownRenderer, renderer: MarkdownRenderer)? {
         guard format == .markdown else { return nil }
-        let saved = UserDefaults.standard.string(forKey: MarkdownRenderer.preferenceKey(for: url))
-            .flatMap(MarkdownRenderer.init(rawValue:))
-        let preference = requested ?? saved
-            ?? (UserDefaults.standard.bool(forKey: "useFixedPageUI") ? .paged : .automatic)
+        let preference = MarkdownRenderer.preference(for: url, requested: requested)
         return (preference, try preference.effective(for: url))
     }
 

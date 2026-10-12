@@ -8,6 +8,81 @@ import XCTest
 
 @MainActor
 final class ReaderInitialLayoutTests: XCTestCase {
+    func testUnresolvedChapterTargetStartsInNaturalGeometry() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        try FileManager.default.createDirectory(at: directory.url.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
+        var files = [
+            "mimetype": "application/epub+zip",
+            "META-INF/container.xml": "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>",
+            "content.opf": "<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata/><manifest><item id='a' href='first.xhtml' media-type='application/xhtml+xml'/><item id='b' href='target.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='a'/><itemref idref='b'/></spine></package>"
+        ]
+        for (name, heading) in [("first.xhtml", "FIRST"), ("target.xhtml", "TARGET_START")] {
+            let body = (0..<80).map { "<p>\(heading) paragraph \($0). This chapter target has never been paginated.</p>" }.joined()
+            files[name] = "<html xmlns='http://www.w3.org/1999/xhtml'><body><h1>\(heading)</h1>\(body)</body></html>"
+        }
+        for (name, text) in files { try text.write(to: directory.url.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+        let zip = Process(); zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); zip.currentDirectoryURL = directory.url
+        zip.arguments = ["-q", "-0", "book.epub", "mimetype"] + files.keys.filter { $0 != "mimetype" }.sorted()
+        try runSumraProcess(zip)
+        XCTAssertEqual(zip.terminationStatus, 0)
+        let input = directory.url.appendingPathComponent("book.epub")
+        let pages = try Pages(input, format: .mupdf, deferReflowLayout: true)
+        let state = ReaderState(recordsHistory: false)
+        let target = PageLocation(chapter: 1, page: 0)
+        let bookmark = ChapterTable(chapters: 2).bookmark(target)
+        XCTAssertEqual(try XCTUnwrap(ChapterTable.bookmarkLocation(bookmark)).count, 0)
+        state.apply(.init(page: 1, anchor: bookmark))
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.flow = "continuous"; state.spread = false; state.fit = "width"
+        state.font = "serif"; state.fontSize = 17; state.lineHeight = 1.4; state.margin = 32
+        state.theme = "light"; state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
+        state.scrollbarMode = "smart"; state.automaticLayout = false; state.zoom = 1
+        state.freePan = false; state.uniformPageWidth = false; state.trimEmptyMargins = false; state.landscapeAsSpread = false
+        state.showContents = false; state.showThumbnails = false; state.showBookmarks = false
+        var publications = [(position: ReadingPosition, layout: ChapterTable?)]()
+        let publication = state.$renderRevision.sink { revision in
+            if revision > 0 { publications.append((state.currentPosition, state.chapterLayout)) }
+        }
+        defer { publication.cancel() }
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; state.window = window
+        window.orderFront(nil)
+        defer { state.windowClosed(); window.contentView = nil; window.close() }
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            host.layoutSubtreeIfNeeded()
+            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+            if RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: target) { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        } while Date() < deadline && state.error == nil
+        XCTAssertNil(state.error)
+        XCTAssertTrue(RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: target))
+        let first = try XCTUnwrap(publications.first)
+        let restored = try XCTUnwrap(first.position.anchor.flatMap(ChapterTable.bookmarkLocation))
+        XCTAssertEqual(restored.location, target)
+        XCTAssertEqual(try XCTUnwrap(first.layout).pageCount(target.chapter), 1)
+        XCTAssertEqual(first.position.nativePassage?.chapter, target.chapter)
+        let clip = try XCTUnwrap(state.readerScrollView?.contentView.safeAreaRect.size)
+        let bounds = try await pages.bounds(target)
+        XCTAssertEqual(bounds.width, RasterReader.pageSize(in: clip, spread: false, continuous: true).width, accuracy: 0.01)
+        XCTAssertGreaterThan(bounds.height, clip.height)
+        let reference = try Pages(input, format: .mupdf, deferReflowLayout: true)
+        _ = try await reference.relayout(fontSize: state.fontSize, lineHeight: state.lineHeight, margin: state.margin,
+            font: state.font, theme: state.resolvedTheme, userCSS: state.effectiveUserCSS,
+            pageSize: RasterReader.pageSize(in: clip, spread: false, continuous: true), viewport: clip)
+        let expected = try await reference.position(target, viewport: clip)
+        XCTAssertEqual(first.position.nativePassage?.source, expected.nativePassage?.source)
+        XCTAssertNotNil(expected.nativePassage)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(publications.count, 1)
+        let revision = await pages.layoutRevision
+        XCTAssertEqual(revision, 1, "An unresolved target has no finite geometry to recover before natural layout")
+    }
+
     func testLegacyFiniteBookmarkPublishesNaturalGeometryAndItsSavedSource() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()

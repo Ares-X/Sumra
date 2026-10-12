@@ -109,10 +109,11 @@ final class PDFToolsTests: XCTestCase {
         context.closePDF()
         let directory = try outputDirectory(), source = directory.appendingPathComponent("fonts.pdf")
         try (bytes as Data).write(to: source)
-        let report = try NativePDFTools.resourceReport(source: source)
+        let file = try NativeFile(source, engine: .mupdf)
+        let report = try file.pdfResourceReport()
         XCTAssertTrue(report.contains("Fonts (1)"))
         XCTAssertTrue(report.contains("Helvetica"))
-        XCTAssertEqual(try NativeFile(source, engine: .mupdf).count, 2)
+        XCTAssertEqual(file.count, 2)
     }
 
     func testImageConversionUsesActualDPIAndVariablePageSizes() throws {

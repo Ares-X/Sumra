@@ -50,20 +50,17 @@ function textWalker(body) {
     acceptNode: function(n) { return eligibleTextNode(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT; }
   });
 }
-function textFromBody(body, indexed = true) {
-  var nodes = [];
-  var starts = [];
+function textFromBody(body) {
   var text = "";
   // Keep the same eligibility rule without a WebCore-to-JavaScript callback
-  // for every text node while building the search index.
+  // for every text node while extracting the full document text.
   var walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   var n;
   while ((n = walker.nextNode())) {
     if (!eligibleTextNode(n)) { continue; }
-    if (indexed) { nodes.push(n); starts.push(text.length); }
     text += n.data;
   }
-  return { nodes: nodes, starts: starts, text: text };
+  return { text: text };
 }
 // Range boundaries identify the first and last eligible nodes once. Comparing
 // each body node with a distant endpoint can repeatedly scan its sibling list.

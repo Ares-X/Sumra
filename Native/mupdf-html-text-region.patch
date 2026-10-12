@@ -1,14 +1,14 @@
 diff --git a/include/mupdf/fitz/html.h b/include/mupdf/fitz/html.h
 --- a/include/mupdf/fitz/html.h
 +++ b/include/mupdf/fitz/html.h
-@@ -104,4 +104,17 @@
-  * Source identity follows chapter text through reader geometry and typography changes. */
- int fz_epub_source_page_in_chapter(fz_context *ctx, fz_document *doc, int chapter, uint32_t source_node, uint32_t source_offset);
+@@ -100,3 +100,17 @@
+ int fz_is_epub_chapter_fixed(fz_context *ctx, fz_document *doc, int chapter);
  
 +/* Draw reflowable HTML/EPUB text in page coordinates without laying out again.
 + * The caller's device selects exact glyphs; region drawing visits whole
 + * intersecting flow blocks so font ascenders and ligature clusters survive.
-+ * Return zero for other page handlers, fixed layout, or an unresolved source. */
++ * Region drawing returns zero for other handlers or fixed/paged layout.
++ * Source drawing returns its resolved page, or -1 when unresolved. */
 +int fz_run_html_page_text_region(fz_context *ctx, fz_page *page, fz_device *dev, fz_rect region);
 +int fz_run_html_page_source(fz_context *ctx, fz_page *page, fz_device *dev, uint32_t node, uint32_t offset);
 +
@@ -36,15 +36,14 @@ diff --git a/source/html/html-imp.h b/source/html/html-imp.h
  void fz_draw_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page);
 +void fz_draw_html_text_region(fz_context *ctx, fz_device *dev, fz_html *html, int page, fz_rect region);
 +void fz_draw_html_region(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page, fz_rect region, fz_cookie *cookie);
-+int fz_draw_html_source(fz_context *ctx, fz_device *dev, fz_html *html, int page, uint32_t node, uint32_t offset);
++int fz_draw_html_source(fz_context *ctx, fz_device *dev, fz_html *html, uint32_t node, uint32_t offset);
 +fz_html *fz_epub_page_html(fz_page *page, int *number);
  fz_outline *fz_load_html_outline(fz_context *ctx, fz_html *node);
  
  float fz_find_html_target(fz_context *ctx, fz_html *html, const char *id);
-@@ -900,6 +905,7 @@
+@@ -900,5 +905,6 @@
  fz_html *fz_keep_html(fz_context *ctx, fz_html *html);
  void fz_drop_html(fz_context *ctx, fz_html *html);
- int fz_html_source_page(fz_context *ctx, fz_html *html, uint32_t source_node, uint32_t source_offset);
 +fz_html_flow *fz_html_find_source(fz_html_tree *tree, fz_html_box *box, uint32_t node, uint32_t offset, fz_html_box **owner);
  fz_bookmark fz_make_html_bookmark(fz_context *ctx, fz_html *html, int page);
  int fz_lookup_html_bookmark(fz_context *ctx, fz_html *html, fz_bookmark mark);
@@ -92,8 +91,8 @@ diff --git a/source/html/html-doc.c b/source/html/html-doc.c
 +	int number;
 +	fz_html *html = html_text_page(page, &number);
 +	if (!html || html->fixed_layout)
-+		return 0;
-+	return fz_draw_html_source(ctx, dev, html, number, node, offset);
++		return -1;
++	return fz_draw_html_source(ctx, dev, html, node, offset);
 +}
 +
  static fz_link *
@@ -121,40 +120,41 @@ diff --git a/source/html/epub-doc.c b/source/html/epub-doc.c
 diff --git a/source/html/html-outline.c b/source/html/html-outline.c
 --- a/source/html/html-outline.c
 +++ b/source/html/html-outline.c
-@@ -399,7 +399,7 @@
+@@ -399,6 +399,34 @@
  	return *candidate;
  }
  
--static fz_html_flow *html_find_source(fz_html_tree *tree, fz_html_box *box, uint32_t source_node, uint32_t source_offset)
 +fz_html_flow *fz_html_find_source(fz_html_tree *tree, fz_html_box *box, uint32_t source_node, uint32_t source_offset, fz_html_box **owner)
- {
- 	for (; box; box = box->next)
- 	{
-@@ -412,11 +412,14 @@
- 					(flow->type == FLOW_SPACE || flow->type == FLOW_SHYPHEN ? 1 : 0);
- 				uint32_t flow_offset = fz_html_flow_source_offset(flow);
- 				if (source_offset >= flow_offset && source_offset - flow_offset < len)
++{
++	for (; box; box = box->next)
++	{
++		if (box->type == BOX_FLOW)
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
++			{
++				if (flow->source_node != source_node)
++					continue;
++				size_t len = flow->type == FLOW_WORD ? strlen(fz_html_flow_text(flow)) :
++					(flow->type == FLOW_SPACE || flow->type == FLOW_SHYPHEN ? 1 : 0);
++				uint32_t flow_offset = fz_html_flow_source_offset(flow);
++				if (source_offset >= flow_offset && source_offset - flow_offset < len)
 +				{
 +					if (owner) *owner = box;
- 					return flow;
++					return flow;
 +				}
- 			}
- 		if (fz_html_box_has_boxes(box))
- 		{
--			fz_html_flow *flow = html_find_source(tree, box->down, source_node, source_offset);
++			}
++		if (fz_html_box_has_boxes(box))
++		{
 +			fz_html_flow *flow = fz_html_find_source(tree, box->down, source_node, source_offset, owner);
- 			if (flow)
- 				return flow;
- 		}
-@@ -428,7 +431,7 @@
++			if (flow)
++				return flow;
++		}
++	}
++	return NULL;
++}
++
+ fz_bookmark
+ fz_make_html_bookmark(fz_context *ctx, fz_html *html, int page)
  {
- 	if (!html || !source_node || !isfinite(html->page_h) || html->page_h <= 0)
- 		return -1;
--	fz_html_flow *flow = html_find_source(&html->tree, html->tree.root, source_node, source_offset);
-+	fz_html_flow *flow = fz_html_find_source(&html->tree, html->tree.root, source_node, source_offset, NULL);
- 	if (!flow || !isfinite(flow->y) || flow->y < 0)
- 		return -1;
- 	int page = (int)(flow->y / html->page_h);
 diff --git a/source/html/html-layout.c b/source/html/html-layout.c
 --- a/source/html/html-layout.c
 +++ b/source/html/html-layout.c
@@ -462,7 +462,7 @@ diff --git a/source/html/html-layout.c b/source/html/html-layout.c
  		}
  		fz_always(ctx)
  		{
-@@ -4842,6 +4907,54 @@
+@@ -4842,6 +4907,65 @@
  	ctm = fz_pre_translate(ctm, html->page_margin[L], html->page_margin[T]);
  
  	fz_draw_restarted_html(&html->tree, ctx, dev, ctm, html->tree.root, page_top, page_bot, NULL);
@@ -502,18 +502,29 @@ diff --git a/source/html/html-layout.c b/source/html/html-layout.c
 +	draw_restarted_html(&html->tree, ctx, dev, ctm, html->tree.root, top, bottom, NULL, 2, NULL, NULL);
 +}
 +
-+int fz_draw_html_source(fz_context *ctx, fz_device *dev, fz_html *html, int page, uint32_t node, uint32_t offset)
++int fz_draw_html_source(fz_context *ctx, fz_device *dev, fz_html *html, uint32_t node, uint32_t offset)
 +{
++	if (!node || !isfinite(html->page_h) || html->page_h <= 0)
++		return -1;
 +	fz_html_box *owner = NULL;
 +	fz_html_flow *flow = fz_html_find_source(&html->tree, html->tree.root, node, offset, &owner);
-+	if (!flow)
-+		return 0;
++	if (!flow || !isfinite(flow->y) || flow->y < 0)
++		return -1;
++	int page = (int)(flow->y / html->page_h);
++	int last_page = fmaxf(0, ceilf(html->tree.root->s.layout.b / html->page_h) - 1);
++	page = fz_mini(page, last_page);
 +	float origin = page * html->page_h;
-+	/* Replay only the containing flow with its original shaping and spans.
-+	 * No ancestor/baseline cull can drop a superscript or ligature cluster. */
++	/* Preserve the prefix: a combining glyph can inherit its base's pen
++	 * from an earlier inline/font span. Stop after the complete source word;
++	 * later words cannot change the selected cluster's glyph geometry. */
++	fz_html_restarter restart = { 0 };
++	restart.start = owner;
++	restart.start_flow = owner->u.flow.head;
++	restart.end = owner;
++	restart.end_flow = fz_html_flow_next(&html->tree, flow);
 +	fz_matrix ctm = fz_translate(html->page_margin[L], html->page_margin[T] + flow->y - origin);
-+	draw_restarted_html(&html->tree, ctx, dev, ctm, owner, flow->y, flow->y, NULL, 2, NULL, NULL);
-+	return 1;
++	draw_restarted_html(&html->tree, ctx, dev, ctm, owner, flow->y, flow->y, &restart, 2, NULL, NULL);
++	return page;
  }
  
  void fz_draw_story(fz_context *ctx, fz_story *story, fz_device *dev, fz_matrix ctm)

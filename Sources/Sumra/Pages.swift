@@ -257,7 +257,7 @@ fileprivate final class RasterDocument {
             }
         }
         let bounds = try bounds(page), width = original == nil ? bounds.width * 2 : bounds.width
-        let bitmap = try image(page, width: Int(ceil(width)))
+        let bitmap = try image(prepareImage(page, width: Int(ceil(width))), cancellation: nil)
         return (bitmap, original, original == nil ? Double(bitmap.width) * 72 / Double(bounds.width) : dpi)
     }
     func metadata() throws -> [String: String] {
@@ -295,26 +295,47 @@ fileprivate final class RasterDocument {
         if isVectorImage(page) { comicVector = (page, file, directory) }
         return try withExtendedLifetime(directory) { try body(file) }
     }
-    func image(_ page: Int, width: Int, transparent: Bool = false, region: CGRect? = nil, pdfStyle: PDFColors.Style? = nil, cancellation: NativeRenderCancellation? = nil) throws -> CGImage {
+    struct ImageRequest {
+        let page: Int, width: Int
+        let transparent: Bool
+        let region: CGRect?
+        let pdfStyle: PDFColors.Style?
+        let location: PageLocation
+        let cached: CGImage?
+    }
+    // Normalize and consult the bitmap cache once, before the caller creates
+    // a render cookie. Region pixels remain owned by the visible tile canvas.
+    func prepareImage(_ page: Int, width: Int, transparent: Bool = false, region: CGRect? = nil, pdfStyle: PDFColors.Style? = nil) throws -> ImageRequest {
         try Task.checkCancellation()
         guard (0..<count).contains(page) else { throw ReadError("Page out of range") }
-        if comicVector?.page != page { comicVector = nil }
-        if let region {
+        var width = width
+        if region == nil, isImageCollection, !isVectorImage(page), let dimensions = try native?.imageDimensions(page) {
+            width = min(width, max(1, Int(ceil(dimensions.width))))
+        }
+        let location = region == nil ? try native?.location(page) ?? PageLocation(page: page) : PageLocation(page: page)
+        var cached: CGImage?
+        if region == nil, let index = cache.firstIndex(where: { $0.location == location && $0.width == width && $0.transparent == transparent && $0.pdfStyle == pdfStyle }) {
+            let hit = cache.remove(at: index); cache.append(hit); cached = hit.image
+        }
+        return ImageRequest(page: page, width: width, transparent: transparent, region: region,
+                            pdfStyle: pdfStyle, location: location, cached: cached)
+    }
+    func image(_ request: ImageRequest, cancellation: NativeRenderCancellation?) throws -> CGImage {
+        try Task.checkCancellation()
+        if let image = request.cached { return image }
+        let page = request.page, transparent = request.transparent, pdfStyle = request.pdfStyle
+        var width = request.width
+        let location = request.location
+        if let region = request.region {
             // Visible tiles belong to their canvas, not the whole-page cache.
+            if comicVector?.page != page { comicVector = nil }
             if let native { return try native.image(page, width: width, transparent: transparent, region: region, style: pdfStyle, cancellation: cancellation) }
             guard !names.isEmpty, isVectorImage(page) else { throw ReadError("This image does not support page regions") }
             return try withComicNative(page, data: data(page), engine: .mupdf) {
                 try $0.image(0, width: width, transparent: transparent, region: region, cancellation: cancellation)
             }
         }
-        var width = width
-        if isImageCollection, !isVectorImage(page), let dimensions = try native?.imageDimensions(page) {
-            width = min(width, max(1, Int(ceil(dimensions.width))))
-        }
-        let location = try native?.location(page) ?? PageLocation(page: page)
-        if let index = cache.firstIndex(where: { $0.location == location && $0.width == width && $0.transparent == transparent && $0.pdfStyle == pdfStyle }) {
-            let hit = cache.remove(at: index); cache.append(hit); return hit.image
-        }
+        if comicVector?.page != page { comicVector = nil }
         let image: CGImage
         if let native { image = try native.image(page, width: width, transparent: transparent, style: pdfStyle, cancellation: cancellation) }
         else if let source {
@@ -388,7 +409,7 @@ fileprivate final class RasterDocument {
         let box: CGRect
         if native?.engine == .mupdf, format != .image { box = try native!.contentBounds(page, cancellation: cancellation) ?? bounds(page) }
         else {
-            let full = try bounds(page), bitmap = try image(page, width: 1024, cancellation: cancellation)
+            let full = try bounds(page), bitmap = try image(prepareImage(page, width: 1024), cancellation: cancellation)
             let pixels = RasterLayout.contentBounds(bitmap)
             box = CGRect(x: full.minX + pixels.minX * full.width/CGFloat(bitmap.width),
                          y: full.minY + pixels.minY * full.height/CGFloat(bitmap.height),
@@ -582,9 +603,15 @@ actor Pages {
         return document.native?.engine == .mupdf || vector ? try NativeRenderCancellation() : nil
     }
     func image(_ page: Int, width: Int, transparent: Bool = false, region: CGRect? = nil, pdfStyle: PDFColors.Style? = nil) async throws -> CGImage {
-        let cancellation = try renderCancellation(page)
+        let request = try document.prepareImage(page, width: width, transparent: transparent, region: region, pdfStyle: pdfStyle)
+        return try await image(request)
+    }
+    private func image(_ request: RasterDocument.ImageRequest) async throws -> CGImage {
+        try Task.checkCancellation()
+        if let image = request.cached { return image }
+        let cancellation = try renderCancellation(request.page)
         return try await withTaskCancellationHandler {
-            try document.image(page, width: width, transparent: transparent, region: region, pdfStyle: pdfStyle, cancellation: cancellation)
+            try document.image(request, cancellation: cancellation)
         } onCancel: { cancellation?.cancel() }
     }
     func originalData(_ page: Int) throws -> (data: Data, filename: String) { try document.originalData(page) }
@@ -594,6 +621,8 @@ actor Pages {
     }
     func metadata() throws -> [String: String] { try document.metadata() }
     func pdfInfo() throws -> PDFDocumentInfo? { try document.native?.pdfInfo() }
+    func pdfInformation() throws -> [String: String] { try pdfNative().pdfInformation() }
+    func pdfResourceReport() throws -> String { try pdfNative().pdfResourceReport() }
     func pdfSignatureInfo() throws -> PDFSignatureInfo { try pdfNative().pdfSignatureInfo() }
     func pdfSignCopy(to destination: URL, password: String, identity: NativePDFTools.SigningIdentity,
                      fieldName: String, page: Int, bounds: CGRect, reason: String = "", location: String = "",
@@ -928,7 +957,11 @@ actor Pages {
         NativeReadingPerformance.mark("render-actor-entry", pages: self, revision: layoutRevision, page: page,
                                       size: viewport, flags: viewportOnly ? 8 : 0)
         defer { NativeReadingPerformance.mark("render-actor-return", pages: self, revision: layoutRevision, page: page, started: started) }
-        let cancellation = try renderCancellation(page)
+        let measureContent = (!viewportOnly && ReadingZoom.usesContent(fit)) || trim || showContent
+        let measureFacingContent = ReadingZoom.usesContent(fit) || trim
+        let cancellation = measureContent || facingPage != nil && measureFacingContent
+            || isPDF && (engineeringAuto || pdfStyle?.engineering == true)
+            ? try renderCancellation(page) : nil
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
             // Keep a solid archive's current entry alive from header measurement
@@ -940,11 +973,11 @@ actor Pages {
             let referenceWidth = reference.map { rotated ? $0.height : $0.width }
             let facing = try facingPage.map { other in
                 let bounds = try document.bounds(other)
-                let content = ReadingZoom.usesContent(fit) || trim ? try document.contentBounds(other, cancellation: cancellation) : nil
+                let content = measureFacingContent ? try document.contentBounds(other, cancellation: cancellation) : nil
                 return RasterLayout.FacingPage(bounds: trim ? content ?? bounds : bounds, content: content, before: other < page)
             }
             // Leave this page's display list current for the render below.
-            let content = (!viewportOnly && ReadingZoom.usesContent(fit)) || trim || showContent ? try document.contentBounds(page, cancellation: cancellation) : nil
+            let content = measureContent ? try document.contentBounds(page, cancellation: cancellation) : nil
             let visible = trim ? content ?? measured : measured
             let limit = viewportOnly ? maximumZoom : try zoomLimit(rotation: rotation, maximumZoom: maximumZoom, uniform: uniform)
             let display = displaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns,
@@ -961,10 +994,16 @@ actor Pages {
             // tiles. It also makes the first high-zoom frame cheap to display.
             let previewWidth = max(1, Int(ceil(CGFloat(pixelWidth) / CGFloat(1 << tileResolution))))
             let style = try document.displayStyle(pdfStyle, engineeringAuto: engineeringAuto, cancellation: cancellation)
-            let image: CGImage? = viewportOnly ? nil : try document.image(page, width: previewWidth,
-                transparent: document.isImageCollection && transparent, pdfStyle: style, cancellation: cancellation)
+            let image: CGImage?
+            if viewportOnly { image = nil }
+            else {
+                let request = try document.prepareImage(page, width: previewWidth,
+                    transparent: document.isImageCollection && transparent, pdfStyle: style)
+                image = cancellation == nil ? try await self.image(request) : try document.image(request, cancellation: cancellation)
+            }
             return (measured, content, referenceWidth, facing, display, image, pixelWidth, tileResolution, preheating || isPDF ? [] : try links(page), document.isImageCollection,
-                    preheating ? [] : try landscapePages(rotation: rotation), limit, document.estimatedBounds, style)
+                    preheating ? [] : try landscapePages(rotation: rotation), limit,
+                    document.isImageCollection && !preheating ? document.estimatedBounds : measured, style)
         } onCancel: { cancellation?.cancel() }
     }
     func zoomLimit(rotation: Int, maximumZoom: Double = ReadingZoom.maximum, uniform: Bool = false) throws -> Double {

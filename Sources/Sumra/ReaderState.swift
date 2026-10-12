@@ -540,7 +540,9 @@ extension ReaderState {
     var markdownRendererSelection: MarkdownRenderer? { document?.markdownPreference }
 
     func shouldOpenMarkupSibling(_ url: URL) -> Bool {
-        guard case .browser(let source) = document?.content, source is MarkupSource else { return false }
+        guard let document, case .browser(let source) = document.content, source is MarkupSource,
+              url.standardizedFileURL.resolvingSymlinksInPath() != document.url.standardizedFileURL.resolvingSymlinksInPath()
+        else { return false }
         return ReadingDocument.markupSiblingNeedsDocumentOpen(url)
     }
 
@@ -1956,7 +1958,6 @@ extension ReaderState {
     func showProperties() {
         guard let document else { return }
         let currentPage = page
-        let password = documentPassword
         Task {
         var rows = ["File: " + document.url.path, "Pages: \(count)"]
         if let values = try? document.url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) {
@@ -1975,15 +1976,11 @@ extension ReaderState {
                     rows.append("Copying: \(info?.permissions.copy == true ? "allowed" : "restricted")")
                     rows.append("Printing: \(info?.permissions.print == true ? "allowed" : "restricted")")
                     rows.append("Annotations: \(annotations.count)")
-                    let source = pages.pdfSourceURL
-                    let details = try await Task.detached {
-                        let information = try NativePDFTools.information(source: source, password: password)
-                        let resources = try NativePDFTools.resourceReport(source: source, password: password)
-                        return (information, resources)
-                    }.value
-                    rows.append(L("Saved source file; unsaved edits are not included."))
-                    rows += details.0.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }
-                    rows.append(details.1)
+                    let information = try await pages.pdfInformation()
+                    let resources = try await pages.pdfResourceReport()
+                    rows.append(L("Current document; unsaved edits are included."))
+                    rows += information.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }
+                    rows.append(resources)
                 }
             } catch { rows.append("Metadata: " + error.localizedDescription) }
         } else if case .browser(let source) = document.content {

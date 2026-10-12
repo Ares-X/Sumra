@@ -259,13 +259,13 @@ API int lf_pdf_unwrap(const char *source, const char *destination, char *error) 
 }
 // EngineMupdf::GetPropertyTemp/GetProperties, using the existing MuPDF parser.
 // Output intents describe declarations in the file, not a conformance check.
-API char *lf_pdf_information(const char *source, const char *password, char *error) {
-    fz_context *ctx = new_pdf_context();
-    if (!ctx) { snprintf(error, 512, "Cannot create PDF context"); return NULL; }
-    pdf_document *doc = NULL; SumraJSON json = {0};
-    fz_var(doc); fz_var(json);
+API char *lf_pdf_live_information(void *opaque, char *error) {
+    SumraMuPDFDocument *document = opaque;
+    fz_context *ctx = document->ctx;
+    SumraJSON json = {0}; fz_var(json);
     fz_try(ctx) {
-        doc = open_pdf(ctx, source, password, 0);
+        pdf_document *doc = pdf_specifics(ctx, document->doc);
+        if (!doc) fz_throw(ctx, FZ_ERROR_ARGUMENT, "Document is not a PDF");
         int version = pdf_version(ctx, doc), extension = 0;
         if (version == 17 && pdf_crypt_version(ctx, doc->crypt) == 5) {
             int revision = pdf_crypt_revision(ctx, doc->crypt);
@@ -294,9 +294,8 @@ API char *lf_pdf_information(const char *source, const char *password, char *err
         lf_json(&json, ",\"UnsupportedFeatures\":"); lf_json_string(&json, pdf_is_array(ctx, xfa) || pdf_is_stream(ctx, xfa) ? "XFA" : "");
         lf_json(&json, "}");
     }
-    fz_always(ctx) { pdf_drop_document(ctx, doc); }
     fz_catch(ctx) { free(json.data); json.data = NULL; snprintf(error, 512, "%s", fz_convert_error(ctx, NULL)); }
-    fz_drop_context(ctx); return json.data ? lf_json_finish(&json, error) : NULL;
+    return json.data ? lf_json_finish(&json, error) : NULL;
 }
 
 // Translate Sumatra's signature-field report, keeping the cryptographic owner
