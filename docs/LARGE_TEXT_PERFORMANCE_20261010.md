@@ -79,9 +79,37 @@ the saved text anchor. Source identity now excludes only that generated
 color rule. Released 0.2.2 palette-prefixed records normalize on resolution;
 actual user/publisher CSS still protects flow nodes that can change on parse.
 The mounted-reader theme/width regression and native migration/source checks
-passed (13 checks). A new signed candidate and original-book GUI verification
-are required for this final correction. The historical 13.528-second event
-remains unresolved.
+passed (13 checks), followed by 26 related ebook, EPUB, selection and Markdown
+checks. The final signed Action candidate is `26a6c93`
+(`FC434846-6C01-344D-A571-0674EFBAE035`). Its actual B02 opening drew in
+1.543 seconds, with 0.168-second decoding and 0.987-second layout. Light → Dark
+→ Light Warm → Light, including opening and closing Contents, kept the same
+chapter and passage; the final full-width fraction exactly matched the original
+`0.002890242460657563`.
+
+B04 drew in 2.622 seconds in that process, then in 2.426 seconds after normal
+Quit and a fresh process. Fresh-process decoding/layout took 0.200 / 1.828
+seconds, sampled peak/end physical footprint was 798 / 549 MB, and the kernel
+maximum was 798 MB. Single/Two/Continuous layouts took 0.588 / 0.571 / 0.549
+seconds. Actual Next/Previous turns and both columns displayed correctly. After
+those intentional turns, the fresh reopen retained the same 512 AX characters
+and fraction `0.004085357473727272`.
+
+The original EPUB reopened at Chapter 3; a Dark/Light cycle retained its passage.
+Contents recognized the original destinations, and document search completed
+with 15 matches for the captured passage query. The package's 181 files and
+directory/mode/symlink inventory matched its frozen receipt; app and update
+signatures passed, and all nine Mach-O files include ARM64 with minimum systems
+no newer than macOS 13. The loaded normal app uses those exact candidate bytes.
+Physical macOS 13 execution and foreground-only timing remain unexercised.
+
+The historical 13.528-second event remains unresolved. A narrow query of retained
+RunningBoard records for its original PID/bundle and minute found no matching
+records; this does not establish its unique cause. The old measurable slow path
+above was reproduced and corrected separately. No publication is recorded by
+this acceptance. Owned samplers and completed agent processes were stopped;
+unused extracted candidates and corresponding-source copies were retired after
+confirming their draft-release recovery assets and retaining hashes/provenance.
 
 The generated palette was independently checked with the exact signed engine:
 one versus two copies both lay out in 1.66–1.72 seconds, so it was not changed

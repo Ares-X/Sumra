@@ -18,6 +18,20 @@ user-deferred.
 
 ## Current implementation
 
+October 13's exact signed Action candidate `26a6c93` corrects the reproduced
+background-suppressed opening path and preserves native passages across reader
+palette changes. Actual unchanged B02/B04 Markdown and B01 EPUB checks are
+recorded in [the performance report](LARGE_TEXT_PERFORMANCE_20261010.md#october-13-slow-open-attribution).
+Fresh-process B04 first draw is 2.426 s and initial layout 1.828 s; actual mode
+changes take 0.549–0.588 s. Its fresh reopen retains the same passage and fraction.
+Theme changes with Contents open/closed also retain the original B02 passage,
+and EPUB search completes with its original chapter restored. Package bytes,
+app/update signatures and ARM64/macOS 13 minimums pass; physical macOS 13 and
+foreground-only timing remain unexercised. The candidate is loaded locally;
+the public release remains 0.2.2. The original 13.528-second observation's unique
+cause remains unresolved, and the goal remains active. The records below retain
+their earlier candidate and observation scopes.
+
 October 12 source work and its exact upstream comparisons are recorded in
 [the deep implementation review](SUMATRA_DEEP_IMPLEMENTATION_REVIEW_20261012.md).
 The historical 13.528-second first-open observation remains unresolved. After
