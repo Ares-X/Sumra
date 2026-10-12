@@ -663,6 +663,11 @@ final class RasterReaderTests: XCTestCase {
     func testContinuousScrollingDoesNotReplayConsumedJumpsAndSamePageRestoreStillWorks() async throws {
         _ = NSApplication.shared
         let input = try htmlFixture(String(repeating: "<p>A visible paragraph for scrolling through recycled page views.</p>", count: 300))
+        let defaults = UserDefaults.standard
+        let preferenceKeys = ["disableReadingState"]
+        let previousPreferences = preferenceKeys.map { ($0, defaults.object(forKey: $0)) }
+        defaults.set(false, forKey: "disableReadingState")
+        defer { for (key, value) in previousPreferences { defaults.set(value, forKey: key) } }
         let pages = try Pages(input, format: .html)
         let state = ReaderState()
         state.document = ReadingDocument(url: input, content: .pages(pages)); state.reflowable = true
@@ -678,6 +683,7 @@ final class RasterReaderTests: XCTestCase {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 480, height: 400), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer {
+            state.windowClosed()
             window.makeFirstResponder(nil); window.contentView = nil; window.close()
             UserDefaults.standard.removeObject(forKey: "position:" + input.standardizedFileURL.path)
         }
@@ -733,6 +739,8 @@ final class RasterReaderTests: XCTestCase {
                 XCTAssertGreaterThan(clip.bounds.minY, clip.bounds.height, "Rendering a recycled page must not restore the first page")
                 XCTAssertEqual(clip.bounds.minY, target, accuracy: 1, "Once consumed, a navigation request must not replay when new chapter tiles appear")
             }
+            XCTAssertEqual(try XCTUnwrap(state.currentPosition.scrollFraction), 0.6, accuracy: 0.001,
+                           "Hidden scrollers still record the actual continuous viewport fraction")
             let page = state.page
             let restoreRevision = state.command.revision + 2
             state.send(.restore(.init(page: page, y: 40))); state.send(.none)
@@ -753,10 +761,30 @@ final class RasterReaderTests: XCTestCase {
             clip.scroll(to: .zero); scroll.reflectScrolledClipView(clip)
             try await waitFor {
                 state.page == 0 && abs(actualOffset() ?? -1) < 1 &&
+                state.currentPosition.scrollFraction == 0 &&
                 RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: 0))
             }
+            XCTAssertEqual(try XCTUnwrap(state.currentPosition.scrollFraction), 0, accuracy: 0.001)
+        }
+        let key = "position:" + input.standardizedFileURL.path
+        for fraction in [0.0, 0.6, 1.0] {
+            let extent = try XCTUnwrap(scroll.documentView).bounds.height - clip.bounds.height
+            clip.scroll(to: CGPoint(x: 0, y: extent * fraction))
+            try await waitFor { abs((state.currentPosition.scrollFraction ?? -1) - fraction) < 0.001 }
+            state.persist()
+            let saved = try JSONDecoder().decode(ReadingPosition.self, from: XCTUnwrap(defaults.data(forKey: key)))
+            XCTAssertEqual(try XCTUnwrap(saved.scrollFraction), fraction, accuracy: 0.001)
+            XCTAssertEqual(saved.pageCount, 1)
         }
 
+        let saved = state.currentPosition
+        XCTAssertNil(ReaderState.markdownRendererDestination(.compatible, saved: saved).scrollFraction,
+                     "Browser coordinates must not inherit the native viewport fraction")
+        let destination = ReadingPosition(scrollFraction: 0.3, markdownRenderer: .paged)
+        XCTAssertEqual(ReaderState.markdownRendererDestination(.paged, saved: destination, readingSettings: saved).scrollFraction, 0.3,
+                       "A renderer destination owns its fraction along with its coordinates")
+        state.flow = "paged"
+        XCTAssertNil(state.currentPosition.scrollFraction, "Finite pagination must not inherit a continuous viewport fraction")
     }
 
     @MainActor

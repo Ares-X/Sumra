@@ -177,6 +177,7 @@ struct MarkdownPassage: Codable, Hashable {
 struct ReadingPosition: Codable, Hashable {
     var page = 0
     var pageCount: Int?
+    var scrollFraction: Double?
     var x: Double?
     var y: Double?
     var anchor: String?
@@ -580,10 +581,11 @@ extension ReaderState {
         if let renderer = document?.markdownRenderer {
             position.markdownRenderer = renderer
             if renderer == .paged { position.markdownPassage = nil }
-            else { position.nativePassage = nil }
+            else { position.nativePassage = nil; position.scrollFraction = nil }
         }
         position.page = page
         position.pageCount = count > 0 ? count : nil
+        if !continuousReflow { position.scrollFraction = nil }
         position.zoom = zoom
         position.fit = fit
         position.flow = flow
@@ -850,7 +852,7 @@ extension ReaderState {
         if let renderer = document?.markdownRenderer {
             position.markdownRenderer = renderer
             if renderer == .paged { position.markdownPassage = nil }
-            else { position.nativePassage = nil }
+            else { position.nativePassage = nil; position.scrollFraction = nil }
         }
         if let table = chapterLayout, let saved = position.anchor.flatMap(ChapterTable.bookmarkLocation), let page = table.page(for: saved.location) {
             position.page = page
@@ -1555,13 +1557,14 @@ extension ReaderState {
             // Automatic takeover continues the same reading session. Keep its
             // settings while the destination mode owns its own coordinates.
             destination.page = saved.page; destination.pageCount = saved.pageCount
+            destination.scrollFraction = saved.scrollFraction
             destination.x = saved.x; destination.y = saved.y; destination.anchor = saved.anchor
             destination.markdownPassage = saved.markdownPassage; destination.nativePassage = saved.nativePassage
             destination.pdfCoordinateSpace = saved.pdfCoordinateSpace
         }
         destination.markdownRenderer = effective
         if effective == .paged { destination.markdownPassage = nil }
-        else { destination.nativePassage = nil }
+        else { destination.nativePassage = nil; destination.scrollFraction = nil }
         return destination
     }
 

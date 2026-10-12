@@ -24,9 +24,16 @@ The historical 13.528-second first-open observation remains unresolved. After
 unlocking, the signed Action candidate at `34eb9705` completed actual original-book
 reading checks. Its real 0.2.1 → 0.2.2 Sparkle installation preserved the exact
 candidate bytes but lost the old light-theme passage: generated palette CSS
-changed the style identity. The local fix accepts that exact shipped identity
-while retaining strict source and user-style checks; its signed upgrade replay
-is pending. The performance/release goal is not complete. The October 11 results
+changed the style identity. Action `38269882069` at `dc894452` accepts that exact
+shipped identity while retaining strict source and user-style checks. Its real
+signed upgrade replay, Single/Two/Continuous cycle and fresh-process reopen
+restore the original passage. First canvas draw is 2.480 s, natural layout
+1.875 s, sampled peak physical footprint 809 MB and settled median 514 MB.
+Home's actual continuous progress incorrectly displayed 100%; the direct
+viewport-fraction fix still needs its final signed GUI check. A legacy two-part
+EPUB bookmark restoration regression is also corrected at initial layout;
+its original source assertions remain. The performance/release goal is not
+complete. The October 11 results
 below describe that earlier candidate, not acceptance of the new changes.
 
 The second source simplification pass has passing core, native and release-build

@@ -25,7 +25,19 @@ the generated palette CSS from their user-style identity. The exact legacy
 light identity is recognized at NativeFile; current candidate records remain
 valid, and changed source/user CSS/document-CSS settings remain invalid. This
 is compatibility for observed persistent data, not a speculative fallback.
-Signed GUI replay is still required before accepting that fix.
+Action `38269882069` completed the real signed GUI upgrade replay, mode cycle
+and fresh-process original-book reopen at the same passage. The test feed was
+restored and all its reader/collector/server processes retired.
+
+Home's observed natural-flow 100% error is corrected by recording the actual
+viewport fraction at the two existing scroll owners, including hidden bars.
+It adds one optional persisted field; fixed-page progress remains page-based,
+and renderer changes clear coordinates from the other representation. The
+original EPUB restoration assertions exposed a distinct legacy two-part
+bookmark failure. Initial layout now treats a later page as finite pagination
+even without a saved count; unresolved chapter starts retain direct natural
+layout. No fallback chain or weakened source assertion is added. Final signed
+GUI progress acceptance is pending; the historical 13.528 s cause remains open.
 
 ## October 12 second pass
 

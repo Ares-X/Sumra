@@ -3342,7 +3342,9 @@ private struct WindowScale: NSViewRepresentable {
             point.x -= frame.minX; point.y -= frame.minY
             point = point.applying(RasterLayout.transform(bounds: box(index), size: frame.size, rotation: key.rotation).inverted())
             let location = location(index)
-            return ReadingPosition(page: owner.state.pageNumber(location), x: Double(point.x), y: Double(point.y),
+            let extent = canvas.bounds.height - contentView.bounds.height
+            let fraction = key.continuousReflow ? (extent > 0 ? Double(min(1, max(0, (contentView.bounds.minY - canvas.bounds.minY) / extent))) : 1) : nil
+            return ReadingPosition(page: owner.state.pageNumber(location), scrollFraction: fraction, x: Double(point.x), y: Double(point.y),
                 anchor: owner.state.reflowable ? owner.state.chapterLayout?.bookmark(location) : nil)
         }
         private func go(to position: ReadingPosition) {
@@ -5387,7 +5389,10 @@ struct NativeReadingAccessibilitySnapshot {
             guard state.page == page else { return }
             point = point.applying(pageTransform.inverted())
             state.readerFocusView = self
-            state.updatePosition(.init(page: state.pageNumber(location), x: Double(point.x), y: Double(point.y),
+            let extent = bounds.height - clip.bounds.height
+            let offset = convert(clip.bounds.origin, from: clip).y - bounds.minY
+            let fraction = state.continuousReflow ? (extent > 0 ? Double(min(1, max(0, offset / extent))) : 1) : nil
+            state.updatePosition(.init(page: state.pageNumber(location), scrollFraction: fraction, x: Double(point.x), y: Double(point.y),
                 anchor: state.reflowable ? state.chapterLayout?.bookmark(location) : nil), preservingNativePassage: true)
         }
         override func viewWillMove(toWindow newWindow: NSWindow?) {
