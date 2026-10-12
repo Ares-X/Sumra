@@ -7,6 +7,26 @@ import XCTest
 
 @MainActor
 final class NativeMarkdownReflowScrollTests: XCTestCase {
+    func testThemeAndViewportChangesKeepContinuousPassage() async throws {
+        let defaults = UserDefaults.standard
+        let previousTheme = defaults.object(forKey: "theme")
+        defer { defaults.set(previousTheme, forKey: "theme") }
+        try await withReader(flow: "continuous") { state, pages, host in
+            let original = try XCTUnwrap(state.currentPosition.nativePassage)
+            for (theme, width) in [("dark", 600.0), ("light-warm", 900.0), ("light", 600.0)] {
+                let revision = state.renderRevision
+                state.setTheme(theme)
+                host.window?.setContentSize(CGSize(width: width, height: 700))
+                try await self.wait(host, state: state) {
+                    state.renderRevision > revision && RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
+                }
+                try await self.settle(host)
+                XCTAssertEqual(state.currentPosition.nativePassage?.source, original.source)
+                XCTAssertGreaterThan(try XCTUnwrap(state.currentPosition.y), 1000)
+            }
+        }
+    }
+
     func testInitialNaturalRestoreUsesVisiblePassageAtMarginsAndLineBoundaries() async throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }

@@ -1,12 +1,13 @@
 #if os(macOS)
 import CoreGraphics
+import CryptoKit
 import Foundation
 import SumraCore
 import XCTest
 @testable import Sumra
 
 final class NativeViewportReflowTests: XCTestCase {
-    func testLightThemeUpgradeKeepsLegacyAndCurrentPassagesWithStrictSourceAndUserStyles() throws {
+    func testPaletteChangesKeepLegacyAndCurrentPassagesWithStrictSourceAndUserStyles() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
         let input = directory.url.appendingPathComponent("Upgrade.md")
@@ -33,11 +34,25 @@ final class NativeViewportReflowTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(restored.y), 800, "The old paginated passage must restore inside the continuous document")
         let current = try XCTUnwrap(upgraded.passage(restored.page, at: CGPoint(x: try XCTUnwrap(restored.x), y: try XCTUnwrap(restored.y))))
         XCTAssertEqual(current.source, serialized.source)
-        XCTAssertNotEqual(current.styleSignature, serialized.styleSignature)
+        XCTAssertEqual(current.styleSignature, serialized.styleSignature)
         let reopened = try NativeFile(input, engine: .mupdf)
         try layout(reopened)
         XCTAssertEqual(try reopened.position(for: serialized)?.nativePassage?.source, serialized.source)
         XCTAssertEqual(try reopened.position(for: current)?.nativePassage, current, "Bookmarks written by the current candidate must remain valid")
+        for palette in [ReaderTheme.all.first { $0.id == "dark" }!, ReaderTheme.all.first { $0.id == "light-warm" }!,
+                        ReaderTheme(id: "custom", name: "Custom", text: 0x203040, background: 0xefefea, link: 0x0000ee)] {
+            let coloredCSS = palette.css + "\n" + css
+            _ = try reopened.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: palette.dark ? "dark" : "light",
+                                       userCSS: coloredCSS, pageSize: CGSize(width: 420, height: 0))
+            // The released 0.2.2 record included the complete effective CSS.
+            let oldSignature = SHA256.hash(data: Data((coloredCSS + "\ntrue").utf8)).map { String(format: "%02x", $0) }.joined()
+            let oldRecord = NativePassage(source: current.source, offsetX: current.offsetX, offsetY: current.offsetY,
+                                         sourceRevision: current.sourceRevision, styleSignature: oldSignature, chapter: current.chapter)
+            let migrated = try XCTUnwrap(reopened.position(for: oldRecord)?.nativePassage)
+            XCTAssertEqual(migrated, current, "Released color-prefixed positions must normalize before the next theme change")
+            try layout(reopened)
+            XCTAssertEqual(try reopened.position(for: migrated)?.nativePassage, current)
+        }
         try layout(reopened, css: effectiveCSS + "\np{display:none}")
         XCTAssertNil(try reopened.position(for: serialized))
         XCTAssertNil(try reopened.position(for: current))

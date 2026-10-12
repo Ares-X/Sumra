@@ -47,8 +47,41 @@ visible-page tasks, paired with `endActivity` in `defer`. These are separate
 asynchronous owners of actual requested work. Neighbor predictions keep their
 background priority. Idle system sleep remains allowed; no global power
 setting, dependency, thread-priority override or persistent activity is
-introduced. The API predates the macOS 13 target. Final signed-candidate
-validation remains pending; the original 13.528-second event remains unresolved.
+introduced. The API predates the macOS 13 target.
+
+The complete signed `f8c365a` candidate (`7051BBFA-7556-30D0-B02E-DD2F5984F437`)
+began from the same suppressed background state and used the same MuPDF binary.
+B04 source decoding took 0.184 seconds, initial layout 1.822 seconds, and
+load-entry to first canvas draw 2.438 seconds. All decoding/layout counter
+samples were unsuppressed; 2.216 of 2.243 seconds of process CPU ran on
+performance cores. Idle suppression returned when the requested work ended.
+Sampled physical footprint peaked at 785 MB and ended at 525 MB; the kernel's
+process-lifetime maximum through later mode changes was 852 MB. These are
+different measurement scopes, not RSS readings.
+
+On the same signed app, B04 single-page, two-page and returned continuous
+layouts took 0.554 / 0.551 / 0.528 seconds. Next and Previous changed finite
+pages and displayed their text; two-page mode showed both columns. After
+normal Quit and a new process, first draw took 2.431 seconds and both the
+visible passage and scroll fraction `0.004179901971014043` matched the saved
+state. Earlier intentional page turns had moved the viewport to its page top;
+this reopen comparison uses that new saved state. B02's new document owner
+drew its first canvas in 1.816 seconds, with 0.159-second source decoding and
+1.024-second layout. The departing B04 also drew during opening; that old
+owner's early frame is excluded. Switching to B02 released the preceding
+document: physical footprint subsequently measured 207 MB.
+
+This acceptance found another real defect: changing B02 from its saved dark
+theme to Light, then showing Contents, returned to the document beginning.
+Sidebar-only width changes retained the same chapter. Generated palette CSS
+was incorrectly included in the source identity, so a color change rejected
+the saved text anchor. Source identity now excludes only that generated
+color rule. Released 0.2.2 palette-prefixed records normalize on resolution;
+actual user/publisher CSS still protects flow nodes that can change on parse.
+The mounted-reader theme/width regression and native migration/source checks
+passed (13 checks). A new signed candidate and original-book GUI verification
+are required for this final correction. The historical 13.528-second event
+remains unresolved.
 
 The generated palette was independently checked with the exact signed engine:
 one versus two copies both lay out in 1.66–1.72 seconds, so it was not changed

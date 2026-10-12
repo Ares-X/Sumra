@@ -168,7 +168,7 @@ final class NativeFile {
     private let pdfSource: PDFSource?
     private let sourceRevision: String
     private var htmlStyleSignature = ""
-    private var legacyLightStyleSignature: String?
+    private var legacyPaletteStyleSignature: String?
 
     struct FileVersion: Equatable {
         let device: dev_t, inode: ino_t, size: off_t
@@ -925,13 +925,16 @@ final class NativeFile {
         // Reader font, line-height, theme colors and page margins change geometry,
         // not the parsed text identity. User/publisher CSS can change visible
         // flow nodes, so only that boundary invalidates a source passage.
-        htmlStyleSignature = SHA256.hash(data: Data((userCSS + "\n" + String(useDocumentCSS)).utf8)).map { String(format: "%02x", $0) }.joined()
-        // 0.2.1 omitted the generated light palette from effectiveUserCSS.
-        // Retain that exact user-style identity when restoring its passages.
-        let lightPrefix = palette.css + "\n"
-        legacyLightStyleSignature = theme == "light" && userCSS.hasPrefix(lightPrefix)
-            ? SHA256.hash(data: Data((String(userCSS.dropFirst(lightPrefix.count)) + "\n" + String(useDocumentCSS)).utf8)).map { String(format: "%02x", $0) }.joined()
-            : nil
+        // effectiveUserCSS starts with ReaderTheme's color-only rule, including
+        // custom colors. It cannot change the flow-node identities below it.
+        let palettePrefix = userCSS.range(of: #"^\*\{color:#[0-9a-f]{6} !important;background-color:transparent !important;\} html,body\{background-color:#[0-9a-f]{6} !important;color:#[0-9a-f]{6} !important;\} a,a \*\{color:#[0-9a-f]{6} !important;\}\n"#, options: .regularExpression)
+        let sourceCSS = palettePrefix.map { String(userCSS[$0.upperBound...]) } ?? userCSS
+        htmlStyleSignature = SHA256.hash(data: Data((sourceCSS + "\n" + String(useDocumentCSS)).utf8)).map { String(format: "%02x", $0) }.joined()
+        // 0.2.2 included this palette in saved passages; normalize those records
+        // when opening them. 0.2.1's unprefixed light identity is already current.
+        legacyPaletteStyleSignature = palettePrefix.map { _ in
+            SHA256.hash(data: Data((userCSS + "\n" + String(useDocumentCSS)).utf8)).map { String(format: "%02x", $0) }.joined()
+        }
         wordCache = nil
         resolvedDestinations.removeAll()
         let n = try chapterCount()
@@ -1185,7 +1188,7 @@ final class NativeFile {
     func position(for passage: NativePassage) throws -> ReadingPosition? {
         guard engine == .mupdf, reflowable, !sourceRevision.isEmpty,
               passage.sourceRevision == sourceRevision,
-              passage.styleSignature == htmlStyleSignature || passage.styleSignature == legacyLightStyleSignature else { return nil }
+              passage.styleSignature == htmlStyleSignature || passage.styleSignature == legacyPaletteStyleSignature else { return nil }
         if let cached = passagePosition, cached.passage == passage {
             var position = cached.position
             position.page = try page(cached.location)
@@ -1204,7 +1207,9 @@ final class NativeFile {
         let x = Double(rect.minX)+passage.offsetX, y = Double(rect.minY)+passage.offsetY
         // Older reading records can name a space that disappears on wrapping.
         // Normalize just those records at their original viewport point.
-        let canonical = value.whitespace == true ? try self.passage(page, at: CGPoint(x: x, y: y)) : passage
+        let canonical = value.whitespace == true ? try self.passage(page, at: CGPoint(x: x, y: y))
+            : NativePassage(source: passage.source, offsetX: passage.offsetX, offsetY: passage.offsetY,
+                            sourceRevision: sourceRevision, styleSignature: htmlStyleSignature, chapter: passage.chapter)
         let position = ReadingPosition(page: page, x: x, y: y,
                                        anchor: try self.anchor(page), nativePassage: canonical)
         passagePosition = (passage, location, position)
