@@ -19,6 +19,14 @@ Paginated navigation keeps its actual UTF-16 index. Seventy-five relevant checks
 and the native rebuild pass. The deep review records the system-wheel control
 probe's limits; no product workaround or weakened assertion is introduced.
 
+The signed candidate was then exercised on the original books. Its real Sparkle
+upgrade exposed a shipped bookmark consumer: 0.2.1 light-theme records omitted
+the generated palette CSS from their user-style identity. The exact legacy
+light identity is recognized at NativeFile; current candidate records remain
+valid, and changed source/user CSS/document-CSS settings remain invalid. This
+is compatibility for observed persistent data, not a speculative fallback.
+Signed GUI replay is still required before accepting that fix.
+
 ## October 12 second pass
 
 The second pass removes internal paths with no product consumer: PageRows'

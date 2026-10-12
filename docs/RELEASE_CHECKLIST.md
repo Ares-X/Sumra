@@ -20,11 +20,14 @@ user-deferred.
 
 October 12 source work and its exact upstream comparisons are recorded in
 [the deep implementation review](SUMATRA_DEEP_IMPLEMENTATION_REVIEW_20261012.md).
-The historical 13.528-second first-open observation remains unresolved. The new
-source batch still needs acceptance in the Action-built graphical reader with
-the original books; the Mac is currently locked and automatic unlock failed.
-The performance/release goal is not complete. The October 11 results below
-describe that earlier candidate, not acceptance of the new changes.
+The historical 13.528-second first-open observation remains unresolved. After
+unlocking, the signed Action candidate at `34eb9705` completed actual original-book
+reading checks. Its real 0.2.1 → 0.2.2 Sparkle installation preserved the exact
+candidate bytes but lost the old light-theme passage: generated palette CSS
+changed the style identity. The local fix accepts that exact shipped identity
+while retaining strict source and user-style checks; its signed upgrade replay
+is pending. The performance/release goal is not complete. The October 11 results
+below describe that earlier candidate, not acceptance of the new changes.
 
 The second source simplification pass has passing core, native and release-build
 checks. One continuous-wheel integration case fails identically with the

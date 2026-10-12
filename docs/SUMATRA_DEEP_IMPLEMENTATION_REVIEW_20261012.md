@@ -134,3 +134,39 @@ source / sourceRevision、模式往返、重开检查通过，原文件前后 SH
 六个对比 agent 的闲置 Serena/SourceKit 进程已按各自 session log 归属后停止；
 后续复查没有启动新索引或构建服务。共享进程保留。产品仍为 ARM64、macOS 13 起；
 在 macOS 13 / M1 的实际 runtime 未验收。
+
+## 解锁后的签名客户端原书验收
+
+Action `38220287510` 的 `34eb9705` 候选 ZIP、源归档、provenance、checksum 和
+feed 均通过校验；应用 181 个文件与冻结 inventory 一致，严格签名校验通过。
+实际运行的是这些签名文件，ARM64，最低 macOS 13；没有本地重签名。
+
+20.65 MB 原书 B04 从 load-entry 到首次 canvas draw 为 2.282 s，首次自然布局
+1.779 s。小幅连续滚轮产生 103 / 207 px 位移，没有纸页跳转；单页、双页与
+返回连续、426 个搜索命中和实际高亮、章节跳转、全新进程重开同一章节位置均通过。
+首次采样峰值 physical footprint 为 840 MB；模式/搜索/章节操作后约 586 MB，
+该进程生存期峰值约 916 MB。14.17 MB 原书 B02 首次布局 0.973 s，
+load-entry 到新 canvas draw 为 1.757 s，模式往返恢复原文和同一滚动比例。
+TXT 原书在实际 scroll area 中正反向小幅滚动、单页翻页及双页→连续保持原段落也通过。
+这些运行没有清除系统文件缓存，canvas draw 计时不等于合成器首屏呈现时间。
+TXT 的实际滚轮结果没有抹去前述合成事件测试的失败与诊断限制。
+
+随后用原签名 0.2.1 的实际 GUI 执行 Check for Updates、Install Update、
+Install and Relaunch。Sparkle 安装后的 181 个文件仍与 Action 候选完全一致。
+**阅读位置验收失败**：旧版第 130 页的 source passage 未恢复，新版显示书首。
+原文件 FileVersion 与旧 sourceRevision 完全相同；Markdown 直接打开原书，
+未经过临时 HTML。真正的不匹配是旧版浅色主题只散列用户 CSS，而新版
+effectiveUserCSS 包含生成的浅色 palette，样式签名因此改变。
+
+修复在 NativeFile 只增加精确的旧浅色 identity：只有当前浅色主题且 CSS
+以其完整生成 palette 前缀开头时，才认可去掉该前缀后的旧 hash。
+现有候选记录仍认可；原源、真实用户 CSS 和出版社 CSS 开关改变仍拒绝旧记录。
+11 项 viewport/source 回归通过，发布构建通过；签名客户端的升级重放尚待执行。
+临时 feed 覆盖已恢复，旧测试应用已退出，相关子agent的闲置 Serena/SourceKit
+已按自己的 session 与日志确认归属后停止。原始失败和测量保留在
+`build/validation-gui-round3-20261012`。
+
+历史 13.528 s 事件仍未查清。原 PID 的系统记录有 5.044 / 7.593 s 空档，
+但缺少同时阶段计时和线程采样；空档不能证明在执行哪项阻塞工作。
+其他 PID 的 Malware 拒绝不是该事件原因，后来的较快原书结果也不能替代定位。
+性能/发布目标尚未完成，候选仍未公开。

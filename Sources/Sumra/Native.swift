@@ -168,6 +168,7 @@ final class NativeFile {
     private let pdfSource: PDFSource?
     private let sourceRevision: String
     private var htmlStyleSignature = ""
+    private var legacyLightStyleSignature: String?
 
     struct FileVersion: Equatable {
         let device: dev_t, inode: ino_t, size: off_t
@@ -925,6 +926,12 @@ final class NativeFile {
         // not the parsed text identity. User/publisher CSS can change visible
         // flow nodes, so only that boundary invalidates a source passage.
         htmlStyleSignature = SHA256.hash(data: Data((userCSS + "\n" + String(useDocumentCSS)).utf8)).map { String(format: "%02x", $0) }.joined()
+        // 0.2.1 omitted the generated light palette from effectiveUserCSS.
+        // Retain that exact user-style identity when restoring its passages.
+        let lightPrefix = palette.css + "\n"
+        legacyLightStyleSignature = theme == "light" && userCSS.hasPrefix(lightPrefix)
+            ? SHA256.hash(data: Data((String(userCSS.dropFirst(lightPrefix.count)) + "\n" + String(useDocumentCSS)).utf8)).map { String(format: "%02x", $0) }.joined()
+            : nil
         wordCache = nil
         resolvedDestinations.removeAll()
         let n = try chapterCount()
@@ -1177,7 +1184,8 @@ final class NativeFile {
     }
     func position(for passage: NativePassage) throws -> ReadingPosition? {
         guard engine == .mupdf, reflowable, !sourceRevision.isEmpty,
-              passage.sourceRevision == sourceRevision, passage.styleSignature == htmlStyleSignature else { return nil }
+              passage.sourceRevision == sourceRevision,
+              passage.styleSignature == htmlStyleSignature || passage.styleSignature == legacyLightStyleSignature else { return nil }
         if let cached = passagePosition, cached.passage == passage {
             var position = cached.position
             position.page = try page(cached.location)

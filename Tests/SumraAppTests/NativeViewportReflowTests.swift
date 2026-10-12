@@ -6,6 +6,51 @@ import XCTest
 @testable import Sumra
 
 final class NativeViewportReflowTests: XCTestCase {
+    func testLightThemeUpgradeKeepsLegacyAndCurrentPassagesWithStrictSourceAndUserStyles() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = directory.url.appendingPathComponent("Upgrade.md")
+        let paragraphs = (0..<120).map { "Paragraph \($0) keeps its source passage when an upgrade adds reader palette colors." }
+        try paragraphs.joined(separator: "\n\n").write(to: input, atomically: true, encoding: .utf8)
+        let css = "p{letter-spacing:0.1pt}"
+        let legacy = try NativeFile(input, engine: .mupdf)
+        _ = try legacy.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light", userCSS: css,
+                                pageSize: CGSize(width: 620, height: 360))
+        let page = legacy.count / 2
+        XCTAssertGreaterThan(page, 0)
+        let glyph = try XCTUnwrap(legacy.words(page).first { $0.source != nil && !$0.text.allSatisfy(\.isWhitespace) })
+        let saved = try XCTUnwrap(legacy.passage(page, at: CGPoint(x: glyph.bounds.midX, y: glyph.bounds.midY)))
+        let serialized = try JSONDecoder().decode(NativePassage.self, from: JSONEncoder().encode(saved))
+        let effectiveCSS = try XCTUnwrap(ReaderTheme.all.first { $0.id == "light" }).css + "\n" + css
+        func layout(_ file: NativeFile, css: String = effectiveCSS, useDocumentCSS: Bool = true) throws {
+            _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light", userCSS: css,
+                                  useDocumentCSS: useDocumentCSS, pageSize: CGSize(width: 380, height: 0))
+        }
+        let upgraded = try NativeFile(input, engine: .mupdf)
+        try layout(upgraded)
+        XCTAssertEqual(upgraded.count, 1)
+        let restored = try XCTUnwrap(upgraded.position(for: serialized))
+        XCTAssertGreaterThan(try XCTUnwrap(restored.y), 800, "The old paginated passage must restore inside the continuous document")
+        let current = try XCTUnwrap(upgraded.passage(restored.page, at: CGPoint(x: try XCTUnwrap(restored.x), y: try XCTUnwrap(restored.y))))
+        XCTAssertEqual(current.source, serialized.source)
+        XCTAssertNotEqual(current.styleSignature, serialized.styleSignature)
+        let reopened = try NativeFile(input, engine: .mupdf)
+        try layout(reopened)
+        XCTAssertEqual(try reopened.position(for: serialized)?.nativePassage?.source, serialized.source)
+        XCTAssertEqual(try reopened.position(for: current)?.nativePassage, current, "Bookmarks written by the current candidate must remain valid")
+        try layout(reopened, css: effectiveCSS + "\np{display:none}")
+        XCTAssertNil(try reopened.position(for: serialized))
+        XCTAssertNil(try reopened.position(for: current))
+        try layout(reopened, useDocumentCSS: false)
+        XCTAssertNil(try reopened.position(for: serialized))
+        XCTAssertNil(try reopened.position(for: current))
+        try paragraphs.joined(separator: "\n\n").replacingOccurrences(of: "source", with: "different").write(to: input, atomically: true, encoding: .utf8)
+        let changed = try NativeFile(input, engine: .mupdf)
+        try layout(changed)
+        XCTAssertNil(try changed.position(for: serialized))
+        XCTAssertNil(try changed.position(for: current))
+    }
+
     func testEPUBResizeRestoresTheOriginalTextWithoutLoadingOtherChapters() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
