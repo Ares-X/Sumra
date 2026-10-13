@@ -15,8 +15,8 @@ trap 'rm -rf "$DOWNLOAD"' EXIT
 
 source "$ROOT/scripts/source-archive.sh"
 
-# The Gentoo mirror serves the original release bytes; hashes match upstream/Homebrew.
-source_archive djvulibre-3.5.30 https://mirror.nju.edu.cn/gentoo/distfiles/be/djvulibre-3.5.30.tar.gz ee5e457d4cfebe566f94b99e5e3d3cc7f5c79ddb741c2ac2ba2e456f00329644 1
+# Gentoo serves the original release bytes; hashes match upstream/Homebrew.
+source_archive djvulibre-3.5.30 https://distfiles.gentoo.org/distfiles/be/djvulibre-3.5.30.tar.gz ee5e457d4cfebe566f94b99e5e3d3cc7f5c79ddb741c2ac2ba2e456f00329644 1
 source_archive chmlib-0.40 https://web.archive.org/web/20260414144043id_/https://www.jedrea.com/chmlib/chmlib-0.40.tar.gz 512148ed1ca86dea051ebcf62e6debbb00edfdd9720cde28f6ed98071d3a9617 1
 source_archive libjxl-0.12.0 https://codeload.github.com/libjxl/libjxl/tar.gz/refs/tags/v0.12.0 03e9be69a30be4011f559da75328b6d7cea8ad921fabfbd551ce10bf45cdc992 1
 source_archive highway-457c891775a7397bdb0376bb1031e6e027af1c48 https://codeload.github.com/google/highway/tar.gz/457c891775a7397bdb0376bb1031e6e027af1c48 5124b0501c98d9930dbb065bfa1a5bbbd59ce0f12facb7e1e33aaef01a5f1f1a 1
@@ -31,7 +31,7 @@ else
     if ! git -C "$SKCMS" cat-file -e "$SKCMS_REV^{commit}" 2>/dev/null; then git -C "$SKCMS" fetch --depth 1 origin "$SKCMS_REV"; fi
     git -C "$SKCMS" checkout -q --detach "$SKCMS_REV"
 fi
-source_archive convertlit-1.8 https://mirror.nju.edu.cn/gentoo/distfiles/d0/clit18src.zip d70a85f5b945104340d56f48ec17bcf544e3bb3c35b1b3d58d230be699e557ba 0
+source_archive convertlit-1.8 https://distfiles.gentoo.org/distfiles/d0/clit18src.zip d70a85f5b945104340d56f48ec17bcf544e3bb3c35b1b3d58d230be699e557ba 0
 source_archive libtommath-1.3.0 https://github.com/libtom/libtommath/releases/download/v1.3.0/ltm-1.3.0.tar.xz 296272d93435991308eb73607600c034b558807a07e829e751142e65ccfa9d08 1
 DJVU="$DEPS/djvulibre-3.5.30"; CHM="$DEPS/chmlib-0.40"; JXL="$DEPS/libjxl-0.12.0"
 

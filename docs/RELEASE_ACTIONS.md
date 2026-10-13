@@ -21,6 +21,11 @@ Clean builds also use `Native/mupdf-submodules.txt` for both fetching and source
 packaging. It contains the modules actually compiled into Sumra's MuPDF library;
 unused OCR, office-export, barcode and upstream viewer modules are omitted.
 
+The October 13 candidate stopped at an HTTP 502 from the Nanjing Gentoo mirror.
+DjVuLibre and ConvertLIT now use Gentoo's direct distribution endpoint. Both
+downloaded archives match the existing SHA-256 pins; versions, contents and
+the source-archive verification owner are unchanged.
+
 ## Signing setup
 
 Configure these encrypted Secrets in **Ares-X/Sumra** once:
