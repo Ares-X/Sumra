@@ -1027,7 +1027,7 @@ become lazy chapters. One-section documents release that tree after parsing.
 Full-flow comparison on B04 preserved all 7,453,031 original nodes, including
 text, order, bidi/script/language and links. A separate spanning-HTML fixture
 also preserved the complete flow sequence. Finite count requests still measure
-the book; ordinary continuous opening measures the selected chapter.
+the book; ordinary reading measures the selected chapter and any visible neighbors.
 
 PDF display lists use the existing bounded MuPDF store with measured list size.
 Edits, abort/undo, layer changes and close invalidate that document's lists.
@@ -1097,3 +1097,40 @@ chapter aggregation and destination resolution. The 17 conversion checks and
 the updated outline check then passed. Focused lazy-chapter, source restoration,
 search, PDF snapshot and prediction checks also passed; packaging passed 58
 behavior checks. The initial failed run is retained rather than overwritten.
+
+### Finite-layout acceptance correction
+
+The first Action-signed draft, built from `d35206e`, was rejected during
+original-book acceptance. With width fitting and smart scrollbars, its finite
+canvas clip size fed back into pagination: B04 recorded 1,534 layouts while the
+window frame stayed unchanged. Its two-page chapter boundary could also pair
+the predecessor's provisional first page with the selected chapter, and stale
+flat-page coordinates could capture the wrong source when counts changed.
+
+Finite reflow now derives its page size from the existing reader frame. Facing
+rows prepare adjacent lazy chapters before publishing their page coordinates,
+and passage capture resolves the stable chapter anchor. Initial opening, mode
+changes, page turns, saved positions and local links use that same preparation.
+Markdown no longer automatically counts every chapter after first paint; whole
+book search, printing and explicit count requests retain their existing owners.
+
+The repaired local release build exercised B04 continuous → single → two-page →
+continuous reading at the same chapter boundary. The preceding chapter's actual
+tail was visible beside the selected heading, and the final continuous viewport
+retained the same 512 AX characters. Opening Contents and closing it, followed
+by those three mode changes, produced six requested layouts with no further
+unchanged-frame loop. The mode-change native layout owners took 0.475–0.567 ms;
+these are layout timings, not complete GUI switching latencies. Physical
+footprint after these workflows and an actual edge resize was 219 MB; that
+process's lifetime maximum was 633 MB, not an isolated opening peak.
+
+An actual edge drag narrowed the native viewport from 687 to 607 points and
+reflowed the body. Final observations contained readable text; intermediate
+physical display frames were not recorded. Mounted-reader coverage uses the
+same width-fit/scrollbar settings and stable source across modes. Removing the
+frame fix makes its settling check fail. These local observations still require
+acceptance of the replacement Action-signed bytes before publication.
+
+The replacement batch's complete local run passed 101 core tests, 885 app tests
+and 58 packaging behavior checks. Local-link coverage observes the first page
+publication, so later rendering cannot hide an initially provisional facing row.

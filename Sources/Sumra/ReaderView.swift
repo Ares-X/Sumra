@@ -470,6 +470,9 @@ struct ReaderView: View {
                                 pageSize: finalPageSize, readingPosition: restored, viewport: finalViewport)
                             if changed != nil { restored = await pages.layoutPosition }
                         }
+                        if state.spread && !state.presentation && !continuous {
+                            restored = try await pages.prepareFacingPages(restored, cover: state.cover)
+                        }
                         let outlineStarted = DispatchTime.now().uptimeNanoseconds
                         NativeReadingPerformance.mark("prepare-outline-entry", pages: pages, persistent: true)
                         let prepared = try await pages.prepare()
