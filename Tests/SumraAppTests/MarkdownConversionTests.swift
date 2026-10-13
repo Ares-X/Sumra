@@ -251,7 +251,8 @@ final class MarkdownConversionTests: XCTestCase {
             VisibleTailMarker <i>still italic</i> <!-- HiddenComment --> after.
             """.utf8).write(to: url)
         let document = try NativeFile(url, engine: .mupdf)
-        let text = try XCTUnwrap(document.text(0))
+        try document.publishWarmedChapters()
+        let text = try (0..<document.count).map { try XCTUnwrap(document.text($0)) }.joined(separator: "\n")
         XCTAssertTrue(text.contains("VisibleTailMarker"))
         XCTAssertTrue(text.contains("TTT"), "Malformed inline comments are ordinary Markdown text")
         XCTAssertTrue(text.contains("still italic"), "Valid inline HTML remains supported")

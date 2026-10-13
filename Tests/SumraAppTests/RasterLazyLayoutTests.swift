@@ -456,7 +456,7 @@ final class RasterLazyLayoutTests: XCTestCase {
         XCTAssertEqual(restored, reflowed)
     }
 
-    func testMarkdownOutlineCarriesLaidOutDestinationsAndRefreshesAfterReflow() throws {
+    func testMarkdownOutlineDestinationsRefreshAfterReflow() throws {
         let engine = try NativeFile.libraryURL(for: .mupdf)
         guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine must be built before native integration tests") }
         let directory = try TemporaryDirectory()
@@ -466,28 +466,29 @@ final class RasterLazyLayoutTests: XCTestCase {
         try "# AlphaMark\n\n\(paragraphs)## BetaMark\n\n\(paragraphs)# GammaMark\n".write(to: input, atomically: true, encoding: .utf8)
         let file = try NativeFile(input, engine: .mupdf)
         _ = try file.relayout(fontSize: 13, lineHeight: 1.4, font: "serif", theme: "light")
+        try file.publishWarmedChapters()
         let before = try file.outline()
         XCTAssertEqual(before.map(\.title), ["AlphaMark", "BetaMark", "GammaMark"])
         XCTAssertEqual(before.map(\.depth), [0, 1, 0])
         func checkDestinations(_ outline: [ContentsItem]) throws {
             for item in outline {
-                let page = try XCTUnwrap(item.page, "MuPDF already resolved each Markdown heading during layout")
-                let pageCharacters = try XCTUnwrap(file.text(page)).filter { !$0.isWhitespace }
+                let destination = try XCTUnwrap(file.resolve(item.target))
+                let pageCharacters = try XCTUnwrap(file.text(destination.page)).filter { !$0.isWhitespace }
                 let headingCharacters = item.title.filter { !$0.isWhitespace }
                 XCTAssertTrue(pageCharacters.contains(headingCharacters),
                     "The supplied page must contain every heading character across long-word line breaks")
-                let destination = try XCTUnwrap(file.resolve(item.target))
-                XCTAssertEqual(destination.page, page)
+                XCTAssertEqual(try file.location(destination.page).chapter, item.chapter)
                 XCTAssertNotNil(destination.x)
                 XCTAssertNotNil(destination.y)
             }
         }
         try checkDestinations(before)
-        let oldLastPage = try XCTUnwrap(before.last?.page)
+        let oldLastPage = try XCTUnwrap(file.resolve(try XCTUnwrap(before.last).target)).page
         _ = try file.relayout(fontSize: 30, lineHeight: 1.4, font: "serif", theme: "light")
+        try file.publishWarmedChapters()
         let after = try file.outline()
         XCTAssertEqual(after.map(\.target), before.map(\.target))
-        XCTAssertGreaterThan(try XCTUnwrap(after.last?.page), oldLastPage)
+        XCTAssertGreaterThan(try XCTUnwrap(file.resolve(try XCTUnwrap(after.last).target)).page, oldLastPage)
         try checkDestinations(after)
     }
 

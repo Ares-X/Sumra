@@ -9,6 +9,114 @@ import XCTest
 
 @MainActor
 final class ReaderPredictionTests: XCTestCase {
+    private func waitForQueued(_ count: Int, in queue: ReaderRenderQueue) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while queue.waitingCount != count, Date() < deadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertEqual(queue.waitingCount, count)
+    }
+
+    func testVisibleRenderingAndPromotedPredictionRunBeforeBackgroundPixels() async throws {
+        let queue = ReaderRenderQueue()
+        let entered = expectation(description: "Active rendering entered")
+        var release: AsyncStream<Void>.Continuation!
+        let held = AsyncStream<Void> { release = $0 }
+        var order: [String] = []
+        let active = Task {
+            try await queue.perform {
+                entered.fulfill()
+                for await _ in held { break }
+            }
+        }
+        await fulfillment(of: [entered], timeout: 5)
+        defer { release.finish() }
+        let background = Task {
+            try await queue.perform(priority: .init(visible: false)) {
+                await MainActor.run { order.append("background") }
+            }
+        }
+        try await waitForQueued(1, in: queue)
+        let priority = ReaderRenderPriority(visible: false)
+        let predicted = Task {
+            try await queue.perform(priority: priority) {
+                await MainActor.run { order.append("promoted") }
+            }
+        }
+        try await waitForQueued(2, in: queue)
+        let visible = Task {
+            try await queue.perform {
+                await MainActor.run { order.append("visible") }
+            }
+        }
+        try await waitForQueued(3, in: queue)
+        priority.promote()
+        release.yield(())
+        try await active.value; try await background.value; try await predicted.value; try await visible.value
+        XCTAssertEqual(order, ["promoted", "visible", "background"],
+                       "The original predicted request must move ahead of queued background pixels when it becomes visible")
+        XCTAssertFalse(predicted.isCancelled)
+    }
+
+    func testCancellingQueuedRenderingCompletesBeforeActiveNativeWorkIsReleased() async throws {
+        let queue = ReaderRenderQueue()
+        let entered = expectation(description: "Active rendering entered")
+        var release: AsyncStream<Void>.Continuation!
+        let held = AsyncStream<Void> { release = $0 }
+        let active = Task {
+            try await queue.perform {
+                entered.fulfill()
+                for await _ in held { break }
+            }
+        }
+        await fulfillment(of: [entered], timeout: 5)
+        defer { release.finish() }
+        var cancelledRendered = false
+        let cancelled = Task {
+            try await queue.perform(priority: .init(visible: false)) {
+                await MainActor.run { cancelledRendered = true }
+            }
+        }
+        try await waitForQueued(1, in: queue)
+        cancelled.cancel()
+        do {
+            try await cancelled.value
+            XCTFail("Queued cancellation must throw")
+        } catch is CancellationError {}
+        XCTAssertEqual(queue.waitingCount, 0)
+        XCTAssertFalse(cancelledRendered, "A cancelled request must not enter the decoder")
+        let visible = Task { try await queue.perform { 42 } }
+        try await waitForQueued(1, in: queue)
+        release.yield(())
+        try await active.value
+        let result = try await visible.value
+        XCTAssertEqual(result, 42, "Cancelling a waiter must preserve the active decoder permit")
+    }
+
+    func testIndependentPDFReplaysRunConcurrentlyWithinTheQueueCapacity() async throws {
+        let queue = ReaderRenderQueue(concurrency: 2)
+        let entered = expectation(description: "Both replay permits entered")
+        entered.expectedFulfillmentCount = 2
+        var releases = [AsyncStream<Void>.Continuation]()
+        let held = (0..<2).map { _ in AsyncStream<Void> { releases.append($0) } }
+        let workers = held.map { stream in Task {
+            try await queue.perform {
+                entered.fulfill()
+                for await _ in stream { break }
+            }
+        } }
+        await fulfillment(of: [entered], timeout: 5)
+        defer { releases.forEach { $0.finish() } }
+        let next = Task { try await queue.perform { 42 } }
+        try await waitForQueued(1, in: queue)
+        releases[0].yield(())
+        let result = try await next.value
+        XCTAssertEqual(result, 42)
+        releases[1].yield(())
+        for worker in workers { try await worker.value }
+        XCTAssertEqual(queue.waitingCount, 0)
+    }
+
     private func paint(_ host: NSHostingView<RasterReader>) {
         host.layoutSubtreeIfNeeded()
         if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {

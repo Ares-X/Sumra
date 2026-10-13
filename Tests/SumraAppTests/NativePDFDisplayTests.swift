@@ -256,11 +256,12 @@ final class NativePDFDisplayTests: XCTestCase {
     }
 
     func testLiveStyledRenderReflectsUnsavedEditsAndUndoWithoutReopening() throws {
-        let directory = try directory(), source = directory.appendingPathComponent("edits.pdf"), bytes = fixture()
+        let directory = try directory(), source = directory.appendingPathComponent("edits.pdf"), bytes = fixture(twoPages: true)
         try bytes.write(to: source)
         let file = try NativeFile(source, engine: .mupdf)
         let style = PDFColors.Style(mode: .smart, text: 0xffffff, background: 0)
         let original = try file.image(0, width: 200, style: style)
+        let neighbor = try imageBytes(file.image(1, width: 200, style: style))
         try file.pdfSetEditing(true)
         _ = try file.pdfCreateAnnotation(page: 0, type: "Square", bounds: CGRect(x: 40, y: 10, width: 30, height: 30),
             edits: [.color(SIMD3<Float>(0, 0, 0), interior: true), .border(width: 0, style: 0, dash: [])])
@@ -268,8 +269,17 @@ final class NativePDFDisplayTests: XCTestCase {
         XCTAssertEqual(try pixel(original, 55, 25), [0, 0, 0, 255])
         XCTAssertEqual(try pixel(changed, 55, 25), [255, 255, 255, 255])
         XCTAssertTrue(try XCTUnwrap(file.pdfInfo()).dirty)
+        for visible in [false, true] {
+            XCTAssertEqual(try imageBytes(file.image(1, width: 200, style: style)), neighbor)
+            try file.pdfSetAnnotationsVisible(visible)
+            XCTAssertEqual(try pixel(file.image(0, width: 200, style: style), 55, 25),
+                           visible ? [255, 255, 255, 255] : [0, 0, 0, 255],
+                           "Annotation visibility invalidates a page cached before switching to its neighbor")
+        }
+        _ = try file.image(1, width: 200, style: style)
         try file.pdfUndo(redo: false)
         XCTAssertEqual(try imageBytes(file.image(0, width: 200, style: style)), try imageBytes(original))
+        _ = try file.image(1, width: 200, style: style)
         try file.pdfUndo(redo: true)
         XCTAssertEqual(try imageBytes(file.image(0, width: 200, style: style)), try imageBytes(changed))
         XCTAssertEqual(try Data(contentsOf: source), bytes, "The displayed edit has never been serialized to a temporary or source PDF")
@@ -500,7 +510,7 @@ final class NativePDFDisplayTests: XCTestCase {
         let color = Array(bytes[offset..<(offset + components)])
         return components == 3 ? color + [255] : color
     }
-    private func fixture(producer: String = "", cad: Bool = false) -> Data {
+    private func fixture(producer: String = "", cad: Bool = false, twoPages: Bool = false) -> Data {
         let colors = "702020205020202080604020401030103050706010203060301010106050703050305070504010104020602060203030>"
         let content = cad ? "0.5 0 0 0.5 0 0 cm .7 g 20 178 100 4 re f 100 200 100 100 re f\n" :
             "0 g 10 10 30 30 re f q 80 0 0 80 80 70 cm /Im Do Q\n"
@@ -510,14 +520,14 @@ final class NativePDFDisplayTests: XCTestCase {
         let form = "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /Resources << >>"
         return rawPDF([
             "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [6 0 R] >> >>",
-            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            twoPages ? "<< /Type /Pages /Kids [3 0 R 11 0 R] /Count 2 >>" : "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im 5 0 R >> >> /Contents 4 0 R /Annots [6 0 R 7 0 R] >>",
             stream(content), stream(colors, "/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode"),
             "<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (button) /Rect [40 0 80 40] /AP << /N 8 0 R >> >>",
             "<< /Type /Annot /Subtype /Stamp /Name /Custom /Rect [60 0 100 40] /AP << /N 9 0 R >> >>",
             stream("0 0 1 rg 0 0 40 40 re f", form), stream("0 1 0 rg 0 0 40 40 re f", form),
             "<< /Producer (\(producer)) >>"
-        ], info: 10)
+        ] + (twoPages ? ["<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im 5 0 R >> >> /Contents 4 0 R >>"] : []), info: 10)
     }
     private func rawPDF(_ objects: [String], info: Int? = nil) -> Data {
         var bytes = Data("%PDF-1.7\n".utf8), offsets = [Int]()

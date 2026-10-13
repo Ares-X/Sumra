@@ -79,9 +79,12 @@ API char *lf_search_options_at(void *document, int chapter, int page, const char
 // may contain fragments on several pages. maximum is the caller's result budget;
 // nonpositive budgets return no matches.
 API char *lf_markdown_document_search(void *document, const char *needle, int flags,
-    int start_page, uint32_t after_node, uint32_t after_offset, uint32_t after_part,
+    int start_chapter, int start_page, int after_chapter,
+    uint32_t after_node, uint32_t after_offset, uint32_t after_part,
     int64_t maximum, const uint8_t *allowed_bits, size_t allowed_bytes,
     int (*cancelled)(void), char *error);
+API int lf_is_markdown(void *document);
+API char *lf_markdown_legacy_anchor(void *document, uint32_t node, uint32_t offset, uint32_t part, char *error);
 
 // HTML/Markdown source anchors are session-local flow-node identities. Null JSON
 // means no visible source glyph; PDF and other handlers do not expose anchors.
@@ -91,7 +94,7 @@ API char *lf_select_anchors_at(void *document, int chapter, int page,
     uint32_t start_node, uint32_t start_offset, uint32_t start_part,
     uint32_t end_node, uint32_t end_offset, uint32_t end_part, char *error);
 API char *lf_html_source_selection_text(void *document,
-    const uint32_t *nodes, const uint32_t *offsets, const uint32_t *parts,
+    const int32_t *chapters, const uint32_t *nodes, const uint32_t *offsets, const uint32_t *parts,
     const int32_t *unicode, int count, char *error);
 
 // JSON is the UTF-8 boundary shared by the on-demand engines and Swift.

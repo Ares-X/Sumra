@@ -1016,3 +1016,84 @@ All three audit agents' unused Serena/SourceKit process pairs were identified
 by their session logs and stopped on completion. The root agent's now-unused
 pair was also stopped. A pre-existing shared SourceKit process remains running;
 unrelated projects' processes were left alone.
+
+## Chapter layout and shared PDF rendering (2026-10-13)
+
+This batch uses the pinned Sumatra `012d997f` / MuPDF `f030eda1` sources.
+Markdown now shares MuPDF's existing chapter, page, bookmark and HTML-store
+owners rather than constructing a complete flow tree before opening. Its
+recovered XML tree preserves raw HTML and CSS ancestry; authored H1/H2 sections
+become lazy chapters. One-section documents release that tree after parsing.
+Full-flow comparison on B04 preserved all 7,453,031 original nodes, including
+text, order, bidi/script/language and links. A separate spanning-HTML fixture
+also preserved the complete flow sequence. Finite count requests still measure
+the book; ordinary continuous opening measures the selected chapter.
+
+PDF display lists use the existing bounded MuPDF store with measured list size.
+Edits, abort/undo, layer changes and close invalidate that document's lists.
+Snapshots retain their document while workers replay immutable lists in cloned
+contexts. PDF color analysis finishes before publication and is not repeated
+for every replay. Visible render requests promote queued neighbor predictions;
+non-PDF engines retain serial rendering. No dependency was added.
+
+### Original-book evidence
+
+Measurements retain the original files and macOS file cache. Decimal MB below
+means physical footprint, not RSS; lifetime peaks are identified separately.
+
+| Check | 20.65 MB Markdown B04 | 14.17 MB Markdown B02 |
+| --- | ---: | ---: |
+| Fresh native open + first image | 0.709 s | 0.163 s |
+| Physical footprint at that image | 208 MB | 102 MB |
+| GUI load-entry to first canvas draw | 1.217 s | 0.834 s |
+| Initial natural GUI layout | 0.549 s | 0.038 s |
+| Physical footprint after whole-book GUI search | 296 MB | 221 MB |
+
+The canonical 0.2.3 B04 GUI receipt was 2.357 s to first canvas and 1.744 s
+initial natural layout. The fresh native probes are separate from GUI checks.
+GUI memory samples share one process across books: its lifetime peak was
+722 MB after both Markdown workflows, not an isolated first-open peak.
+
+Actual B04 checks exercised single/two-page/continuous modes, next/previous,
+TOC jump, a chapter seam with both adjacent chapters visible, search highlighter
+and reopen restoring the same 512-character visible passage. B02 TOC jump and
+reopen likewise restored the same passage. Search acceptance found two defects:
+cold chapters entered the HTML store before their layout size was known, and
+the search counter lost the selected match's identity when a partial search was
+replaced by whole-book results. Cold scans now avoid store insertion, normal
+chapters are stored after layout, and stable source anchors identify results.
+B02's actual counter advanced 1/2 → 2/2 → 1/2; B04 next-result movement also
+advanced its counter correctly after the whole-book scan.
+
+The original 174-page BPF PDF exercised enhanced scan display, repeated page
+movement, continuous adjacent pages, 272 search matches, TOC jump, and reopen
+at page 131 with the same scroll fraction (within floating-point rounding).
+The second original 581-page PDF rendered, moved pages and searched Chinese
+text. Native tests cover concurrent PDF snapshots, Type3 replay and edit/undo
+cache invalidation. These checks do not substitute for physical trackpad frame
+rate or a Windows Sumatra benchmark.
+
+Closing a PDF and immediately opening Home exposed an NSToolbar family-index
+exception. The retained crash points to format-dependent empty toolbar content
+during teardown. Fit/edit controls now remain mounted and use their existing
+command-enabled state. The rebuilt local bundle passed two actual PDF-close →
+immediate-Home repetitions with a Markdown window also open. The original EPUB
+also passed small continuous scroll and reopened to the same visible passage.
+These local observations precede acceptance of the Action-signed candidate.
+
+Receipts and the retired local probe source are in
+`build/validation-performance-parity-20261013`; patch and full-flow identity
+receipts are in `build/validation-markdown-chapters-20261013`. All finished
+agents reported their owned processes stopped or none created. Shared
+SourceKit 91341 remains in use. ARM64/macOS 13 packaging is checked by the
+existing bundle owner; actual macOS 13 runtime and physical drag frame-by-frame
+flicker remain unexercised. The historic 13.528 s event's unique cause remains
+unknown because its contemporaneous evidence is missing.
+
+The complete local run passed 101 core tests and exercised 883 app tests. Two
+fixtures still assumed one complete Markdown canvas / eagerly numbered outline
+destinations; their original content and reflow assertions were retained using
+chapter aggregation and destination resolution. The 17 conversion checks and
+the updated outline check then passed. Focused lazy-chapter, source restoration,
+search, PDF snapshot and prediction checks also passed; packaging passed 58
+behavior checks. The initial failed run is retained rather than overwritten.

@@ -3,7 +3,7 @@
 import Foundation
 import CryptoKit
 
-let baseSHA256 = "cf8678ae7f2db7c0f647f79b571000fc8052969811733188b86707fd932e68ac"
+let baseSHA256 = "579f9a65fdf77a1c0855ea4e505185ee2748a65231b4196e4b2292b55f692ee8"
 let fm = FileManager.default
 struct SetupError: Error, CustomStringConvertible { let description: String }
 func digest(_ source: URL, _ paths: [String]) throws -> String {

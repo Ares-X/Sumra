@@ -112,8 +112,9 @@ struct ReaderView: View {
 
     @ToolbarContentBuilder
     private var navigationToolbar: some CustomizableToolbarContent {
-        // Keep the same item set in every window, including empty/loading
-        // windows. AppKit shares customization across this toolbar family.
+        // Keep each item's content present in every window, including empty,
+        // loading and closing windows. AppKit shares item indexes across this
+        // toolbar family; unsupported commands use their existing enabled state.
         ToolbarItem(id: "open", placement: .automatic, showsByDefault: true) {
             Button(action: openFiles) { Image(systemName: "folder") }
                 .help(L("Open Document")).accessibilityLabel(L("Open Document"))
@@ -148,11 +149,9 @@ struct ReaderView: View {
     private var toolbar: some CustomizableToolbarContent {
         navigationToolbar
         ToolbarItem(id: "fit", placement: .automatic, showsByDefault: false) {
-            if state.isFixed {
-                HStack(spacing: 4) {
-                    fitPresetButton(.fitPageSingle, symbol: "rectangle.portrait")
-                    fitPresetButton(.fitWidthContinuous, symbol: "arrow.left.and.right")
-                }
+            HStack(spacing: 4) {
+                fitPresetButton(.fitPageSingle, symbol: "rectangle.portrait")
+                fitPresetButton(.fitWidthContinuous, symbol: "arrow.left.and.right")
             }
         }
         ToolbarItem(id: "zoom", placement: .automatic, showsByDefault: true) {
@@ -170,16 +169,14 @@ struct ReaderView: View {
                 .disabled(!state.supportsSearch).help(L("Find")).accessibilityLabel(L("Find"))
         }
         ToolbarItem(id: "edit", placement: .automatic, showsByDefault: true) {
-            if state.isPDF {
-                Button { ReaderMenuCommand.pdfEditing.run(state) } label: {
-                    Label(L(state.pdfEditingEnabled ? "Lock Editing" : "Enable Editing"),
-                          systemImage: state.pdfEditingEnabled ? "lock.open" : "lock")
-                }
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(state.pdfEditingEnabled ? Color.accentColor : Color.primary)
-                .disabled(!ReaderMenuCommand.pdfEditing.enabled(state))
-                .help(L(state.pdfEditingEnabled ? "Lock Editing" : "Enable Editing"))
+            Button { ReaderMenuCommand.pdfEditing.run(state) } label: {
+                Label(L(state.pdfEditingEnabled ? "Lock Editing" : "Enable Editing"),
+                      systemImage: state.pdfEditingEnabled ? "lock.open" : "lock")
             }
+            .labelStyle(.titleAndIcon)
+            .foregroundStyle(state.pdfEditingEnabled ? Color.accentColor : Color.primary)
+            .disabled(!ReaderMenuCommand.pdfEditing.enabled(state))
+            .help(L(state.pdfEditingEnabled ? "Lock Editing" : "Enable Editing"))
         }
         ToolbarItem(id: "custom", placement: .automatic, showsByDefault: false) {
             ReaderToolbarButtons(state: state, open: openFiles)

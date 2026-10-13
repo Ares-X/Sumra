@@ -171,6 +171,32 @@ final class NativeMarkdownReflowScrollTests: XCTestCase {
         }
     }
 
+    func testWholeBookCountKeepsSelectedMatchFromLaterChapter() async throws {
+        let text = "# Preface\n\n" + String(repeating: "Opening paragraph long enough to scroll.\n\n", count: 80) +
+            "## Search marker\n\nSearch marker in the body.\n\n## Ending\n\n" + String(repeating: "Closing paragraph.\n\n", count: 30)
+        try await withReader(flow: "continuous", text: text) { state, pages, host in
+            state.navigate(.page(1))
+            try await self.wait(host, state: state) { state.pageLocation(state.page).chapter == 1 }
+            try await self.settle(host)
+            state.send(.find("Search marker"))
+            try await self.wait(host, state: state) { !state.searchCounting && state.searchResults.count == 2 }
+            try await self.settle(host)
+            let first = try XCTUnwrap(RasterReader.highlightedMatch(in: state.readerFocusView))
+            XCTAssertEqual(first.source?.chapter, 1)
+            XCTAssertEqual(state.searchCountText, "1 / 2")
+            state.send(.find("Search marker"))
+            try await self.wait(host, state: state) {
+                RasterReader.highlightedMatch(in: state.readerFocusView)?.source != first.source
+            }
+            XCTAssertEqual(state.searchCountText, "2 / 2")
+            state.send(.find("Search marker", backwards: true))
+            try await self.wait(host, state: state) {
+                RasterReader.highlightedMatch(in: state.readerFocusView)?.source == first.source
+            }
+            XCTAssertEqual(state.searchCountText, "1 / 2")
+        }
+    }
+
     func testReflowRetainsSecondOccurrenceOnSamePageAndFindAdvancesFromIt() async throws {
         try await withReader(flow: "continuous") { state, pages, host in
             let query = "Boundary"
