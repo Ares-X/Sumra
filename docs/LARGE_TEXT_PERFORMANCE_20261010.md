@@ -1162,3 +1162,24 @@ mode changes 249 MB (516 MB lifetime maximum). TextKit's estimated scroll extent
 changed on reopening; source content and page restoration are the checked
 reading-position contract. These are local observations, separate from the
 final replacement Action package's acceptance.
+
+The Action draft `3b4c36d` passed the natural-tile idle check, but was rejected
+when the user observed the facing reader visibly shaking during Contents and
+chapter navigation. Its native pagination revision stayed stable while fitted
+clip sizes cycled through 1418 × 969 to 1432.75 × 984. That single revision
+recorded 13,850 render requests, 11,367 cancellations and 218 restarted neighbor
+predictions. Pagination stability alone had missed the rendering feedback loop.
+
+The finite row now renders with the same existing `readingViewport` that owns
+pagination, rather than feeding the fitted clip back into rendering. This is a
+one-line owner correction; prediction scheduling is unchanged. Mounted facing
+coverage now checks both visible bitmaps across idle paints and uses a wide
+window followed by a sidebar-width resize. Restoring the old render viewport
+makes that test fail at the sidebar-width stage. All 16 affected mounted-reader,
+initial-layout and prediction checks pass with the correction.
+
+The repaired local release repeated the original B04 two-page/Contents/chapter
+boundary workflow. Both facing canvases were readable, and its 16 render requests
+stayed unchanged over the idle observation; user/system CPU added 0.00018/0.00069
+seconds. Physical footprint was 263 MB with a 675 MB process-lifetime maximum.
+These observations are separate from the next Action-signed package's acceptance.
