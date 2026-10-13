@@ -118,5 +118,58 @@ final class MarkdownLazyChapterTests: XCTestCase {
         let copied = try await pages.markdownCopyText(selected)
         XCTAssertEqual(copied?.trimmingCharacters(in: .whitespacesAndNewlines), "First\nalpha\nSecond\nbeta\nThird\ngamma")
     }
+
+    func testFacingRowUsesThePredecessorsFinalPageAndKeepsTheSelectedSourceAcrossReflow() async throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = directory.url.appendingPathComponent("Facing.md")
+        let body = "# Previous\n\n" + String(repeating: "Previous body remains in document order.\n\n", count: 100)
+            + "PREVIOUS_TAIL\n\n## Current\n\nCURRENT_BODY\n\n"
+            + String(repeating: "Current body spans several pages.\n\n", count: 40)
+            + "## Unseen\n\nUnseen body.\n"
+        try body.write(to: input, atomically: true, encoding: .utf8)
+        var crossedBackward = false
+        for cover in [false, true] {
+            let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                        pageSize: CGSize(width: 420, height: 400))
+            let target = PageLocation(chapter: 1, page: 0)
+            let selected = try await pages.position(target)
+            let source = try XCTUnwrap(selected.nativePassage)
+            let provisional = await pages.chapterLayout
+            XCTAssertFalse(provisional.isLaidOut(0))
+            XCTAssertEqual(provisional.pageCount(0), 1)
+
+            let prepared = try await pages.prepareFacingPages(selected, cover: cover)
+            let table = await pages.chapterLayout
+            XCTAssertGreaterThan(table.pageCount(0), 2)
+            XCTAssertTrue(table.isLaidOut(0))
+            XCTAssertFalse(table.isLaidOut(2), "Preparing a row must keep distant chapters lazy")
+            XCTAssertEqual(ChapterTable.bookmarkLocation(try XCTUnwrap(prepared.anchor))?.location, target)
+            XCTAssertEqual(prepared.nativePassage, selected.nativePassage)
+            let row = PageRows.range(page: prepared.page, count: table.totalPages, spread: true, cover: cover)
+            let locations = try row.map { try XCTUnwrap(table.location(page: $0)) }
+            XCTAssertTrue(locations.contains(target))
+            if locations.first?.chapter == 0 {
+                crossedBackward = true
+                let last = PageLocation(chapter: 0, page: table.pageCount(0) - 1)
+                XCTAssertEqual(locations, [last, target])
+                let tail = try await pages.text(last)
+                XCTAssertTrue(tail.contains("PREVIOUS_TAIL"))
+                XCTAssertFalse(tail.contains("Previous\n"))
+            }
+            // Debounced capture can still hold the old flat page after the
+            // predecessor publishes its count. The chapter anchor owns it.
+            let captured = try await pages.capturePassage(selected, theme: "light", userCSS: "")
+            XCTAssertEqual(captured?.source, source.source)
+            XCTAssertEqual(captured?.chapter, 1)
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                        pageSize: CGSize(width: 840, height: 0), readingPosition: prepared)
+            let continuous = await pages.layoutPosition
+            XCTAssertEqual(continuous.nativePassage?.source, source.source)
+            XCTAssertEqual(continuous.nativePassage?.chapter, 1)
+        }
+        XCTAssertTrue(crossedBackward, "One cover alignment must show the cross-chapter row")
+    }
 }
 #endif

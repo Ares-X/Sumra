@@ -608,6 +608,28 @@ actor Pages {
     func position(_ location: PageLocation, x: Double? = nil, y: Double? = nil, passage: NativePassage? = nil, viewport: CGSize? = nil) throws -> ReadingPosition {
         try position(page: index(location), x: x, y: y, passage: passage, viewport: viewport)
     }
+    func prepareFacingPages(_ position: ReadingPosition, cover: Bool) throws -> ReadingPosition {
+        guard document.native?.reflowable == true else { return position }
+        let location = position.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
+            ?? chapterLayout.location(page: position.page) ?? PageLocation(page: position.page)
+        _ = try index(location)
+        // A lazy predecessor is represented by one provisional page. Count it
+        // before choosing the row, so crossing backward selects its last page
+        // and its real count determines which side owns the current page.
+        if location.page == 0, location.chapter > 0 {
+            try document.native?.ensureChapter(location.chapter - 1)
+        }
+        let table = chapterLayout
+        let page = try index(location)
+        let row = PageRows.range(page: page, count: table.totalPages, spread: true, cover: cover)
+        if let last = table.location(page: row.upperBound - 1), last.chapter > location.chapter {
+            try document.native?.ensureChapter(last.chapter)
+        }
+        var position = position
+        position.page = try index(location)
+        position.anchor = chapterLayout.bookmark(location)
+        return position
+    }
     func capturePassage(_ position: ReadingPosition, theme: String, userCSS: String, region: CGRect? = nil) throws -> NativePassage? {
         guard document.native?.reflowable == true, let current = document.style else { return nil }
         let expected = RasterStyle(fontSize: position.fontSize ?? current.fontSize,
@@ -616,7 +638,8 @@ actor Pages {
             useDocumentCSS: position.useDocumentCSS ?? current.useDocumentCSS,
             pageMargins: position.pageMargins ?? current.pageMargins, textZoom: isMarkdown ? position.zoom ?? current.textZoom : 1, pageSize: current.pageSize)
         guard expected == current else { return nil }
-        return try document.native?.passage(position.page, at: CGPoint(x: position.x ?? 0, y: position.y ?? 0), in: region)
+        let page = try position.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }.map(index) ?? position.page
+        return try document.native?.passage(page, at: CGPoint(x: position.x ?? 0, y: position.y ?? 0), in: region)
     }
     func bounds(_ location: PageLocation) throws -> CGRect { try bounds(index(location)) }
     func contentBounds(_ location: PageLocation) async throws -> CGRect { try await contentBounds(index(location)) }
@@ -1996,6 +2019,12 @@ private struct RasterScrollRequest: Equatable {
         reflowPageSize(in: liveResizeViewport ?? readingViewport)
     }
     private var readingViewport: CGSize {
+        // Finite reflow defines the document's page from the reader frame.
+        // Its fitted canvas can reveal or hide a scrollbar; feeding that clip
+        // size back into pagination makes successive layouts resize each other.
+        if state.reflowable, !state.continuousReflow, viewportFrame.width > 0 {
+            return ReaderScrollbars.initialReadingViewport(in: viewportFrame, mode: state.scrollbarMode, continuous: false)
+        }
         if renderedFlow != state.flow, viewportFrame.width > 0 {
             return ReaderScrollbars.initialReadingViewport(in: viewportFrame, mode: state.scrollbarMode, continuous: state.continuousReflow)
         }
@@ -2162,10 +2191,10 @@ private struct RasterScrollRequest: Equatable {
             // pixels, so an unpainted natural canvas cannot queue it ahead of
             // the first viewport's native tile requests.
             guard firstRenderedRevision == state.renderRevision else { return }
-            // Natural Markdown chapters are measured as they enter the
-            // viewport. Counting them all here would refill the HTML store
-            // immediately after the first paint.
-            guard !(pages.isMarkdown && state.continuousReflow) else { return }
+            // Markdown chapters are measured where the reader needs them,
+            // including adjacent pages prepared for a finite facing row.
+            // Whole-book counting would refill the HTML store after first paint.
+            guard !pages.isMarkdown else { return }
             let documentID = state.document?.id, revision = state.renderRevision
             let table = await pages.chapterLayout
             guard table.chapterCount > 1, !table.complete else { return }
@@ -2814,7 +2843,10 @@ private struct RasterScrollRequest: Equatable {
                     clearSearch(preservingSearch: state.reflowable)
                     let searchRevision = searchGeneration
                     selections.clear(state); state.selectedText = ""
-                    let position = await pages.layoutPosition
+                    var position = await pages.layoutPosition
+                    if !naturalLayout, state.spread, !state.presentation {
+                        position = try await pages.prepareFacingPages(position, cover: state.cover)
+                    }
                     let bounds = try await pages.bounds(position.page)
                     let source = before.nativePassage, current = position.nativePassage
                     let sameSource = source != nil && source?.sourceRevision == current?.sourceRevision &&
@@ -2877,6 +2909,9 @@ private struct RasterScrollRequest: Equatable {
                         let next = restored.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location } ?? .init(page: restored.page)
                         restored = try await pages.advance(next, by: (abs(distance) - 1) * (state.spread ? 2 : 1) * (forward ? 1 : -1))
                     }
+                    if !state.continuousReflow, state.spread, !state.presentation {
+                        restored = try await pages.prepareFacingPages(restored, cover: state.cover)
+                    }
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     let table = await pages.chapterLayout
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
@@ -2894,7 +2929,10 @@ private struct RasterScrollRequest: Equatable {
                 navigationTask = Task {
                     defer { state.didHandleCommand(command.revision) }
                     do {
-                        let restored = try await pages.lastPosition()
+                        var restored = try await pages.lastPosition()
+                        if !state.continuousReflow, state.spread, !state.presentation {
+                            restored = try await pages.prepareFacingPages(restored, cover: state.cover)
+                        }
                         guard !Task.isCancelled, documentID == state.document?.id else { return }
                         let table = await pages.chapterLayout
                         guard !Task.isCancelled, documentID == state.document?.id else { return }
@@ -2927,7 +2965,10 @@ private struct RasterScrollRequest: Equatable {
                 defer { state.didHandleCommand(command.revision) }
                 do {
                     let revision = await pages.layoutRevision
-                    let restored = try await pages.restore(saved, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme, viewport: viewport)
+                    var restored = try await pages.restore(saved, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme, viewport: viewport)
+                    if !state.continuousReflow, state.spread, !state.presentation {
+                        restored = try await pages.prepareFacingPages(restored, cover: state.cover)
+                    }
                     let updatedRevision = await pages.layoutRevision
                     let zoomLimit = try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
                     let landscape = try await pages.landscapePages(rotation: state.rotation)
@@ -2972,7 +3013,10 @@ private struct RasterScrollRequest: Equatable {
                             }
                             return
                         }
-                        guard let position, !Task.isCancelled, documentID == state.document?.id else { return }
+                        guard var position, !Task.isCancelled, documentID == state.document?.id else { return }
+                        if !state.continuousReflow, state.spread, !state.presentation {
+                            position = try await pages.prepareFacingPages(position, cover: state.cover)
+                        }
                         let table = await pages.chapterLayout
                         guard !Task.isCancelled, documentID == state.document?.id else { return }
                         applyLayout(table)
