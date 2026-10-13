@@ -1183,3 +1183,56 @@ boundary workflow. Both facing canvases were readable, and its 16 render request
 stayed unchanged over the idle observation; user/system CPU added 0.00018/0.00069
 seconds. Physical footprint was 263 MB with a 675 MB process-lifetime maximum.
 These observations are separate from the next Action-signed package's acceptance.
+
+### Final signed release and installed acceptance
+
+Action `38401838336` built the accepted 0.2.4 candidate from
+`9ffd2d70be58b4243d7d440da243c8ce20f44ac8`. All five manifest entries, the
+existing signing certificate, 181 bundle files/symlinks/metadata and the Sparkle
+Ed25519 signature passed verification. All nine bundled Mach-O components
+contain arm64 and require no system newer than macOS 13.
+
+Actual signed B04 observations on the available macOS 27 machine:
+
+| Observation | Result |
+| --- | --- |
+| New-process load to first canvas | 1.062 s; native layout 0.563 s |
+| New-process reopen | 1.044 s; saved 512 AX characters identical |
+| 0.2.3 passage migration | Same 512 characters, hash `3293027397` |
+| Continuous → Single → Two → Continuous | Same 512 characters, hash `12211162` |
+| Two-page Contents and chapter-boundary navigation | Both canvases readable; no idle render loop |
+| Facing idle observation | 13 render requests stayed unchanged; user/system CPU added 0.00017/0.00049 s |
+| Facing footprint | 228 MB; 720 MB process-lifetime maximum |
+| Whole-book search | 311 results; forward/backward counters 2 → 3 → 2 |
+| Footprint after search | 342 MB; lifetime maximum stayed 720 MB |
+
+The signed original EPUB retained the same 512 characters through Two Pages,
+Contents and Continuous. The original scan PDF restored page 131, displayed
+single and two-page surfaces, and turned 131 → 133 → 131. Window closure and
+subsequent document opening completed without the earlier toolbar crash.
+
+Publication Action `38405322717` exposed the accepted assets as
+[v0.2.4](https://github.com/Ares-X/Sumra/releases/tag/v0.2.4), preserving all six
+asset IDs and bytes. Anonymous downloads of every asset passed the manifest;
+the ordinary and cache-busted live feed matched the accepted appcast. The
+accepted manifest digest is
+`528ca3ce6f67e837b7ecf574554c5f7ea6cab6149f2f8421d71858e8c12faec7`.
+
+The existing `dist/Sumra.app` 0.2.3 discovered 0.2.4 through its real update
+dialog, downloaded it, installed and relaunched. The installed version/build is
+0.2.4/6; its 181 files and signature match the accepted app. Reopening B04
+preserved the pre-upgrade 512 characters exactly. Its load-to-first-canvas
+interval was 1.206 s (native layout 0.555 s), with a 218 MB physical footprint
+and 631 MB process-lifetime maximum. The subsequent update check reported
+0.2.4 as newest. The preceding 0.2.3 process opened the same file in 2.237 s;
+its initial entry position differed, so this is not a controlled paired benchmark.
+
+This candidate's UI edge-drag calls did not change its window dimensions; they
+do not supply a fresh physical flicker verdict. Earlier actual local resize and
+user observations remain separate evidence. The last correction changes the
+finite render viewport, while the existing live-resize pixel retention remains
+unchanged. macOS 13 runtime and the historical 13.5-second event's unique cause
+remain unverified; the latter's publication limitation was explicitly accepted.
+Finished agent MCP/indexing processes and unused root log streams were stopped,
+and the rejected candidates' large repeated logs were compressed with their
+failure evidence retained.
