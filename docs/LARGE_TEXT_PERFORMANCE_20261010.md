@@ -117,8 +117,27 @@ load request; its waiting time is excluded.
 The historical 13.528-second event remains unresolved. A narrow query of retained
 RunningBoard records for its original PID/bundle and minute found no matching
 records; this does not establish its unique cause. The old measurable slow path
-above was reproduced and corrected separately. No publication is recorded by
-this acceptance. Owned samplers and completed agent processes were stopped;
+above was reproduced and corrected separately. The user subsequently explicitly
+approved publication with this uncertainty retained. Action `38332686976`
+published the accepted `26a6c93` bytes as
+[0.2.3](https://github.com/Ares-X/Sumra/releases/tag/v0.2.3), without rebuilding
+or replacing its assets, and updated the public feed. All six anonymous asset
+downloads match the accepted manifest; the feed, source/provenance, app signature
+and pinned Ed25519 update signature pass. The candidate's asset IDs are unchanged.
+
+The actual public 0.2.2 app checked for updates, downloaded 0.2.3, and completed
+Install and Relaunch. Its installed 181 files match the accepted package exactly
+and its executable UUID remains `FC434846-6C01-344D-A571-0674EFBAE035`.
+Reopening unchanged B04 retained all 512 captured AX characters and the exact
+scroll fraction `0.003977708494917243` from actual reading in 0.2.2. Post-upgrade
+source decoding took 0.177 seconds, layout 1.744 seconds and load-entry to first
+canvas draw 2.357 seconds. Subsequent physical footprint was 431 MB; the kernel's
+process-lifetime maximum was 847 MB. This is not a sampled peak or an RSS reading.
+The new app's update dialog confirms 0.2.3 is the newest available version.
+After the user's foreground-click response, the live foreground identity was
+Codex; this run therefore supplies no additional foreground-only timing claim.
+
+Owned samplers and completed agent processes were stopped;
 unused extracted candidates and corresponding-source copies were retired after
 confirming their draft-release recovery assets and retaining hashes/provenance.
 

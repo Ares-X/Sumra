@@ -27,10 +27,17 @@ changes take 0.549–0.588 s. Its fresh reopen retains the same passage and frac
 Theme changes with Contents open/closed also retain the original B02 passage,
 and EPUB search completes with its original chapter restored. Package bytes,
 app/update signatures and ARM64/macOS 13 minimums pass; physical macOS 13 and
-foreground-only timing remain unexercised. The candidate is loaded locally;
-the public release remains 0.2.2. The original 13.528-second observation's unique
-cause remains unresolved, and the goal remains active. The records below retain
-their earlier candidate and observation scopes.
+foreground-only timing remain unexercised. With the user's explicit approval to
+retain the historical uncertainty, Action `38332686976` published these exact
+accepted files as [0.2.3](https://github.com/Ares-X/Sumra/releases/tag/v0.2.3)
+and updated the public feed. Anonymous downloads, source/provenance correspondence,
+both signatures and unchanged candidate asset IDs pass. Actual public 0.2.2 →
+0.2.3 Sparkle download/install/relaunch restored the original B04's same 512
+captured characters and exact scroll fraction. The installed app matches all
+181 accepted files; its update dialog confirms 0.2.3 is current. The original
+13.528-second observation's unique cause remains unresolved and is stated in the
+release notes. The records below retain their earlier candidate and observation
+scopes.
 
 October 12 source work and its exact upstream comparisons are recorded in
 [the deep implementation review](SUMATRA_DEEP_IMPLEMENTATION_REVIEW_20261012.md).
