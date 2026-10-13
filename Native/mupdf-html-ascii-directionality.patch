@@ -1,6 +1,6 @@
 --- a/source/html/html-parse.c
 +++ b/source/html/html-parse.c
-@@ -1873,11 +1873,58 @@
+@@ -1873,11 +1873,59 @@
  	}
  }
  
@@ -8,11 +8,9 @@
 + * paragraph as level zero. With a Latin letter present, split_at_script emits
 + * one Latin fragment. Keep its normal path for every other kind of flow. */
 +static int
-+detect_simple_latin_flow(fz_html_tree *tree, fz_context *ctx, fz_pool *pool, fz_bidi_direction dir, fz_html_flow *flow)
++detect_simple_latin_flow(fz_html_tree *tree, fz_bidi_direction dir, fz_html_flow *flow)
 +{
-+	fz_html_flow *node;
-+	bidi_data data;
-+	size_t count = 0;
++	fz_html_flow *node, *last_text = NULL, *end;
 +	int latin = 0;
 +
 +	if (dir != FZ_BIDI_LTR)
@@ -24,28 +22,31 @@
 +		if (node->type == FLOW_WORD)
 +		{
 +			const unsigned char *text = (const unsigned char *)fz_html_flow_text(node);
++			if (*text) last_text = node;
 +			for (; *text; ++text)
 +			{
 +				if (*text < 0x20 || *text > 0x7e)
 +					return 0;
 +				latin |= (*text >= 'A' && *text <= 'Z') || (*text >= 'a' && *text <= 'z');
-+				++count;
 +			}
 +		}
 +		else if (node->type == FLOW_SPACE)
-+			++count;
++			last_text = node;
 +		else if (node->type == FLOW_BREAK || node->type == FLOW_IMAGE)
 +			return 0;
 +	}
 +	if (!latin)
 +		return 0;
 +
-+	data.ctx = ctx;
-+	data.pool = pool;
-+	data.tree = tree;
-+	data.flow = flow;
-+	data.buffer = NULL;
-+	fragment_cb(NULL, count, 0, UCDN_SCRIPT_LATIN, &data);
++	/* The validated flow is one level-zero Latin fragment. Assign it
++	 * directly instead of decoding every word again in fragment_cb.
++	 * Like that callback, leave trailing zero-length nodes untouched. */
++	end = fz_html_flow_next(tree, last_text);
++	for (node = flow; node != end; node = fz_html_flow_next(tree, node))
++	{
++		node->bidi_level = 0;
++		node->script = UCDN_SCRIPT_LATIN;
++	}
 +	return 1;
 +}
 +
@@ -54,7 +55,7 @@
  {
  	fz_html_flow *end = flow;
  	bidi_data data;
-+	if (detect_simple_latin_flow(tree, ctx, pool, bidi_dir, flow))
++	if (detect_simple_latin_flow(tree, bidi_dir, flow))
 +		return bidi_dir;
  
  	while (end)

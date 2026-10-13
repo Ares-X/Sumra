@@ -16,8 +16,9 @@ final class NativeMarkdownFindTests: XCTestCase {
         let file = try NativeFile(input, engine: .mupdf)
         for em in [11.0, 17.0] {
             XCTAssertNotNil(try file.relayout(fontSize: em, lineHeight: 1.6, font: "system", theme: "light"))
-            let text = try XCTUnwrap(file.text(0)) as NSString
-            let hits = try file.matches("普通汉字", page: 0)
+            let page = try XCTUnwrap(file.resolve("#middle-search")).page
+            let text = try XCTUnwrap(file.text(page)) as NSString
+            let hits = try file.matches("普通汉字", page: page)
             XCTAssertEqual(hits.count, 1)
             let hit = try XCTUnwrap(hits.first)
             XCTAssertEqual(text.substring(with: NSRange(location: hit.index, length: 4)), "普通汉字")
@@ -25,10 +26,10 @@ final class NativeMarkdownFindTests: XCTestCase {
             XCTAssertFalse(hit.rects.isEmpty)
             XCTAssertTrue(hit.rects.allSatisfy { $0.width > 0 && $0.height > 0 })
             if em == 17 { XCTAssertGreaterThanOrEqual(Set(hit.rects.map { Int($0.minY.rounded()) }).count, 2) }
-            XCTAssertTrue(try file.matches("普通 汉字", page: 0).isEmpty)
-            XCTAssertEqual(try file.matches("普通汉字", page: 0, backwards: true).first?.index, hit.index)
-            XCTAssertTrue(try file.matches("普通汉字", page: 0, after: hit.index).isEmpty)
-            XCTAssertEqual(try file.matches("普通汉字", page: 0, options: .init(caseSensitive: true)).count, 1)
+            XCTAssertTrue(try file.matches("普通 汉字", page: page).isEmpty)
+            XCTAssertEqual(try file.matches("普通汉字", page: page, backwards: true).first?.index, hit.index)
+            XCTAssertTrue(try file.matches("普通汉字", page: page, after: hit.index).isEmpty)
+            XCTAssertEqual(try file.matches("普通汉字", page: page, options: .init(caseSensitive: true)).count, 1)
         }
     }
 
@@ -40,8 +41,9 @@ final class NativeMarkdownFindTests: XCTestCase {
             try body.write(to: input, atomically: true, encoding: .utf8)
             let file = try NativeFile(input, engine: .mupdf)
             _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light")
-            XCTAssertTrue(try file.matches("普通汉字", page: 0).isEmpty, "An authored separator must not be removed")
-            XCTAssertEqual(try file.matches("普通 汉字", page: 0).count, 1)
+            let page = name == "Space" ? try XCTUnwrap(file.resolve("#middle-search")).page : 0
+            XCTAssertTrue(try file.matches("普通汉字", page: page).isEmpty, "An authored separator must not be removed")
+            XCTAssertEqual(try file.matches("普通 汉字", page: page).count, 1)
         }
     }
 
@@ -155,7 +157,7 @@ final class NativeMarkdownFindTests: XCTestCase {
         try ("# FIRST742\n\nBefore **cross** inline café office 😀.\n\n" + filler + "# LAST742\n").write(to: input, atomically: true, encoding: .utf8)
         let file = try NativeFile(input, engine: .mupdf)
         _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light", pageSize: CGSize(width: 817, height: 0))
-        XCTAssertEqual(file.count, 1)
+        XCTAssertEqual(file.count, 2)
         let started = Date()
         let first = try XCTUnwrap(file.markdownDocumentMatches("FIRST742", options: .init(), startPage: 0).first)
         XCTAssertLessThan(Date().timeIntervalSince(started), 3, "The first hit must not extract the entire continuous chapter")
@@ -170,8 +172,9 @@ final class NativeMarkdownFindTests: XCTestCase {
         XCTAssertEqual(next.index, repeated[1].index)
         XCTAssertEqual(next.source, repeated[1].source)
         let last = try XCTUnwrap(file.markdownDocumentMatches("LAST742", options: .init(), startPage: 0).first)
-        XCTAssertGreaterThan(last.index, first.index)
-        XCTAssertGreaterThan(try XCTUnwrap(last.rects.first).minY, try XCTUnwrap(first.rects.first).maxY)
+        XCTAssertGreaterThan(try XCTUnwrap(last.location), try XCTUnwrap(first.location))
+        XCTAssertGreaterThan(try XCTUnwrap(last.source), try XCTUnwrap(first.source))
+        XCTAssertFalse(try XCTUnwrap(last.rects.first).isEmpty)
         for query in ["Before cross inline cafe office 😀", "office", "cafe", "😀"] {
             let hit = try XCTUnwrap(file.markdownDocumentMatches(query, options: .init(), startPage: 0).first)
             XCTAssertTrue(hit.rects.allSatisfy { $0.width > 0 && $0.height > 0 }, query)

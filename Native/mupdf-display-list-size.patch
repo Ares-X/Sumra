@@ -1,0 +1,70 @@
+--- a/include/mupdf/fitz/display-list.h
++++ b/include/mupdf/fitz/display-list.h
+@@ -104,6 +104,10 @@
+ */
+ fz_display_list *fz_keep_display_list(fz_context *ctx, fz_display_list *list);
+ 
++/** Store cost including retained text, strokes and image data.
++	Shared resources are conservatively charged for each recorded reference. */
++size_t fz_display_list_size(fz_context *ctx, const fz_display_list *list);
++
+ /**
+ 	Decrement the reference count for a display list. When the
+ 	reference count reaches zero, all the references in the display
+--- a/source/fitz/list-device.c
++++ b/source/fitz/list-device.c
+@@ -151,6 +151,7 @@
+ 	fz_rect mediabox;
+ 	size_t max;
+ 	size_t len;
++	size_t extra_size;
+ };
+ 
+ typedef struct
+@@ -736,6 +737,31 @@
+ 		if (private_data)
+ 			memcpy(out_private, private_data, private_data_len);
+ 	}
++	if (stroke_off)
++		list->extra_size += sizeof(fz_stroke_state) + my_stroke->dash_len * sizeof(float);
++	switch (cmd)
++	{
++	case FZ_CMD_FILL_TEXT:
++	case FZ_CMD_STROKE_TEXT:
++	case FZ_CMD_CLIP_TEXT:
++	case FZ_CMD_CLIP_STROKE_TEXT:
++	case FZ_CMD_IGNORE_TEXT:
++	{
++		const fz_text *text = *(fz_text *const *)private_data;
++		const fz_text_span *span;
++		list->extra_size += sizeof(fz_text);
++		for (span = text->head; span; span = span->next)
++			list->extra_size += sizeof(fz_text_span) + span->cap * sizeof(fz_text_item);
++		break;
++	}
++	case FZ_CMD_FILL_IMAGE:
++	case FZ_CMD_FILL_IMAGE_MASK:
++	case FZ_CMD_CLIP_IMAGE_MASK:
++		list->extra_size += fz_image_size(ctx, *(fz_image *const *)private_data);
++		break;
++	default:
++		break;
++	}
+ 	list->len += size;
+ 
+ 	return out_private;
+@@ -1673,7 +1699,14 @@
+ 	list->mediabox = mediabox;
+ 	list->max = 0;
+ 	list->len = 0;
++	list->extra_size = 0;
+ 	return list;
++}
++
++size_t
++fz_display_list_size(fz_context *ctx, const fz_display_list *list)
++{
++	return sizeof(*list) + list->max * sizeof(fz_display_node) + list->extra_size;
+ }
+ 
+ fz_display_list *

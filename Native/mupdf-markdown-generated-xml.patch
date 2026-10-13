@@ -297,3 +297,15 @@
  	parser.depth = 0;
  #ifdef FZ_XML_SEQ
  	parser.seq = 0;
+--- a/source/fitz/xml.c
++++ b/source/fitz/xml.c
+@@ -1318,6 +1318,8 @@
+ 		opts.userdata = &mem;
+ 		opts.tab_stop = 8;
+ 		opts.stop_on_first_error = 0;
+-		opts.max_errors = -1;
++		/* HTML recovery still runs; this adapter never consumes Gumbo's
++		 * error vector, so do not allocate its diagnostic records. */
++		opts.max_errors = 0;
+ 		opts.fragment_context = GUMBO_TAG_LAST;
+ 		opts.fragment_namespace = GUMBO_NAMESPACE_HTML;

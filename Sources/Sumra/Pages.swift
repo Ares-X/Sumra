@@ -23,6 +23,7 @@ enum NativeReadingPerformance {
 struct RasterMatchFragment: Equatable {
     let page: Int
     let rects: [CGRect]
+    var location: PageLocation? = nil
 }
 struct RasterMatch: Equatable {
     let page: Int
@@ -365,9 +366,19 @@ fileprivate final class RasterDocument {
         }
         try Task.checkCancellation()
         if cancellation?.isCancelled == true { throw CancellationError() }
+        retainImage(image, location: location, width: width, transparent: transparent, pdfStyle: pdfStyle)
+        return image
+    }
+    func retainImage(_ image: CGImage, for request: ImageRequest) {
+        if request.region == nil {
+            retainImage(image, location: request.location, width: request.width,
+                        transparent: request.transparent, pdfStyle: request.pdfStyle)
+        }
+    }
+    private func retainImage(_ image: CGImage, location: PageLocation, width: Int, transparent: Bool, pdfStyle: PDFColors.Style?) {
+        cache.removeAll { $0.location == location && $0.width == width && $0.transparent == transparent && $0.pdfStyle == pdfStyle }
         cache.append((location, width, transparent, pdfStyle, image))
         while cache.count > 3 || (cache.count > 1 && cache.reduce(0, { $0 + $1.image.bytesPerRow * $1.image.height }) > 64*1024*1024) { cache.removeFirst() }
-        return image
     }
     func bounds(_ page: Int) throws -> CGRect {
         let location = try native?.location(page) ?? PageLocation(page: page)
@@ -470,6 +481,69 @@ private final class ComicMetadata: NSObject, XMLParserDelegate {
     }
 }
 
+// Admission happens outside the decoder actor: native rendering can block that
+// actor while scrolling promotes an already queued tile to visible work.
+final class ReaderRenderPriority: @unchecked Sendable {
+    private let lock = NSLock()
+    private var visible: Bool
+    private var cancelled = false
+    init(visible: Bool = true) { self.visible = visible }
+    func promote() { lock.lock(); visible = true; lock.unlock() }
+    var isVisible: Bool { lock.lock(); defer { lock.unlock() }; return visible }
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    fileprivate func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+}
+
+final class ReaderRenderQueue: @unchecked Sendable {
+    private struct Waiting {
+        let priority: ReaderRenderPriority
+        let continuation: CheckedContinuation<Void, Error>
+    }
+    private let lock = NSLock()
+    private let concurrency: Int
+    private var active = 0
+    private var waiting: [Waiting] = []
+    init(concurrency: Int = 1) { self.concurrency = concurrency }
+    var waitingCount: Int { lock.lock(); defer { lock.unlock() }; return waiting.count }
+
+    func perform<Result>(priority: ReaderRenderPriority = .init(),
+                         _ operation: () async throws -> Result) async throws -> Result {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                lock.lock()
+                if priority.isCancelled {
+                    lock.unlock(); continuation.resume(throwing: CancellationError())
+                } else if active < concurrency {
+                    active += 1; lock.unlock(); continuation.resume()
+                } else {
+                    waiting.append(Waiting(priority: priority, continuation: continuation)); lock.unlock()
+                }
+            }
+        } onCancel: { self.cancel(priority) }
+        defer { finish() }
+        try Task.checkCancellation()
+        return try await operation()
+    }
+    private func cancel(_ priority: ReaderRenderPriority) {
+        lock.lock(); priority.cancel()
+        let index = waiting.firstIndex { $0.priority === priority }
+        let continuation = index.map { waiting.remove(at: $0).continuation }
+        lock.unlock()
+        continuation?.resume(throwing: CancellationError())
+    }
+    private func finish() {
+        lock.lock()
+        let continuation: CheckedContinuation<Void, Error>?
+        if waiting.isEmpty { active -= 1; continuation = nil }
+        else {
+            let index = waiting.firstIndex { $0.priority.isVisible } ?? 0
+            continuation = waiting.remove(at: index).continuation
+        }
+        lock.unlock()
+        continuation?.resume()
+    }
+}
+
 actor Pages {
     struct MarkdownPrintSnapshot: Sendable {
         let count: Int
@@ -484,6 +558,7 @@ actor Pages {
     nonisolated let pdfSourceURL: URL
     nonisolated let isImageCollection: Bool
     private let document: RasterDocument
+    nonisolated private let renderQueue: ReaderRenderQueue
     private let markdownOpenedSourceSignature: String?
     private let externalOutline: [ContentsItem]?
     private var pdfSavedSourceCheckpoint: NativeFile.FileCheckpoint?
@@ -505,6 +580,7 @@ actor Pages {
         let started = DispatchTime.now().uptimeNanoseconds
         pdfSourceURL = url
         isPDF = format == .pdf
+        renderQueue = ReaderRenderQueue(concurrency: isPDF ? ProcessInfo.processInfo.activeProcessorCount : 1)
         isMarkdown = format == .markdown
         markdownOpenedSourceSignature = format == .markdown ? NativeFile.FileVersion(url)?.signature : nil
         let checkpoint = format == .pdf ? try NativeFile.FileCheckpoint(url) : nil
@@ -547,8 +623,15 @@ actor Pages {
     func text(_ location: PageLocation) throws -> String { try text(index(location)) }
     func words(_ location: PageLocation) throws -> [RasterWord] { try words(index(location)) }
     func imageBounds(_ location: PageLocation) throws -> [CGRect] { try imageBounds(index(location)) }
-    func image(_ location: PageLocation, width: Int, transparent: Bool = false, region: CGRect? = nil, pdfStyle: PDFColors.Style? = nil) async throws -> CGImage {
-        try await image(index(location), width: width, transparent: transparent, region: region, pdfStyle: pdfStyle)
+    nonisolated func image(_ location: PageLocation, width: Int, transparent: Bool = false, region: CGRect? = nil, pdfStyle: PDFColors.Style? = nil,
+                           priority: ReaderRenderPriority = .init()) async throws -> CGImage {
+        try await renderQueue.perform(priority: priority) {
+            try await self.renderImage(location, width: width, transparent: transparent, region: region, pdfStyle: pdfStyle, priority: priority)
+        }
+    }
+    private func renderImage(_ location: PageLocation, width: Int, transparent: Bool, region: CGRect?, pdfStyle: PDFColors.Style?, priority: ReaderRenderPriority) async throws -> CGImage {
+        let request = try document.prepareImage(index(location), width: width, transparent: transparent, region: region, pdfStyle: pdfStyle)
+        return try await image(request, priority: priority)
     }
     func embeddedImage(_ location: PageLocation, at point: CGPoint) throws -> Data? { try embeddedImage(index(location), at: point) }
     func selection(_ location: PageLocation, range: NSRange) throws -> RasterSelection { try selection(index(location), range: range) }
@@ -599,16 +682,37 @@ actor Pages {
         let vector = (0..<document.count).contains(page) && document.isVectorImage(page)
         return document.native?.engine == .mupdf || vector ? try NativeRenderCancellation() : nil
     }
-    func image(_ page: Int, width: Int, transparent: Bool = false, region: CGRect? = nil, pdfStyle: PDFColors.Style? = nil) async throws -> CGImage {
+    nonisolated func image(_ page: Int, width: Int, transparent: Bool = false, region: CGRect? = nil, pdfStyle: PDFColors.Style? = nil) async throws -> CGImage {
+        try await renderQueue.perform {
+            try await self.renderImage(page, width: width, transparent: transparent, region: region, pdfStyle: pdfStyle)
+        }
+    }
+    private func renderImage(_ page: Int, width: Int, transparent: Bool, region: CGRect?, pdfStyle: PDFColors.Style?) async throws -> CGImage {
         let request = try document.prepareImage(page, width: width, transparent: transparent, region: region, pdfStyle: pdfStyle)
         return try await image(request)
     }
-    private func image(_ request: RasterDocument.ImageRequest) async throws -> CGImage {
+    private func image(_ request: RasterDocument.ImageRequest, cancellation supplied: NativeRenderCancellation? = nil,
+                       priority: ReaderRenderPriority = .init()) async throws -> CGImage {
         try Task.checkCancellation()
         if let image = request.cached { return image }
-        let cancellation = try renderCancellation(request.page)
+        let cancellation = try supplied ?? renderCancellation(request.page)
         return try await withTaskCancellationHandler {
-            try document.image(request, cancellation: cancellation)
+            if isPDF, let native = document.native {
+                let revision = layoutRevision
+                let snapshot = try native.preparePDFRender(request.page, style: request.pdfStyle, cancellation: cancellation)
+                let image = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CGImage, Error>) in
+                    DispatchQueue.global(qos: priority.isVisible ? .userInitiated : .utility).async {
+                        do { continuation.resume(returning: try snapshot.image(width: request.width, transparent: request.transparent,
+                            region: request.region)) }
+                        catch { continuation.resume(throwing: error) }
+                    }
+                }
+                try Task.checkCancellation()
+                guard revision == layoutRevision else { throw CancellationError() }
+                document.retainImage(image, for: request)
+                return image
+            }
+            return try document.image(request, cancellation: cancellation)
         } onCancel: { cancellation?.cancel() }
     }
     func originalData(_ page: Int) throws -> (data: Data, filename: String) { try document.originalData(page) }
@@ -925,7 +1029,20 @@ actor Pages {
     typealias RenderedPage = (bounds: CGRect, content: CGRect?, referenceWidth: CGFloat?,
         facing: RasterLayout.FacingPage?, display: CGSize, image: CGImage?, pixelWidth: Int, tileResolution: Int,
         links: [RasterLink], imageCollection: Bool, landscape: Set<Int>, limit: Double, estimate: CGRect, pdfStyle: PDFColors.Style?)
-    func render(_ location: PageLocation, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
+    nonisolated func render(_ location: PageLocation, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
+                fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
+                trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
+                transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false) async throws -> RenderedPage {
+        try await renderQueue.perform(priority: .init(visible: !preheating)) {
+            try await self.renderPage(location, viewport: viewport, scale: scale, columns: columns, rotation: rotation,
+                fit: fit, zoom: zoom, maximumZoom: maximumZoom, trim: trim, showContent: showContent,
+                uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto,
+                maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl,
+                viewportOnly: viewportOnly, preheating: preheating)
+        }
+    }
+    private func renderPage(_ location: PageLocation, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
@@ -941,11 +1058,24 @@ actor Pages {
         }
         // The reference chapter must be prepared before projecting this request.
         if uniform { _ = try document.bounds(0) }
-        return try await render(index(location), viewport: viewport, scale: scale, columns: columns, rotation: rotation,
+        return try await renderPage(index(location), viewport: viewport, scale: scale, columns: columns, rotation: rotation,
             fit: fit, zoom: zoom, maximumZoom: maximumZoom, trim: trim, showContent: showContent,
             uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto, maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl, viewportOnly: viewportOnly, preheating: preheating)
     }
-    func render(_ page: Int, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
+    nonisolated func render(_ page: Int, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
+                fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
+                trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
+                transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false) async throws -> RenderedPage {
+        try await renderQueue.perform(priority: .init(visible: !preheating)) {
+            try await self.renderPage(page, viewport: viewport, scale: scale, columns: columns, rotation: rotation,
+                fit: fit, zoom: zoom, maximumZoom: maximumZoom, trim: trim, showContent: showContent,
+                uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto,
+                maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl,
+                viewportOnly: viewportOnly, preheating: preheating)
+        }
+    }
+    private func renderPage(_ page: Int, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
@@ -996,7 +1126,7 @@ actor Pages {
             else {
                 let request = try document.prepareImage(page, width: previewWidth,
                     transparent: document.isImageCollection && transparent, pdfStyle: style)
-                image = cancellation == nil ? try await self.image(request) : try document.image(request, cancellation: cancellation)
+                image = try await self.image(request, cancellation: cancellation, priority: .init(visible: !preheating))
             }
             return (measured, content, referenceWidth, facing, display, image, pixelWidth, tileResolution, preheating || isPDF ? [] : try links(page), document.isImageCollection,
                     preheating ? [] : try landscapePages(rotation: rotation), limit,
@@ -1145,19 +1275,29 @@ actor Pages {
             }
         }
         guard let first, let last else { return [:] }
+        let firstLocation = try first.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location } ?? native.location(first.page)
+        let lastLocation = try last.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location } ?? native.location(last.page)
+        let lower = min(firstLocation, lastLocation), upper = max(firstLocation, lastLocation)
         var selected = [PageLocation: RasterSelection]()
-        for page in min(first.page, last.page)...max(first.page, last.page) {
+        for chapter in lower.chapter...upper.chapter {
             try Task.checkCancellation()
-            var value = try native.selection(page, from: start, to: end)
-            if let sources, let words = value.words {
-                let kept = words.filter { word in
-                    word.source.map { sources.contains($0) } ?? word.text.allSatisfy(\.isWhitespace)
+            try native.ensureChapter(chapter)
+            let firstPage = chapter == lower.chapter ? lower.page : 0
+            let lastPage = chapter == upper.chapter ? upper.page : (native.chapterTable?.pageCount(chapter) ?? 1) - 1
+            for localPage in firstPage...lastPage {
+                let location = PageLocation(chapter: chapter, page: localPage)
+                let page = try native.page(location)
+                var value = try native.selection(page, from: start, to: end)
+                if let sources, let words = value.words {
+                    let kept = words.filter { word in
+                        word.source.map { sources.contains($0) } ?? word.text.allSatisfy(\.isWhitespace)
+                    }
+                    let anchors = kept.compactMap(\.source)
+                    value = RasterSelection(text: kept.map(\.text).joined(), rects: kept.filter { !$0.bounds.isEmpty }.map(\.rect), words: kept,
+                                            sourceStart: anchors.min(), sourceEnd: anchors.max())
                 }
-                let anchors = kept.compactMap(\.source)
-                value = RasterSelection(text: kept.map(\.text).joined(), rects: kept.filter { !$0.bounds.isEmpty }.map(\.rect), words: kept,
-                                        sourceStart: anchors.min(), sourceEnd: anchors.max())
+                if !value.bounds.isEmpty { selected[location] = value }
             }
-            if !value.bounds.isEmpty { selected[try native.location(page)] = value }
         }
         return selected
     }
@@ -2022,6 +2162,10 @@ private struct RasterScrollRequest: Equatable {
             // pixels, so an unpainted natural canvas cannot queue it ahead of
             // the first viewport's native tile requests.
             guard firstRenderedRevision == state.renderRevision else { return }
+            // Natural Markdown chapters are measured as they enter the
+            // viewport. Counting them all here would refill the HTML store
+            // immediately after the first paint.
+            guard !(pages.isMarkdown && state.continuousReflow) else { return }
             let documentID = state.document?.id, revision = state.renderRevision
             let table = await pages.chapterLayout
             guard table.chapterCount > 1, !table.complete else { return }
@@ -2173,11 +2317,18 @@ private struct RasterScrollRequest: Equatable {
     }
     private func projectSearchMatch(_ match: RasterMatch) -> RasterMatch {
         guard let location = match.location else { return match }
+        let fragments = match.fragments?.map { fragment in
+            RasterMatchFragment(page: fragment.location.map(state.pageNumber) ?? fragment.page,
+                rects: fragment.rects, location: fragment.location)
+        }
         return RasterMatch(page: state.pageNumber(location), index: match.index, rects: match.rects,
-            context: match.context, source: match.source, fragments: match.fragments, location: location)
+            context: match.context, source: match.source, fragments: fragments, location: location)
     }
     private func publishSearchMatches(_ matches: [RasterMatch]) {
         searchMatches = matches.map(projectSearchMatch).sorted { $0.page == $1.page ? $0.index < $1.index : $0.page < $1.page }
+        if let source = selectedMatch?.source, let match = searchMatches.first(where: { $0.source == source }) {
+            selectedMatch = match
+        }
         selections.searchRects = searchMatches.reduce(into: [:]) { result, match in
             for fragment in match.fragments ?? [RasterMatchFragment(page: match.page, rects: match.rects)] {
                 result[fragment.page, default: []] += fragment.rects
@@ -2189,7 +2340,9 @@ private struct RasterScrollRequest: Equatable {
         searchStatus()
     }
     private func show(_ match: RasterMatch) {
-        let match = projectSearchMatch(match)
+        let match = projectSearchMatch(match.source.flatMap { source in
+            searchMatches.first { $0.source == source }
+        } ?? match)
         selectedMatch = match
         state.selectedSearchTarget = "raster-search:\(match.page):\(match.index)"
         state.send(.preservePosition(ReadingPosition(page: match.page, x: match.rects.first.map { Double($0.minX) }, y: match.rects.first.map { Double($0.minY) }, anchor: match.location.flatMap { state.chapterLayout?.bookmark($0) })))
@@ -2225,13 +2378,10 @@ private struct RasterScrollRequest: Equatable {
         state.status = L("Searching…")
         searchTask = Task {
             do {
-                var all = [RasterMatch](), rects = [Int: [CGRect]]()
+                var all = [RasterMatch]()
                 var published = 0, lastPublication = Date.distantPast
                 @MainActor func publish() {
-                    all.sort { $0.page == $1.page ? $0.index < $1.index : $0.page < $1.page }
-                    searchMatches = all; selections.searchRects = rects
-                    state.searchResults = all.map { ContentsItem(title: String(format: L("Page %d"), $0.page + 1) + ": " + $0.context, target: "raster-search:\($0.page):\($0.index)") }
-                    searchStatus()
+                    publishSearchMatches(all)
                     published = all.count; lastPublication = Date()
                 }
                 if pages.isMarkdown {
@@ -2249,11 +2399,6 @@ private struct RasterScrollRequest: Equatable {
                     guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
                     all = Array(found.prefix(999))
                     state.searchCountCapped = found.count > 999
-                    for match in all {
-                        for fragment in match.fragments ?? [] {
-                            rects[fragment.page, default: []] += fragment.rects
-                        }
-                    }
                     publish(); searchTask = nil; state.searchCounting = false; searchStatus()
                     return
                 }
@@ -2312,11 +2457,6 @@ private struct RasterScrollRequest: Equatable {
                     guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
                     let accepted = found.prefix(remaining)
                     all += accepted
-                    for match in accepted {
-                        for fragment in match.fragments ?? [RasterMatchFragment(page: match.page, rects: match.rects)] {
-                            rects[fragment.page, default: []] += fragment.rects
-                        }
-                    }
                     if found.count > remaining {
                         state.searchCountCapped = true
                         break
@@ -4185,6 +4325,7 @@ struct NativeReadingAccessibilitySnapshot {
         private var paintedTiles = Set<RasterLayout.Tile>()
         private var tileTasks = [RasterLayout.Tile: Task<Void, Never>]()
         private var tilePredictionTask: Task<Void, Never>?
+        private var tilePredictionPriority: ReaderRenderPriority?
         private var tilePredictionViewport: CGRect?
         private var tilePredictionTile: RasterLayout.Tile?
         private var tilePredictionDirection = 1
@@ -4484,7 +4625,7 @@ struct NativeReadingAccessibilitySnapshot {
                 previousTiles = (tileKey, tileImages, paintedTileGeometry.transform, paintedTileGeometry.origin)
             } else if !retainingOutput { previousTiles = nil }
             for task in tileTasks.values { task.cancel() }
-            tilePredictionTask = nil; tilePredictionViewport = nil; tilePredictionTile = nil
+            tilePredictionTask = nil; tilePredictionPriority = nil; tilePredictionViewport = nil; tilePredictionTile = nil
             tileTasks.removeAll(); tileImages.removeAll(); paintedTiles.removeAll(); tileKey = nil
             paintedTileGeometry = nil
             if viewportTileSize != nil { readingReady = false; traceFirstPaint = true }
@@ -4519,6 +4660,7 @@ struct NativeReadingAccessibilitySnapshot {
                window?.inLiveResize == true || (!wanted.contains(tile) && !predictionTiles(direction: tilePredictionDirection).contains(tile)) {
                 cancelTilePrediction()
             }
+            if let tile = tilePredictionTile, wanted.contains(tile) { tilePredictionPriority?.promote() }
             for (tile, task) in tileTasks where !wanted.contains(tile) && tile != tilePredictionTile { task.cancel() }
             tileTasks = tileTasks.filter { wanted.contains($0.key) || $0.key == tilePredictionTile }
             let pixelScale = CGFloat(pixelWidth) / pageBounds.width
@@ -4566,7 +4708,7 @@ struct NativeReadingAccessibilitySnapshot {
         }
         private func cancelTilePrediction() {
             if let tile = tilePredictionTile { tileTasks.removeValue(forKey: tile)?.cancel() }
-            tilePredictionTask = nil; tilePredictionViewport = nil; tilePredictionTile = nil
+            tilePredictionTask = nil; tilePredictionPriority = nil; tilePredictionViewport = nil; tilePredictionTile = nil
         }
         func updatePredictionDirection(_ direction: Int) {
             tilePredictionDirection = direction
@@ -4586,20 +4728,22 @@ struct NativeReadingAccessibilitySnapshot {
             guard bytes + tile.width * tile.height * 4 <= 64 * 1024 * 1024 else { return }
             tilePredictionViewport = visibleRect; tilePredictionTile = tile; tilePredictionDirection = direction
             let documentID = state.document?.id
+            let priority = ReaderRenderPriority(visible: false)
+            tilePredictionPriority = priority
             let task = Task(priority: .utility) { [weak self] in
                 NativeReadingPerformance.mark("tile-prediction-start", pages: pages, revision: key.revision, page: self?.page ?? -1)
                 do {
                     let bitmap = try await pages.image(key.location, width: key.width, transparent: key.transparent,
-                        region: tile.rect, pdfStyle: key.pdfStyle)
+                        region: tile.rect, pdfStyle: key.pdfStyle, priority: priority)
                     guard !Task.isCancelled, let self, self.tileKey == key,
                           self.tilePredictionTile == tile, self.state?.document?.id == documentID else { return }
                     self.tileImages[tile] = bitmap; self.tileTasks.removeValue(forKey: tile)
-                    self.tilePredictionTask = nil; self.tilePredictionTile = nil
+                    self.tilePredictionTask = nil; self.tilePredictionPriority = nil; self.tilePredictionTile = nil
                     NativeReadingPerformance.mark("tile-prediction-ready", pages: pages, revision: key.revision, page: self.page)
                     self.updateTiles(); self.needsDisplay = true
                 } catch {
                     if !Task.isCancelled, let self, self.tileKey == key, self.tilePredictionTile == tile {
-                        self.tileTasks.removeValue(forKey: tile); self.tilePredictionTask = nil; self.tilePredictionTile = nil
+                        self.tileTasks.removeValue(forKey: tile); self.tilePredictionTask = nil; self.tilePredictionPriority = nil; self.tilePredictionTile = nil
                         let visible = RasterLayout.tiles(bounds: self.pageBounds, pixelWidth: self.pixelWidth, resolution: self.tileResolution,
                             visible: self.visibleRect.applying(self.pageTransform.inverted()), maximumSize: self.viewportTileSize)
                         if visible.contains(tile) { self.state?.error = error.localizedDescription }

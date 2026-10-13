@@ -204,7 +204,7 @@ final class NativeMarkdownDocumentFindTests: XCTestCase {
                             "<p>TAIL833</p>", in: temporary)
         XCTAssertGreaterThan(file.count, 1)
         typealias Cancelled = @convention(c) () -> Int32
-        typealias Search = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>, Int32, Int32,
+        typealias Search = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>, Int32, Int32, Int32, Int32,
             UInt32, UInt32, UInt32, Int64, UnsafePointer<UInt8>?, Int, Cancelled,
             UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
         let symbol = try XCTUnwrap(dlsym(file.library, "lf_markdown_document_search"))
@@ -212,7 +212,7 @@ final class NativeMarkdownDocumentFindTests: XCTestCase {
         let cancelled: Cancelled = { 1 }
         var error = [CChar](repeating: 0, count: 512)
         let result = "TAIL833".withCString {
-            search(file.document, $0, 0, Int32(file.count - 1), 0, 0, 0, 1, nil, 0, cancelled, &error)
+            search(file.document, $0, 0, 0, Int32(file.count - 1), 0, 0, 0, 0, 1, nil, 0, cancelled, &error)
         }
         defer { if let result { free(result) } }
         XCTAssertNil(result)

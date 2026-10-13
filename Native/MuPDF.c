@@ -30,16 +30,51 @@ fz_context *lf_new_context(size_t max_store) {
     return fz_new_context(NULL, &locks, max_store);
 }
 
-void lf_drop_render_page(SumraMuPDFDocument *d) {
+// PDF display lists share the existing byte-limited MuPDF resource store.
+// Reflow pages keep their current-page lifetime; their chapter layouts already
+// have a store owner and must not be pinned by extra drawing-command copies.
+typedef struct { int refs; SumraMuPDFDocument *document; int index; } PageListKey;
+static int page_list_hash(fz_context *ctx, fz_store_hash *hash, void *opaque) {
+    PageListKey *key = opaque;
+    hash->u.pi.ptr = key->document; hash->u.pi.i = key->index;
+    return 1;
+}
+static void *keep_page_list_key(fz_context *ctx, void *opaque) {
+    PageListKey *key = opaque; return fz_keep_imp(ctx, key, &key->refs);
+}
+static void drop_page_list_key(fz_context *ctx, void *opaque) {
+    PageListKey *key = opaque;
+    if (key && fz_drop_imp(ctx, key, &key->refs)) fz_free(ctx, key);
+}
+static int compare_page_list_keys(fz_context *ctx, void *a, void *b) {
+    PageListKey *left = a, *right = b;
+    return left->document != right->document || left->index != right->index;
+}
+static void format_page_list_key(fz_context *ctx, char *buffer, size_t size, void *opaque) {
+    PageListKey *key = opaque;
+    fz_snprintf(buffer, size, "(Sumra PDF=%p, page=%d)", key->document, key->index);
+}
+static const fz_store_type page_list_store = {
+    "Sumra PDF display list", page_list_hash, keep_page_list_key,
+    drop_page_list_key, compare_page_list_keys, format_page_list_key, NULL
+};
+static int discard_document_list(fz_context *ctx, void *document, void *opaque) {
+    return ((PageListKey *)opaque)->document == document;
+}
+static void drop_current_render_page(SumraMuPDFDocument *d) {
     fz_drop_stext_page(d->ctx, d->text_page); d->text_page = NULL;
     fz_drop_device(d->ctx, d->color_analysis); d->color_analysis = NULL;
     fz_drop_display_list(d->ctx, d->display_list); d->display_list = NULL;
     fz_drop_page(d->ctx, d->render_page); d->render_page = NULL;
 }
+void lf_drop_render_page(SumraMuPDFDocument *d) {
+    drop_current_render_page(d);
+    fz_filter_store(d->ctx, discard_document_list, d, &page_list_store);
+}
 static fz_page *load_render_page(SumraMuPDFDocument *d, int chapter, int index, fz_cookie *cookie) {
     if (cookie && cookie->abort) fz_throw(d->ctx, FZ_ERROR_ABORT, "Reading cancelled");
     if (!d->render_page || d->render_chapter != chapter || d->render_index != index) {
-        lf_drop_render_page(d);
+        drop_current_render_page(d);
         d->render_page = fz_load_chapter_page(d->ctx, d->doc, chapter, index);
         d->render_chapter = chapter; d->render_index = index;
     }
@@ -54,8 +89,7 @@ API int lf_pdf_set_annotations_visible(void *opaque, int visible, char *error) {
         int hide = !visible;
         if (d->hide_annotations != hide) {
             d->hide_annotations = hide;
-            fz_drop_device(d->ctx, d->color_analysis); d->color_analysis = NULL;
-            fz_drop_display_list(d->ctx, d->display_list); d->display_list = NULL;
+            lf_drop_render_page(d);
         }
         ok = 1;
     }
@@ -641,6 +675,27 @@ API char *lf_pdf_page_label(void *opaque, int page, char *error) {
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(label); return NULL; }
     return label;
 }
+API int lf_is_markdown(void *opaque) {
+    SumraMuPDFDocument *d = opaque;
+    return d && fz_htdoc_is_markdown(d->ctx, d->doc);
+}
+API char *lf_markdown_legacy_anchor(void *opaque, uint32_t node, uint32_t offset, uint32_t part, char *error) {
+    SumraMuPDFDocument *d = opaque;
+    SumraJSON json = {0}; fz_var(json);
+    fz_try(d->ctx) {
+        uint32_t local = 0;
+        fz_location location = fz_htdoc_legacy_source(d->ctx, d->doc, node, &local);
+        if (location.chapter < 0) lf_json(&json, "null");
+        else {
+            lf_json(&json, "{\"chapter\":"); lf_json_number(&json, location.chapter);
+            lf_json(&json, ",\"source\":["); lf_json_u32(&json, local); lf_json(&json, ",");
+            lf_json_u32(&json, offset); lf_json(&json, ","); lf_json_u32(&json, part);
+            lf_json(&json, ","); lf_json_number(&json, location.chapter); lf_json(&json, "]}");
+        }
+    }
+    fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(json.data); return NULL; }
+    return lf_json_finish(&json, error);
+}
 API int lf_count_error(SumraMuPDFDocument *d, char *error) {
     int n = 0; fz_var(n);
     fz_try(d->ctx) { n = fz_count_pages(d->ctx, d->doc); }
@@ -1209,33 +1264,89 @@ fz_display_list *lf_new_display_list(fz_context *ctx, fz_page *page, int parts, 
 }
 static fz_display_list *page_display_list(SumraMuPDFDocument *d, int chapter, int index, fz_cookie *cookie) {
     fz_page *page = load_render_page(d, chapter, index, cookie);
-    if (!d->display_list) d->display_list = lf_new_display_list(d->ctx, page,
+    if (d->display_list) return d->display_list;
+    int cache_pdf = pdf_specifics(d->ctx, d->doc) != NULL;
+    PageListKey lookup = { 1, d, index };
+    if (cache_pdf && d->display_list_drop)
+        d->display_list = fz_find_item(d->ctx, d->display_list_drop, &lookup, &page_list_store);
+    if (d->display_list) return d->display_list;
+    d->display_list = lf_new_display_list(d->ctx, page,
         d->hide_annotations ? PAGE_CONTENTS_AND_WIDGETS : PAGE_ALL, cookie);
+    if (cache_pdf) {
+        PageListKey *key = NULL;
+        fz_var(key);
+        fz_try(d->ctx) {
+            key = fz_malloc_struct(d->ctx, PageListKey); *key = lookup;
+            d->display_list_drop = ((fz_storable *)d->display_list)->drop;
+            fz_display_list *other = fz_store_item(d->ctx, key, d->display_list,
+                fz_display_list_size(d->ctx, d->display_list) + sizeof(*key), &page_list_store);
+            if (other) {
+                fz_drop_display_list(d->ctx, d->display_list); d->display_list = other;
+            }
+        }
+        fz_always(d->ctx) { drop_page_list_key(d->ctx, key); }
+        fz_catch(d->ctx) { fz_rethrow(d->ctx); }
+    }
     return d->display_list;
 }
-API unsigned char *lf_render_cancelable_at(void *opaque, int chapter, int index, int width,
-        const int *region, int alpha, const int *style, const uint32_t *colors, void *opaque_cookie, int *info, char *error) {
+// Immutable drawing commands retain their own context lifetime, independent
+// of the editable document. Each replay clones it for its thread-local state.
+typedef struct {
+    fz_context *ctx;
+    fz_display_list *list;
+    fz_device *analysis;
+    fz_rect box;
+} PDFRenderSnapshot;
+API void lf_pdf_render_snapshot_drop(void *opaque) {
+    PDFRenderSnapshot *snapshot = opaque;
+    if (!snapshot) return;
+    fz_drop_device(snapshot->ctx, snapshot->analysis);
+    fz_drop_display_list(snapshot->ctx, snapshot->list);
+    fz_drop_context(snapshot->ctx);
+    free(snapshot);
+}
+API void *lf_pdf_render_snapshot_at(void *opaque, int chapter, int index,
+        const int *style, void *opaque_cookie, char *error) {
     SumraMuPDFDocument *d = opaque;
-    fz_cookie *cookie = opaque_cookie;
+    PDFRenderSnapshot *snapshot = NULL;
+    fz_var(snapshot);
+    fz_try(d->ctx) {
+        if (!pdf_specifics(d->ctx, d->doc)) fz_throw(d->ctx, FZ_ERROR_ARGUMENT, "Document is not a PDF");
+        fz_display_list *list = page_display_list(d, chapter, index, opaque_cookie);
+        snapshot = calloc(1, sizeof(*snapshot));
+        if (!snapshot) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate PDF render snapshot");
+        snapshot->ctx = fz_clone_context(d->ctx);
+        if (!snapshot->ctx) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot clone PDF render context");
+        snapshot->box = fz_bound_page(d->ctx, d->render_page);
+        snapshot->list = fz_keep_display_list(d->ctx, list);
+        lf_prepare_pdf_colors(d->ctx, list, &d->color_analysis, snapshot->box, style, opaque_cookie);
+        snapshot->analysis = fz_keep_device(d->ctx, d->color_analysis);
+    }
+    fz_catch(d->ctx) {
+        snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL));
+        lf_pdf_render_snapshot_drop(snapshot); return NULL;
+    }
+    return snapshot;
+}
+static unsigned char *render_page_bitmap(fz_context *ctx, fz_rect box,
+        fz_display_list *list, fz_device **analysis, SumraMuPDFDocument *d,
+        int width, const int *region, int alpha, const int *style,
+        const uint32_t *colors, fz_cookie *cookie, int *info, char *error) {
     fz_pixmap *pix = NULL; fz_device *dev = NULL; unsigned char *out = NULL;
     fz_var(pix); fz_var(dev); fz_var(out);
-    fz_try(d->ctx) {
-        // EngineMupdf::GetOrBuildPageDisplayList: tiles replay the same page's
-        // drawing commands. This serial decoder retains only its current page.
-        load_render_page(d, chapter, index, cookie);
-        fz_rect box = fz_bound_page(d->ctx, d->render_page);
+    fz_try(ctx) {
         float page_width = box.x1-box.x0;
-        if (width <= 0 || !(page_width > 0)) fz_throw(d->ctx, FZ_ERROR_GENERIC, "Invalid render width");
+        if (width <= 0 || !(page_width > 0)) fz_throw(ctx, FZ_ERROR_GENERIC, "Invalid render width");
         float scale = (float)width/page_width;
         fz_matrix ctm = fz_concat(fz_translate(-box.x0, -box.y0), fz_scale(scale, scale));
         fz_rect rendered = fz_transform_rect(box, ctm);
         fz_rect page_area = box;
         if (!isfinite(rendered.x0) || !isfinite(rendered.y0) || !isfinite(rendered.x1) || !isfinite(rendered.y1))
-            fz_throw(d->ctx, FZ_ERROR_GENERIC, "Invalid page dimensions");
+            fz_throw(ctx, FZ_ERROR_GENERIC, "Invalid page dimensions");
         if (region) {
             if (region[0] < 0 || region[1] < 0 || region[2] <= 0 || region[3] <= 0 ||
                 region[0] > INT_MAX-region[2] || region[1] > INT_MAX-region[3])
-                fz_throw(d->ctx, FZ_ERROR_ARGUMENT, "Invalid render region");
+                fz_throw(ctx, FZ_ERROR_ARGUMENT, "Invalid render region");
             rendered = fz_make_rect(region[0], region[1], region[0]+region[2], region[1]+region[3]);
             page_area = fz_transform_rect(rendered, fz_invert_matrix(ctm));
         }
@@ -1243,7 +1354,7 @@ API unsigned char *lf_render_cancelable_at(void *opaque, int chapter, int index,
         double w = region ? region[2] : ceil(rendered.x1)-floor(rendered.x0);
         double h = region ? region[3] : ceil(rendered.y1)-floor(rendered.y0);
         if (!(w > 0 && h > 0) || w > INT_MAX/4 || h > INT_MAX)
-            fz_throw(d->ctx, FZ_ERROR_GENERIC, "Page bitmap is too large");
+            fz_throw(ctx, FZ_ERROR_GENERIC, "Page bitmap is too large");
         fz_irect bbox = region ? fz_make_irect(region[0], region[1], region[0]+region[2], region[1]+region[3]) : fz_round_rect(rendered);
         // EngineMupdf::RenderPage keeps the full-page matrix and an absolute
         // pixmap origin, preserving the same rasterization phase across tiles.
@@ -1254,37 +1365,63 @@ API unsigned char *lf_render_cancelable_at(void *opaque, int chapter, int index,
         }
         info[0] = bbox.x1-bbox.x0; info[1] = bbox.y1-bbox.y0; info[3] = alpha || style ? 4 : 3; info[2] = info[0]*info[3];
         out = malloc((size_t)info[2]*(size_t)info[1]);
-        if (!out) fz_throw(d->ctx, FZ_ERROR_GENERIC, "Cannot allocate page bitmap");
+        if (!out) fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot allocate page bitmap");
         // The supplied buffer remains malloc-owned. Translate MuPDF's util.c
         // render path to avoid a second full-size pixmap copy.
-        pix = fz_new_pixmap_with_bbox_and_data(d->ctx, fz_device_rgb(d->ctx), bbox, NULL, alpha || style, out);
-        if (alpha) fz_clear_pixmap(d->ctx, pix);
-        else fz_clear_pixmap_with_value(d->ctx, pix, 255);
+        pix = fz_new_pixmap_with_bbox_and_data(ctx, fz_device_rgb(ctx), bbox, NULL, alpha || style, out);
+        if (alpha) fz_clear_pixmap(ctx, pix);
+        else fz_clear_pixmap_with_value(ctx, pix, 255);
         if (style) {
-            page_display_list(d, chapter, index, cookie);
-            lf_run_pdf_colors(d->ctx, d->display_list, &d->color_analysis,
+            if (!list) list = page_display_list(d, d->render_chapter, d->render_index, cookie);
+            lf_run_pdf_colors(ctx, list, analysis,
                 box, page_area, ctm, scale, pix, style, colors, cookie);
         } else {
-            dev = fz_new_draw_device(d->ctx, ctm, pix);
+            dev = fz_new_draw_device(ctx, ctm, pix);
             // A natural chapter can contain the entire book. Draw its indexed
             // visible region directly; finite pages keep Sumatra's list cache.
-            if (!region || !fz_run_html_page_region(d->ctx, d->render_page, dev,
+            if (!region || !d || !fz_run_html_page_region(ctx, d->render_page, dev,
                     fz_identity, page_area, cookie)) {
-                page_display_list(d, chapter, index, cookie);
-                fz_run_display_list(d->ctx, d->display_list, dev, fz_identity, page_area, cookie);
+                if (!list) list = page_display_list(d, d->render_chapter, d->render_index, cookie);
+                fz_run_display_list(ctx, list, dev, fz_identity, page_area, cookie);
             }
-            if (cookie && cookie->abort) fz_throw(d->ctx, FZ_ERROR_ABORT, "Rendering cancelled");
-            fz_close_device(d->ctx, dev);
+            if (cookie && cookie->abort) fz_throw(ctx, FZ_ERROR_ABORT, "Rendering cancelled");
+            fz_close_device(ctx, dev);
         }
     }
-    fz_always(d->ctx) {
+    fz_always(ctx) {
         // EngineMupdf::UnhookAbortedDevices: an interrupted clip stack cannot
         // be closed. Drop it and its discarded output without a false error.
         if (cookie && cookie->abort && dev) dev->close_device = NULL;
-        fz_drop_device(d->ctx, dev); fz_drop_pixmap(d->ctx, pix);
+        fz_drop_device(ctx, dev); fz_drop_pixmap(ctx, pix);
     }
-    fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(out); return NULL; }
+    fz_catch(ctx) { snprintf(error, 512, "%s", fz_convert_error(ctx, NULL)); free(out); return NULL; }
     return out;
+}
+API unsigned char *lf_pdf_render_snapshot_image(void *opaque, int width,
+        const int *region, int alpha, const int *style, const uint32_t *colors,
+        void *opaque_cookie, int *info, char *error) {
+    PDFRenderSnapshot *snapshot = opaque;
+    fz_context *ctx = fz_clone_context(snapshot->ctx);
+    if (!ctx) { snprintf(error, 512, "Cannot clone PDF replay context"); return NULL; }
+    // Preparation completed all image/scan classification on the document
+    // owner. Replay shares that immutable device and only changes its bitmap.
+    fz_device *analysis = snapshot->analysis;
+    unsigned char *out = render_page_bitmap(ctx, snapshot->box, snapshot->list,
+        &analysis, NULL, width, region, alpha, style, colors, opaque_cookie, info, error);
+    fz_drop_context(ctx);
+    return out;
+}
+API unsigned char *lf_render_cancelable_at(void *opaque, int chapter, int index, int width,
+        const int *region, int alpha, const int *style, const uint32_t *colors, void *opaque_cookie, int *info, char *error) {
+    SumraMuPDFDocument *d = opaque;
+    fz_rect box;
+    fz_try(d->ctx) {
+        load_render_page(d, chapter, index, opaque_cookie);
+        box = fz_bound_page(d->ctx, d->render_page);
+    }
+    fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); return NULL; }
+    return render_page_bitmap(d->ctx, box, d->display_list, &d->color_analysis, d,
+        width, region, alpha, style, colors, opaque_cookie, info, error);
 }
 API char *lf_text_at(SumraMuPDFDocument *d, int chapter, int index, char *error) {
     fz_stext_page *text = NULL; fz_buffer *buffer = NULL; char *out = NULL;
@@ -1491,7 +1628,8 @@ API char *lf_outline(SumraMuPDFDocument *d, char *error) {
             lf_json(&j, ",\"target\":"); lf_json_string(&j, item->uri);
             lf_json(&j, ",\"depth\":"); lf_json_number(&j, depth);
             if (chaptered) {
-                int chapter = outline_chapter(d, item->uri);
+                int chapter = fz_htdoc_is_markdown(d->ctx, d->doc)
+                    ? item->page.chapter : outline_chapter(d, item->uri);
                 if (chapter >= 0) { lf_json(&j, ",\"chapter\":"); lf_json_number(&j, chapter); }
             } else if (item->uri && *item->uri && !fz_is_external_link(d->ctx, item->uri) &&
                        item->page.chapter == 0 && item->page.page >= 0) {
@@ -1730,10 +1868,11 @@ API char *lf_search_options_at(void *document, int chapter, int index, const cha
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(j.data); return NULL; }
     return lf_json_finish(&j, error);
 }
-typedef struct { uint32_t node, offset, part; } SumraSource;
+typedef struct { uint32_t node, offset, part; int chapter; } SumraSource;
 typedef struct { SumraJSON *json; SumraSource first, last; int source_enabled; } SumraSelectionWriter;
 static SumraSource source_of(fz_stext_char *ch) { return (SumraSource){ch->source_node, ch->source_offset, ch->source_part}; }
 static int source_less(SumraSource a, SumraSource b) {
+    if (a.chapter != b.chapter) return a.chapter < b.chapter;
     if (a.node != b.node) return a.node < b.node;
     if (a.offset != b.offset) return a.offset < b.offset;
     return a.part < b.part;
@@ -1743,12 +1882,18 @@ static void lf_json_source(SumraJSON *j, SumraSource source) {
     lf_json_u32(j, source.offset); lf_json(j, ","); lf_json_u32(j, source.part); lf_json(j, "]");
 }
 
+static void lf_json_markdown_source(SumraJSON *j, SumraSource source) {
+    lf_json(j, "["); lf_json_u32(j, source.node); lf_json(j, ",");
+    lf_json_u32(j, source.offset); lf_json(j, ","); lf_json_u32(j, source.part);
+    lf_json(j, ","); lf_json_number(j, source.chapter); lf_json(j, "]");
+}
+
 typedef struct {
     SumraSource first, last;
-    int begin_page;
+    int begin_page, begin_chapter;
     size_t source_index;
     fz_rect region;
-    int *pages;
+    fz_location *pages;
     size_t page_count, page_capacity;
     char *context;
 } MarkdownSearchHit;
@@ -1762,7 +1907,7 @@ typedef struct {
     fz_stext_char *last_char;
     int last_source_rune, last_char_after_assigned;
     size_t normalized_bytes, chunk_goal, maximum, source_units;
-    int sequence, requested, finished, backwards, counting, whole_word, start_page, wrap_only, inclusive;
+    int sequence, requested, finished, backwards, counting, whole_word, start_chapter, start_page, source_chapter, wrap_only, inclusive;
     SumraSource after, last_start;
     const uint8_t *allowed_bits;
     size_t allowed_bytes;
@@ -1772,8 +1917,11 @@ typedef struct {
 } MarkdownSearchState;
 /* Synthetic search characters keep the source ordinal and current laid-out
  * flow bounds alongside the Fitz character, without changing Fitz ownership. */
-typedef struct { fz_stext_char ch; size_t index; fz_rect region; } MarkdownSearchChar;
+typedef struct { fz_stext_char ch; size_t index; fz_rect region; int chapter; } MarkdownSearchChar;
 static fz_stext_page *region_stext_at(SumraMuPDFDocument *d, int chapter, int index, fz_rect region, fz_cookie *cookie);
+static SumraSource markdown_source_of(fz_stext_char *ch) {
+    SumraSource source = source_of(ch); source.chapter = ((MarkdownSearchChar *)ch)->chapter; return source;
+}
 static void markdown_json_index(SumraJSON *json, size_t index) {
     char value[32]; snprintf(value, sizeof value, "%zu", index); lf_json(json, value);
 }
@@ -1782,21 +1930,21 @@ static void markdown_drop_hit(fz_context *ctx, MarkdownSearchHit *hit) {
     fz_free(ctx, hit->pages); fz_free(ctx, hit->context);
     memset(hit, 0, sizeof(*hit));
 }
-static void markdown_hit_page(fz_context *ctx, MarkdownSearchHit *hit, int page) {
+static void markdown_hit_page(fz_context *ctx, MarkdownSearchHit *hit, int chapter, int page) {
     if (page < 0) return;
-    for (size_t i = 0; i < hit->page_count; ++i) if (hit->pages[i] == page) return;
+    for (size_t i = 0; i < hit->page_count; ++i) if (hit->pages[i].chapter == chapter && hit->pages[i].page == page) return;
     if (hit->page_count == hit->page_capacity) {
         size_t next = hit->page_capacity ? hit->page_capacity * 2 : 4;
-        hit->pages = fz_realloc_array(ctx, hit->pages, next, int); hit->page_capacity = next;
+        hit->pages = fz_realloc_array(ctx, hit->pages, next, fz_location); hit->page_capacity = next;
     }
-    hit->pages[hit->page_count++] = page;
+    hit->pages[hit->page_count++] = fz_make_location(chapter, page);
 }
 static int markdown_allowed(MarkdownSearchState *state, const MarkdownSearchHit *hit) {
     if (!state->allowed_bits) return 1;
     if (!hit->page_count) return 0;
-    size_t first = (size_t)hit->pages[0], last = first;
+    size_t first = fz_page_number_from_location(state->document->ctx, state->document->doc, hit->pages[0]), last = first;
     for (size_t i = 1; i < hit->page_count; ++i) {
-        size_t page = (size_t)hit->pages[i];
+        size_t page = fz_page_number_from_location(state->document->ctx, state->document->doc, hit->pages[i]);
         if (page < first) first = page;
         if (page > last) last = page;
     }
@@ -1839,14 +1987,14 @@ static void markdown_collect_match(MarkdownSearchState *state, const fz_search_m
         for (;;) {
             if (((++visited) & 1023) == 0 && state->cancelled && state->cancelled())
                 fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
-            if (ch->source_node) markdown_hit_page(ctx, &hit, (int)ch->argb);
+            if (ch->source_node) markdown_hit_page(ctx, &hit, ((MarkdownSearchChar *)ch)->chapter, (int)ch->argb);
             if ((ch->flags & MARKDOWN_PAINTED) && ch->source_node) {
                 if (!hit.first.node) {
-                    hit.first = source_of(ch); hit.begin_page = (int)ch->argb;
+                    hit.first = markdown_source_of(ch); hit.begin_page = (int)ch->argb; hit.begin_chapter = ((MarkdownSearchChar *)ch)->chapter;
                     hit.source_index = ((MarkdownSearchChar *)ch)->index;
                 }
                 hit.region = fz_union_rect(hit.region, ((MarkdownSearchChar *)ch)->region);
-                hit.last = source_of(ch);
+                hit.last = markdown_source_of(ch);
             }
             if (snippet->len < 240) fz_append_rune(ctx, snippet, ch->c);
             if (ch == match->end.ch && page == match->end.page) break;
@@ -1866,7 +2014,7 @@ static void markdown_collect_match(MarkdownSearchState *state, const fz_search_m
         hit.context = fz_strdup(ctx, fz_string_from_buffer(ctx, snippet));
         int primary = state->counting || (state->after.node
             ? (state->backwards ? source_less(hit.first, state->after) : source_less(state->after, hit.first))
-            : (state->backwards ? hit.begin_page <= state->start_page : hit.begin_page >= state->start_page));
+            : (state->backwards ? (hit.begin_chapter < state->start_chapter || (hit.begin_chapter == state->start_chapter && hit.begin_page <= state->start_page)) : (hit.begin_chapter > state->start_chapter || (hit.begin_chapter == state->start_chapter && hit.begin_page >= state->start_page))));
         if (state->after.node && state->inclusive && !source_less(hit.first, state->after) &&
             !source_less(state->after, hit.first)) primary = 1;
         markdown_keep_hit(state, &hit, primary);
@@ -1910,7 +2058,7 @@ static void markdown_append_char(MarkdownSearchState *state, const fz_html_searc
     if (!state->building) markdown_begin_chunk(state);
     MarkdownSearchChar *item = fz_pool_alloc(ctx, state->building->pool, sizeof(*item));
     memset(item, 0, sizeof(*item));
-    item->index = state->source_units;
+    item->index = state->source_units; item->chapter = source->chapter;
     item->region = fz_make_rect(-INFINITY, source->text_y0, INFINITY, source->text_y1);
     fz_stext_char *ch = &item->ch;
     ch->c = source->unicode; ch->source_node = source->source_node;
@@ -1942,6 +2090,10 @@ static void markdown_feed_chunk(MarkdownSearchState *state) {
 static int markdown_search_source_char(fz_context *ctx, void *opaque, const fz_html_search_char *source) {
     MarkdownSearchState *state = opaque;
     if (state->finished) return 1;
+    if (state->source_chapter != source->chapter) {
+        state->source_chapter = source->chapter;
+        state->source_units = 0;
+    }
     /* MuPDF's default page flattening removes authored soft hyphens. */
     if (source->unicode == 0xad) { ++state->source_units; return 0; }
     if (state->last_char && !state->last_char_after_assigned) {
@@ -1963,16 +2115,16 @@ static int markdown_search_source_char(fz_context *ctx, void *opaque, const fz_h
 static void markdown_write_hit(SumraMuPDFDocument *d, SumraJSON *json, const MarkdownSearchHit *hit,
                                int (*cancelled)(void)) {
     fz_context *ctx = d->ctx;
-    int emitted = 0, owner_page = -1;
+    int emitted = 0, owner_page = -1, owner_chapter = -1;
     size_t owner_index = 0;
     int continuous = d->doc->layout_h == 0;
-    SumraSource last = {hit->last.node, hit->last.offset, UINT32_MAX};
-    lf_json(json, "{\"source\":"); lf_json_source(json, hit->first);
+    SumraSource last = {hit->last.node, hit->last.offset, UINT32_MAX, hit->last.chapter};
+    lf_json(json, "{\"source\":"); lf_json_markdown_source(json, hit->first);
     lf_json(json, ",\"context\":"); lf_json_string(json, hit->context ? hit->context : "");
     lf_json(json, ",\"fragments\":[");
     for (size_t i = 0; i < hit->page_count; ++i) {
         if (cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
-        int page_number = hit->pages[i];
+        int page_number = hit->pages[i].page, chapter = hit->pages[i].chapter;
         fz_stext_page *page = NULL;
         fz_buffer *buffer = NULL;
         fz_stext_position *map = NULL;
@@ -1980,8 +2132,8 @@ static void markdown_write_hit(SumraMuPDFDocument *d, SumraJSON *json, const Mar
         fz_try(ctx) {
             /* One continuous Markdown page can contain the entire book. Only
              * extract the hit's existing flow regions; never fill the page cache. */
-            page = continuous ? region_stext_at(d, 0, page_number, hit->region, NULL)
-                : stext_at(d, 0, page_number, NULL, NULL);
+            page = continuous ? region_stext_at(d, chapter, page_number, hit->region, NULL)
+                : stext_at(d, chapter, page_number, NULL, NULL);
             size_t start = SIZE_MAX;
             if (!continuous) {
                 // Paginated navigation still uses the first fragment's real
@@ -1996,7 +2148,7 @@ static void markdown_write_hit(SumraMuPDFDocument *d, SumraJSON *json, const Mar
                     int rune, bytes = fz_chartorune(&rune, text + at);
                     fz_stext_char *ch = map[serial].ch;
                     if (ch && ch->source_node) {
-                        SumraSource source = source_of(ch);
+                        SumraSource source = source_of(ch); source.chapter = chapter;
                         if (!source_less(source, hit->first) && !source_less(last, source)) {
                             start = utf16;
                             break;
@@ -2008,7 +2160,8 @@ static void markdown_write_hit(SumraMuPDFDocument *d, SumraJSON *json, const Mar
             int source_present = start != SIZE_MAX;
             size_t fragment_start = json->len;
             if (emitted) lf_json(json, ",");
-            lf_json(json, "{\"page\":"); lf_json_number(json, page_number);
+            lf_json(json, "{\"chapter\":"); lf_json_number(json, chapter);
+            lf_json(json, ",\"page\":"); lf_json_number(json, page_number);
             lf_json(json, ",\"rects\":[");
             int rectangles = 0;
             size_t visited = 0;
@@ -2019,7 +2172,7 @@ static void markdown_write_hit(SumraMuPDFDocument *d, SumraJSON *json, const Mar
                         if (((++visited) & 1023) == 0 && cancelled && cancelled())
                             fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
                         if (!ch->source_node) continue;
-                        SumraSource source = source_of(ch);
+                        SumraSource source = source_of(ch); source.chapter = chapter;
                         if (source_less(source, hit->first) || source_less(last, source)) continue;
                         // util.c::do_flatten drops soft hyphens and a joined
                         // line's final character. Presence is independent of
@@ -2035,7 +2188,7 @@ static void markdown_write_hit(SumraMuPDFDocument *d, SumraJSON *json, const Mar
             lf_json(json, "]}");
             if (source_present) {
                 ++emitted;
-                if (owner_page < 0) { owner_page = page_number; owner_index = continuous ? hit->source_index : start; }
+                if (owner_page < 0) { owner_page = page_number; owner_chapter = chapter; owner_index = continuous ? hit->source_index : start; }
             } else if (!json->failed) {
                 // Discard a fragment with no flattened source, using the output
                 // buffer already owned by this result instead of a second one.
@@ -2047,14 +2200,15 @@ static void markdown_write_hit(SumraMuPDFDocument *d, SumraJSON *json, const Mar
         fz_catch(ctx) { fz_rethrow(ctx); }
         if (json->failed) fz_throw(ctx, FZ_ERROR_SYSTEM, "Cannot allocate Markdown search results");
     }
-    lf_json(json, "],\"page\":"); lf_json_number(json, owner_page);
+    lf_json(json, "],\"chapter\":"); lf_json_number(json, owner_chapter);
+    lf_json(json, ",\"page\":"); lf_json_number(json, owner_page);
     if (!emitted) fz_throw(ctx, FZ_ERROR_FORMAT, "Markdown search source has no rendered fragment");
     lf_json(json, ",\"index\":"); markdown_json_index(json, owner_index);
     lf_json(json, "}");
 }
 
 API char *lf_markdown_document_search(void *opaque, const char *needle, int flags,
-    int start_page, uint32_t after_node, uint32_t after_offset, uint32_t after_part,
+    int start_chapter, int start_page, int after_chapter, uint32_t after_node, uint32_t after_offset, uint32_t after_part,
     int64_t maximum, const uint8_t *allowed_bits, size_t allowed_bytes,
     int (*cancelled)(void), char *error) {
     SumraMuPDFDocument *d = opaque;
@@ -2073,8 +2227,8 @@ API char *lf_markdown_document_search(void *opaque, const char *needle, int flag
         state.inclusive = (flags & 16) != 0;
         state.backwards = !state.counting && (flags & 4) != 0;
         state.whole_word = (flags & 2) != 0;
-        state.start_page = start_page;
-        state.after = (SumraSource){after_node, after_offset, after_part};
+        state.start_chapter = start_chapter; state.start_page = start_page;
+        state.after = (SumraSource){after_node, after_offset, after_part, after_chapter};
         state.allowed_bits = allowed_bits; state.allowed_bytes = allowed_bytes;
         state.cancelled = cancelled;
         state.maximum = (size_t)maximum;
@@ -2086,7 +2240,7 @@ API char *lf_markdown_document_search(void *opaque, const char *needle, int flag
         size_t needle_bytes = fz_search_needle_bytes(state.search);
         state.chunk_goal = needle_bytes > 32768 ? needle_bytes : 32768;
         if (needle_bytes) {
-            int suffix = !state.counting && !state.backwards && !state.after.node && start_page > 0;
+            int suffix = !state.counting && !state.backwards && (start_chapter > 0 || start_page > 0);
             for (int pass = 0; pass < (suffix ? 2 : 1); ++pass) {
                 if (pass) {
                     /* Suffix wrap hits are not authoritative: an earlier
@@ -2106,7 +2260,7 @@ API char *lf_markdown_document_search(void *opaque, const char *needle, int flag
                     state.chunker = fz_new_search_chunker(d->ctx, state.search);
                 }
                 if (suffix && !pass)
-                    fz_htdoc_walk_search_source_from_page(d->ctx, d->doc, start_page,
+                    fz_htdoc_walk_search_source_from_page(d->ctx, d->doc, start_chapter, start_page,
                         markdown_search_source_char, &state, cancelled);
                 else
                     fz_htdoc_walk_search_source(d->ctx, d->doc, markdown_search_source_char, &state, cancelled);
@@ -2130,6 +2284,12 @@ API char *lf_markdown_document_search(void *opaque, const char *needle, int flag
             if (i) lf_json(&json, ",");
             size_t at = state.backwards ? count - i - 1 : i;
             markdown_write_hit(d, &json, &hits[at], cancelled);
+        }
+        lf_json(&json, "],\"chapterPages\":[");
+        int chapters = fz_count_chapters(d->ctx, d->doc);
+        for (int i = 0; i < chapters; ++i) {
+            if (i) lf_json(&json, ",");
+            lf_json_number(&json, fz_htdoc_chapter_pages_known(d->ctx, d->doc, i));
         }
         lf_json(&json, "]}");
         if (json.failed) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate Markdown search results");
@@ -2495,26 +2655,32 @@ API char *lf_select_anchors_at(void *opaque, int chapter, int index,
     return lf_json_finish(&j, error);
 }
 API char *lf_html_source_selection_text(void *opaque,
-    const uint32_t *nodes, const uint32_t *offsets, const uint32_t *parts,
+    const int32_t *chapters, const uint32_t *nodes, const uint32_t *offsets, const uint32_t *parts,
     const int32_t *unicode, int count, char *error) {
     SumraMuPDFDocument *d = opaque;
     fz_html_selection_char *chars = NULL;
     fz_buffer *buffer = NULL; SumraJSON j = {0};
     fz_var(chars); fz_var(buffer); fz_var(j);
     fz_try(d->ctx) {
-        if (count < 0 || (count && (!nodes || !offsets || !parts || !unicode)))
+        if (count < 0 || (count && (!chapters || !nodes || !offsets || !parts || !unicode)))
             fz_throw(d->ctx, FZ_ERROR_ARGUMENT, "Invalid Markdown source selection");
         if (!lf_has_html_source(d)) fz_throw(d->ctx, FZ_ERROR_ARGUMENT, "Document has no HTML source anchors");
         chars = count ? fz_malloc_array(d->ctx, count, fz_html_selection_char) : NULL;
         for (int i = 0; i < count; ++i) {
-            if (!nodes[i] || unicode[i] < 0 || unicode[i] > 0x10ffff ||
-                (i && (nodes[i] < nodes[i-1] || (nodes[i] == nodes[i-1] &&
-                    (offsets[i] < offsets[i-1] || (offsets[i] == offsets[i-1] && parts[i] < parts[i-1]))))))
+            if (chapters[i] < 0 || !nodes[i] || unicode[i] < 0 || unicode[i] > 0x10ffff ||
+                (i && (chapters[i] < chapters[i-1] || (chapters[i] == chapters[i-1] && (nodes[i] < nodes[i-1] || (nodes[i] == nodes[i-1] &&
+                    (offsets[i] < offsets[i-1] || (offsets[i] == offsets[i-1] && parts[i] < parts[i-1]))))))))
                 fz_throw(d->ctx, FZ_ERROR_ARGUMENT, "Invalid Markdown source selection order");
             chars[i] = (fz_html_selection_char){ nodes[i], offsets[i], parts[i], unicode[i] };
         }
         buffer = fz_new_buffer(d->ctx, 256);
-        fz_htdoc_source_selection_text(d->ctx, d->doc, chars, count, buffer);
+        for (int first = 0; first < count;) {
+            int after = first + 1;
+            while (after < count && chapters[after] == chapters[first]) ++after;
+            if (first) fz_append_byte(d->ctx, buffer, '\n');
+            fz_htdoc_source_selection_text(d->ctx, d->doc, chapters[first], chars + first, after - first, buffer);
+            first = after;
+        }
         fz_terminate_buffer(d->ctx, buffer);
         lf_json(&j, "{\"text\":"); lf_json_string(&j, fz_string_from_buffer(d->ctx, buffer)); lf_json(&j, "}");
     }

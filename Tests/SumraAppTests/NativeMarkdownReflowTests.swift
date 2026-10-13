@@ -86,7 +86,8 @@ final class NativeMarkdownReflowTests: XCTestCase {
         let pages = try Pages(markdown, format: .markdown, deferReflowLayout: true)
         let firstLayout = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 0,
                                                   font: "system", theme: "light", textZoom: 6)
-        let enlarged = try XCTUnwrap(firstLayout)
+        XCTAssertNotNil(firstLayout)
+        let enlarged = try await pages.ensureFullLayout().totalPages
         XCTAssertGreaterThan(enlarged, eager.count, "The first reader layout must use its requested text size")
         let count = await pages.count
         XCTAssertEqual(count, enlarged)
