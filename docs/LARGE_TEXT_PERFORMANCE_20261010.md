@@ -1134,3 +1134,31 @@ acceptance of the replacement Action-signed bytes before publication.
 The replacement batch's complete local run passed 101 core tests, 885 app tests
 and 58 packaging behavior checks. Local-link coverage observes the first page
 publication, so later rendering cannot hide an initially provisional facing row.
+
+The replacement Action draft `ea47085` was also rejected during wide-window
+acceptance. Its first B04 draw took 1.074 s, initial layout 0.571 s, and three
+mode changes preserved the same 512 AX characters with only four total layouts.
+Legacy 0.2.3 passage content matched after normalizing one soft line break.
+However, idle sampling found background MuPDF tile rendering: the final receipt
+contains 103,464 prediction starts and 103,463 completions with no further
+layout. A 1.68 s idle sample used 0.972 s of user CPU. Larger windows alone do
+not explain this repeated work.
+
+A short chapter-tail tile in the next viewport was immediately discarded by
+the ordinary cache's neighboring-tile margin. Completion requested a redraw,
+which predicted that missing tile again. Cache retention now includes the
+existing next-viewport prediction region under the same 64 MB budget. A
+wide-tail mounted regression retains the identical completed bitmap through
+repeated idle paints; restoring the old condition makes it fail. All 11 focused
+prediction checks, including promotion and the EPUB seam, pass. The unused
+write-only prediction viewport field and its obsolete assertions were removed.
+
+The same local reader also exercised the original 51.61 MB TXT: Single → Two
+Pages → Continuous preserved 512 characters, search advanced 2/3 → 3/3 → 2/3,
+Contents jumped to a recognized chapter, and continuous scroll followed by a
+fresh process restored the same 512 characters and page 224549. Physical
+footprint after opening was 239 MB (474 MB process-lifetime maximum), and after
+mode changes 249 MB (516 MB lifetime maximum). TextKit's estimated scroll extent
+changed on reopening; source content and page restoration are the checked
+reading-position contract. These are local observations, separate from the
+final replacement Action package's acceptance.

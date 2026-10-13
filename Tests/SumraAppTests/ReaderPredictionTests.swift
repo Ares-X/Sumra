@@ -219,7 +219,7 @@ final class ReaderPredictionTests: XCTestCase {
     private func canvas(for location: PageLocation, in view: NSView?) -> NSView? {
         guard let view else { return nil }
         if field("location", in: view) as? PageLocation == location,
-           field("tilePredictionViewport", in: view) != nil { return view }
+           field("tileImages", in: view) != nil { return view }
         for child in view.subviews {
             if let result = canvas(for: location, in: child) { return result }
         }
@@ -328,7 +328,6 @@ final class ReaderPredictionTests: XCTestCase {
         try await waitFor(host, state: state) {
             guard let canvas = state.readerFocusView else { return false }
             return RasterReader.pageIsRendered(in: canvas, pages: pages, location: .init(page: 0)) &&
-                unwrapped(field("tilePredictionViewport", in: canvas)) != nil &&
                 ((field("tileImages", in: canvas) as? [RasterLayout.Tile: CGImage])?.count ?? 0) >= 2
         }
         let canvas = try XCTUnwrap(state.readerFocusView)
@@ -407,6 +406,71 @@ final class ReaderPredictionTests: XCTestCase {
         XCTAssertNil(state.error)
     }
 
+    func testWideNaturalViewportRetainsItsPredictedChapterTailAtIdle() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let input = directory.url.appendingPathComponent("prediction-tail.html")
+        let paragraphs = (0..<160).map { "<p>Passage \($0): Warm the chapter tail once and keep its pixels for the next viewport.</p>" }.joined()
+        try ("<html><body>" + paragraphs + "</body></html>").write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .html), state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.reflowable = true; state.searchable = true; state.automaticLayout = false
+        state.flow = "continuous"; state.fit = "width"; state.spread = false
+        state.fontSize = 17; state.lineHeight = 1.4; state.font = "serif"; state.theme = "light"; state.margin = 24
+        state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
+        state.freePan = false; state.trimEmptyMargins = false; state.uniformPageWidth = false
+        state.landscapeAsSpread = false; state.scrollbarMode = "hidden"
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 24, font: "serif", theme: "light",
+                                     pageSize: CGSize(width: 1728, height: 0))
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1728, height: 984),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer {
+            state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+            withExtendedLifetime(directory) {}
+        }
+        try await waitFor(host, state: state) {
+            RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: 0))
+        }
+        let canvas = try XCTUnwrap(state.readerFocusView), scroll = try XCTUnwrap(state.readerScrollView)
+        let page = try XCTUnwrap(field("pageBounds", in: canvas) as? CGRect)
+        // Leave a short final strip beyond the next full viewport. Its own
+        // height is too small for the ordinary neighboring-tile cache margin.
+        let rows = floor(page.height / 984)
+        XCTAssertGreaterThan(rows, 2)
+        let viewportHeight = floor(page.height / (rows + 0.125))
+        window.setContentSize(CGSize(width: 1728, height: viewportHeight))
+        try await waitFor(host, state: state) {
+            scroll.contentView.bounds.height == viewportHeight &&
+                RasterReader.pageIsRendered(in: canvas, pages: pages, location: .init(page: 0))
+        }
+        let width = try XCTUnwrap(field("pixelWidth", in: canvas) as? Int)
+        let maximum = try XCTUnwrap(unwrapped(field("viewportTileSize", in: canvas)) as? CGSize)
+        let resolution = try XCTUnwrap(field("tileResolution", in: canvas) as? Int)
+        let pixels = CGFloat(width) / page.width, stripHeight = floor(maximum.height)
+        let finalStart = floor((ceil(page.height * pixels) - 1) / stripHeight) * stripHeight / pixels
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: finalStart - viewportHeight * 1.25))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let tail = try XCTUnwrap(RasterLayout.tiles(bounds: page, pixelWidth: width, resolution: resolution,
+            visible: CGRect(x: page.minX, y: page.maxY - 1, width: page.width, height: 1), maximumSize: maximum).last)
+        XCTAssertLessThan(CGFloat(tail.height) / pixels, viewportHeight / 4)
+        try await waitFor(host, state: state) {
+            (field("tileImages", in: canvas) as? [RasterLayout.Tile: CGImage])?[tail] != nil &&
+                unwrapped(field("tilePredictionTask", in: canvas)) == nil
+        }
+        let bitmap = try XCTUnwrap((field("tileImages", in: canvas) as? [RasterLayout.Tile: CGImage])?[tail])
+        for _ in 0..<25 {
+            paint(host)
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue((field("tileImages", in: canvas) as? [RasterLayout.Tile: CGImage])?[tail] === bitmap,
+                      "Idle drawing must retain the completed prediction instead of rendering and evicting it again")
+        XCTAssertNil(unwrapped(field("tilePredictionTask", in: canvas)))
+        XCTAssertNil(state.error)
+    }
+
     func testEPUBSeamPredictsOnlyFromPaintedDirectionEdgeAndKeepsVisibleHosts() async throws {
         let engine = try NativeFile.libraryURL(for: .mupdf)
         guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine is required") }
@@ -456,19 +520,17 @@ final class ReaderPredictionTests: XCTestCase {
         }
         let firstCanvas = try XCTUnwrap(canvas(for: firstLocation, in: scroll.documentView))
         let secondCanvas = try XCTUnwrap(canvas(for: secondLocation, in: scroll.documentView))
-        XCTAssertNotEqual(unwrapped(field("tilePredictionViewport", in: firstCanvas)) as? CGRect,
-                          firstCanvas.visibleRect,
+        XCTAssertNil(unwrapped(field("tilePredictionTask", in: firstCanvas)),
                           "The painted first chapter must not predict for the seam before the other visible chapter")
-        XCTAssertNil(unwrapped(field("tilePredictionViewport", in: secondCanvas)))
+        XCTAssertNil(unwrapped(field("tilePredictionTask", in: secondCanvas)))
         release.signal(); await blocked.value
         try await waitFor(host, state: state) {
             let firstReady = RasterReader.pageIsRendered(in: firstCanvas, pages: pages, location: firstLocation)
             let secondReady = RasterReader.pageIsRendered(in: secondCanvas, pages: pages, location: secondLocation)
-            let predicted = unwrapped(field("tilePredictionViewport", in: secondCanvas))
-            return firstReady && secondReady && predicted != nil
+            let tiles = field("tileImages", in: secondCanvas) as? [RasterLayout.Tile: CGImage]
+            return firstReady && secondReady && (tiles?.count ?? 0) >= 2
         }
-        XCTAssertNotEqual(unwrapped(field("tilePredictionViewport", in: firstCanvas)) as? CGRect,
-                          firstCanvas.visibleRect,
+        XCTAssertNil(unwrapped(field("tilePredictionTask", in: firstCanvas)),
                           "Only the forward edge chapter should warm its next viewport")
         let secondTiles = try XCTUnwrap(field("tileImages", in: secondCanvas) as? [RasterLayout.Tile: CGImage])
         let painted = try XCTUnwrap(secondTiles.min(by: { $0.key.y < $1.key.y }))
