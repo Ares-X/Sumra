@@ -4370,7 +4370,6 @@ struct NativeReadingAccessibilitySnapshot {
         private var tileTasks = [RasterLayout.Tile: Task<Void, Never>]()
         private var tilePredictionTask: Task<Void, Never>?
         private var tilePredictionPriority: ReaderRenderPriority?
-        private var tilePredictionViewport: CGRect?
         private var tilePredictionTile: RasterLayout.Tile?
         private var tilePredictionDirection = 1
         fileprivate var scrollRequest: Binding<RasterScrollRequest?>?
@@ -4669,7 +4668,7 @@ struct NativeReadingAccessibilitySnapshot {
                 previousTiles = (tileKey, tileImages, paintedTileGeometry.transform, paintedTileGeometry.origin)
             } else if !retainingOutput { previousTiles = nil }
             for task in tileTasks.values { task.cancel() }
-            tilePredictionTask = nil; tilePredictionPriority = nil; tilePredictionViewport = nil; tilePredictionTile = nil
+            tilePredictionTask = nil; tilePredictionPriority = nil; tilePredictionTile = nil
             tileTasks.removeAll(); tileImages.removeAll(); paintedTiles.removeAll(); tileKey = nil
             paintedTileGeometry = nil
             if viewportTileSize != nil { readingReady = false; traceFirstPaint = true }
@@ -4698,6 +4697,7 @@ struct NativeReadingAccessibilitySnapshot {
             let visible = visibleRect.applying(pageTransform.inverted())
             let requested = RasterLayout.tiles(bounds: pageBounds, pixelWidth: pixelWidth, resolution: tileResolution, visible: visible, maximumSize: viewportTileSize)
             let wanted = Set(requested)
+            let predicted = viewportTileSize == nil ? Set<RasterLayout.Tile>() : Set(predictionTiles(direction: tilePredictionDirection))
             // RenderCache::RequestRendering preserves the same tile request as
             // it enters the viewport; pixel scrolling does not change its key.
             if let tile = tilePredictionTile,
@@ -4712,13 +4712,15 @@ struct NativeReadingAccessibilitySnapshot {
                 .applying(CGAffineTransform(scaleX: pixelScale, y: pixelScale))
             // RenderCache::FreeNotVisible / IsTileVisible(fuzz: 2): keep
             // completed neighboring tiles so a short reverse scroll reuses them.
+            // Keep the predicted viewport too: a short chapter-tail tile can
+            // lie beyond its own one-tile margin and otherwise be evicted here.
             // Bound retained pixels by bytes, without evicting visible output.
             var bytes = tileImages.reduce(0) { $0 + (wanted.contains($1.key) ? $1.value.bytesPerRow * $1.value.height : 0) }
             tileImages = tileImages.filter { tile, image in
                 if wanted.contains(tile) { return true }
                 let cost = image.bytesPerRow * image.height
                 guard !visible.isEmpty, bytes + cost <= 64 * 1024 * 1024,
-                      (viewportTileSize == nil && tileResolution == 1) || tile.rect.insetBy(dx: -CGFloat(tile.width), dy: -CGFloat(tile.height)).intersects(pixels) else { return false }
+                      predicted.contains(tile) || (viewportTileSize == nil && tileResolution == 1) || tile.rect.insetBy(dx: -CGFloat(tile.width), dy: -CGFloat(tile.height)).intersects(pixels) else { return false }
                 bytes += cost
                 return true
             }
@@ -4752,7 +4754,7 @@ struct NativeReadingAccessibilitySnapshot {
         }
         private func cancelTilePrediction() {
             if let tile = tilePredictionTile { tileTasks.removeValue(forKey: tile)?.cancel() }
-            tilePredictionTask = nil; tilePredictionPriority = nil; tilePredictionViewport = nil; tilePredictionTile = nil
+            tilePredictionTask = nil; tilePredictionPriority = nil; tilePredictionTile = nil
         }
         func updatePredictionDirection(_ direction: Int) {
             tilePredictionDirection = direction
@@ -4770,7 +4772,7 @@ struct NativeReadingAccessibilitySnapshot {
             guard let tile = candidates.first(where: { tileImages[$0] == nil && tileTasks[$0] == nil }) else { return }
             let bytes = tileImages.values.reduce(0) { $0 + $1.bytesPerRow * $1.height }
             guard bytes + tile.width * tile.height * 4 <= 64 * 1024 * 1024 else { return }
-            tilePredictionViewport = visibleRect; tilePredictionTile = tile; tilePredictionDirection = direction
+            tilePredictionTile = tile; tilePredictionDirection = direction
             let documentID = state.document?.id
             let priority = ReaderRenderPriority(visible: false)
             tilePredictionPriority = priority
