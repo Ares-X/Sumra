@@ -2064,7 +2064,7 @@ private struct RasterScrollRequest: Equatable {
 
     var body: some View {
         GeometryReader { geometry in
-            let pageViewport = liveResizeViewport ?? (viewport.width > 0 && viewport.height > 0 ? viewport : geometry.size)
+            let pageViewport = liveResizeViewport ?? (readingViewport.width > 0 && readingViewport.height > 0 ? readingViewport : geometry.size)
             ZStack {
                 background
                 if state.count > 0 {

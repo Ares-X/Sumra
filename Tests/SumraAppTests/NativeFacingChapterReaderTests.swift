@@ -30,7 +30,7 @@ final class NativeFacingChapterReaderTests: XCTestCase {
         state.updatePosition(.init(anchor: "1:0"))
         let preferences = ["flow", "spread"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         let host = NSHostingView(rootView: ReaderView(state: state))
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 790, height: 861),
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1728, height: 984),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer {
@@ -40,6 +40,15 @@ final class NativeFacingChapterReaderTests: XCTestCase {
         }
         func painted(_ location: PageLocation, in view: NSView) -> Bool {
             RasterReader.pageIsRendered(in: view, pages: pages, location: location) || view.subviews.contains { painted(location, in: $0) }
+        }
+        func canvas(_ location: PageLocation, in view: NSView) -> NSView? {
+            if Mirror(reflecting: view).children.first(where: { $0.label == "location" })?.value as? PageLocation == location { return view }
+            return view.subviews.lazy.compactMap { canvas(location, in: $0) }.first
+        }
+        func image(_ view: NSView) -> CGImage? {
+            guard let value = Mirror(reflecting: view).children.first(where: { $0.label == "image" })?.value,
+                  let bitmap = Mirror(reflecting: value).children.first?.value else { return nil }
+            return (bitmap as! CGImage)
         }
         var stage = "initial"
         func settle(chapter: Int = 1) async throws {
@@ -74,6 +83,10 @@ final class NativeFacingChapterReaderTests: XCTestCase {
             let table = await pages.chapterLayout
             XCTAssertFalse(table.isLaidOut(3), "Visible reading must not automatically count the whole Markdown book")
             let revision = await pages.layoutRevision
+            let locations = state.continuousReflow ? [] : state.visiblePages.map { state.pageLocation($0) }
+            let bitmaps = try locations.map { location in
+                try XCTUnwrap(image(XCTUnwrap(canvas(location, in: host))), "Every facing page must finish drawing")
+            }
             for _ in 0..<50 {
                 host.layoutSubtreeIfNeeded()
                 if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
@@ -81,8 +94,16 @@ final class NativeFacingChapterReaderTests: XCTestCase {
             }
             let after = await pages.layoutRevision
             XCTAssertEqual(after, revision, "An unchanged reader frame must not feed fitted scrollbar geometry back into pagination")
+            for (location, bitmap) in zip(locations, bitmaps) {
+                let view = try XCTUnwrap(canvas(location, in: host))
+                XCTAssertTrue(painted(location, in: view), "Every facing page must remain ready at idle")
+                XCTAssertTrue(image(view) === bitmap, "Idle paints must reuse the bitmap instead of cycling the fitted viewport and rendering again")
+            }
             XCTAssertNil(state.error)
         }
+        stage = "sidebar-width"
+        window.setContentSize(CGSize(width: 1433, height: 984))
+        try await settle()
         let beforeLink = await pages.chapterLayout
         XCTAssertFalse(beforeLink.isLaidOut(2), "The skipped predecessor must still be lazy before following the link")
         XCTAssertFalse(beforeLink.isLaidOut(3))
