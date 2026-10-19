@@ -29,7 +29,7 @@ or a completed per-book foreground GUI sweep.
 | Contents | The Contents command completes for all 25. The first nonempty destination is exercised in each of the 24 books with entries. The remaining TXT has an empty outline, which is expected. This does not validate every Contents destination. |
 | Whole-book Find and result selection | All 21 text-bearing non-comic books complete a query and have a selected result. Completion means counting has ended at the reader's existing result limit; a displayed `999+` is not an exact count of every occurrence. The fixed image EPUB completes the absent-query check at `0 / 0` with no selected result, as expected for its sampled image-only source. Comics have no text-search acceptance claim. |
 | Every comic page | `workflows.comics.json` records successful nonempty image decoding at requested width 800 for all **4,942/4,942** pages: 2,100 + 829 + 2,013. This is an internal Pages decode pass, not full-resolution visual comparison or every-page foreground painting. |
-| Original integrity | `originals-after.json` records all 25 originals unchanged against the inventory. The workflow receipts also retain before/after size and modification-time checks. |
+| Original integrity | `originals-after.json` and the final post-GUI `originals-final.json` record all 25 originals unchanged against the inventory. The workflow receipts also retain before/after size and modification-time checks. |
 
 The hidden XCTest CHM host required `browserIsDisplaying` to inspect the loaded
 DOM, document readiness, fonts and requested topic before advancing. A WebKit
@@ -43,10 +43,68 @@ scrolling measurements are documented in the
 
 Private filenames, queries, source text and detailed measurements remain in
 ignored receipts under `build/corpus-20261019/`. This section accepts the
-recorded source-build/local QA layers. Per-book real GUI work is still in
-progress; GUI acceptance of the exact signed CI candidate remains pending.
-No publication, full CI-candidate GUI sweep, exhaustive page/text fidelity,
-physical trackpad frame rate or whole-app memory budget is claimed here.
+recorded source-build/local QA layers. The subsequent optimized GUI sweep
+completed all 25 books with applicable page/chapter movement, continuous
+scrolling and Contents controls. The single-source-chapter MOBI used scrolling;
+CHM cross-topic navigation was checked separately through Find Next. Its executable
+UUID is `A6B0C231-B185-378B-BEB0-5A79D51F6621`; receipts are in
+`gui-all-books.json`. Exact signed-candidate checks and delivery are recorded
+separately below. Exhaustive page/text fidelity, physical trackpad frame rate and
+a whole-app memory budget remain unmeasured.
+
+## Signed 0.2.5 candidate acceptance (2026-10-20)
+
+The [candidate Action](https://github.com/Ares-X/Sumra/actions/runs/39279539057)
+built source `e81c567151edcbaab612c605f02a6dd131ed9542`. The downloaded app
+loads executable UUID `96EDC528-635F-31DA-A118-91CCF536565F`. Strict bundle
+signing, the existing certificate, Sparkle Ed25519 update signature and all
+181 application-file hashes match the candidate provenance. The full corresponding
+source archive matches all 13,440 file hashes/modes and 17 symbolic links;
+417 project files also match the recorded Git source commit. All package
+checksums pass. All nine Mach-O
+files support arm64 with minimum system versions no newer than macOS 13.
+Actual runtime checks use macOS 27.0.1 on an M3 Max; physical macOS 13 remains
+unexercised. Distribution remains self-signed and nonnotarized.
+
+The exact unmodified candidate passed real GUI checks with all three original
+comics, a PDF, EPUB, MOBI, CHM, the 21 MB Markdown and 51 MB TXT. These cover
+unread comic scrolling and prediction, page/chapter movement, Contents controls,
+EPUB Find (`1 / 5` to `2 / 5`), MOBI Find (`1 / 11` to `2 / 11`), and completed
+CHM Find selecting topic 3 followed by movement to topic 4. These nine books
+exercise the changed rendering/search owners and the other format owners;
+they supplement the separate 25-book optimized GUI sweep above. They are not
+a second 25-book GUI sweep on the CI binary. Candidate receipts are in ignored
+`candidate-gui.json`, `ci-unread-paints.json` and `gui.ndjson`.
+
+User preferences were exported before candidate QA and restored after quitting
+it. The exact previous public 0.2.4 app was restored for the online update check.
+
+[0.2.5 is public](https://github.com/Ares-X/Sumra/releases/tag/v0.2.5).
+The [publication invocation](https://github.com/Ares-X/Sumra/actions/runs/39284751624)
+promoted the same six accepted assets. All six were then downloaded anonymously
+and passed their checksums; the public feed is byte-identical to the accepted
+appcast, and the public app archive passes its Sparkle signature. The accepted
+`SHA256SUMS` digest is
+`51c9dd131621b5283e04479292b64692006e5f6ab3955fce457a319c8666c74f`.
+
+A real public 0.2.4 client checked for updates, downloaded, installed and
+relaunched as **0.2.5 (7)** through Sparkle. All 181 installed files and five
+symlinks match the accepted candidate; a live process sample confirms the same
+executable UUID. The upgraded canonical app opened the original comic at page
+382; its cold solid-block seek painted in 2.283 seconds. Subsequent scrolling
+painted the new neighboring page 384 in 65 ms. It was left at the original
+reported page 382. These observations retain the initial solid-seek cost rather
+than treating it as a cache hit. All 25 original files again match inventory
+size, nanosecond modification time and SHA-256 after the full QA sweeps.
+
+Source validation includes 103 Core tests and 58 packaging checks. The full
+901-case app run had four opt-in skips and one failure from old CHM test-only
+debug writes into a retired artifact directory. Those writes were removed and
+the affected real print test passed on recheck; the original failure log is
+retained. Focused archive, shared rendering, prediction, native PDF lifetime and
+content-bounds, and ebook reflow/search checks passed. Optimized release build,
+Swift parsing and the three reader JavaScript syntax checks also passed. These
+checks are separate from the signed-candidate GUI and actual upgrade evidence.
 
 ## Published 0.2.2 Actions acceptance (2026-10-11)
 
