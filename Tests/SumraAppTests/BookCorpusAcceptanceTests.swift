@@ -93,16 +93,19 @@ final class BookCorpusAcceptanceTests: XCTestCase {
         result["initialCount"] = state.count
         var observations = [[String: Any]](), sampledText = ""
         for fraction in [0.0, 0.5, 1.0] {
-            // Lazy EPUB counts contain provisional pages. Resolve the final
-            // chapter before requesting its actual final page.
-            if fraction == 1, case .pages(let pages) = state.document?.content {
+            var target = Int(Double(max(0, state.count - 1)) * fraction)
+            // A lazy book's global midpoint may still lie in its first laid-out
+            // chapter. Sample the middle/final source chapter explicitly.
+            if fraction > 0, case .pages(let pages) = state.document?.content {
                 let table = await pages.chapterLayout
                 if table.chapterCount > 1 {
-                    _ = try await pages.searchPageCount(table.chapterCount - 1)
+                    let chapter = fraction == 1 ? table.chapterCount - 1 : table.chapterCount / 2
+                    let count = try await pages.searchPageCount(chapter)
                     _ = state.applyChapterLayout(await pages.chapterLayout)
+                    target = state.pageNumber(.init(chapter: chapter,
+                        page: fraction == 1 ? max(0, count - 1) : count / 2))
                 }
             }
-            let target = Int(Double(max(0, state.count - 1)) * fraction)
             let location = state.pageLocation(target), navigationStarted = Date()
             state.send(.page(target))
             try await wait(state, host: host, reason: "Navigation to \(target)") {
@@ -120,6 +123,8 @@ final class BookCorpusAcceptanceTests: XCTestCase {
                 "pixelWidth": bitmap.pixelsWide, "pixelHeight": bitmap.pixelsHigh]
             switch state.document?.content {
             case .pages(let pages):
+                observation["chapter"] = state.pageLocation(state.page).chapter
+                observation["chapterPage"] = state.pageLocation(state.page).page
                 let text = try await pages.text(state.pageLocation(state.page))
                 observation["textCharacters"] = text.count
                 if sampledText.isEmpty { sampledText = text }
@@ -167,6 +172,10 @@ final class BookCorpusAcceptanceTests: XCTestCase {
             state.status = ""
             state.send(.find(query))
             try await wait(state, host: host, reason: "Search selection and count") {
+                // Search can navigate to another topic. Native loading flags
+                // alone can still describe its predecessor's painted surface.
+                if case .browser = state.document?.content,
+                   !(try await self.browserIsDisplaying(state.browserView, page: state.page)) { return false }
                 if !hasSampledText {
                     return state.status == L("No matches") && !state.searchCounting &&
                         state.searchResults.isEmpty && state.selectedSearchTarget == nil && self.ready(state)
