@@ -98,7 +98,7 @@ the synchronous file interface; the pre-cancelled test is a separate boundary.
   sources. PDF content-bounds, snapshot replay and display checks cover the
   additional owner repairs described in the [source audit](SUMATRA_PARITY_AUDIT_20261019.md).
 - The actual GUI measurements above use a separate app and preference domain.
-  The original reader process remains open. Stage measurements and automated
+  The original reader process was preserved during that comparison. Stage measurements and automated
   hosted views are recorded separately from actual canvas drawing.
 - Original Books inputs are read-only. Private inventory, stage measurements,
   GUI debug events and corpus reports live under ignored
@@ -107,3 +107,23 @@ the synchronous file interface; the pre-cancelled test is a separate boundary.
 
 Final full-corpus and exact-candidate release acceptance are recorded in
 [the book-corpus report](BOOK_CORPUS_ACCEPTANCE.md).
+
+## Exact signed candidate (2026-10-20)
+
+The CI candidate from `e81c567151edcbaab612c605f02a6dd131ed9542` loaded
+executable UUID `96EDC528-635F-31DA-A118-91CCF536565F`. Its fresh-process
+GUI sweep used a larger 1269 × 904 point viewport: eight-screen advances reached
+pages 11, 21 and 31, followed by a 200-screen jump and two eight-screen advances
+to page 303. The final request painted in 193 ms. The intervening advance to
+page 293 took 897 ms while solid decompression caught up. Subsequent one-screen
+advances painted new neighboring pages in 46–83 ms. The larger geometry makes
+this a separate candidate observation, not the matched-window comparison above.
+
+All three original comics passed actual candidate page movement, continuous
+scrolling and Contents controls. Raw event receipts are in ignored
+`ci-unread-paints.json` and `gui.ndjson`.
+
+The public 0.2.4 → 0.2.5 Sparkle upgrade subsequently loaded the same accepted
+candidate into canonical `dist/Sumra.app`. A cold jump to page 382 painted in
+2.283 seconds, followed by new neighboring page 384 in 65 ms. The cold seek
+remains a solid-format traversal cost; the final app was left at page 382.
