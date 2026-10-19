@@ -242,7 +242,7 @@ final class ReaderPredictionTests: XCTestCase {
         return (pages, state, host, window)
     }
 
-    func testNeighborPredictionWaitsForVisiblePaintAndKeepsOffscreenPagesUnmounted() async throws {
+    func testNeighborPredictionKeepsOffscreenPagesUnmounted() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()
         let folder = try comic(in: directory.url)
@@ -277,6 +277,32 @@ final class ReaderPredictionTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(image(in: state.readerFocusView)) === firstImage,
                       "A short reverse scroll should reuse the cached preview")
         XCTAssertEqual(scroll.documentView?.subviews.count, 1)
+    }
+
+    func testUnreadPredictionWarmsTheNextViewportWhenThreePagesAreVisible() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let folder = try comic(in: directory.url)
+        let (pages, state, host, window) = try await openComic(folder)
+        window.setContentSize(CGSize(width: 300, height: 900))
+        defer {
+            state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+            withExtendedLifetime(directory) {}
+        }
+        try await waitFor(host, state: state) {
+            guard let scroll = state.readerScrollView else { return false }
+            return predictedPage(in: scroll, state: state) == 3 &&
+                unwrapped(field("predictionTask", in: scroll)) == nil
+        }
+        // Neither page has been visible. Removing its source proves the second
+        // predicted page's pixels are ready, rather than decoding on demand.
+        let moved = directory.url.appendingPathComponent("Moved", isDirectory: true)
+        try FileManager.default.moveItem(at: folder, to: moved)
+        let result = try await pages.render(4, viewport: CGSize(width: 300, height: 900),
+            scale: window.backingScaleFactor, columns: 1, rotation: 0, fit: "width", zoom: 1)
+        XCTAssertNotNil(result.image)
+        XCTAssertEqual(state.readerScrollView?.documentView?.subviews.count, 3)
+        XCTAssertNil(state.error)
     }
 
     func testBrokenPredictedNeighborDoesNotReportAnErrorForVisiblePage() async throws {

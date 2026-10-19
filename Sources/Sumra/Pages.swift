@@ -301,6 +301,25 @@ fileprivate final class RasterDocument {
         let location: PageLocation
         let cached: CGImage?
     }
+    func concurrentComicImage(_ request: ImageRequest) -> Bool {
+        archive != nil && format == .comic && request.region == nil
+            && Format.imageEngine(names[request.page]) == nil
+    }
+    func comicImageData(_ request: ImageRequest) throws -> Data { try data(request.page) }
+    func comicNativeImage(_ request: ImageRequest, data: Data, cancellation: NativeRenderCancellation?) throws -> CGImage {
+        let engine = Format.imageEngine(names[request.page], prefix: data.prefix(32)).flatMap(NativeEngine.init(rawValue:)) ?? .mupdf
+        return try withComicNative(request.page, data: data, engine: engine) { file in
+            let pixels = isVectorImage(request.page) ? nil : try file.imageDimensions(0)
+            return try file.image(0, width: min(request.width, Int(ceil(pixels?.width ?? CGFloat(request.width)))),
+                                  transparent: request.transparent, cancellation: cancellation)
+        }
+    }
+    static func comicImage(_ data: Data, width: Int) throws -> CGImage {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else {
+            throw ReadError("ImageIO cannot read this image")
+        }
+        return try imageIO(source, index: 0, width: width)
+    }
     // Normalize and consult the bitmap cache once, before the caller creates
     // a render cookie. Region pixels remain owned by the visible tile canvas.
     func prepareImage(_ page: Int, width: Int, transparent: Bool = false, region: CGRect? = nil, pdfStyle: PDFColors.Style? = nil) throws -> ImageRequest {
@@ -349,19 +368,11 @@ fileprivate final class RasterDocument {
             }
         } else {
             let data = try data(page)
-            if let engine = Format.imageEngine(names[page], prefix: data.prefix(32)).flatMap(NativeEngine.init(rawValue:)) {
-                image = try withComicNative(page, data: data, engine: engine) { file in
-                    let pixels = isVectorImage(page) ? nil : try file.imageDimensions(0)
-                    return try file.image(0, width: min(width, Int(ceil(pixels?.width ?? CGFloat(width)))), transparent: transparent, cancellation: cancellation)
-                }
+            if Format.imageEngine(names[page], prefix: data.prefix(32)) != nil {
+                image = try comicNativeImage(request, data: data, cancellation: cancellation)
             } else {
-                do {
-                    guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { throw ReadError("ImageIO cannot read \(names[page])") }
-                    image = try Self.imageIO(source, index: 0, width: width)
-                } catch { image = try withComicNative(page, data: data, engine: .mupdf) { file in
-                    let pixels = isVectorImage(page) ? nil : try file.imageDimensions(0)
-                    return try file.image(0, width: min(width, Int(ceil(pixels?.width ?? CGFloat(width)))), transparent: transparent, cancellation: cancellation)
-                } }
+                do { image = try Self.comicImage(data, width: width) }
+                catch { image = try comicNativeImage(request, data: data, cancellation: cancellation) }
             }
         }
         try Task.checkCancellation()
@@ -378,7 +389,7 @@ fileprivate final class RasterDocument {
     private func retainImage(_ image: CGImage, location: PageLocation, width: Int, transparent: Bool, pdfStyle: PDFColors.Style?) {
         cache.removeAll { $0.location == location && $0.width == width && $0.transparent == transparent && $0.pdfStyle == pdfStyle }
         cache.append((location, width, transparent, pdfStyle, image))
-        while cache.count > 3 || (cache.count > 1 && cache.reduce(0, { $0 + $1.image.bytesPerRow * $1.image.height }) > 64*1024*1024) { cache.removeFirst() }
+        while cache.count > 1 && cache.reduce(0, { $0 + $1.image.bytesPerRow * $1.image.height }) > 64*1024*1024 { cache.removeFirst() }
     }
     func bounds(_ page: Int) throws -> CGRect {
         let location = try native?.location(page) ?? PageLocation(page: page)
@@ -544,6 +555,38 @@ final class ReaderRenderQueue: @unchecked Sendable {
     }
 }
 
+// One immutable replay may serve prediction and visible requests. Subscriber
+// cancellation runs outside the decoder actor so the last reader can interrupt
+// native interpretation/replay even while that actor is occupied.
+fileprivate final class ReaderImageRender: @unchecked Sendable {
+    let request: RasterDocument.ImageRequest
+    let revision: Int
+    let cancellation: NativeRenderCancellation?
+    var task: Task<CGImage, Error>!
+    private let lock = NSLock()
+    private var subscribers: Set<UUID>
+    init(_ request: RasterDocument.ImageRequest, revision: Int, subscriber: UUID, cancellation: NativeRenderCancellation?) {
+        self.request = request; self.revision = revision; self.cancellation = cancellation
+        subscribers = [subscriber]
+    }
+    func matches(_ other: RasterDocument.ImageRequest, revision: Int) -> Bool {
+        self.revision == revision && request.location == other.location && request.width == other.width
+            && request.transparent == other.transparent && request.region == other.region && request.pdfStyle == other.pdfStyle
+    }
+    func subscribe(_ id: UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !subscribers.isEmpty else { return false }
+        subscribers.insert(id); return true
+    }
+    func release(_ id: UUID) {
+        lock.lock()
+        let cancel = subscribers.remove(id) != nil && subscribers.isEmpty
+        lock.unlock()
+        if cancel { cancellation?.cancel() }
+    }
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return subscribers.isEmpty }
+}
+
 actor Pages {
     struct MarkdownPrintSnapshot: Sendable {
         let count: Int
@@ -558,6 +601,7 @@ actor Pages {
     nonisolated let pdfSourceURL: URL
     nonisolated let isImageCollection: Bool
     private let document: RasterDocument
+    private var imageRenders: [ReaderImageRender] = []
     nonisolated private let renderQueue: ReaderRenderQueue
     private let markdownOpenedSourceSignature: String?
     private let externalOutline: [ContentsItem]?
@@ -580,7 +624,8 @@ actor Pages {
         let started = DispatchTime.now().uptimeNanoseconds
         pdfSourceURL = url
         isPDF = format == .pdf
-        renderQueue = ReaderRenderQueue(concurrency: isPDF ? ProcessInfo.processInfo.activeProcessorCount : 1)
+        renderQueue = ReaderRenderQueue(concurrency: isPDF || format == .comic && !url.hasDirectoryPath
+                                        ? ProcessInfo.processInfo.activeProcessorCount : 1)
         isMarkdown = format == .markdown
         markdownOpenedSourceSignature = format == .markdown ? NativeFile.FileVersion(url)?.signature : nil
         let checkpoint = format == .pdf ? try NativeFile.FileCheckpoint(url) : nil
@@ -718,25 +763,78 @@ actor Pages {
                        priority: ReaderRenderPriority = .init()) async throws -> CGImage {
         try Task.checkCancellation()
         if let image = request.cached { return image }
-        let cancellation = try supplied ?? renderCancellation(request.page)
-        return try await withTaskCancellationHandler {
-            if isPDF, let native = document.native {
-                let revision = layoutRevision
-                let snapshot = try native.preparePDFRender(request.page, style: request.pdfStyle, cancellation: cancellation)
-                let image = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CGImage, Error>) in
-                    DispatchQueue.global(qos: priority.isVisible ? .userInitiated : .utility).async {
-                        do { continuation.resume(returning: try snapshot.image(width: request.width, transparent: request.transparent,
-                            region: request.region)) }
-                        catch { continuation.resume(throwing: error) }
+        if isPDF || document.concurrentComicImage(request) {
+            let subscriber = UUID()
+            let render: ReaderImageRender
+            if let current = imageRenders.first(where: { $0.matches(request, revision: layoutRevision) && $0.subscribe(subscriber) }) {
+                render = current
+            } else {
+                render = ReaderImageRender(request, revision: layoutRevision, subscriber: subscriber,
+                                           cancellation: isPDF ? try NativeRenderCancellation() : nil)
+                imageRenders.append(render)
+            }
+            return try await withTaskCancellationHandler {
+                defer { render.release(subscriber) }
+                if render.task == nil {
+                    do {
+                        try Task.checkCancellation()
+                        // Freeze the display list or finish the current archive
+                        // entry before another actor operation can advance it.
+                        let snapshot = isPDF ? try document.native?.preparePDFRender(request.page,
+                            style: request.pdfStyle, cancellation: render.cancellation) : nil
+                        let data = isPDF ? Data() : try document.comicImageData(request)
+                        render.task = Task { try await self.renderImage(render, snapshot: snapshot, data: data, priority: priority) }
+                    } catch {
+                        imageRenders.removeAll { $0 === render }
+                        throw error
                     }
                 }
+                let image = try await render.task.value
                 try Task.checkCancellation()
-                guard revision == layoutRevision else { throw CancellationError() }
-                document.retainImage(image, for: request)
+                if supplied?.isCancelled == true { throw CancellationError() }
                 return image
-            }
+            } onCancel: { render.release(subscriber) }
+        }
+        let cancellation = try supplied ?? renderCancellation(request.page)
+        return try await withTaskCancellationHandler {
             return try document.image(request, cancellation: cancellation)
         } onCancel: { cancellation?.cancel() }
+    }
+    private func renderImage(_ render: ReaderImageRender, snapshot: NativePDFRenderSnapshot?, data: Data,
+                             priority: ReaderRenderPriority) async throws -> CGImage {
+        defer { imageRenders.removeAll { $0 === render } }
+        guard !render.isCancelled else { throw CancellationError() }
+        let request = render.request
+        let image: CGImage
+        if let snapshot {
+            image = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: priority.isVisible ? .userInitiated : .utility).async {
+                    do { continuation.resume(returning: try snapshot.image(width: request.width, transparent: request.transparent, region: request.region)) }
+                    catch { continuation.resume(throwing: error) }
+                }
+            }
+        } else {
+            // Archive extraction remains serialized. Only immutable entry bytes
+            // cross to the worker, which creates its own ImageIO source.
+            if Format.imageEngine(document.names[request.page], prefix: data.prefix(32)) != nil {
+                image = try document.comicNativeImage(request, data: data, cancellation: nil)
+            } else {
+                do {
+                    image = try await withCheckedThrowingContinuation { continuation in
+                        DispatchQueue.global(qos: priority.isVisible ? .userInitiated : .utility).async {
+                            do { continuation.resume(returning: try RasterDocument.comicImage(data, width: request.width)) }
+                            catch { continuation.resume(throwing: error) }
+                        }
+                    }
+                } catch {
+                    guard !render.isCancelled else { throw CancellationError() }
+                    image = try document.comicNativeImage(request, data: data, cancellation: nil)
+                }
+            }
+        }
+        guard !render.isCancelled, render.revision == layoutRevision else { throw CancellationError() }
+        document.retainImage(image, for: request)
+        return image
     }
     func originalData(_ page: Int) throws -> (data: Data, filename: String) { try document.originalData(page) }
     func editableImage(_ page: Int) throws -> (image: CGImage, original: (data: Data, filename: String)?, dpi: Double) {
@@ -2887,7 +2985,10 @@ private struct RasterScrollRequest: Equatable {
                             selectedMatch = match
                             state.selectedSearchTarget = "raster-search:\(match.page):\(match.index)"
                             countMatches(searchQuery, options: searchOptions, start: position.page)
-                        } else if state.showFind, await pages.hasChapters {
+                        } else if await pages.hasChapters || selectedMatch == nil {
+                            // Reflow cancelled the navigation task as well as
+                            // its count. An active query still needs a selected
+                            // hit when Find was invoked without opening its UI.
                             find(searchQuery, backwards: searchBackwards, options: searchOptions, fromSelection: false, inResults: false)
                         } else {
                             countMatches(searchQuery, options: searchOptions, start: position.page, restoring: matchSource)
@@ -3643,6 +3744,9 @@ private struct WindowScale: NSViewRepresentable {
                     cells[location] = view; canvas.addSubview(view)
                 }
             }
+            // Visible hosts enqueue their tasks first. The directional chain
+            // can then overlap their decoding without waiting for a draw pass.
+            DispatchQueue.main.async { [weak self] in self?.predictPages() }
         }
         private func page(at index: Int, columns: Int) -> RasterPage {
             let owner = owner!, key = key!, location = location(index)
@@ -3686,38 +3790,43 @@ private struct WindowScale: NSViewRepresentable {
             guard let host = cells[location(index)], let canvas = RasterCanvas.Canvas.find(in: host) else { return }
             canvas.predictViewportTile(direction: scrollDirection)
         }
-        func predictAfterPainting() {
+        func predictPages() {
             guard let owner, let key, let geometry, !key.continuousReflow,
                   owner.liveResizeViewport == nil, owner.request == nil, window != nil,
                   case .pages(let current) = owner.state.document?.content, current === owner.pages,
                   geometry.rowCount > 0 else { return }
             let visible = contentView.bounds
-            let first = row(at: visible.minY), last = row(at: visible.maxY)
-            let visibleCount = (first...last).filter { rowFrame(geometry.range(row: $0)).intersects(visible) }
-                .reduce(0) { $0 + geometry.range(row: $1).count }
-            // The decoder retains three previews. Leave every visible preview
-            // in that cache when a short viewport includes multiple rows.
-            guard visibleCount < 3 else { cancelPrediction(); return }
-            guard visibleCanvasesArePainted() else { return }
+            let rows = (row(at: visible.minY)...row(at: visible.maxY))
+                .filter { rowFrame(geometry.range(row: $0)).intersects(visible) }
+            guard let first = rows.first, let last = rows.last else { return }
             let next = scrollDirection > 0 ? last + 1 : first - 1
             guard (0..<geometry.rowCount).contains(next) else { cancelPrediction(); return }
-            let range = geometry.range(row: next)
-            let index = scrollDirection > 0 ? range.lowerBound : range.upperBound - 1
-            let page = page(at: index, columns: range.count)
+            let ahead = visible.offsetBy(dx: 0, dy: CGFloat(scrollDirection) * visible.height)
+            var targets = [RasterPage]()
+            for rowIndex in stride(from: next, to: scrollDirection > 0 ? geometry.rowCount : -1, by: scrollDirection) {
+                let range = geometry.range(row: rowIndex)
+                guard rowFrame(range).intersects(ahead) else { break }
+                let indices = scrollDirection > 0 ? Array(range) : Array(range.reversed())
+                targets += indices.map { page(at: $0, columns: range.count) }
+            }
+            guard let page = targets.first else { cancelPrediction(); return }
             let token = Prediction(document: owner.state.document?.id, layout: key,
                 location: page.location, render: page.renderID)
             guard prediction != token else { return }
             cancelPrediction(); prediction = token
-            // RenderCache predicts only after visible output is painted. Warm
-            // one neighboring page in the existing three-image cache; no
-            // offscreen view, annotations or accessibility tasks are mounted.
+            // Like RenderCache's predictive chain, decode the next viewport
+            // sequentially at background priority, including both spread pages.
+            // Encoded data stays with Archive; previews share the byte budget.
+            // No offscreen view or accessibility children are mounted.
             predictionTask = Task(priority: .utility) { [weak self] in
-                NativeReadingPerformance.mark("page-prediction-start", pages: page.pages, revision: key.revision, page: index)
                 do {
-                    _ = try await page.renderResult(preheating: true)
-                    guard !Task.isCancelled, let self, self.prediction == token else { return }
-                    self.predictionTask = nil
-                    NativeReadingPerformance.mark("page-prediction-ready", pages: page.pages, revision: key.revision, page: index)
+                    for page in targets {
+                        guard !Task.isCancelled, let self, self.prediction == token else { return }
+                        NativeReadingPerformance.mark("page-prediction-start", pages: page.pages, revision: key.revision, page: page.index)
+                        _ = try await page.renderResult(preheating: true)
+                        NativeReadingPerformance.mark("page-prediction-ready", pages: page.pages, revision: key.revision, page: page.index)
+                    }
+                    if let self, self.prediction == token { self.predictionTask = nil }
                 } catch {
                     // A speculative failure must not replace the current book
                     // with an error. The visible request reports real failures.
@@ -4890,7 +4999,7 @@ struct NativeReadingAccessibilitySnapshot {
                 self.predictFiniteRowAfterPainting()
                 if let scroll = self.enclosingScrollView as? RasterViewport.Scroll {
                     scroll.predictNaturalTileAfterPainting()
-                    scroll.predictAfterPainting()
+                    scroll.predictPages()
                 }
             }
             if traceFirstPaint, readingReady, window != nil, !visibleRect.isEmpty {

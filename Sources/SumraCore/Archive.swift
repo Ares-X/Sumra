@@ -91,8 +91,9 @@ public final class Archive: @unchecked Sendable {
             guard let cursor else { throw ReadError("Cannot read archive") }
 
             var entry: OpaquePointer?
-            while try Self.next(cursor, &entry), let entry {
+            while true {
                 try Task.checkCancellation()
+                guard try Self.next(cursor, &entry), let entry else { break }
                 guard archive_entry_filetype(entry) == 0o100000,
                       let pathname = archive_entry_pathname_utf8(entry) ?? archive_entry_pathname(entry)
                 else {
@@ -101,31 +102,37 @@ public final class Archive: @unchecked Sendable {
                 }
 
                 cursorIndex += 1
-                guard cursorIndex == target else {
+                guard cursorIndex == target || is7Zip else {
                     archive_read_data_skip(cursor)
                     continue
                 }
+                let currentName = entries[cursorIndex]
                 // Reopening after disk replacement must not bind a different
                 // entry's bytes to the name captured by the original index.
-                guard String(cString: pathname) == entryName else {
-                    throw ReadError("Archive entry changed: \(entryName)")
+                guard String(cString: pathname) == currentName else {
+                    throw ReadError("Archive entry changed: \(currentName)")
                 }
 
                 var result = Data()
                 result.reserveCapacity(64 * 1024)
                 var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-                // A 7z prefix otherwise makes bounds -> image replay the same
-                // solid stream. Decode this one entry once; ZIP keeps partial I/O.
+                // Skipping a solid 7z entry still decompresses its bytes. Keep
+                // every entry traversed so reverse scrolling never replays it.
+                // ZIP keeps partial I/O and skips unrelated entries.
                 let readPrefix = is7Zip ? nil : prefixBytes
 
                 while true {
-                    try Task.checkCancellation()
+                    // Finish this solid entry before observing cancellation:
+                    // its bytes and the forward cursor remain reusable.
+                    if !is7Zip { try Task.checkCancellation() }
                     let requested = readPrefix.map { min(buffer.count, $0 - result.count) } ?? buffer.count
                     if requested == 0 { return result }
                     let n = archive_read_data(cursor, &buffer, requested)
                     if n == 0 {
-                        entryCache[entryName] = result
-                        return prefixBytes.map { result.prefix($0) } ?? result
+                        if positions[currentName] == cursorIndex { entryCache[currentName] = result }
+                        try Task.checkCancellation()
+                        if cursorIndex == target { return prefixBytes.map { result.prefix($0) } ?? result }
+                        break
                     }
                     guard n > 0 else { throw Self.error(cursor) }
                     result.append(contentsOf: buffer.prefix(n))
@@ -133,6 +140,9 @@ public final class Archive: @unchecked Sendable {
             }
 
             throw ReadError("Archive entry not found: \(name)")
+        } catch is CancellationError {
+            if !is7Zip { resetCursor() }
+            throw CancellationError()
         } catch {
             resetCursor()
             entryCache.removeAll()

@@ -81,6 +81,32 @@ final class ReaderTests:XCTestCase{
         XCTAssertEqual(try archive.data("2.png"), Data(repeating: 66, count: 65537))
         XCTAssertEqual(try archive.data("3.png"), Data(repeating: 67, count: 9))
     }
+
+    func testSolidArchiveJumpRetainsTraversedEntriesForReverseReading() throws {
+        let url = try solidArchiveFixture(), archive = try Archive(url)
+        XCTAssertEqual(try archive.data("2.png", prefixBytes: 3), Data(repeating: 66, count: 3))
+        let moved = url.appendingPathExtension("moved")
+        try FileManager.default.moveItem(at: url, to: moved)
+        defer { try? FileManager.default.removeItem(at: moved) }
+        // Page 1 was traversed while reaching page 2. Going back must use its
+        // already decompressed bytes, without reopening or moving the cursor.
+        XCTAssertEqual(try archive.data("1.png", prefixBytes: 1024), Data(repeating: 65, count: 1024))
+        XCTAssertEqual(try archive.data("1.png"), Data(repeating: 65, count: 131073))
+        XCTAssertEqual(try archive.data("2.png"), Data(repeating: 66, count: 65537))
+        XCTAssertEqual(try archive.data("3.png"), Data(repeating: 67, count: 9))
+    }
+
+    func testSolidArchiveTraversalPreservesFirstDuplicateName() throws {
+        // libarchive 7z writer: one solid block, 1.png=first, 1.png=second, 2.png=tail.
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".7z")
+        try XCTUnwrap(Data(base64Encoded: "N3q8ryccAAP+uJkvfQAAAAAAAAAhAAAAAAAAAH1MuvMAMxpKrAx1iDm7gBY+Ul7+JZH5aP/89cAAAACBMweuD8+SbmAP6+qeAQ1iA43TTEI/DnQA5IS1jU6QqPPg94wFEklcT9/SKsUhFTSO17yX0B3yn+LrH3f+LNh/Tc+j6ysCfWfy7HStW+TpuuRUBhe3SAXpDVdVM4of/ktcABcGGQEJZAAHCwEAASMDAQEFXQAAgAAMgIcKAaxpRD0AAA==")).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let archive = try Archive(url)
+        XCTAssertEqual(archive.images, ["1.png", "2.png"])
+        XCTAssertEqual(try archive.data("2.png"), Data("tail".utf8))
+        XCTAssertEqual(try archive.data("1.png"), Data("first".utf8))
+        XCTAssertEqual(try archive.data("1.png", prefixBytes: 2), Data("fi".utf8))
+    }
     func testLegacyTextAndPrintReplica()throws{
         var t=Data("!!8-Bit!!".utf8);for i in 0..<256{t.append(1);t.append(UInt8(i))};t.append(Data("Hello".utf8));XCTAssertEqual(try LegacyText.tcr(t),Data("Hello".utf8))
         func palm(_ payload:Data)->Data{var b=Data(repeating:0,count:110);func put(_ n:Int,_ p:Int,_ z:Int){for i in 0..<z{b[p+i]=UInt8(truncatingIfNeeded:n>>(8*(z-i-1)))}};b.replaceSubrange(60..<68,with:Data("TEXtREAd".utf8));put(2,76,2);put(94,78,4);put(110,86,4);put(1,94,2);put(payload.count,98,4);put(1,102,2);b.append(payload);return b}
