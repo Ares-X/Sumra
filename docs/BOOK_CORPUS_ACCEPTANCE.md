@@ -1,6 +1,6 @@
 # Local book corpus acceptance
 
-This report describes sampled validation of 25 locally supplied books. The books and raw measurements are not part of the public source export. Tests and probes that open and sample them do not certify complete page/text fidelity, performance parity or public release. The [current release checklist](RELEASE_CHECKLIST.md) and [product matrix](SUMATRA_PARITY.md) carry the open decisions.
+This report records validation of 25 locally supplied books, with each dated section retaining its own coverage and binary boundary. The books and raw measurements are not part of the public source export. Tests and probes that open and sample them do not certify complete page/text fidelity, performance parity or public release. The [current release checklist](RELEASE_CHECKLIST.md) and [product matrix](SUMATRA_PARITY.md) carry the open decisions.
 
 | Input group | Count | Material boundary |
 | --- | ---: | --- |
@@ -12,7 +12,41 @@ This report describes sampled validation of 25 locally supplied books. The books
 | CHM | 1 | More than 2,000 HHC entries and many GBK topics, including an extensionless linked topic. |
 | MOBI | 1 | Unencrypted MOBI 6/PalmDOC; it has no NCX/INDX navigation records. |
 
-The recorded 25/25 functional sweep exited successfully for opening, sampled rendering and navigation; originals remained byte-identical by inventory checks. This was a bounded local probe, with separate older app-window observations. It does not establish every page, whole-book search/selection, low memory, smooth trackpad use or the current loaded binary's behavior. CHM follows its own WebKit navigation checks. Some source outline targets are missing or empty by design; an empty MOBI outline is not automatically a parser failure.
+The earlier 25/25 functional sweep exited successfully for opening, sampled rendering and navigation; originals remained byte-identical by inventory checks. That bounded local probe did not establish every page, whole-book search/selection, low memory, smooth trackpad use or the current loaded binary's behavior. Later sections record the additional coverage separately. CHM follows its own WebKit navigation checks. Some source outline targets are missing or empty by design; an empty MOBI outline is not automatically a parser failure.
+
+## Source-build corpus acceptance (2026-10-19/20)
+
+The current source-build and local optimized QA sweep covers every supported
+regular file in the supplied Books directory: **25/25**, comprising 14 EPUB,
+3 CBZ, 2 PDF, 2 Markdown, 2 TXT, 1 CHM and 1 MOBI. The hosted integration
+receipt is `build/corpus-20261019/workflows-source-locations.json`. These are
+mounted reader-owner checks with rendered view captures, not physical input
+or a completed per-book foreground GUI sweep.
+
+| Evidence layer | Accepted scope |
+| --- | --- |
+| Opening and sampled reading | All 25 open and produce rendered captures. Each exercises first, middle and final source chapters where the native chapter table has multiple chapters; finite-page documents and CHM use first/middle/final pages or topics, while TXT uses source-line positions with the tail clamped to its final visible viewport. A single-source-chapter MOBI repeats that chapter; this is not three distinct source passages. |
+| Contents | The Contents command completes for all 25. The first nonempty destination is exercised in each of the 24 books with entries. The remaining TXT has an empty outline, which is expected. This does not validate every Contents destination. |
+| Whole-book Find and result selection | All 21 text-bearing non-comic books complete a query and have a selected result. Completion means counting has ended at the reader's existing result limit; a displayed `999+` is not an exact count of every occurrence. The fixed image EPUB completes the absent-query check at `0 / 0` with no selected result, as expected for its sampled image-only source. Comics have no text-search acceptance claim. |
+| Every comic page | `workflows.comics.json` records successful nonempty image decoding at requested width 800 for all **4,942/4,942** pages: 2,100 + 829 + 2,013. This is an internal Pages decode pass, not full-resolution visual comparison or every-page foreground painting. |
+| Original integrity | `originals-after.json` records all 25 originals unchanged against the inventory. The workflow receipts also retain before/after size and modification-time checks. |
+
+The hidden XCTest CHM host required `browserIsDisplaying` to inspect the loaded
+DOM, document readiness, fonts and requested topic before advancing. A WebKit
+URL or cleared loading flag could otherwise refer to an incoming topic while
+the preceding DOM remained loaded. This is a hosted-test readiness correction;
+it does not prove a production foreground CHM defect. Separate real foreground
+CHM Find and Next checks passed. Source-owner changes and bounded real comic
+scrolling measurements are documented in the
+[reading-pipeline audit](SUMATRA_PARITY_AUDIT_20261019.md) and
+[comic performance record](COMIC_SCROLL_PERFORMANCE_20261019.md).
+
+Private filenames, queries, source text and detailed measurements remain in
+ignored receipts under `build/corpus-20261019/`. This section accepts the
+recorded source-build/local QA layers. Per-book real GUI work is still in
+progress; GUI acceptance of the exact signed CI candidate remains pending.
+No publication, full CI-candidate GUI sweep, exhaustive page/text fidelity,
+physical trackpad frame rate or whole-app memory budget is claimed here.
 
 ## Published 0.2.2 Actions acceptance (2026-10-11)
 

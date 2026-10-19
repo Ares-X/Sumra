@@ -1296,8 +1296,6 @@ final class BrowserReaderTests: XCTestCase {
         guard case .browser(let source) = state.document?.content else { return XCTFail("Expected browser source") }
         let directory = try TemporaryDirectory()
         let prepared = try await snapshot.makePDF(source: source, directory: directory.url)
-        let evidence = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("build/function-first855/browser-print")
-        try snapshot.html.write(to: evidence.appendingPathComponent("snapshot.html"), atomically: false, encoding: .utf8)
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("Sumra-browser-print-" + UUID().uuidString + ".pdf")
         defer { try? FileManager.default.removeItem(at: output) }
         state.send(.exportPDF); let command = state.command
@@ -1325,7 +1323,6 @@ final class BrowserReaderTests: XCTestCase {
         XCTAssertTrue(first.contains("⽬⼊⽂⻔"), first)
         XCTAssertTrue(first.contains("子页目入文门"), first)
         XCTAssertTrue(first.contains("Edited child field"), first)
-        try Data(contentsOf: output).write(to: evidence.appendingPathComponent("saved.pdf"))
         let copied = try XCTUnwrap(PDFDocument(url: output)?.string)
         XCTAssertTrue(copied.contains("目入文门"), copied)
         XCTAssertTrue(copied.contains("⽬⼊⽂⻔"), copied)

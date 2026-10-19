@@ -3,8 +3,42 @@
 #include <mupdf/ucdn.h>
 #include <CoreText/CoreText.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+
+// EngineMupdf::RenderPage serializes replay on one document: JBIG2 streams
+// can retain the same global glyphs with non-atomic jbig2dec refcounts. The
+// document and immutable snapshots share this lock's lifetime, not its context.
+struct SumraMuPDFReplayLock {
+    pthread_mutex_t mutex;
+    atomic_int refs;
+};
+static SumraMuPDFReplayLock *new_replay_lock(fz_context *ctx) {
+    SumraMuPDFReplayLock *lock = calloc(1, sizeof(*lock));
+    if (!lock) fz_throw(ctx, FZ_ERROR_SYSTEM, "Cannot allocate PDF replay lock");
+    int status = pthread_mutex_init(&lock->mutex, NULL);
+    if (status) {
+        free(lock); fz_throw(ctx, FZ_ERROR_SYSTEM, "Cannot initialize PDF replay lock: %s", strerror(status));
+    }
+    atomic_init(&lock->refs, 1);
+    return lock;
+}
+static SumraMuPDFReplayLock *keep_replay_lock(SumraMuPDFReplayLock *lock) {
+    atomic_fetch_add_explicit(&lock->refs, 1, memory_order_relaxed);
+    return lock;
+}
+static void drop_replay_lock(SumraMuPDFReplayLock *lock) {
+    if (lock && atomic_fetch_sub_explicit(&lock->refs, 1, memory_order_acq_rel) == 1) {
+        pthread_mutex_destroy(&lock->mutex); free(lock);
+    }
+}
+static void lock_shared_images(SumraMuPDFDocument *d) {
+    if (d->replay_lock) pthread_mutex_lock(&d->replay_lock->mutex);
+}
+static void unlock_shared_images(SumraMuPDFDocument *d) {
+    if (d->replay_lock) pthread_mutex_unlock(&d->replay_lock->mutex);
+}
 
 static void lf_json_u32(SumraJSON *j, uint32_t value) {
     char number[16]; snprintf(number, sizeof(number), "%u", value); lf_json(j, number);
@@ -459,7 +493,8 @@ static const fz_htdoc_format mobi_html = { "MOBI", NULL, 1, 1, FZ_HTML_FLAVOR_MO
 API void lf_close(SumraMuPDFDocument *d) {
     if (!d) return;
     lf_drop_render_page(d);
-    fz_drop_document(d->ctx, d->doc); fz_drop_context(d->ctx); free(d);
+    fz_drop_document(d->ctx, d->doc); fz_drop_context(d->ctx);
+    drop_replay_lock(d->replay_lock); free(d);
 }
 typedef enum { INPUT_DEFAULT, INPUT_MARKDOWN, INPUT_MOBI_HTML, INPUT_XPS } InputKind;
 static InputKind input_kind(const char *path) {
@@ -548,6 +583,7 @@ static void *open_document_input(const char *path, const char *password, int *ne
             fz_throw(d->ctx, FZ_ERROR_ARGUMENT, "Incorrect document password");
         }
         if (pdf) {
+            d->replay_lock = new_replay_lock(d->ctx);
             // EngineMupdf::FinishLoading keeps journal and MuJS on the same
             // document/context used to render, edit and eventually save it.
             pdf_enable_journal(d->ctx, pdf);
@@ -808,6 +844,133 @@ API int lf_bounds_at(SumraMuPDFDocument *d, int chapter, int index, float *bound
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); return 0; }
     return 1;
 }
+// Adapted from SumatraPDF ea7d6b7d EngineMupdf.cpp's FzNewContentBBoxDevice
+// (Copyright SumatraPDF authors, GPLv3; see Licenses/Sumatra-GPL-3.0.txt).
+// Bound painted subpaths separately before clipping to the page: opposite
+// off-page crop marks must not turn their empty middle into visible content.
+typedef struct {
+    fz_device super;
+    fz_rect *result;
+    fz_rect page;
+    int ignore;
+} ContentBBox;
+
+static void content_bbox_rect(fz_context *ctx, fz_device *dev, fz_rect rect) {
+    ContentBBox *d = (ContentBBox *)dev;
+    if (d->ignore) return;
+    // MuPDF owns the full dynamic clip/mask/group stack, as in PDFColors.c.
+    fz_rect clip = fz_device_current_scissor(ctx, dev);
+    if (dev->container_len > 0 && dev->container[dev->container_len - 1].type == fz_device_container_stack_is_tile) {
+        // begin_tile receives a tile-space area. Its transformed paint uses
+        // the enclosing clip; the tile container itself has the untransformed area.
+        clip = dev->container_len > 1 ? dev->container[dev->container_len - 2].scissor : fz_infinite_rect;
+    }
+    rect = fz_intersect_rect(rect, clip);
+    *d->result = fz_union_rect(*d->result, fz_intersect_rect(rect, d->page));
+}
+
+typedef struct {
+    fz_context *ctx;
+    fz_device *dev;
+    fz_matrix ctm;
+    const fz_stroke_state *stroke;
+    fz_rect bounds;
+    int have_point, have_segment;
+} ContentBBoxPath;
+
+static void content_bbox_path_flush(ContentBBoxPath *walk) {
+    int draws = walk->have_point && walk->have_segment;
+    walk->have_point = walk->have_segment = 0;
+    if (!draws) return;
+    fz_rect rect = fz_transform_rect(walk->bounds, walk->ctm);
+    if (walk->stroke) rect = fz_adjust_rect_for_stroke(walk->ctx, rect, walk->stroke, walk->ctm);
+    content_bbox_rect(walk->ctx, walk->dev, rect);
+}
+static void content_bbox_path_point(ContentBBoxPath *walk, float x, float y) {
+    if (!walk->have_point) {
+        walk->bounds = fz_make_rect(x, y, x, y); walk->have_point = 1;
+    } else {
+        walk->bounds.x0 = fminf(walk->bounds.x0, x); walk->bounds.y0 = fminf(walk->bounds.y0, y);
+        walk->bounds.x1 = fmaxf(walk->bounds.x1, x); walk->bounds.y1 = fmaxf(walk->bounds.y1, y);
+    }
+}
+static void content_bbox_path_move(fz_context *ctx, void *opaque, float x, float y) {
+    ContentBBoxPath *walk = opaque;
+    content_bbox_path_flush(walk); content_bbox_path_point(walk, x, y);
+}
+static void content_bbox_path_line(fz_context *ctx, void *opaque, float x, float y) {
+    ContentBBoxPath *walk = opaque;
+    walk->have_segment = 1; content_bbox_path_point(walk, x, y);
+}
+static void content_bbox_path_curve(fz_context *ctx, void *opaque, float x1, float y1, float x2, float y2, float x3, float y3) {
+    ContentBBoxPath *walk = opaque;
+    walk->have_segment = 1;
+    content_bbox_path_point(walk, x1, y1); content_bbox_path_point(walk, x2, y2); content_bbox_path_point(walk, x3, y3);
+}
+static void content_bbox_path_close(fz_context *ctx, void *opaque) {
+    // Closing a subpath does not finish it until its next moveto or path end.
+}
+static void content_bbox_path(fz_context *ctx, fz_device *dev, const fz_path *path, const fz_stroke_state *stroke, fz_matrix ctm) {
+    static const fz_path_walker walker = {
+        content_bbox_path_move, content_bbox_path_line, content_bbox_path_curve, content_bbox_path_close,
+        NULL, NULL, NULL, NULL
+    };
+    ContentBBoxPath walk = { ctx, dev, ctm, stroke, fz_empty_rect, 0, 0 };
+    fz_walk_path(ctx, path, &walker, &walk); content_bbox_path_flush(&walk);
+}
+static void content_bbox_fill_path(fz_context *ctx, fz_device *dev, const fz_path *path, int evenodd,
+        fz_matrix ctm, fz_colorspace *cs, const float *color, float alpha, fz_color_params params) {
+    content_bbox_path(ctx, dev, path, NULL, ctm);
+}
+static void content_bbox_stroke_path(fz_context *ctx, fz_device *dev, const fz_path *path, const fz_stroke_state *stroke,
+        fz_matrix ctm, fz_colorspace *cs, const float *color, float alpha, fz_color_params params) {
+    content_bbox_path(ctx, dev, path, stroke, ctm);
+}
+static void content_bbox_fill_text(fz_context *ctx, fz_device *dev, const fz_text *text, fz_matrix ctm,
+        fz_colorspace *cs, const float *color, float alpha, fz_color_params params) {
+    content_bbox_rect(ctx, dev, fz_bound_text(ctx, text, NULL, ctm));
+}
+static void content_bbox_stroke_text(fz_context *ctx, fz_device *dev, const fz_text *text, const fz_stroke_state *stroke,
+        fz_matrix ctm, fz_colorspace *cs, const float *color, float alpha, fz_color_params params) {
+    content_bbox_rect(ctx, dev, fz_bound_text(ctx, text, stroke, ctm));
+}
+static void content_bbox_shade(fz_context *ctx, fz_device *dev, fz_shade *shade, fz_matrix ctm, float alpha, fz_color_params params) {
+    content_bbox_rect(ctx, dev, fz_bound_shade(ctx, shade, ctm));
+}
+static void content_bbox_image(fz_context *ctx, fz_device *dev, fz_image *image, fz_matrix ctm, float alpha, fz_color_params params) {
+    content_bbox_rect(ctx, dev, fz_transform_rect(fz_unit_rect, ctm));
+}
+static void content_bbox_image_mask(fz_context *ctx, fz_device *dev, fz_image *image, fz_matrix ctm,
+        fz_colorspace *cs, const float *color, float alpha, fz_color_params params) {
+    content_bbox_rect(ctx, dev, fz_transform_rect(fz_unit_rect, ctm));
+}
+static void content_bbox_begin_mask(fz_context *ctx, fz_device *dev, fz_rect area, int luminosity,
+        fz_colorspace *cs, const float *bc, fz_color_params params) {
+    ((ContentBBox *)dev)->ignore++;
+}
+static void content_bbox_end_mask(fz_context *ctx, fz_device *dev, fz_function *function) {
+    ((ContentBBox *)dev)->ignore--;
+}
+static int content_bbox_begin_tile(fz_context *ctx, fz_device *dev, fz_rect area, fz_rect view,
+        float xstep, float ystep, fz_matrix ctm, int id, int doc_id) {
+    content_bbox_rect(ctx, dev, fz_transform_rect(area, ctm));
+    ((ContentBBox *)dev)->ignore++;
+    return 0;
+}
+static void content_bbox_end_tile(fz_context *ctx, fz_device *dev) { ((ContentBBox *)dev)->ignore--; }
+
+static fz_device *new_content_bbox(fz_context *ctx, fz_rect *result, fz_rect page) {
+    ContentBBox *d = fz_new_derived_device(ctx, ContentBBox);
+    d->result = result; d->page = page; *result = fz_empty_rect;
+    d->super.fill_path = content_bbox_fill_path; d->super.stroke_path = content_bbox_stroke_path;
+    d->super.fill_text = content_bbox_fill_text; d->super.stroke_text = content_bbox_stroke_text;
+    d->super.fill_shade = content_bbox_shade; d->super.fill_image = content_bbox_image;
+    d->super.fill_image_mask = content_bbox_image_mask;
+    d->super.begin_mask = content_bbox_begin_mask; d->super.end_mask = content_bbox_end_mask;
+    d->super.begin_tile = content_bbox_begin_tile; d->super.end_tile = content_bbox_end_tile;
+    return &d->super;
+}
+
 API int lf_content_bounds_at(void *opaque, int chapter, int index, float *bounds, void *opaque_cookie, char *error) {
     SumraMuPDFDocument *d = opaque;
     fz_cookie *cookie = opaque_cookie;
@@ -818,7 +981,7 @@ API int lf_content_bounds_at(void *opaque, int chapter, int index, float *bounds
         // by rendering rather than interpreting the page's resources twice.
         fz_display_list *list = page_display_list(d, chapter, index, cookie);
         fz_rect page_box = fz_bound_page(d->ctx, d->render_page);
-        device = fz_new_bbox_device(d->ctx, &content);
+        device = new_content_bbox(d->ctx, &content, page_box);
         fz_run_display_list(d->ctx, list, device, fz_identity, page_box, cookie);
         if (cookie && cookie->abort) fz_throw(d->ctx, FZ_ERROR_ABORT, "Content measurement cancelled");
         fz_close_device(d->ctx, device);
@@ -1296,6 +1459,7 @@ typedef struct {
     fz_display_list *list;
     fz_device *analysis;
     fz_rect box;
+    SumraMuPDFReplayLock *replay_lock;
 } PDFRenderSnapshot;
 API void lf_pdf_render_snapshot_drop(void *opaque) {
     PDFRenderSnapshot *snapshot = opaque;
@@ -1303,6 +1467,7 @@ API void lf_pdf_render_snapshot_drop(void *opaque) {
     fz_drop_device(snapshot->ctx, snapshot->analysis);
     fz_drop_display_list(snapshot->ctx, snapshot->list);
     fz_drop_context(snapshot->ctx);
+    drop_replay_lock(snapshot->replay_lock);
     free(snapshot);
 }
 API void *lf_pdf_render_snapshot_at(void *opaque, int chapter, int index,
@@ -1310,11 +1475,13 @@ API void *lf_pdf_render_snapshot_at(void *opaque, int chapter, int index,
     SumraMuPDFDocument *d = opaque;
     PDFRenderSnapshot *snapshot = NULL;
     fz_var(snapshot);
+    lock_shared_images(d);
     fz_try(d->ctx) {
         if (!pdf_specifics(d->ctx, d->doc)) fz_throw(d->ctx, FZ_ERROR_ARGUMENT, "Document is not a PDF");
         fz_display_list *list = page_display_list(d, chapter, index, opaque_cookie);
         snapshot = calloc(1, sizeof(*snapshot));
         if (!snapshot) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate PDF render snapshot");
+        snapshot->replay_lock = keep_replay_lock(d->replay_lock);
         snapshot->ctx = fz_clone_context(d->ctx);
         if (!snapshot->ctx) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot clone PDF render context");
         snapshot->box = fz_bound_page(d->ctx, d->render_page);
@@ -1322,6 +1489,7 @@ API void *lf_pdf_render_snapshot_at(void *opaque, int chapter, int index,
         lf_prepare_pdf_colors(d->ctx, list, &d->color_analysis, snapshot->box, style, opaque_cookie);
         snapshot->analysis = fz_keep_device(d->ctx, d->color_analysis);
     }
+    fz_always(d->ctx) { unlock_shared_images(d); }
     fz_catch(d->ctx) {
         snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL));
         lf_pdf_render_snapshot_drop(snapshot); return NULL;
@@ -1331,10 +1499,12 @@ API void *lf_pdf_render_snapshot_at(void *opaque, int chapter, int index,
 static unsigned char *render_page_bitmap(fz_context *ctx, fz_rect box,
         fz_display_list *list, fz_device **analysis, SumraMuPDFDocument *d,
         int width, const int *region, int alpha, const int *style,
-        const uint32_t *colors, fz_cookie *cookie, int *info, char *error) {
+        const uint32_t *colors, fz_cookie *cookie, int *info, char *error, SumraMuPDFReplayLock *replay_lock) {
     fz_pixmap *pix = NULL; fz_device *dev = NULL; unsigned char *out = NULL;
     fz_var(pix); fz_var(dev); fz_var(out);
+    if (replay_lock) pthread_mutex_lock(&replay_lock->mutex);
     fz_try(ctx) {
+        if (cookie && cookie->abort) fz_throw(ctx, FZ_ERROR_ABORT, "Rendering cancelled");
         float page_width = box.x1-box.x0;
         if (width <= 0 || !(page_width > 0)) fz_throw(ctx, FZ_ERROR_GENERIC, "Invalid render width");
         float scale = (float)width/page_width;
@@ -1393,6 +1563,7 @@ static unsigned char *render_page_bitmap(fz_context *ctx, fz_rect box,
         // be closed. Drop it and its discarded output without a false error.
         if (cookie && cookie->abort && dev) dev->close_device = NULL;
         fz_drop_device(ctx, dev); fz_drop_pixmap(ctx, pix);
+        if (replay_lock) pthread_mutex_unlock(&replay_lock->mutex);
     }
     fz_catch(ctx) { snprintf(error, 512, "%s", fz_convert_error(ctx, NULL)); free(out); return NULL; }
     return out;
@@ -1407,7 +1578,7 @@ API unsigned char *lf_pdf_render_snapshot_image(void *opaque, int width,
     // owner. Replay shares that immutable device and only changes its bitmap.
     fz_device *analysis = snapshot->analysis;
     unsigned char *out = render_page_bitmap(ctx, snapshot->box, snapshot->list,
-        &analysis, NULL, width, region, alpha, style, colors, opaque_cookie, info, error);
+        &analysis, NULL, width, region, alpha, style, colors, opaque_cookie, info, error, snapshot->replay_lock);
     fz_drop_context(ctx);
     return out;
 }
@@ -1421,7 +1592,7 @@ API unsigned char *lf_render_cancelable_at(void *opaque, int chapter, int index,
     }
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); return NULL; }
     return render_page_bitmap(d->ctx, box, d->display_list, &d->color_analysis, d,
-        width, region, alpha, style, colors, opaque_cookie, info, error);
+        width, region, alpha, style, colors, opaque_cookie, info, error, d->replay_lock);
 }
 API char *lf_text_at(SumraMuPDFDocument *d, int chapter, int index, char *error) {
     fz_stext_page *text = NULL; fz_buffer *buffer = NULL; char *out = NULL;

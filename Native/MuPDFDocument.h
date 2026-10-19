@@ -4,6 +4,7 @@
 
 // One actor-owned document supplies reading, editing and its undo journal.
 // Native editing invalidates cached pages/display lists, not this owner.
+typedef struct SumraMuPDFReplayLock SumraMuPDFReplayLock;
 typedef struct SumraMuPDFDocument {
     fz_context *ctx;
     fz_document *doc;
@@ -12,6 +13,7 @@ typedef struct SumraMuPDFDocument {
     fz_store_drop_fn *display_list_drop;
     fz_stext_page *text_page;
     fz_device *color_analysis;
+    SumraMuPDFReplayLock *replay_lock;
     int render_chapter, render_index;
     int saved_journal_position, journal_nesting, journal_start_position;
     int authentication; // MuPDF: 1 = unencrypted, 2 = user, 4 = owner.
