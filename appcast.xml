@@ -3,6 +3,16 @@
     <channel>
         <title>Sumra</title>
         <item>
+            <title>0.2.5</title>
+            <pubDate>Mon, 19 Oct 2026 15:46:43 +0000</pubDate>
+            <link>https://github.com/Ares-X/Sumra/releases</link>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>0.2.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/Ares-X/Sumra/releases/download/v0.2.5/Sumra-0.2.5-macOS-arm64.zip" length="15748558" type="application/octet-stream" sparkle:edSignature="AYMtCw/UTqPyKby8nSzV8N1s/m38lQVpOi80Sc5/MRlQ/hgJb/5pOYdJFmyzJ4ljAm9yX4/vBUY6iftU2ciZCA=="/>
+        </item>
+        <item>
             <title>0.2.4</title>
             <pubDate>Tue, 13 Oct 2026 13:13:40 +0000</pubDate>
             <link>https://github.com/Ares-X/Sumra/releases</link>
@@ -21,16 +31,6 @@
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/Ares-X/Sumra/releases/download/v0.2.3/Sumra-0.2.3-macOS-arm64.zip" length="15692661" type="application/octet-stream" sparkle:edSignature="6I9Uaae86zH7208fg4SLktl2mG4IZ9RmX95omN4Afv/I/87q1E2WAASuhB7nIn2CoWOZJJd9K1Z8GpMz2DoxDA=="/>
-        </item>
-        <item>
-            <title>0.2.2</title>
-            <pubDate>Sun, 11 Oct 2026 14:19:25 +0000</pubDate>
-            <link>https://github.com/Ares-X/Sumra/releases</link>
-            <sparkle:version>4</sparkle:version>
-            <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/Ares-X/Sumra/releases/download/v0.2.2/Sumra-0.2.2-macOS-arm64.zip" length="15652912" type="application/octet-stream" sparkle:edSignature="t2MEOp5Ddigf6nhFgvys4XvtDTKmag2h+YtyRDnP2YE/xp8RECDI6ojDMVXvV7aewGKi4mXYbBXEbAbbrJrFDg=="/>
         </item>
     </channel>
 </rss>
