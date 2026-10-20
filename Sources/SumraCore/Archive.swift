@@ -1,7 +1,7 @@
 import Foundation
 import CArchive
 
-/// Thin libarchive reader. Metadata is indexed once; sequential entry reads reuse one cursor.
+/// System libarchive reader with reusable cursors and independent LZMA2 section seeking.
 public final class Archive: @unchecked Sendable {
     public let url: URL
     public let entries: [String]
@@ -9,6 +9,8 @@ public final class Archive: @unchecked Sendable {
     private let password: String?
     private let positions: [String: Int]
     private let is7Zip: Bool
+    private let source: FileHandle?
+    private let indexed: SevenZipIndex?
     private let lock = NSLock()
     private var cursor: OpaquePointer?
     private var cursorIndex = -1
@@ -17,13 +19,18 @@ public final class Archive: @unchecked Sendable {
     public init(_ url: URL, password: String? = nil) throws {
         self.url = url
         self.password = password
-        let handle = try Self.open(url, password: password)
+        let file = try FileHandle(forReadingFrom: url)
+        let handle = try Self.open(url, password: password, descriptor: file.fileDescriptor)
         defer { archive_read_free(handle) }
 
         var entry: OpaquePointer?
         var result: [String] = []
+        var regularFiles: [(file: Int, size: Int)] = []
+        var fileCount = 0
         while try Self.next(handle, &entry), let entry {
             try Task.checkCancellation()
+            let fileIndex = fileCount
+            fileCount += 1
             guard archive_entry_filetype(entry) == 0o100000,
                   let name = archive_entry_pathname_utf8(entry) ?? archive_entry_pathname(entry)
             else { continue }
@@ -33,6 +40,10 @@ public final class Archive: @unchecked Sendable {
                 var byte: UInt8 = 0
                 guard archive_read_data(handle, &byte, 1) >= 0 else { throw Self.error(handle) }
             }
+            guard let size = Int(exactly: archive_entry_size(entry)), size >= 0 else {
+                throw ReadError("Invalid archive entry size")
+            }
+            regularFiles.append((fileIndex, size))
             result.append(String(cString: name))
         }
 
@@ -42,6 +53,8 @@ public final class Archive: @unchecked Sendable {
             result.enumerated().map { ($0.element, $0.offset) },
             uniquingKeysWith: { first, _ in first }
         )
+        source = is7Zip ? file : nil
+        indexed = try is7Zip ? SevenZipIndex.make(file: file, regularFiles: regularFiles, fileCount: fileCount) : nil
     }
 
     deinit { resetCursor() }
@@ -84,9 +97,17 @@ public final class Archive: @unchecked Sendable {
             if let data = entryCache[entryName] {
                 return prefixBytes.map { data.prefix($0) } ?? data
             }
+            if let indexed {
+                let data = try indexed.read(target) { index, bytes in
+                    let name = entries[index]
+                    if positions[name] == index { entryCache[name] = bytes }
+                }
+                return prefixBytes.map { data.prefix($0) } ?? data
+            }
             if cursor == nil || target <= cursorIndex {
                 resetCursor()
-                cursor = try Self.open(url, password: password)
+                if let source { try source.seek(toOffset: 0) }
+                cursor = try Self.open(url, password: password, descriptor: source?.fileDescriptor)
             }
             guard let cursor else { throw ReadError("Cannot read archive") }
 
@@ -145,6 +166,7 @@ public final class Archive: @unchecked Sendable {
             throw CancellationError()
         } catch {
             resetCursor()
+            indexed?.reset()
             entryCache.removeAll()
             throw error
         }
@@ -156,7 +178,7 @@ public final class Archive: @unchecked Sendable {
         cursorIndex = -1
     }
 
-    private static func open(_ url: URL, password: String?) throws -> OpaquePointer {
+    private static func open(_ url: URL, password: String?, descriptor: Int32? = nil) throws -> OpaquePointer {
         guard let archive = archive_read_new() else {
             throw ReadError("Cannot create archive reader")
         }
@@ -166,7 +188,9 @@ public final class Archive: @unchecked Sendable {
         // Entry names are opaque reader inputs. Do not interpret __MACOSX
         // entries as AppleDouble metadata for filesystem extraction.
         archive_read_set_option(archive, "zip", "mac-ext", nil)
-        guard archive_read_open_filename(archive, url.path, 64 * 1024) == ARCHIVE_OK else {
+        let status = descriptor.map { archive_read_open_fd(archive, $0, 64 * 1024) }
+            ?? archive_read_open_filename(archive, url.path, 64 * 1024)
+        guard status == ARCHIVE_OK else {
             let error = error(archive)
             archive_read_free(archive)
             throw error

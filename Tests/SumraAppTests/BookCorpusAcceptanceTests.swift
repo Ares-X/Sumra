@@ -81,7 +81,9 @@ final class BookCorpusAcceptanceTests: XCTestCase {
         window.isReleasedWhenClosed = false; window.contentView = host
         defer { state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close() }
         let started = Date()
-        state.openWithoutHistory(url)
+        // Loading rereads preferences and format defaults. The explicit
+        // position applies this harness's layout after that publication.
+        state.openWithoutHistory(url, at: state.currentPosition)
         try await wait(state, host: host, reason: "Opening and first paint") {
             guard !state.busy, state.document != nil, state.count > 0 else { return false }
             if case .browser = state.document?.content {
@@ -89,6 +91,10 @@ final class BookCorpusAcceptanceTests: XCTestCase {
             }
             return self.ready(state)
         }
+        result["flow"] = state.flow
+        result["fit"] = state.fit
+        try require(state.flow == "paged" && state.fit == "page" && !state.spread && !state.cover,
+                    "The configured single-page layout was not applied after opening")
         result["firstPaintSeconds"] = Date().timeIntervalSince(started)
         result["initialCount"] = state.count
         var observations = [[String: Any]](), sampledText = ""
@@ -120,6 +126,7 @@ final class BookCorpusAcceptanceTests: XCTestCase {
             try require(bitmap.pixelsWide > 0 && bitmap.pixelsHigh > 0, "Hosted view has no rendered pixels")
             var observation: [String: Any] = ["fraction": fraction, "requested": target, "observed": state.page,
                 "count": state.count, "seconds": Date().timeIntervalSince(navigationStarted),
+                "flow": state.flow, "fit": state.fit,
                 "pixelWidth": bitmap.pixelsWide, "pixelHeight": bitmap.pixelsHigh]
             switch state.document?.content {
             case .pages(let pages):
