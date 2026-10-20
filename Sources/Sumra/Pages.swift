@@ -1479,6 +1479,19 @@ actor Pages {
         return try matches(query, page: page, options: options, after: after, backwards: backwards, maximum: maximum)
             .map { match in var match = match; match.location = location; return match }
     }
+    func nextChapterMatches(_ query: String, chapter: Int, pageRange: Range<Int>,
+                            options: TextSearchOptions, maximum: Int) async throws -> (matches: [RasterMatch], nextPage: Int, layout: ChapterTable) {
+        for page in pageRange {
+            try Task.checkCancellation()
+            let found = try matches(query, location: .init(chapter: chapter, page: page),
+                                    options: options, maximum: maximum)
+            if !found.isEmpty { return (found, page + 1, chapterLayout) }
+            // Empty pages need no UI publication. Yield inside the decoder
+            // actor so reading and cancellation can still run between them.
+            await Task.yield()
+        }
+        return ([], pageRange.upperBound, chapterLayout)
+    }
     func markdownDocumentMatches(_ query: String, options: TextSearchOptions, startPage: Int,
                                  after: NativeSourceAnchor? = nil, backwards: Bool = false,
                                  counting: Bool = false, maximum: Int = 1, inclusive: Bool = false) throws -> [RasterMatch] {
@@ -2387,8 +2400,9 @@ private struct RasterScrollRequest: Equatable {
     private func applyLayout(_ table: ChapterTable) {
         // Like SyncWithEngineLayout, snapshot the real viewport before page
         // numbers move. Scroll notifications may still be awaiting UI delivery.
-        if let document = state.readerScrollView?.documentView { RasterCanvas.Canvas.recordPosition(in: document) }
-        guard state.applyChapterLayout(table) else { return }
+        guard state.applyChapterLayout(table, beforeRemapping: {
+            if let document = state.readerScrollView?.documentView { RasterCanvas.Canvas.recordPosition(in: document) }
+        }) else { return }
         if selectedMatch?.location != nil || searchMatches.contains(where: { $0.location != nil }) {
             selectedMatch = selectedMatch.map(projectSearchMatch)
             searchMatches = searchMatches.map(projectSearchMatch)
@@ -2548,27 +2562,32 @@ private struct RasterScrollRequest: Equatable {
                         }
                         let count = try await pages.searchPageCount(chapter)
                         guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
-                        applyLayout(await pages.chapterLayout)
                         let lower = offset == 0 ? startLocation.page : 0
                         let upper = offset == chapters ? startLocation.page : count
-                        for page in lower..<max(lower, upper) {
-                            let location = PageLocation(chapter: chapter, page: page)
+                        var page = lower
+                        while page < upper {
                             let remaining = 999 - all.count
-                            let found = try await pages.matches(query, location: location, options: options, maximum: remaining + 1)
+                            let batch = try await pages.nextChapterMatches(query, chapter: chapter,
+                                pageRange: page..<upper, options: options, maximum: remaining + 1)
                             guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
-                            applyLayout(await pages.chapterLayout)
+                            let found = batch.matches
+                            if !found.isEmpty { applyLayout(batch.layout) }
                             all += found.prefix(remaining)
                             if found.count > remaining { state.searchCountCapped = true }
-                            if (offset == 0 && page == lower && !all.isEmpty) || state.searchCountCapped ||
+                            if (offset == 0 && batch.nextPage == lower + 1 && !all.isEmpty) || state.searchCountCapped ||
                                 (published == 0 ? all.count >= 16 : all.count - published >= 100 && Date().timeIntervalSince(lastPublication) >= 0.5) {
                                 publishSearchMatches(all); published = all.count; lastPublication = Date()
                             }
                             if state.searchCountCapped { break }
+                            page = batch.nextPage
                             await Task.yield()
                         }
                         if state.searchCountCapped { break }
                         await Task.yield()
                     }
+                    let table = await pages.chapterLayout
+                    guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
+                    applyLayout(table)
                     publishSearchMatches(all); searchTask = nil; state.searchCounting = false; searchStatus()
                     return
                 }

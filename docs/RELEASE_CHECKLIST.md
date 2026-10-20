@@ -30,6 +30,12 @@ first-jump cost, slow complete EPUB counting and capability gaps. Physical
 macOS 13 and trackpad frame-rate behavior remain unexercised in this round.
 A source inventory or historical passing test is not acceptance of a new binary.
 
+The [0.2.8 seek/search follow-up](SEEK_SEARCH_PERFORMANCE_20261020.md) has passing
+source, native and 25-book hosted checks, with all 22 saved-query counts/caps
+preserved and 4,942 comic pages decoded. It retains the multi-second first-seek
+boundary inside large solid LZMA2 sections. Its signed candidate, public bytes
+and actual update require separate acceptance before 0.2.8 becomes current.
+
 ## Earlier release and candidate evidence
 
 October 13's exact signed Action candidate `26a6c93` corrects the reproduced

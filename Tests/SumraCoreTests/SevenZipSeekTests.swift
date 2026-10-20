@@ -1,8 +1,29 @@
 import Foundation
 import XCTest
+import CArchive
 @testable import SumraCore
 
 final class SevenZipSeekTests: XCTestCase {
+    func testCRC32VectorsAtUnalignedAddressesAndWordBoundaries() {
+        // IEEE CRC32 values generated independently with zlib, including tails
+        // on both sides of the decoder's 64 KiB output boundary.
+        let vectors: [(Int, UInt32)] = [
+            (0, 0), (1, 0xd202ef8d), (7, 0xad5809f9), (8, 0x88aa689f),
+            (9, 0xbce14302), (15, 0xa06c675e), (16, 0xcecee288),
+            (17, 0x2c183a19), (65535, 0x1965f5e2),
+            (65536, 0xb11de6a1), (65537, 0x73626115)
+        ]
+        for offset in 0..<8 {
+            let bytes = Data(repeating: 0, count: offset) + Data((0..<65537).map { UInt8(truncatingIfNeeded: $0) })
+            bytes.withUnsafeBytes { source in
+                for (count, expected) in vectors {
+                    XCTAssertEqual(sumra_archive_crc32(source.baseAddress!.advanced(by: offset), count), expected,
+                                   "offset \(offset), count \(count)")
+                }
+            }
+        }
+    }
+
     func testEmptyArchiveWithoutNextHeaderRemainsReadable() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".7z")
         // A valid empty 7z has zero next-header offset, size and CRC.

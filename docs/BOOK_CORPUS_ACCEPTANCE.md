@@ -14,6 +14,28 @@ This report records validation of 25 locally supplied books, with each dated sec
 
 The earlier 25/25 functional sweep exited successfully for opening, sampled rendering and navigation; originals remained byte-identical by inventory checks. That bounded local probe did not establish every page, whole-book search/selection, low memory, smooth trackpad use or the current loaded binary's behavior. Later sections record the additional coverage separately. CHM follows its own WebKit navigation checks. Some source outline targets are missing or empty by design; an empty MOBI outline is not automatically a parser failure.
 
+## Solid seeks and EPUB counts for 0.2.8 (2026-10-20)
+
+The [seek/search follow-up](SEEK_SEARCH_PERFORMANCE_20261020.md) compares the
+same official SumatraPDF revision, solid-stream continuation costs and retained
+ebook drawing instructions. It reduces CRC/copy overhead, finite-page flow
+scanning, repeated raster-resource decoding and natural-height CJK glyph
+extraction. Counting batches empty pages in the existing document actor.
+Original files and the no-persistent-whole-book-cache constraint are preserved.
+
+The final hosted workflow passes **25/25**, with Contents open/close and sampled
+first/middle/final source positions. All **22 searchable books** preserve their
+saved-query counts and cap status. B10's paged complete count falls from the
+prior 72.028 s to **23.804 s**; B22 from 20.959 s to **2.468 s**. The source gate
+passes **118 Core and 913 application tests** (four opt-in items skipped),
+**58 packaging checks** and three script syntax checks. A queued-zoom test's
+overstrict render-count assertion and its stronger geometry/selection recheck
+are documented in the follow-up. All **4,942 comic pages** decode successfully;
+that evidence is reused for later HTML-only changes. A paired native comparison
+of all **14 EPUBs** (13 natural-height, one fixed) preserves ordered match JSON,
+source positions, geometry and count/cap status. Signed 0.2.8 acceptance and
+publication remain pending at this checkpoint.
+
 ## Performance round two and signed 0.2.7 (2026-10-20)
 
 The [new performance and upstream implementation review](PERFORMANCE_PARITY_20261020.md)

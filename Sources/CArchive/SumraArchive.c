@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
+#include <arm_acle.h>
+#endif
 
 #if !__has_include(<archive.h>)
 typedef ssize_t archive_read_callback(struct archive *, void *, const void **);
@@ -21,6 +24,7 @@ void archive_set_error(struct archive *, int, const char *, ...);
 #define ARCHIVE_FATAL (-30)
 #endif
 
+#if !defined(__aarch64__) || !defined(__ARM_FEATURE_CRC32)
 static uint32_t crc_table[256];
 static pthread_once_t crc_once = PTHREAD_ONCE_INIT;
 
@@ -33,14 +37,26 @@ static void initialize_crc_table(void)
         crc_table[i] = value;
     }
 }
+#endif
 
 uint32_t sumra_archive_crc32(const void *bytes, size_t size)
 {
-    pthread_once(&crc_once, initialize_crc_table);
     const uint8_t *p = bytes;
     uint32_t crc = UINT32_MAX;
+#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
+    while (size >= sizeof(uint64_t)) {
+        uint64_t word;
+        memcpy(&word, p, sizeof(word));
+        crc = __crc32d(crc, word);
+        p += sizeof(word);
+        size -= sizeof(word);
+    }
+    while (size--) crc = __crc32b(crc, *p++);
+#else
+    pthread_once(&crc_once, initialize_crc_table);
     for (size_t i = 0; i < size; ++i)
         crc = crc_table[(crc ^ p[i]) & 255] ^ (crc >> 8);
+#endif
     return ~crc;
 }
 

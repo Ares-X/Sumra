@@ -19,7 +19,11 @@ final class BookCorpusAcceptanceTests: XCTestCase {
         }
         let files = try FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: path, isDirectory: true),
             includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
+        // Isolate one supplied book when profiling an affected owner. Leaving
+        // this unset retains the complete inventory acceptance run.
+        let selected = ProcessInfo.processInfo.environment["SUMRA_BOOK_CORPUS_FILE"]
         let inputs = try files.filter {
+            if let selected, $0.lastPathComponent != selected { return false }
             guard extensions.contains($0.pathExtension.lowercased()) else { return false }
             return try $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
         }.sorted { $0.lastPathComponent < $1.lastPathComponent }
@@ -170,6 +174,7 @@ final class BookCorpusAcceptanceTests: XCTestCase {
         }
         state.showContents = false
         try await wait(state, host: host, reason: "Closing Contents") { self.ready(state) }
+        result["contentsClosed"] = !state.showContents
         var textCapability = true, fixedLayout = false
         if case .pages(let pages) = state.document?.content {
             textCapability = await pages.hasText

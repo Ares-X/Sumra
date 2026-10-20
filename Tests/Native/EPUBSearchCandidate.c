@@ -9,7 +9,10 @@ API int lf_search_chapter_candidate(void *, int, const char *, int, int (*)(void
 API char *lf_text_at(SumraMuPDFDocument *, int, int, char *);
 API int lf_relayout_css(SumraMuPDFDocument *, float, float, float, const char *, int, char *);
 API void lf_close(SumraMuPDFDocument *);
+API int lf_chapter_pages(SumraMuPDFDocument *, int, char *);
 static int failures;
+#define FLOW16 "groupword groupword groupword groupword groupword groupword groupword groupword groupword groupword groupword groupword groupword groupword groupword groupword "
+#define FLOW256 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16 FLOW16
 static void check(int ok, const char *why) { if (!ok) { fprintf(stderr, "FAIL: %s\n", why); ++failures; } }
 static SumraMuPDFDocument *open_book(const char *path) {
     char error[512] = {0}; int password = 0;
@@ -35,7 +38,7 @@ static const char *fixture(char *directory) {
     write_file(directory, "mimetype", "application/epub+zip");
     write_file(directory, "META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>");
     write_file(directory, "book.opf", "<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata/><manifest><item id='one' href='one.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='one'/></spine></package>");
-    write_file(directory, "one.xhtml", "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>p.generated:before{content:'before CONTENT 甲'} body{font-family:serif}</style></head><body><p>马<span>尾</span>拂尘</p><p>马尾 <em>拂尘</em></p><p class='generated'>inline café CAFÉ ß ﬁ exact</p><ol><li>list item</li></ol><ul><li>bullet</li></ul><p>e&#x301; A&#xad;B</p><p>wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap</p></body></html>");
+    write_file(directory, "one.xhtml", "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>p.generated:before{content:'before CONTENT 甲'} body{font-family:serif}</style></head><body><p>马<span>尾</span>拂尘</p><p>马尾 <em>拂尘</em></p><p class='generated'>inline café CAFÉ ß ﬁ exact</p><ol><li>list item</li></ol><ul><li>bullet</li></ul><p>e&#x301; A&#xad;B</p><p>wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap</p><p>" FLOW256 "indexEND</p><p>bottomEND</p></body></html>");
     static char book[PATH_MAX]; snprintf(book, sizeof book, "%s.epub", directory);
     pid_t child = fork(); if (!child) { execl("/usr/bin/ditto", "ditto", "-c", "-k", directory, book, NULL); _exit(2); }
     int status; waitpid(child, &status, 0); if (status) abort(); return book;
@@ -45,6 +48,35 @@ static void cleanup_fixture(const char *directory, const char *book) {
     char path[PATH_MAX];
     for (size_t i = 0; i < sizeof(files)/sizeof(*files); ++i) { snprintf(path, sizeof path, "%s/%s", directory, files[i]); unlink(path); }
     snprintf(path, sizeof path, "%s/META-INF", directory); rmdir(path); rmdir(directory); unlink(book);
+}
+
+static void finite_page_parity(const char *path) {
+    const char *queries[] = {"马尾拂尘", "马尾 拂尘", "before", "CONTENT", "cafe", "ss", "fi", "1. list", "•", "e\xCC\x81", "-", "customCSS中", "groupword", "indexEND", "bottomEND", "不存在的目标"};
+    const float heights[] = {180, 360, 0};
+    SumraMuPDFDocument *fast = open_book(path), *reference = open_book(path);
+    char error[512] = {0};
+    for (size_t layout = 0; layout < sizeof(heights)/sizeof(*heights); ++layout) {
+        float width = layout == 1 ? 240 : 320, em = layout == 1 ? 19 : 17;
+        const char *css = "p.generated:after{content:'customCSS中'} @page{margin:0} sup{vertical-align:super} sub{vertical-align:sub}";
+        check(lf_relayout_css(fast, width, heights[layout], em, css, 1, error) == 1, error);
+        check(lf_relayout_css(reference, width, heights[layout], em, css, 1, error) == 1, error);
+        int pages = lf_chapter_pages(fast, 0, error);
+        check(pages == lf_chapter_pages(reference, 0, error), "finite page counts must agree after reflow");
+        check(heights[layout] == 0 ? pages == 1 : pages > 1, "fixture must exercise finite and natural canvases");
+        for (int page = 0; page < pages; ++page) {
+            char *text = lf_text_at(reference, 0, page, error); check(text != NULL, error); free(text);
+            for (size_t query = 0; query < sizeof(queries)/sizeof(*queries); ++query) {
+                for (int flags = 0; flags < 8; ++flags) {
+                    lf_drop_render_page(fast);
+                    char *a = lf_search_options_at(fast, 0, page, queries[query], flags, -1, -1, NULL, error);
+                    char *b = lf_search_options_at(reference, 0, page, queries[query], flags, -1, -1, NULL, error);
+                    check(a && b && !strcmp(a, b), "page candidate/index must preserve exact glyph JSON across finite borders and reflow");
+                    free(a); free(b);
+                }
+            }
+        }
+    }
+    lf_close(fast); lf_close(reference);
 }
 
 int main(int argc, char **argv) {
@@ -96,6 +128,7 @@ int main(int argc, char **argv) {
     json = lf_search_options_at(d, 0, 0, "不存在的目标", 0, -1, 1, cancelled, error);
     check(!json && strstr(error, "Search cancelled"), "candidate walk must honor cancellation");
     free(json); lf_close(d);
+    if (argc != 2) finite_page_parity(path);
     printf("candidate parity: %zu queries x 8 option/direction combinations; failures=%d\n", sizeof(queries)/sizeof(*queries), failures);
     if (argc != 2) cleanup_fixture(directory, path);
     return failures ? 1 : 0;
