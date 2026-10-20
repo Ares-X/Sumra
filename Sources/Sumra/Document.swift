@@ -236,6 +236,18 @@ struct ReadingDocument: Identifiable {
         }
     }
 
+    private static func thumbnailSidecars(_ url: URL) -> [URL] {
+        ["jpg", "jpeg", "png"].map { url.deletingPathExtension().appendingPathExtension($0) }.filter { $0 != url }
+    }
+
+    static func thumbnailCacheKey(_ url: URL, size: CGSize) -> String {
+        let versions = ([url] + thumbnailSidecars(url)).map {
+            (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                .map { String($0.timeIntervalSinceReferenceDate) } ?? "missing"
+        }
+        return "\(url.absoluteString):\(size.width)x\(size.height):" + versions.joined(separator: ":")
+    }
+
     // Sumatra CreateThumbnailFromFileThread: a sibling cover, then the EPUB
     // cover declared by its OPF, then page one through the existing reader.
     // This temporary document never enters reading history or saved positions.
@@ -244,9 +256,8 @@ struct ReadingDocument: Identifiable {
         let options: CFDictionary = [kCGImageSourceCreateThumbnailFromImageAlways: true,
                        kCGImageSourceCreateThumbnailWithTransform: true,
                        kCGImageSourceThumbnailMaxPixelSize: max(size.width, size.height)] as CFDictionary
-        for ext in ["jpg", "jpeg", "png"] {
-            let cover = url.deletingPathExtension().appendingPathExtension(ext)
-            if cover != url, FileManager.default.fileExists(atPath: cover.path),
+        for cover in thumbnailSidecars(url) {
+            if FileManager.default.fileExists(atPath: cover.path),
                let source = CGImageSourceCreateWithURL(cover as CFURL, nil),
                let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) { return image }
         }

@@ -1,5 +1,11 @@
 # Reading-pipeline parity audit — 2026-10-19
 
+This records the 0.2.5 pipeline batch. The subsequent 0.2.6
+[independent-section implementation](COMIC_SEEK_INDEX_20261020.md) supersedes
+the archive seek-cost description below for suitable LZMA2 streams: first
+access starts at the nearest independent reset, while preceding data within
+that section still needs decoding.
+
 This bounded source audit compares the owners below with SumatraPDF tree
 `ea7d6b7da899752dcf85bb26297f1a13f0393b1a`. It is not a repository-wide parity
 proof. “Implemented” describes the current source batch; loaded-app acceptance,

@@ -62,6 +62,23 @@ multiple folders, directory/empty-file maps, duplicate names, renamed paths,
 empty archives and encoded headers with a non-power-of-two LZMA1 dictionary.
 The fixtures have no runtime compressor dependency.
 
+An optimized local GUI comparison used the same 885 × 702 point viewport,
+continuous Fit Page mode and a fresh document/Archive owner for each jump. The
+filesystem cache was warm; this is not a cold-storage benchmark. Measurements
+run from the target's `render-request` to its `canvas-first-draw` event:
+
+| Unread destination (one-based) | Public 0.2.5 | Local optimized 0.2.6 | Reduction |
+| --- | ---: | ---: | ---: |
+| Page 1,050 | 6.826 s | 2.303 s | 66.3% |
+| Page 2,097 | 12.412 s | 4.286 s | 65.5% |
+
+The 0.2.5 executable UUID is `96EDC528-635F-31DA-A118-91CCF536565F`;
+the local optimized 0.2.6 UUID is `B17607EC-F486-32E6-B565-ED1C9C8B3B5E`.
+`gui-unread-ab.json` retains the process, fresh owner and monotonic timestamps.
+These four observations establish the recorded workload improvement, not a
+latency percentile or universal Sumatra performance parity. Both owned QA
+processes and their copied bundles were retired after retaining the receipts.
+
 Integrated source, Books corpus, optimized GUI and exact signed-candidate
 observations are recorded separately in the
 [corpus acceptance report](BOOK_CORPUS_ACCEPTANCE.md). Private inputs, queries,
