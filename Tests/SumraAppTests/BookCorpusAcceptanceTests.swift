@@ -150,14 +150,19 @@ final class BookCorpusAcceptanceTests: XCTestCase {
         result["navigation"] = observations
         // Empty outlines are valid for books without a source TOC. Exercise the
         // actual contents command and record both inventory and selected entry.
+        let contentsStarted = Date()
+        state.showContents = true
         state.send(.toc)
         try await wait(state, host: host, reason: "Contents") { !state.outlineBusy && self.ready(state) }
+        result["contentsOpenSeconds"] = Date().timeIntervalSince(contentsStarted)
         result["outlineCount"] = state.outline.count
         if let entry = state.outline.first(where: { !$0.target.isEmpty }) {
             state.send(.href(entry.target))
             try await wait(state, host: host, reason: "Contents navigation") { self.ready(state) }
             result["outlineNavigation"] = entry.title
         }
+        state.showContents = false
+        try await wait(state, host: host, reason: "Closing Contents") { self.ready(state) }
         var textCapability = true, fixedLayout = false
         if case .pages(let pages) = state.document?.content {
             textCapability = await pages.hasText
@@ -178,6 +183,16 @@ final class BookCorpusAcceptanceTests: XCTestCase {
             let searchStarted = Date()
             state.status = ""
             state.send(.find(query))
+            if hasSampledText {
+                try await wait(state, host: host, reason: "First search selection") {
+                    guard state.selectedSearchTarget != nil, self.ready(state) else { return false }
+                    if case .browser = state.document?.content {
+                        return try await self.browserIsDisplaying(state.browserView, page: state.page)
+                    }
+                    return true
+                }
+                result["firstSearchSelectionSeconds"] = Date().timeIntervalSince(searchStarted)
+            }
             try await wait(state, host: host, reason: "Search selection and count") {
                 // Search can navigate to another topic. Native loading flags
                 // alone can still describe its predecessor's painted surface.

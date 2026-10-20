@@ -2,6 +2,29 @@ import XCTest
 @testable import SumraCore
 
 final class TextSearchTests: XCTestCase {
+    func testMatchObserverUsesTheSameNonoverlappingUTF16Ranges() throws {
+        let text = "😀 ababa aba"
+        let options = TextSearchOptions()
+        var observed: [NSRange] = []
+        let ranges = try options.ranges(in: text, query: "aba") { observed.append($0) }
+        XCTAssertEqual(ranges, [NSRange(location: 3, length: 3), NSRange(location: 9, length: 3)])
+        XCTAssertEqual(observed, ranges)
+        observed = []
+        let limited = try options.ranges(in: text, query: "aba", maximum: 1) { observed.append($0) }
+        XCTAssertEqual(observed, limited)
+        XCTAssertEqual(limited, [ranges[0]])
+    }
+
+    func testMatchObserverCanCancelBeforeScanningTheRemainder() {
+        enum Stop: Error { case matched }
+        var observed: [NSRange] = []
+        XCTAssertThrowsError(try TextSearchOptions().ranges(in: "one " + String(repeating: "one ", count: 10_000), query: "one") {
+            observed.append($0)
+            throw Stop.matched
+        }) { XCTAssertTrue($0 is Stop) }
+        XCTAssertEqual(observed, [NSRange(location: 0, length: 3)])
+    }
+
     func testSearchPageRangesFollowTheUpstreamFindField() {
         XCTAssertEqual(TextSearchOptions.pages("3, 4–6, 18-", count: 20), IndexSet([2, 3, 4, 5, 17, 18, 19]))
         XCTAssertEqual(TextSearchOptions.pages("6-3", count: 20), IndexSet(2..<6))
