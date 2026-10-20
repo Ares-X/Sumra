@@ -58,7 +58,7 @@ struct WindowPayload: Codable, Hashable {
 }
 
 @MainActor
-private struct ReaderWindow: View {
+struct ReaderWindow: View {
     @Binding var payload: WindowPayload
     let application: ReaderApplicationDelegate
     @StateObject private var state = ReaderState()
@@ -66,13 +66,20 @@ private struct ReaderWindow: View {
     @AppStorage("fullPathTitle") private var fullPathTitle = false
     @AppStorage("pageInTitle") private var pageInTitle = false
 
+    init(payload: Binding<WindowPayload>, application: ReaderApplicationDelegate) {
+        _payload = payload
+        self.application = application
+    }
+
     private var windowTitle: String {
         guard let document = state.document else { return "Sumra" }
         return (fullPathTitle ? document.url.path : document.url.lastPathComponent) + (pageInTitle && state.count > 0 ? " — " + state.positionLabel : "")
     }
 
     var body: some View {
-        ReaderView(state: state)
+        Group {
+            if !state.isWindowClosed { ReaderView(state: state) }
+        }
             .frame(minWidth: 560, minHeight: state.hasDocument ? 400 : 500)
             .navigationTitle(windowTitle)
             .background(WindowTabs(state: state, tabWith: payload.tabWith, identifier: payload.tabIdentifier) {
@@ -480,6 +487,7 @@ enum ReaderWindows {
 
 @MainActor
 enum ReaderFiles {
+    static let recentDocumentsChanged = Notification.Name("SumraRecentDocumentsChanged")
     private static func identity(_ path: String) -> String {
         let url = URL(fileURLWithPath: path).standardizedFileURL
         // A renamed or removed leaf must still resolve aliases in its existing parent.
@@ -503,9 +511,11 @@ enum ReaderFiles {
         if let data = try? JSONEncoder().encode(records) { UserDefaults.standard.set(data, forKey: "documentOpenHistory") }
     }
     static var pinned: [String] { UserDefaults.standard.stringArray(forKey: "pinnedDocuments") ?? [] }
-    static func isPinned(_ url: URL) -> Bool {
-        let key = identity(url.path)
-        return pinned.contains { identity($0) == key }
+    static func isPinned(_ url: URL) -> Bool { pinnedURLs(in: [url]).contains(url) }
+    static func pinnedURLs(in urls: [URL]) -> Set<URL> {
+        let keys = Set(pinned.map(identity))
+        if keys.isEmpty { return [] }
+        return Set(urls.filter { keys.contains(identity($0.path)) })
     }
     static var recent: [URL] { ordered(frequentlyRead: false) }
 
@@ -568,6 +578,7 @@ enum ReaderFiles {
         NSDocumentController.shared.clearRecentDocuments(nil)
         UserDefaults.standard.removeObject(forKey: "documentOpenHistory")
         UserDefaults.standard.removeObject(forKey: "closedDocuments")
+        NotificationCenter.default.post(name: recentDocumentsChanged, object: nil)
     }
     static func pin(_ url: URL) {
         var paths = pinned
@@ -579,6 +590,7 @@ enum ReaderFiles {
         let controller = NSDocumentController.shared
         controller.clearRecentDocuments(nil)
         for url in urls.reversed() { controller.noteNewRecentDocumentURL(url) }
+        NotificationCenter.default.post(name: recentDocumentsChanged, object: nil)
     }
     static func forget(_ url: URL) { forget(Set([url.path])) }
     private static func forget(_ paths: Set<String>) {
@@ -624,17 +636,35 @@ struct DocumentFileBrowser: View {
     @State private var entries: [URL] = []
     @State private var query = ""
     @State private var revision = 0
+    @State private var recentFiles: [URL] = []
+    @State private var pinnedFiles = Set<URL>()
+    @State private var historyInputs: HistoryInputs?
+    @State private var thumbnails = ReaderFileThumbnails()
+    @State private var viewChange: UInt64?
     @State private var selected: URL?
     @State private var focus: Focus?
     private enum Focus { case search, files }
+    private struct HistoryInputs: Equatable {
+        let history: Data?
+        let pinned: [String]
+        let frequentlyRead: Bool
+    }
     @AppStorage("homePageSortByFrequentlyRead") private var frequentlyRead = false
     @AppStorage("homePageViewMode") private var viewMode = "thumbnails"
     let dismissOnOpen: Bool
     @Environment(\.dismiss) private var dismiss
     init(state: ReaderState, folder: URL? = nil, dismissOnOpen: Bool = false) { self.state = state; self.dismissOnOpen = dismissOnOpen; _folder = State(initialValue: folder) }
+    private var fileViewSelection: Binding<String> {
+        Binding(get: { viewMode }, set: { mode in
+            viewChange = DispatchTime.now().uptimeNanoseconds
+            NativeReadingPerformance.mark("home-view-request", pagesIdentity: ObjectIdentifier(thumbnails),
+                                          flags: mode == "thumbnails" ? 1 : 0)
+            viewMode = mode
+        })
+    }
     var body: some View {
         let _ = revision
-        let files = (folder == nil ? ReaderFiles.ordered(frequentlyRead: frequentlyRead) : entries)
+        let files = (folder == nil ? recentFiles : entries)
             .filter { query.isEmpty || $0.lastPathComponent.localizedCaseInsensitiveContains(query) }
         VStack(spacing: 16) {
             HStack(spacing: 12) {
@@ -669,7 +699,7 @@ struct DocumentFileBrowser: View {
                     .menuStyle(.borderlessButton).fixedSize()
                     .help(L("Sort Documents")).accessibilityLabel(L("Sort Documents"))
                 }
-                Picker(L("File View"), selection: $viewMode) {
+                Picker(L("File View"), selection: fileViewSelection) {
                     Image(systemName: "list.bullet").tag("list").help(L("List"))
                     Image(systemName: "square.grid.2x2").tag("thumbnails").help(L("Thumbnails"))
                 }.labelsHidden().pickerStyle(.segmented).frame(width: 64)
@@ -713,7 +743,9 @@ struct DocumentFileBrowser: View {
                         }
                         .padding(8)
                     }
-                    .background(ReaderFileKeys(focused: Binding(
+                    .background(ReaderFileKeys(performanceOwner: ObjectIdentifier(thumbnails),
+                        viewChange: viewChange, thumbnails: viewMode == "thumbnails",
+                        focused: Binding(
                         get: { focus == .files },
                         set: { focused in if !focused && focus == .files { focus = nil } }),
                         move: { moveSelection($0, files: files, columns: columns) },
@@ -744,11 +776,18 @@ struct DocumentFileBrowser: View {
         }
         .font(.system(size: 13))
         .padding(24)
-        .onAppear { selected = files.first; focus = .search }
+        .onAppear { refreshHistory(); selected = files.first; focus = .search }
+        .onChange(of: frequentlyRead) { _ in refreshHistory() }
         .onChange(of: files) { values in
             if selected.map({ !values.contains($0) }) ?? true { selected = values.first }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in revision += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            refreshHistory()
+            revision += 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ReaderFiles.recentDocumentsChanged)) { _ in
+            refreshHistory(force: true)
+        }
         .task(id: folder) {
             entries = []
             guard let folder else { entries = []; return }
@@ -758,17 +797,34 @@ struct DocumentFileBrowser: View {
                         .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true || Format.detect($0.lastPathComponent) != .unknown }
                         .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
                 }.value
-                if !Task.isCancelled, self.folder == folder { entries = loaded }
+                if !Task.isCancelled, self.folder == folder { entries = loaded; refreshPins() }
             } catch { if !Task.isCancelled, self.folder == folder { state.error = error.localizedDescription } }
         }
     }
+    // Layout, focus and file-view changes must not resolve the complete history's
+    // filesystem aliases again. Defaults notifications also include view settings.
+    private func refreshHistory(force: Bool = false) {
+        let inputs = HistoryInputs(history: UserDefaults.standard.data(forKey: "documentOpenHistory"),
+                                   pinned: ReaderFiles.pinned,
+                                   frequentlyRead: frequentlyRead)
+        guard force || historyInputs != inputs else { return }
+        let started = DispatchTime.now().uptimeNanoseconds
+        historyInputs = inputs
+        recentFiles = ReaderFiles.ordered(frequentlyRead: frequentlyRead)
+        refreshPins()
+        NativeReadingPerformance.mark("home-catalog-refresh", pagesIdentity: ObjectIdentifier(thumbnails),
+                                      page: recentFiles.count, started: started)
+    }
+    private func refreshPins() {
+        pinnedFiles = ReaderFiles.pinnedURLs(in: recentFiles + entries)
+    }
     private func fileItem(_ url: URL, thumbnail: Bool) -> some View {
         let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        let pinned = ReaderFiles.isPinned(url)
+        let pinned = pinnedFiles.contains(url)
         return Button { open(url) } label: {
             if thumbnail {
                 VStack(spacing: 8) {
-                    ReaderFileThumbnail(url: url, isFolder: isFolder)
+                    ReaderFileThumbnail(url: url, isFolder: isFolder, thumbnails: thumbnails)
                     HStack(spacing: 4) {
                         if pinned { Image(systemName: "pin.fill") }
                         Text(url.lastPathComponent).font(.system(size: 13, weight: .medium)).lineLimit(2)
@@ -915,6 +971,9 @@ private struct ReaderFileSearchInput: NSViewRepresentable {
 // still owns selection, scrolling, menus and opening files.
 @MainActor
 private struct ReaderFileKeys: NSViewRepresentable {
+    let performanceOwner: ObjectIdentifier
+    let viewChange: UInt64?
+    let thumbnails: Bool
     @Binding var focused: Bool
     let move: (MoveCommandDirection) -> Void
     let submit: () -> Void
@@ -922,10 +981,18 @@ private struct ReaderFileKeys: NSViewRepresentable {
     func updateNSView(_ view: KeyView, context: Context) {
         view.parent = self
         view.updateFocus()
+        if let viewChange, viewChange != view.drawnChange { view.needsDisplay = true }
     }
     static func dismantleNSView(_ view: KeyView, coordinator: ()) { view.parent = nil }
     final class KeyView: NSView {
         var parent: ReaderFileKeys?
+        var drawnChange: UInt64?
+        override func draw(_ dirtyRect: NSRect) {
+            guard let parent, let started = parent.viewChange, drawnChange != started else { return }
+            drawnChange = started
+            NativeReadingPerformance.mark("home-view-first-draw", pagesIdentity: parent.performanceOwner,
+                                          started: started, size: bounds.size, flags: parent.thumbnails ? 1 : 0)
+        }
         override var acceptsFirstResponder: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); updateFocus() }
@@ -946,10 +1013,18 @@ private struct ReaderFileKeys: NSViewRepresentable {
     }
 }
 
+// Retain completed covers across list/grid transitions without retaining their
+// reader documents. NSCache can reclaim images under memory pressure.
+@MainActor
+private final class ReaderFileThumbnails {
+    let images = NSCache<NSString, NSImage>()
+}
+
 @MainActor
 private struct ReaderFileThumbnail: View {
     let url: URL
     let isFolder: Bool
+    let thumbnails: ReaderFileThumbnails
     @Environment(\.displayScale) private var scale
     @State private var image: NSImage?
 
@@ -977,11 +1052,14 @@ private struct ReaderFileThumbnail: View {
             .task(id: scale) {
                 guard !isFolder else { return }
                 let size = CGSize(width: 136 * scale, height: 168 * scale), url = url
+                let key = ReadingDocument.thumbnailCacheKey(url, size: size) as NSString
+                if let cached = thumbnails.images.object(forKey: key) { image = cached; return }
                 let render = Task.detached(priority: .utility) { try await ReadingDocument.thumbnail(url, size: size) }
                 do {
                     let bitmap = try await withTaskCancellationHandler(operation: { try await render.value }, onCancel: { render.cancel() })
                     guard !Task.isCancelled else { return }
                     image = bitmap.map { NSImage(cgImage: $0, size: .zero) }
+                    if let image { thumbnails.images.setObject(image, forKey: key) }
                 } catch { /* Unavailable or password-protected files keep their format cover. */ }
             }
             .onDisappear { image = nil }

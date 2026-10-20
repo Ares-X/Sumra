@@ -439,6 +439,7 @@ final class ReaderState: ObservableObject {
     private var wheelTurnedPage = false
     private var wheelPageTurnTime: TimeInterval?
     weak var window: NSWindow?
+    @Published private(set) var isWindowClosed = false
     weak var findWindow: NSWindow?
     var createWindow: ((WindowPayload) -> Void)?
     var openAuxiliaryWindow: ((String) -> Void)?
@@ -2060,6 +2061,9 @@ extension ReaderState {
     }
 
     func windowClosed() {
+        // A retained SwiftUI scene must stop rendering before document teardown
+        // publishes nil; returning Home is a separate, still-open-window action.
+        isWindowClosed = true
         persist()
         generation += 1
         loading?.cancel()

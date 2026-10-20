@@ -14,6 +14,72 @@ This report records validation of 25 locally supplied books, with each dated sec
 
 The earlier 25/25 functional sweep exited successfully for opening, sampled rendering and navigation; originals remained byte-identical by inventory checks. That bounded local probe did not establish every page, whole-book search/selection, low memory, smooth trackpad use or the current loaded binary's behavior. Later sections record the additional coverage separately. CHM follows its own WebKit navigation checks. Some source outline targets are missing or empty by design; an empty MOBI outline is not automatically a parser failure.
 
+## Window-close and Home follow-up (2026-10-20, pending candidate)
+
+After the section-index core was merged, the reported window-close and Home
+view-switch stalls required an additional UI batch. Closing a native window
+now marks its reader state closed before document teardown publishes an empty
+document. A retained SwiftUI scene therefore stops mounting the reader instead
+of constructing Home and starting cover work. Returning Home in a still-open
+window remains a separate action and retains the file browser.
+
+Home now refreshes its ordered catalog and resolved pin aliases when the
+relevant history, pins or sort inputs change. View-mode defaults notifications
+no longer trigger a call to `NSDocumentController.recentDocumentURLs` through
+catalog rebuilding. A sample of the preceding GUI stall found the main thread
+waiting in that system recent-document query. Completed covers are retained in
+an `NSCache`, keyed by source and sibling-cover modification times plus requested
+output dimensions, so list/thumbnail transitions can reuse them. This cache is
+memory-only and does not retain reader documents or write book payloads to disk.
+
+The retained-closed-scene regression records one failure in two tests before
+the fix and both passing after it. The companion test confirms that returning
+Home keeps the open scene usable. Receipts are in ignored
+`build/solid-seek-20261020/closed-scene-before.log` and
+`scene-catalog-check.log`. These tests establish the scene lifecycle boundary;
+optimized GUI validation of the latest UI batch remains pending.
+
+Native window tabs were already implemented and enabled by default in source.
+The existing user preference had `disableTabs=true`; enabling tabs through
+Settings was followed by actual two-tab and five-tab native-window checks.
+This is verification of the existing feature, not a new tabs implementation.
+
+The earlier signed draft built from section-index source `556a7e7` completed
+25-book GUI checks, but it predates this additional UI batch and is not the
+final 0.2.6 candidate. The latest optimized GUI checks and final signed CI
+candidate acceptance remain pending. **0.2.6 is not public.** Historical 0.2.5
+publication evidence below applies only to that release.
+
+## Section-index source acceptance (2026-10-20)
+
+Source `556a7e7bbef88a8283b3258f006cc9d8932c26d3` adds independent
+LZMA2 section seeking for 0.2.6. The current Books inventory remains **25**
+supported regular files in the groups above. All **25/25** hosted document
+workflows pass in `build/solid-seek-20261020/workflows-corrected.json`, including
+first/middle/final source locations, Contents and applicable completed Find
+queries with selected results. All **4,942/4,942** comic pages decode in
+`workflows.comics.json`. These are mounted-owner/decode checks, not every-page
+foreground visual comparison.
+
+The full source run passes 115 Core cases. Its 901-case application run has two
+assertion failures in the corpus workflow: the harness set single-page layout
+before opening, but loading reread saved continuous-layout preferences. With a
+short final page and a taller viewport, the final page was visible while the
+viewport's top still belonged to the previous page. The corrected harness passes
+its intended position through the existing open owner, verifies the resulting
+layout and retains exact location, readiness and rendered-pixel assertions.
+The complete 25-book workflow then passes; the other application cases pass in
+the full run. The initial failures remain in `source-check.log` and are not
+presented as a passing invocation. All 58 packaging checks and the three reader
+JavaScript syntax checks pass. The optimized local build also passes.
+
+The [section-seek record](COMIC_SEEK_INDEX_20261020.md) separates the raw-stream
+probe from actual-window first-draw measurements: fresh-document jumps to pages
+1,050 and 2,097 improve by 66.3% and 65.5% against public 0.2.5 on the same Mac
+and viewport. This removes decoding of earlier independent sections, while
+retaining work within the target's section. It creates no persistent book
+payload or on-disk index and never writes the original archive.
+
 ## Source-build corpus acceptance (2026-10-19/20)
 
 The current source-build and local optimized QA sweep covers every supported
