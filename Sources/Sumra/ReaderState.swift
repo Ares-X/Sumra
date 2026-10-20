@@ -284,12 +284,17 @@ final class ReaderState: ObservableObject {
             guard outline.count != oldValue.count || zip(outline, oldValue).contains(where: { pair in
                 pair.0.title != pair.1.title || pair.0.target != pair.1.target || pair.0.depth != pair.1.depth
             }) else { return }
+            outlineRevision &+= 1
             let level = UserDefaults.standard.object(forKey: "contentsDepth") as? Int ?? 0
             collapsedContents = level > 0 ? Set(outline.indices.filter { outline[$0].depth >= level - 1 && contentsHasChildren($0) }) : []
             selectedContents = nil
         }
     }
-    @Published var collapsedContents = Set<Int>()
+    private(set) var outlineRevision = 0
+    @Published var collapsedContents = Set<Int>() {
+        didSet { if collapsedContents != oldValue { contentsExpansionRevision &+= 1 } }
+    }
+    private(set) var contentsExpansionRevision = 0
     @Published var selectedContents: Int?
     @Published var contentsQuery = ""
     @Published var followContents = true

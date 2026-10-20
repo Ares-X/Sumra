@@ -69,12 +69,16 @@ fileprivate final class RasterDocument {
     private var cache = [(location: PageLocation, width: Int, transparent: Bool, pdfStyle: PDFColors.Style?, image: CGImage)]()
     // EngineMupdf keeps this document classification until the file is reopened.
     private var engineering: PDFColors.Engineering?
-    private(set) var pageBounds = [PageLocation: CGRect]()
+    private(set) var pageBounds = [PageLocation: CGRect]() {
+        didSet { cachedEstimatedBounds = nil }
+    }
     private var contentBoxes = [PageLocation: CGRect]()
+    private var cachedEstimatedBounds: CGRect?
 
     // DisplayModel::UpdateEstimatedMediaBox: unseen image pages use the most
     // common measured size. A few spreads must not resize the whole canvas.
     var estimatedBounds: CGRect {
+        if let cachedEstimatedBounds { return cachedEstimatedBounds }
         var sizes = [(size: CGSize, count: Int)]()
         for location in pageBounds.keys.sorted() {
             guard let size = pageBounds[location]?.size, size.width >= 100, size.height >= 100 else { continue }
@@ -83,7 +87,9 @@ fileprivate final class RasterDocument {
         }
         var best = CGSize(width: 420, height: 595), count = 0
         for item in sizes where item.count > count { best = item.size; count = item.count }
-        return CGRect(origin: .zero, size: best)
+        let estimate = CGRect(origin: .zero, size: best)
+        cachedEstimatedBounds = estimate
+        return estimate
     }
 
     init(_ url: URL, format: Format, archive existing: Archive? = nil, password: String? = nil, deferReflowLayout: Bool = false, sourceCheckpoint: NativeFile.FileCheckpoint? = nil) throws {
@@ -3537,7 +3543,7 @@ private struct WindowScale: NSViewRepresentable {
         }
         private func layoutGeometry(_ key: LayoutKey) -> Geometry? {
             guard let owner, key.viewport.width > 0, key.viewport.height > 0 else { return nil }
-            let uniform = owner.state.reflowable && !key.continuousReflow && !key.trim && !key.uniform && key.landscape.isEmpty
+            let uniform = !key.continuousReflow && !key.trim && !key.uniform && (!key.spread || key.landscape.isEmpty)
                 && measured.values.allSatisfy { $0.bounds == key.estimate }
             if uniform { locations.removeAll(); boxes.removeAll() }
             else {
@@ -3571,7 +3577,8 @@ private struct WindowScale: NSViewRepresentable {
                         let scale = min(contentScale, ReadingZoom.maximumCanvasExtent / Double(max(size.width, size.height)))
                         return CGSize(width: size.width * scale, height: size.height * scale)
                     }
-                    return RasterLayout.size(page: bounds.size, viewport: key.viewport, columns: columns,
+                    return RasterLayout.size(page: bounds.size, viewport: key.viewport,
+                        columns: owner.pages.isPDF && key.spread ? 2 : columns,
                         rotation: key.rotation, fit: key.fit, zoom: key.zoom, limit: key.limit, origin: bounds.origin)
                 }
                 return PageRows.uniformLayout(singleSize: displaySize(columns: 1), pairSize: displaySize(columns: 2),
@@ -3850,7 +3857,7 @@ private struct WindowScale: NSViewRepresentable {
                 let size = RasterLayout.size(page: box.size, viewport: key.viewport, columns: owner.pages.isPDF && key.spread ? 2 : row.count,
                     rotation: key.rotation, fit: key.fit, zoom: key.zoom, content: value.content,
                     limit: key.limit, uniformWidth: key.uniform ? value.referenceWidth : nil, origin: box.origin, continuous: key.continuousReflow)
-                // Most reflow pages share the known media box. Rendering one
+                // Equal-sized pages share the known media box. Rendering one
                 // must not rebuild tens of thousands of unchanged page frames.
                 var changedUniformBounds = false
                 if case .some(.uniform(_)) = self.geometry { changedUniformBounds = value.bounds != key.estimate }

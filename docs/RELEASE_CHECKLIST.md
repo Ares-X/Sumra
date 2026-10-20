@@ -18,6 +18,17 @@ user-deferred.
 
 ## Current implementation
 
+The current public release is [0.2.6](https://github.com/Ares-X/Sumra/releases/tag/v0.2.6).
+Its section seeking, Home/sidebar follow-up, signed candidate, 25-book GUI sweep
+and actual Sparkle upgrade are recorded in the
+[current corpus acceptance](BOOK_CORPUS_ACCEPTANCE.md#window-close-and-home-follow-up-2026-10-20).
+The new performance round compares upstream tree
+`a1120ae6de3b84be0c422dc0da7258e6828c2be6`; its implementation and measurements
+are recorded in [the October 20 review](PERFORMANCE_PARITY_20261020.md).
+A source inventory or historical passing test is not acceptance of a new binary.
+
+## Earlier release and candidate evidence
+
 October 13's exact signed Action candidate `26a6c93` corrects the reproduced
 background-suppressed opening path and preserves native passages across reader
 palette changes. Actual unchanged B02/B04 Markdown and B01 EPUB checks are

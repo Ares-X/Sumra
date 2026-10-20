@@ -88,7 +88,8 @@ public struct TextSearchOptions: Hashable, Sendable {
     }
 
     public func ranges(in text: String, query: String, after: Int? = nil,
-                       backwards: Bool = false, maximum: Int? = nil) throws -> [NSRange] {
+                       backwards: Bool = false, maximum: Int? = nil,
+                       onMatch: ((NSRange) throws -> Void)? = nil) throws -> [NSRange] {
         guard !query.isEmpty else { return [] }
         if let maximum, maximum <= 0 { return [] }
         let source = text as NSString, pattern = query as NSString
@@ -178,6 +179,7 @@ public struct TextSearchOptions: Hashable, Sendable {
                     let hit = NSRange(location: start, length: end - start)
                     if accepts(hit, in: source) {
                         result.append(hit)
+                        try onMatch?(hit)
                         if let maximum, result.count >= maximum { break }
                     }
                 }
@@ -203,6 +205,7 @@ public struct TextSearchOptions: Hashable, Sendable {
                 let hit = NSRange(location: start, length: end - start)
                 if accepts(hit, in: source) {
                     result.append(hit)
+                    try onMatch?(hit)
                     if let maximum, result.count >= maximum { break }
                     start = end; continue
                 }

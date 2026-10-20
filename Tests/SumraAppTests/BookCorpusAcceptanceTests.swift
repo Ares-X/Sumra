@@ -150,14 +150,26 @@ final class BookCorpusAcceptanceTests: XCTestCase {
         result["navigation"] = observations
         // Empty outlines are valid for books without a source TOC. Exercise the
         // actual contents command and record both inventory and selected entry.
+        let contentsStarted = Date()
+        state.showContents = true
         state.send(.toc)
         try await wait(state, host: host, reason: "Contents") { !state.outlineBusy && self.ready(state) }
+        result["contentsOpenSeconds"] = Date().timeIntervalSince(contentsStarted)
         result["outlineCount"] = state.outline.count
         if let entry = state.outline.first(where: { !$0.target.isEmpty }) {
             state.send(.href(entry.target))
-            try await wait(state, host: host, reason: "Contents navigation") { self.ready(state) }
+            try await wait(state, host: host, reason: "Contents navigation") {
+                guard self.ready(state) else { return false }
+                if case .browser = state.document?.content {
+                    if let page = entry.page, state.page != page { return false }
+                    return try await self.browserIsDisplaying(state.browserView, page: state.page)
+                }
+                return true
+            }
             result["outlineNavigation"] = entry.title
         }
+        state.showContents = false
+        try await wait(state, host: host, reason: "Closing Contents") { self.ready(state) }
         var textCapability = true, fixedLayout = false
         if case .pages(let pages) = state.document?.content {
             textCapability = await pages.hasText
@@ -178,6 +190,17 @@ final class BookCorpusAcceptanceTests: XCTestCase {
             let searchStarted = Date()
             state.status = ""
             state.send(.find(query))
+            if hasSampledText {
+                try await wait(state, host: host, reason: "First search selection") {
+                    // Keep the same realm observation as the completed-count
+                    // check: an occluded hosted WKWebView otherwise throttles
+                    // the cross-topic scan while no first hit exists yet.
+                    if case .browser = state.document?.content,
+                       !(try await self.browserIsDisplaying(state.browserView, page: state.page)) { return false }
+                    return state.selectedSearchTarget != nil && self.ready(state)
+                }
+                result["firstSearchSelectionSeconds"] = Date().timeIntervalSince(searchStarted)
+            }
             try await wait(state, host: host, reason: "Search selection and count") {
                 // Search can navigate to another topic. Native loading flags
                 // alone can still describe its predecessor's painted surface.
@@ -202,7 +225,9 @@ final class BookCorpusAcceptanceTests: XCTestCase {
         switch state.document?.content {
         case .pages(let pages): return RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
         case .text: return state.readerFocusView != nil && !state.outlineBusy
-        case .browser: return state.browserView != nil && state.count > 0 && state.browserView?.isLoading == false
+        case .browser:
+            return state.count > 0 && state.browserView?.isLoading == false &&
+                (state.browserView?.navigationDelegate as? BrowserReader.Coordinator)?.ready == true
         case nil: return false
         }
     }

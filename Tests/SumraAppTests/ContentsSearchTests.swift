@@ -29,6 +29,37 @@ final class ContentsSearchTests: XCTestCase {
     }
 
     @MainActor
+    func testRepeatedLargeContentsUpdatesKeepRowsSelectionAndCollapsedBranches() async throws {
+        let state = ReaderState(recordsHistory: false)
+        state.followContents = false
+        state.outline = (0..<2_000).flatMap { index in [
+            ContentsItem(title: "Chapter \(index)", target: "#chapter=\(index)"),
+            ContentsItem(title: "Section \(index)", target: "#section=\(index)", depth: 1)
+        ] }
+        state.collapsedContents = Set(stride(from: 0, to: 4_000, by: 4))
+        let window = makeWindow(state)
+        defer { window.contentView = nil; window.close(); state.windowClosed() }
+        await settle(window)
+        let tree = try XCTUnwrap(state.contentsFocusView as? NativeContentsTree.OutlineView)
+        let coordinator = try XCTUnwrap(tree.delegate as? NativeContentsTree.Coordinator)
+        state.selectedContents = 2
+        coordinator.update(tree)
+        let first = try XCTUnwrap(tree.item(atRow: 0) as? NativeContentsTree.Node)
+        let started = DispatchTime.now().uptimeNanoseconds
+        for _ in 0..<200 { coordinator.update(tree) }
+        let seconds = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000_000
+        print("SUMRA_CONTENTS unchanged_updates=200 nodes=4000 seconds=\(seconds)")
+        XCTAssertTrue(tree.item(atRow: 0) as? NativeContentsTree.Node === first)
+        XCTAssertEqual(tree.numberOfRows, 3_000)
+        XCTAssertEqual((tree.item(atRow: tree.selectedRow) as? NativeContentsTree.Node)?.index, 2)
+        XCTAssertFalse(tree.isItemExpanded(first))
+        state.collapsedContents.remove(0)
+        coordinator.update(tree)
+        XCTAssertTrue(tree.isItemExpanded(first))
+        XCTAssertEqual(tree.numberOfRows, 3_001)
+    }
+
+    @MainActor
     func testSearchContentsCommandRevealsSidebarAndFocusesExistingQueryWithoutNavigation() async throws {
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/contents-command.txt"), content: .text("chapter"))

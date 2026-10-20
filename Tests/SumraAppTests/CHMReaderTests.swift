@@ -106,6 +106,24 @@ final class BrowserReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testLargeCHMOutlineRetainsTopicOrderingForRepeatedDestinations() async throws {
+        let result = try await javascript("""
+        const count = 3000;
+        const entries = Array.from({length:count}, (_, index) => `topic-${index}.htm`);
+        const items = entries.map((path, index) => `<li><object><param name=Name value="Chapter ${index}"><param name=Local value="${path}"></object></li>`);
+        items.push('<li><object><param name=Name value="Repeated first topic"><param name=Local value="TOPIC-0.HTM#second"></object></li>');
+        const indexed = await indexCHM({home:entries[1024], toc:'toc.hhc',
+            tocData:btoa('<ul>' + items.join('') + '</ul>'), charset:'utf-8',
+            entries:[...entries, entries[0], 'toc.hhc'].map(filename => ({filename}))});
+        return {pages:indexed.pages.length, indexes:indexed.toc.map(item => item.page), last:indexed.toc.at(-1).target};
+        """) as? [String: Any]
+        XCTAssertEqual(result?["pages"] as? Int, 3000)
+        let expected = (0..<3000).map { $0 == 1024 ? 0 : ($0 < 1024 ? $0 + 1 : $0) } + [1]
+        XCTAssertEqual(result?["indexes"] as? [Int], expected)
+        XCTAssertEqual(result?["last"] as? String, "leaf://book/entry/topic-0.htm#second")
+    }
+
+    @MainActor
     private func bridgeFixture(topic: (path: String, data: Data)? = nil, home: String? = nil,
                                additionalTopics: [(path: String, data: Data)] = [], lcid: UInt32 = 1033) throws -> (ReaderState, BrowserReader.Coordinator, WKWebView) {
         let engine = try NativeFile.libraryURL(for: .chm)

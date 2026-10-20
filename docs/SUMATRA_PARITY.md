@@ -16,3 +16,7 @@ Measured performance and sampled real books are recorded in their existing
 runtime receipts and [corpus report](BOOK_CORPUS_ACCEPTANCE.md). Historical
 measurements describe their actual build and workload; they are not a reason
 to rerun unchanged workflows or create additional release requirements.
+
+The [October 20 performance and implementation comparison](PERFORMANCE_PARITY_20261020.md)
+pins a fresh upstream tree and distinguishes aligned owners, measured repairs
+and remaining capability gaps.

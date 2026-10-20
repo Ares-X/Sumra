@@ -613,12 +613,14 @@ import SumraCore
                     applyHighlights(manager, in: range); second.needsDisplay = true
                 }
             }
-            if isCurrent { state.searchResults = []; state.status = "" }
+            if isCurrent { state.searchResults = []; state.searchCounting = false; state.status = "" }
         }
         func find(_ q: String, backwards: Bool = false, options: TextSearchOptions = .init(), fromSelection: Bool = false) {
             guard isCurrent, let v = view else { return }
-            let selection = fromSelection ? (selectionView ?? v).selectedRange() : NSRange(location: visibleRange()?.location ?? 0, length: 0)
-            if q == query, options == searchOptions, !results.isEmpty {
+            let sameSearch = q == query && options == searchOptions
+            let current = sameSearch && !fromSelection && results.indices.contains(hit) ? results[hit] : nil
+            let selection = current ?? (fromSelection ? (selectionView ?? v).selectedRange() : NSRange(location: visibleRange()?.location ?? 0, length: 0))
+            if sameSearch, !q.isEmpty, searchTask == nil {
                 if !fromSelection, results.indices.contains(hit) {
                     select((hit + (backwards ? -1 : 1) + results.count) % results.count)
                 } else { select(backwards: backwards, after: selection) }
@@ -628,11 +630,31 @@ import SumraCore
             guard !q.isEmpty else { return }
             query = q; searchOptions = options
             let content = v.string, generation = searchGeneration
+            state.searchCounting = true
             state.status = L("Searching…")
             searchTask = Task { [weak self] in
-                let scan = Task.detached(priority: .userInitiated) {
-                    let matches = try options.ranges(in: content, query: q)
+                let scan = Task.detached(priority: .userInitiated) { [weak self] in
+                    var previous: NSRange?, published = false
                     let source = content as NSString
+                    let matches = try options.ranges(in: content, query: q) { range in
+                        guard !published else { return }
+                        let candidate: NSRange?
+                        if backwards {
+                            if range.location < selection.location { previous = range; return }
+                            candidate = previous
+                        } else { candidate = range.location >= NSMaxRange(selection) ? range : nil }
+                        guard let candidate else { return }
+                        published = true
+                        let item = ContentsItem(title: TextSearchOptions.snippet(in: source, range: candidate),
+                            target: "text:\(candidate.location):\(candidate.length)")
+                        Task { @MainActor [weak self] in
+                            guard let self, self.isCurrent, self.searchGeneration == generation,
+                                  self.searchTask != nil else { return }
+                            self.results = [candidate]
+                            self.state.searchResults = [item]
+                            self.select(0)
+                        }
+                    }
                     let items = try matches.map { range in
                         try Task.checkCancellation()
                         return ContentsItem(title: TextSearchOptions.snippet(in: source, range: range), target: "text:\(range.location):\(range.length)")
@@ -642,8 +664,11 @@ import SumraCore
                 do {
                     let (matches, items) = try await withTaskCancellationHandler(operation: { try await scan.value }, onCancel: { scan.cancel() })
                     guard let self, self.isCurrent, !Task.isCancelled, self.searchGeneration == generation else { return }
+                    let selected = self.results.indices.contains(self.hit) ? self.results[self.hit] : nil
                     self.searchTask = nil; self.results = matches
                     self.state.searchResults = items
+                    self.state.searchCounting = false
+                    self.hit = selected.flatMap { matches.firstIndex(of: $0) } ?? -1
                     if let range = self.view?.textContentStorage?.documentRange {
                         self.view?.textLayoutManager?.invalidateRenderingAttributes(for: range)
                         self.secondary?.textLayoutManager?.invalidateRenderingAttributes(for: range)
@@ -651,9 +676,14 @@ import SumraCore
                     if let manager = self.view?.textLayoutManager, let viewport = manager.textViewportLayoutController.viewportRange {
                         self.applyHighlights(manager, in: viewport)
                     }
-                    self.select(backwards: backwards, after: selection)
+                    if self.hit >= 0 {
+                        self.state.status = String(format: L("%d of %d matches"), self.hit + 1, matches.count)
+                    } else { self.select(backwards: backwards, after: selection) }
                 } catch {
-                    if let self, self.isCurrent, !Task.isCancelled, self.searchGeneration == generation { self.state.error = error.localizedDescription }
+                    if let self, self.isCurrent, !Task.isCancelled, self.searchGeneration == generation {
+                        self.searchTask = nil; self.state.searchCounting = false
+                        self.query = ""; self.state.error = error.localizedDescription
+                    }
                 }
             }
         }
@@ -682,7 +712,7 @@ import SumraCore
             updateFacingPage()
             v.needsDisplay = true
             state.selectedSearchTarget = "text:\(results[index].location):\(results[index].length)"
-            state.status = String(format: L("%d of %d matches"), index + 1, results.count)
+            state.status = state.searchCounting ? state.searchCountText : String(format: L("%d of %d matches"), index + 1, results.count)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

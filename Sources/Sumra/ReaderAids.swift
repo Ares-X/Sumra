@@ -498,6 +498,7 @@ struct NativeContentsTree: NSViewRepresentable {
         let state: ReaderState
         private var nodes: [Node] = [], roots: [Node] = [], visibleRoots: [Node] = []
         private var documentID: UUID?
+        private var outlineRevision = -1, expansionRevision = -1
         private var query: String?
         private var updating = false
         weak var emptyLabel: NSTextField?
@@ -508,10 +509,10 @@ struct NativeContentsTree: NSViewRepresentable {
             defer { updating = false }
             // Stable item identities let AppKit retain its rows across page and
             // destination-resolution updates. Only a changed outline is rebuilt.
-            let outlineChanged = documentID != state.document?.id || nodes.count != state.outline.count ||
-                zip(nodes, state.outline).contains(where: { $0.title != $1.title || $0.target != $1.target || $0.depth != $1.depth })
+            let outlineChanged = documentID != state.document?.id || outlineRevision != state.outlineRevision
             if outlineChanged {
                 documentID = state.document?.id
+                outlineRevision = state.outlineRevision
                 nodes = state.outline.enumerated().map { Node(index: $0.offset, item: $0.element) }
                 roots = []
                 var ancestors: [Node] = []
@@ -523,7 +524,8 @@ struct NativeContentsTree: NSViewRepresentable {
                 }
             }
             let search = state.contentsQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-            if outlineChanged || query != search {
+            let filtered = outlineChanged || query != search
+            if filtered {
                 query = search
                 // Keep original nodes and destinations. Work from leaves to
                 // roots so matches retain their ancestors in a single pass.
@@ -540,10 +542,13 @@ struct NativeContentsTree: NSViewRepresentable {
             emptyLabel?.isHidden = !noMatches
             emptyLabel?.setAccessibilityElement(noMatches)
             emptyLabel?.superview?.needsLayout = true
-            for node in nodes where !node.visibleChildren.isEmpty {
-                let expanded = !search.isEmpty || !state.collapsedContents.contains(node.index)
-                if tree.isItemExpanded(node) != expanded {
-                    if expanded { tree.expandItem(node) } else { tree.collapseItem(node) }
+            if filtered || expansionRevision != state.contentsExpansionRevision {
+                expansionRevision = state.contentsExpansionRevision
+                for node in nodes where !node.visibleChildren.isEmpty {
+                    let expanded = !search.isEmpty || !state.collapsedContents.contains(node.index)
+                    if tree.isItemExpanded(node) != expanded {
+                        if expanded { tree.expandItem(node) } else { tree.collapseItem(node) }
+                    }
                 }
             }
             let row = state.selectedContents.flatMap { nodes.indices.contains($0) ? tree.row(forItem: nodes[$0]) : nil } ?? -1

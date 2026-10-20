@@ -104,12 +104,13 @@ const indexCHM = async meta => {
     for (const path of available) add(entryURL(path))
     if (!paths.length) throw Error('This CHM contains no readable topics')
     const pages = paths.map(entryURL)
+    const pageByPath = new Map(paths.map((path, index) => [path, index]))
     if (!toc.length) toc = paths.map(path => ({ label: path, href: entryURL(path) }))
     const items = flatten(toc).map(item => {
         const path = item.target && pathFor(item.target)
         if (!path) return item
         const url = new URL(entryURL(path)); url.hash = new URL(item.target).hash
-        return { ...item, target: url.href, page: paths.indexOf(path) }
+        return { ...item, target: url.href, page: pageByPath.get(path) }
     })
     return { pages, toc: items }
 }

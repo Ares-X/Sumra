@@ -927,7 +927,7 @@ struct ReaderPagePreview: View {
             var image: NSImage?
             switch document.content {
             case .pages(let pages):
-                if let rendered = try? await pages.image(location, width: 128), !Task.isCancelled {
+                if let rendered = try? await pages.image(location, width: 128, priority: .init(visible: false)), !Task.isCancelled {
                     if let oriented = try? RasterLayout.image(rendered, bounds: CGRect(x: 0, y: 0, width: rendered.width, height: rendered.height), crop: nil, rotation: rotation) {
                         image = NSImage(cgImage: oriented, size: .zero)
                     }
