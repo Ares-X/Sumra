@@ -158,7 +158,14 @@ final class BookCorpusAcceptanceTests: XCTestCase {
         result["outlineCount"] = state.outline.count
         if let entry = state.outline.first(where: { !$0.target.isEmpty }) {
             state.send(.href(entry.target))
-            try await wait(state, host: host, reason: "Contents navigation") { self.ready(state) }
+            try await wait(state, host: host, reason: "Contents navigation") {
+                guard self.ready(state) else { return false }
+                if case .browser = state.document?.content {
+                    if let page = entry.page, state.page != page { return false }
+                    return try await self.browserIsDisplaying(state.browserView, page: state.page)
+                }
+                return true
+            }
             result["outlineNavigation"] = entry.title
         }
         state.showContents = false
@@ -214,6 +221,10 @@ final class BookCorpusAcceptanceTests: XCTestCase {
 
     @MainActor
     private func ready(_ state: ReaderState) -> Bool {
+        // A preceding topic can still be painted while its navigation command
+        // is awaiting WebKit activation. Do not issue the next workflow step
+        // against that outgoing realm.
+        guard state.command.action == .none else { return false }
         switch state.document?.content {
         case .pages(let pages): return RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
         case .text: return state.readerFocusView != nil && !state.outlineBusy
