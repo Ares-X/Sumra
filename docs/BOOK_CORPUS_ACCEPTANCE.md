@@ -14,10 +14,10 @@ This report records validation of 25 locally supplied books, with each dated sec
 
 The earlier 25/25 functional sweep exited successfully for opening, sampled rendering and navigation; originals remained byte-identical by inventory checks. That bounded local probe did not establish every page, whole-book search/selection, low memory, smooth trackpad use or the current loaded binary's behavior. Later sections record the additional coverage separately. CHM follows its own WebKit navigation checks. Some source outline targets are missing or empty by design; an empty MOBI outline is not automatically a parser failure.
 
-## Window-close and Home follow-up (2026-10-20, pending candidate)
+## Window-close and Home follow-up (2026-10-20)
 
-After the section-index core was merged, the reported window-close and Home
-view-switch stalls required an additional UI batch. Closing a native window
+After the section-index core was merged, the reported Home view-switch and
+sidebar stalls required an additional UI batch. Closing a native window
 now marks its reader state closed before document teardown publishes an empty
 document. A retained SwiftUI scene therefore stops mounting the reader instead
 of constructing Home and starting cover work. Returning Home in a still-open
@@ -37,7 +37,22 @@ the fix and both passing after it. The companion test confirms that returning
 Home keeps the open scene usable. Receipts are in ignored
 `build/solid-seek-20261020/closed-scene-before.log` and
 `scene-catalog-check.log`. These tests establish the scene lifecycle boundary;
-optimized GUI validation of the latest UI batch remains pending.
+the optimized GUI checks below cover the latest UI batch separately.
+
+UI source `49ac230eeb0af7b7ae95de4b96bf983e3db4f6ff` passes the complete source
+check: 115 Core tests, 903 application tests with four opt-in corpus cases
+skipped in this invocation, 58 packaging checks and three JavaScript syntax
+checks. The opt-in Books and unread-seek cases have their separate receipts
+below. The local optimized executable UUID is
+`3B0A9282-0BAB-3C7B-B22C-D6BAB73B7413`. Six list/grid transitions with the
+25-book catalog complete, with only its initial catalog refresh throughout
+those switches. The background NSView's first-draw markers measure
+40.8–65.5 ms; they do not certify completed cards or covers. Sidebars open and
+close three times each in B01 and B10 and once in B06, followed by native
+window/tab closing and reopening. The receipt is
+`build/solid-seek-20261020/ui-local-acceptance.json`. Both owned local GUI
+processes and copied QA app bundles were retired; signed archives and receipts
+remain. The source is merged through PR #24.
 
 Native window tabs were already implemented and enabled by default in source.
 The existing user preference had `disableTabs=true`; enabling tabs through
@@ -46,9 +61,63 @@ This is verification of the existing feature, not a new tabs implementation.
 
 The earlier signed draft built from section-index source `556a7e7` completed
 25-book GUI checks, but it predates this additional UI batch and is not the
-final 0.2.6 candidate. The latest optimized GUI checks and final signed CI
-candidate acceptance remain pending. **0.2.6 is not public.** Historical 0.2.5
-publication evidence below applies only to that release.
+final 0.2.6 candidate. The signed acceptance and public update below apply to
+the additional UI source; historical 0.2.5 evidence applies to that release.
+
+## Signed 0.2.6 acceptance and publication (2026-10-20)
+
+Source `49ac230eeb0af7b7ae95de4b96bf983e3db4f6ff` was built and signed in
+[candidate run 39378972181](https://github.com/Ares-X/Sumra/actions/runs/39378972181).
+The unmodified candidate executable UUID is
+`B0399DD5-79A7-3CCF-BAE8-34D9D1F0190C`. Its 181 files, five links, 130
+directories, code signature, existing certificate, nine Mach-O images with
+arm64 support and macOS deployment targets were checked. The corresponding
+source matches provenance for 13,445 files and 17 links, including 422 exported
+Git project files. The packaging owner excludes root `AGENTS.md` and the live
+`appcast.xml` from corresponding-source inputs.
+
+The exact signed candidate completed **25/25** real-window Books workflows:
+all opened, scrolled and opened/closed Contents; 23 advanced their page or
+chapter indicator. The single-source-chapter MOBI used scrolling with Next
+disabled. CHM scrolling retains its topic number; its completed sparse Find
+query had 13 results, and Find Next moved from topic 17 to topic 685. The MOBI
+also completed a capped `999+` query with its first selected result; this does
+not accept Find Next from the immediate unchanged-index observation. Native
+two-tab and five-tab checks passed, including preserved EPUB chapter and TXT
+scroll positions and closing one tab while the other remains usable. This
+foreground sweep is sampled workflow acceptance, not every-page visual fidelity.
+
+The candidate's existing 29-item Home catalog completed four list/grid changes
+with one initial catalog refresh. Background first-draw markers measured
+114.8–124.0 ms in its 712 × 769 point area. This has a different viewport and
+catalog from the local 25-item measurements above and does not time completion
+of all cards or covers. Fresh comic owners drew unread pages 1,050 and 2,097 in
+2.550 s and 4.519 s; their viewports were 1,713 × 989 and 545 × 500 points,
+respectively. These confirm the final binary's rendering paths; the controlled
+same-viewport comparison remains in the section-seek report.
+
+Receipts are in ignored `build/solid-seek-20261020/ci-gui-acceptance.json`,
+`originals-final.json` and `build/release-0.2.6-ui-candidate/`. All 25 original
+SHA-256 values, sizes and modification times still match the initial inventory.
+The every-comic-page source acceptance remains **4,942/4,942**, as recorded
+separately below; it is not an every-page foreground paint claim.
+
+[0.2.6 is public](https://github.com/Ares-X/Sumra/releases/tag/v0.2.6).
+[Publication run 39381136494](https://github.com/Ares-X/Sumra/actions/runs/39381136494)
+published the accepted candidate with manifest SHA-256
+`feb9855c2702e49ee1a1460b89d1442cd1cd3c2ba1c7d2eefe0f8fae02e5d66d`.
+All six public assets were downloaded anonymously: the five manifest entries,
+candidate asset identities, public feed bytes and Sparkle Ed25519 signature
+pass. The receipt is
+`build/release-0.2.6-ui-public/public-verification.json`.
+
+The exact public 0.2.5 (7) app then offered 0.2.6 through Check for Updates,
+downloaded it and completed Install and Relaunch. About displays **0.2.6 (8)**;
+all 181 installed files, five links, directory modes and loaded UUID match the
+accepted candidate. The live process runs from `dist/Sumra.app`, and the reader
+is left at the original comic's page 382. Other saved preferences were restored,
+with native tabs kept enabled as requested. The update receipt is
+`build/solid-seek-20261020/sparkle-update.json`.
 
 ## Section-index source acceptance (2026-10-20)
 
