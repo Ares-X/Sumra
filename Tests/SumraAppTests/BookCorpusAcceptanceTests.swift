@@ -192,11 +192,12 @@ final class BookCorpusAcceptanceTests: XCTestCase {
             state.send(.find(query))
             if hasSampledText {
                 try await wait(state, host: host, reason: "First search selection") {
-                    guard state.selectedSearchTarget != nil, self.ready(state) else { return false }
-                    if case .browser = state.document?.content {
-                        return try await self.browserIsDisplaying(state.browserView, page: state.page)
-                    }
-                    return true
+                    // Keep the same realm observation as the completed-count
+                    // check: an occluded hosted WKWebView otherwise throttles
+                    // the cross-topic scan while no first hit exists yet.
+                    if case .browser = state.document?.content,
+                       !(try await self.browserIsDisplaying(state.browserView, page: state.page)) { return false }
+                    return state.selectedSearchTarget != nil && self.ready(state)
                 }
                 result["firstSearchSelectionSeconds"] = Date().timeIntervalSince(searchStarted)
             }
@@ -221,14 +222,12 @@ final class BookCorpusAcceptanceTests: XCTestCase {
 
     @MainActor
     private func ready(_ state: ReaderState) -> Bool {
-        // A preceding topic can still be painted while its navigation command
-        // is awaiting WebKit activation. Do not issue the next workflow step
-        // against that outgoing realm.
-        guard state.command.action == .none else { return false }
         switch state.document?.content {
         case .pages(let pages): return RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
         case .text: return state.readerFocusView != nil && !state.outlineBusy
-        case .browser: return state.browserView != nil && state.count > 0 && state.browserView?.isLoading == false
+        case .browser:
+            return state.count > 0 && state.browserView?.isLoading == false &&
+                (state.browserView?.navigationDelegate as? BrowserReader.Coordinator)?.ready == true
         case nil: return false
         }
     }
