@@ -18,23 +18,28 @@ user-deferred.
 
 ## Current implementation
 
-The current public release is [0.2.7](https://github.com/Ares-X/Sumra/releases/tag/v0.2.7),
-from accepted source `af1c4202be127230381ce8bfcf521b031f954c5f`.
-The [current corpus acceptance](BOOK_CORPUS_ACCEPTANCE.md#performance-round-two-and-signed-027-2026-10-20)
-and [October 20 performance review](PERFORMANCE_PARITY_20261020.md) record the
-25-book hosted and actual GUI sweeps, signed bundle/source correspondence,
-public asset verification and actual 0.2.6 → 0.2.7 Sparkle installation.
-The latter review compares official SumatraPDF tree
+The current public release is [0.2.8](https://github.com/Ares-X/Sumra/releases/tag/v0.2.8),
+from accepted source `5b557d1a61d1b6b12b9eda03dcda2191dafad16f`.
+The [current corpus acceptance](BOOK_CORPUS_ACCEPTANCE.md#solid-seeks-and-epub-counts-for-028-2026-10-20)
+and [seek/search review](SEEK_SEARCH_PERFORMANCE_20261020.md) record the
+25-book hosted and signed GUI sweeps, all 22 saved-query counts/caps, all 14
+EPUB result/geometry comparisons through the signed engine, and 4,942 decoded
+comic pages. Signed bundle/source correspondence, anonymous public asset/feed
+checks and the real 0.2.7 → 0.2.8 Sparkle installation pass. Installed UUID is
+`A5FFDF34-7033-3AB8-A385-84A6FFCBDB53`; About shows 0.2.8 (10).
+The review compares official SumatraPDF tree
 `a1120ae6de3b84be0c422dc0da7258e6828c2be6` and retains the measured solid-archive
-first-jump cost, slow complete EPUB counting and capability gaps. Physical
+first-jump cost, remaining EPUB parsing/counting time and capability gaps. Physical
 macOS 13 and trackpad frame-rate behavior remain unexercised in this round.
 A source inventory or historical passing test is not acceptance of a new binary.
 
-The [0.2.8 seek/search follow-up](SEEK_SEARCH_PERFORMANCE_20261020.md) has passing
-source, native and 25-book hosted checks, with all 22 saved-query counts/caps
-preserved and 4,942 comic pages decoded. It retains the multi-second first-seek
-boundary inside large solid LZMA2 sections. Its signed candidate, public bytes
-and actual update require separate acceptance before 0.2.8 becomes current.
+The latest hosted B10/B22 counts are 33.039 / 5.170 s versus 0.2.7's
+72.028 / 20.959 s. A single fresh-process GUI pair draws unread comic targets in
+3.093 → 2.587 s and 5.638 → 5.061 s. These are bounded observations with warm,
+uncontrolled filesystem caching; earlier faster and slower measurements are
+retained. Large solid LZMA2 sections still require sequential replay, and large
+EPUB complete counting is not instantaneous. All 25 original hashes, sizes and
+mtimes remain unchanged; no whole-book persistent payload cache is introduced.
 
 ## Earlier release and candidate evidence
 

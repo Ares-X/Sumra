@@ -192,6 +192,105 @@ including source positions and geometry, has identical hashes; counts and the
 B22 **11.743 → 1.338 s** with one hit. These are single baseline-then-candidate
 passes with warm/uncontrolled filesystem caching, not a percentile study.
 
-Signed-binary acceptance remains pending. No 0.2.8 binary is accepted or public
-at this checkpoint. Private receipts live under `build/seek-search-20261020/`;
-passing source checks do not certify a separately built release binary.
+## Final signed acceptance and delivery — 2026-10-21
+
+The final accepted source is `5b557d1a61d1b6b12b9eda03dcda2191dafad16f`.
+[Candidate Action 39458013232](https://github.com/Ares-X/Sumra/actions/runs/39458013232)
+builds 0.2.8 (10), UUID `A5FFDF34-7033-3AB8-A385-84A6FFCBDB53`.
+Its 181 files, five symlinks and 130 directories match provenance, including
+file modes. All nine Mach-O binaries have ARM64 support and a macOS 13 minimum;
+the application executable is ARM64-only. The existing certificate and Sparkle
+Ed25519 signature verify. Corresponding source verifies 13,457 files, 17 links
+and all 434 included Git project files. Root `AGENTS.md` and `appcast.xml` are
+the package's two intentional Git exclusions.
+
+After the chapter-publication repair, the full source gate again passes 118
+Core and 913 application tests (four opt-in skips), 58 packaging checks and three
+script syntax checks. The live-position callback regression also passes after
+strengthening its captured-coordinate assertion. All 25 hosted workflows and
+22 saved-query counts/caps pass again. This latest B10/B22 complete count is
+**33.039 / 5.170 s**, versus the earlier 23.804 / 2.468 s and 0.2.7's
+72.028 / 20.959 s. First selected results arrive at 0.233 / 1.655 s. These
+individual hosted timings vary substantially; the faster preceding values
+remain historical evidence, and the latest run is not proof of an isolated
+speedup from the metadata-only repair.
+
+The exact signed app passes **25/25 actual GUI workflows**: opening, sampled
+navigation, Contents opening/closing, and **22/22 saved-query complete/capped
+counter observations**. Six native tabs are observed in one process. Twenty-four
+page/chapter indicators advance and 24 exposed scrollbars change. Single-chapter
+MOBI scrolls without changing its chapter indicator; CHM has no exposed scrollbar
+in this pass but advances topic navigation and completes its expected search.
+CHM's transient initial `0 / 0` is retained; a subsequent observation reaches the
+expected two results. Fixed EPUB's zero-result query also agrees with its exact
+native comparison. This is sampled GUI coverage, not every-page/text fidelity.
+
+The signed library independently passes all **14 EPUBs** against the public
+0.2.7 baseline with identical ordered match JSON hashes, source positions,
+geometry, counts and cap sentinels. At 736-point natural width with 17-point
+text and line height 1.4, signed B10 takes **15.138 s** and B22 **2.552 s**;
+the earlier local-library run was 10.182 / 1.338 s. These use the same queries
+and parameters but different build/run boundaries and are not GUI timings.
+
+A fresh signed-app B10 pass at the user's continuous-reading defaults and a
+single filled window continuously observes the counter 187 times: still
+searching at **32.713 s**, complete with 25 results by **32.806 s**. The first
+visible result is observed by 1.230 s. This includes accessibility observation
+overhead. The preceding multi-tab pass only bounds completion between 31.198
+and 61.683 s because the observations have a gap; 61.683 s is not an exact count
+latency. Find Next advances `2 / 25` to `3 / 25` and changes the reading location.
+Signed B22 is observed complete with one result by **6.055 s**. Large EPUB
+counting still takes material time; parsing and typography are not eliminated.
+
+### Signed solid-seek observations and variation
+
+The first intermediate signed candidate draws pages 1,050/2,097 in
+2.568 / 4.917 s at 853 × 665 points, slower than the initial 0.2.7
+2.390 / 4.279 s observation. The hardware CRC instructions are present in that
+binary. A later aligned intermediate pair at 2545 × 1372 points measures
+2.464 / 4.529 s for 0.2.7 and 2.138 / 3.976 s for the candidate. Neither pair
+is a percentile study, and the initial variation's exact cause is unproven.
+
+The final signed binary's six-tab pass measures **2.750 / 5.099 s** at
+2545 × 1344 points. A final contemporaneous single-tab pair uses fresh old/new
+processes, 2545 × 1372 points, and page 382 drawn before each unread destination:
+
+| Destination | Public 0.2.7 | Accepted 0.2.8 | Reduction in this pair |
+| --- | ---: | ---: | ---: |
+| B01 page 1,050 | 3.093 s | 2.587 s | 16.34% |
+| B01 page 2,097 | 5.638 s | 5.061 s | 10.23% |
+
+Both requests belong to fresh archive owners; neither target was visited in its
+process. Times run from visible render request to first native canvas draw,
+excluding UI command delivery. Filesystem caching is warm/uncontrolled. The
+six-tab viewport differs from the paired viewport and is not a controlled tab
+overhead comparison. The final pair supports reduced first-seek work, while
+the earlier passes show why these values cannot be presented as stable latency
+percentiles. First distant seeks still take seconds.
+
+### Publication and installed runtime
+
+[0.2.8](https://github.com/Ares-X/Sumra/releases/tag/v0.2.8) is public through
+[publish Action 39461683308](https://github.com/Ares-X/Sumra/actions/runs/39461683308),
+which promotes the accepted candidate without rebuilding it. The accepted
+`SHA256SUMS` digest is
+`2eea62b08eff5e9f6ae69d63d3225b474af73bc1014f18a66570a61d7296e1d6`.
+Anonymous public verification confirms the same six asset IDs, names and sizes,
+and downloads every asset to compare exact accepted bytes and API digests.
+The public corresponding source, manifest, raw main feed and Ed25519 signature
+all pass. The app archive SHA-256 is
+`5664bd8b6a5177cf61fb01807f85ffcb213de45bfd04be2a32bcaef7e5e90acd`;
+the corresponding-source archive SHA-256 is
+`f71d2c3df59c1715e55cbb2920de6bde2b0b242bd26a906d11649d5f91eafd13`.
+The real 0.2.7 → 0.2.8 Sparkle download, installation and relaunch completes.
+Every installed file, directory, link and mode matches accepted provenance;
+signature/certificate checks pass, and About displays **0.2.8 (10)**. B01 is
+restored to page 382 with native first drawing observed in the updated app.
+
+All 25 originals retain SHA-256, size and nanosecond mtime, including the corpus
+inventory set. No original-file write, dependency change or persistent whole-book
+payload cache is introduced. Private receipts live under
+`build/seek-search-20261020/` and `build/release-0.2.8-final-candidate/` and are
+excluded from the public source. Unused probes and superseded app extractions
+are retired after retaining receipts. The installed reader remains running.
+Physical macOS 13 and real trackpad frame-rate acceptance are not exercised.
