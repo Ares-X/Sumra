@@ -20,21 +20,42 @@ The [seek/search follow-up](SEEK_SEARCH_PERFORMANCE_20261020.md) compares the
 same official SumatraPDF revision, solid-stream continuation costs and retained
 ebook drawing instructions. It reduces CRC/copy overhead, finite-page flow
 scanning, repeated raster-resource decoding and natural-height CJK glyph
-extraction. Counting batches empty pages in the existing document actor.
+extraction. Counting batches empty pages in the existing document actor and
+accepts unchanged-pagination metadata without restoring the viewport.
 Original files and the no-persistent-whole-book-cache constraint are preserved.
 
-The final hosted workflow passes **25/25**, with Contents open/close and sampled
+The latest hosted workflow passes **25/25**, with Contents open/close and sampled
 first/middle/final source positions. All **22 searchable books** preserve their
 saved-query counts and cap status. B10's paged complete count falls from the
-prior 72.028 s to **23.804 s**; B22 from 20.959 s to **2.468 s**. The source gate
+prior 72.028 s to **33.039 s**; B22 from 20.959 s to **5.170 s**. Earlier
+23.804 / 2.468 s observations and the timing variation are retained in the
+follow-up. The source gate
 passes **118 Core and 913 application tests** (four opt-in items skipped),
 **58 packaging checks** and three script syntax checks. A queued-zoom test's
 overstrict render-count assertion and its stronger geometry/selection recheck
 are documented in the follow-up. All **4,942 comic pages** decode successfully;
 that evidence is reused for later HTML-only changes. A paired native comparison
 of all **14 EPUBs** (13 natural-height, one fixed) preserves ordered match JSON,
-source positions, geometry and count/cap status. Signed 0.2.8 acceptance and
-publication remain pending at this checkpoint.
+source positions, geometry and count/cap status; the exact signed engine also
+passes all 14 comparisons.
+
+The signed `5b557d1a` candidate passes **25/25 actual GUI reading/Contents
+workflows and 22/22 saved-query counter checks**, with six tabs in one process.
+A single-window B10 pass is continuously observed searching at 32.713 s and
+complete with 25 results by 32.806 s; first visible result by 1.230 s. B22 is
+complete with one result by 6.055 s. These include automation observation
+overhead. In a same-viewport fresh-process old/new pair, unread comic pages
+1,050/2,097 first draw in **3.093 → 2.587 / 5.638 → 5.061 s**. Solid seeks still
+take seconds. The 4,942-page decode evidence is reused for unchanged codec code.
+
+All 25 originals retain SHA-256, size and nanosecond mtime. The
+[public 0.2.8 release](https://github.com/Ares-X/Sumra/releases/tag/v0.2.8)
+promotes the accepted bytes without rebuilding. Anonymous public asset, source,
+manifest, feed and update-signature checks pass. The actual 0.2.7 → 0.2.8
+Sparkle installation matches every accepted bundle file and its loaded UUID
+`A5FFDF34-7033-3AB8-A385-84A6FFCBDB53`; About confirms 0.2.8 (10). The updated
+reader is left on B01 page 382 with native drawing observed. Detailed boundaries,
+intermediate variation and private receipt locations remain in the follow-up.
 
 ## Performance round two and signed 0.2.7 (2026-10-20)
 
