@@ -258,7 +258,7 @@ func inventory() throws -> ([String: SourceInput], [String: String], [String: An
             else { try add(directory.appendingPathComponent(name), destination + "/" + name) }
         }
     }
-    for name in ["LICENSE", "THIRD_PARTY.md", "README.md", "README.zh-CN.md", "Package.swift", "Package.resolved", ".gitignore"] { try add(root.appendingPathComponent(name), name) }
+    for name in ["LICENSE", "THIRD_PARTY.md", "README.md", "README.zh-CN.md", "README.zh-TW.md", "README.ja.md", "Package.swift", "Package.resolved", ".gitignore"] { try add(root.appendingPathComponent(name), name) }
     for name in ["Sources", "Tests", "Native", "scripts", "Assets", "Licenses", "docs"] { try tree(root.appendingPathComponent(name), name) }
     if fm.fileExists(atPath: root.appendingPathComponent(".github/workflows").path) { try tree(root.appendingPathComponent(".github/workflows"), ".github/workflows") }
     try repository(root.appendingPathComponent("build/deps/mupdf"), "build/deps/mupdf", "f030eda1e472268667805f438e38cee8f1da61f8")

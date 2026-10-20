@@ -1,106 +1,112 @@
-![Sumra — 轻量、免费开源的 macOS 阅读器](docs/images/sumra-brand.png)
+<p align="center">
+  <img src="docs/images/sumra-brand.png" alt="Sumra — 轻量、免费开源的 macOS 阅读器" width="720">
+</p>
 
 # Sumra — 轻量、纯粹的 macOS 阅读器
 
-**电子书、漫画、图片、Markdown 与 PDF，一个原生应用，专注阅读。**
+**电子书、漫画、PDF、图片与 Markdown，一个原生 Mac 应用，专注阅读。**
 
-[English](README.md) · 简体中文
+[English](README.md) · **简体中文** · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md)
 
-[下载 Mac 版](https://github.com/Ares-X/Sumra/releases/latest) · [阅读功能](#阅读与文档工具) · [支持格式](#支持的格式) · [快速开始](#快速开始) · [从源码构建](#从源码构建)
+**macOS 13+ · Apple Silicon · 免费开源**
 
-Sumra 是免费开源的多格式文档阅读器，面向 **macOS 13 及更新版本的 Apple Silicon Mac**。从 Finder 打开 EPUB 小说、CBZ 漫画、图片文件夹、Markdown 笔记或 PDF，在熟悉的 Mac 界面里阅读；目录、搜索、书签和阅读位置记录帮你找到想读的内容。
+[**下载 Mac 版**](https://github.com/Ares-X/Sumra/releases/latest) · [版本说明](https://github.com/Ares-X/Sumra/releases) · [支持格式](#支持的格式) · [从源码构建](#从源码构建) · [问题反馈](https://github.com/Ares-X/Sumra/issues)
 
-Sumra 借鉴 [SumatraPDF](https://www.sumatrapdfreader.org/) 的简洁阅读理念，复用 MuPDF 和 SumatraPDF 的部分文档处理实现；界面与交互通过 SwiftUI 和 AppKit 为 macOS 重新构建，使用原生窗口、标签页、菜单与系统对话框。
+从 Finder 打开 EPUB 小说、漫画压缩包、图片文件夹、Markdown 笔记或 PDF。在原生 Mac 窗口和标签页中阅读，选择合适的布局，用目录、搜索和书签找到想读的内容。
 
-![Sumra macOS 阅读器的浅色界面，展示 Markdown 阅读笔记与目录](docs/images/reader-light.png)
+![Sumra 浅色界面，展示 Markdown 阅读笔记与目录](docs/images/reader-light.png)
 
 <details>
 <summary>更多截图：双页阅读、最近文件与深色界面</summary>
 
-![Sumra 展示原创 Markdown 演示文档的双页阅读布局与目录侧边栏](docs/images/reader-two-pages.png)
+![双页阅读与目录侧栏](docs/images/reader-two-pages.png)
 
-![Sumra 浅色首页，显示最近阅读的文档](docs/images/home-light.png)
+![首页中的最近文档](docs/images/home-light.png)
 
-![Sumra macOS 文档阅读器的深色界面](docs/images/reader-dark.png)
+![深色阅读界面](docs/images/reader-dark.png)
+
+截图均使用仓库内的[原创演示文档](docs/demos/Reading-Notes.md)。
 
 </details>
 
-截图使用仓库内的[原创演示文档](docs/demos/Reading-Notes.md)，不包含私人书籍或用户资料。
+## 安装与开始阅读
 
-## 下载与安装
+1. 从[最新版下载页](https://github.com/Ares-X/Sumra/releases/latest)下载应用 ZIP 并解压。
+2. 将 **Sumra.app** 移入 **应用程序** 文件夹，然后打开。
+3. 按 **⌘O** 打开文件，或将文件拖入窗口；按 **⌘F** 搜索正文。
 
-从[最新版下载页](https://github.com/Ares-X/Sumra/releases/latest)获取应用 ZIP，其中包含完整的 **Sumra.app** 和文档引擎，解压后即可移入应用程序文件夹。同一发行版提供对应源码和 SHA-256 摘要。PostScript 与 EPS 需要另行安装下方注明的 Ghostscript。
+公开构建使用维护者的 **Ares-X Code Signing** 自签名证书，不是 Apple Developer ID 证书，也未经 Apple 公证。若 macOS 阻止首次启动，且你确认下载来源可信，可按 [Apple 的说明](https://support.apple.com/zh-cn/102445)，前往 **系统设置 → 隐私与安全性 → 仍要打开**，再确认打开。
 
-当前发行目标为 **Apple Silicon（arm64）**，最低系统目标为 **macOS 13**，适用于各代 Apple Silicon 机型。打包时会检查应用、引擎及更新辅助程序的 ARM 架构、最低系统和依赖路径。实际 GUI 已在 macOS 27.0.1 验证，macOS 13 的实机兼容性尚未验证。
+**在线更新：**选择 **帮助 → 检查更新**，或在设置中启用自动检查。Sparkle 验证更新后，在你确认时安装。每个发行版同时提供对应源码和 SHA-256 校验值。
 
-安装步骤：
+<details>
+<summary>兼容性与旧版安装说明</summary>
 
-1. 下载并解压应用 ZIP。
-2. 将 **Sumra.app** 拖入 **应用程序** 文件夹。
-3. 打开 Sumra。如果 macOS 阻止打开，请前往 **系统设置 → 隐私与安全性**，在对应提示处选择 **仍要打开**，再按系统提示确认。
+发行版面向 **Apple Silicon（arm64）**，最低系统目标为 **macOS 13**。打包时检查可执行文件与库的 arm64 支持、最低系统和运行时依赖。GUI 已在 macOS 27.0.1 验收，macOS 13 的实机兼容性尚未验证。
 
-公开构建使用维护者的个人自签名身份 **Ares-X Code Signing**。它不是 Apple Developer ID 签名，也未经 Apple 公证，因此首次打开可能需要上述确认。安装提示可参考 [Apple 的说明](https://support.apple.com/zh-cn/102445)。
+0.2.0 没有更新源，需要手动安装一次新版；0.2.1 及更新版本支持应用内更新。PostScript 与 EPS 需另行安装 Ghostscript。
 
-**在线更新**：从 0.2.1 起，可在 **帮助 → 检查更新** 中下载并安装新版，也可在设置中启用自动检查。0.2.0 尚未配置更新源，需要手动安装一次 0.2.1 或更新版本。更新在你确认后安装。
+</details>
 
-## 阅读与文档工具
+## 专注阅读
 
-- **直接打开文件**：从 Finder 打开、拖入窗口，或从首页和最近文件继续阅读；支持多个窗口与 macOS 标签页。
-- **在长文档中定位**：目录与目录标题搜索、全文搜索、缩略图、书签和阅读位置记录。
-- **调整阅读方式**：单页阅读、连续上下滚动、双页阅读和左右翻页；重排电子书、文本和网页正文适应窗口，连续模式没有屏幕分页留下的纸张间隙，固定版式保留原始页面。电子书和文本提供字体与排版设置。
-- **读给你听**：使用系统朗读阅读文档文字，或朗读选中的内容。
-- **处理 PDF**：填写表单、添加与修改注释、撤销和重做、保存或另存副本；文档工具支持提取与合并页面等操作。
-- **阅读扫描 PDF**：自动增强黑白文字扫描页的对比度；在 **显示 → 文档颜色 → 增强扫描页** 中可恢复原始显示效果，原文件保持不变。
-- **打印与导出**：通过 macOS 系统打印面板打印，或导出 PDF。可用操作取决于文档格式与权限。
+- **原生窗口与标签页。**从 Finder 打开、拖入文件，或从首页继续阅读。在设置中启用 **使用窗口标签页**，即可把多本书放在同一窗口中。
+- **适合文档的布局。**支持单页、连续滚动、双页阅读，以及主题和排版设置。重排电子书适应窗口，固定页面保留原有版式。
+- **随时找到阅读位置。**目录、章节标题搜索、全文搜索、缩略图、书签，以及可选的阅读位置记录。没有作者目录的 TXT 和 MOBI 可识别独立章节标题。
+- **浏览漫画合集。**压缩包内的文件夹会成为目录，保留名称与层级。适用的 solid LZMA2 压缩包通过内存区段索引加快远距离跳页，不修改原文件，也不把整本解压缓存到磁盘。
+- **处理 PDF。**填写表单、编辑注释、撤销和重做、提取或合并页面，并保存修改。PDF 默认锁定编辑，选择 **启用编辑** 后才能修改；**存储副本** 保留可编辑的表单与注释，**导出 PDF** 生成静态阅读副本。
+- **朗读、打印与导出。**使用系统语音朗读正文或选中文字，通过 macOS 打印面板打印，或导出 PDF。可用操作取决于文档格式与权限。
 
-PDF 默认锁定编辑，方便安心阅读。需要修改时，先选择 **启用编辑**；完成后保存，或另存副本保留原文件。保存副本可保留可编辑的表单和注释，导出 PDF 则用于生成静态阅读副本。
+侧栏用于目录、缩略图和书签，**显示** 菜单用于布局与主题，设置中可调整排版、历史记录与标签页。**帮助 → 键盘快捷键** 列出可用命令，快捷键可在设置中自定义。
 
 ## 支持的格式
 
 | 类型 | 格式 |
 | --- | --- |
-| PDF 与固定页面文档 | PDF、XPS / OXPS、SVG、DjVu |
+| PDF 与固定页面 | PDF、XPS / OXPS、SVG、DjVu |
 | 电子书 | EPUB、MOBI、AZW、PRC、FB2 / 压缩 FB2 |
 | 漫画与图片 | CBZ、CBR、CB7、CBT、图片文件夹；常见图片格式，包括 GIF、TIFF、JPEG XL |
 | 文本与网页 | Markdown、HTML / XHTML、CHM、TXT 等纯文本、TCR |
 | 其他兼容格式 | PDF 兼容的 AI、P7M 封装、LIT |
-| 需额外软件 | PostScript / EPS：需自行安装 Ghostscript |
+| 需额外软件 | PostScript / EPS：另行安装 Ghostscript |
 
-大型 Markdown 使用 MuPDF 阅读，支持单页、连续滚动和双页，也可选择 WebKit 兼容模式；HTML 和 CHM 使用 WebKit 阅读。CHM 正文按窗口宽度重排，纯文本章节使用阅读器字号和行距；识别到的中文固定列宽段落会连续换行，原始文本保持不变。调整字体、字号或行距时会覆盖 CHM 的作者样式。无作者目录的 MOBI 和 TXT 可以识别独立章节标题。HTML、CHM 与 Markdown 兼容模式的打印及 PDF 导出通过 MuPDF 排版，输出效果可能与阅读界面有所不同。
+支持范围取决于具体文件变体。Sumra 不提供 OCR 或 DRM 移除；扫描件需要自带文本层才能搜索文字。
 
-重排电子书和原生 Markdown 会压缩普通正文的重复空白行和空段落，保留预格式化文字、表格、图片和明确分页。CHM 已识别的正文段落使用紧凑间距，原始文本保持不变。
+<details>
+<summary>渲染说明与格式限制</summary>
 
-漫画压缩包中的文件夹会显示为目录，保留卷名和层级，点击后按现有阅读顺序跳到该文件夹的第一张图片。
+- Markdown 使用 MuPDF，也可选择 WebKit 兼容模式。HTML 与 CHM 使用 WebKit 阅读，打印和 PDF 导出则通过 MuPDF 排版，输出效果可能与阅读界面不同。
+- 重排电子书和原生 Markdown 会压缩普通正文的重复空白行与空段落，保留预格式化文字、表格、图片和明确分页。识别到的 CHM 正文也采用紧凑段落间距；调整字体、字号或行距会覆盖作者样式。
+- PDF 中的黑白文字扫描页会自动增强对比度。在 **显示 → 文档颜色** 中关闭 **增强扫描页面**，即可查看原始显示效果，原文件保持不变。
+- 漫画区段索引可跳过适用压缩包中更早的独立区段；首次跳页仍需解码目标区段内的前置数据，并非所有未读位置都能瞬间打开。
 
-格式支持不代表覆盖每一种文件变体。Sumra 不提供 OCR 或 DRM 移除；扫描件的文字搜索需要文件本身具有文本层。更详细的支持范围见[格式与引擎说明](docs/SUMATRA_ENGINE_PARITY.md)。
+更多信息见[格式与引擎支持范围](docs/SUMATRA_ENGINE_PARITY.md)、[Markdown 渲染说明](docs/MARKDOWN_RENDERER_DECISION.md)和[漫画区段索引](docs/COMIC_SEEK_INDEX_20261020.md)。
 
-## 快速开始
-
-1. 按 **⌘O** 打开文件，或将文件拖入 Sumra。
-2. 打开侧边栏查看目录、缩略图或书签；目录中的搜索框用于查找章节标题。
-3. 按 **⌘F** 搜索文档文字。
-4. 阅读区和首页默认使用浅色背景。在 **显示** 菜单中调整布局与主题；电子书和文本可进一步调整排版。
-5. 下次从首页或最近文件打开，继续上次的阅读位置。
-
-更多操作可在应用的 **帮助 → 键盘快捷键** 中查看，快捷键也可在设置中自定义。
+</details>
 
 ## 从源码构建
 
-需要 macOS、Apple Swift 工具链与 macOS SDK，以及 CMake。原生依赖使用构建脚本指定的版本，首次构建需要联网；Swift Package Manager 获取固定版本的 Sparkle。项目的构建、打包和检查脚本使用 Swift 与系统工具，不需要 Python。
+需要 macOS、Apple Swift 工具链与 macOS SDK，以及 CMake。首次构建需联网获取固定版本的原生依赖与 Sparkle。项目构建和打包脚本使用 Swift 与系统工具，不需要 Python。
 
 ```sh
 git clone https://github.com/Ares-X/Sumra.git
 cd Sumra
-./scripts/build-app.sh
+./scripts/build-app.sh --release
 open dist/Sumra.app
 ```
 
-如尚未安装 CMake，可通过现有包管理器安装；使用 Homebrew 时为 `brew install cmake`。优化构建使用 `./scripts/build-app.sh --release`，构建并启动开发实例使用 `./scripts/run-dev.sh`。本地构建默认采用临时签名，不会自动发布。
+如未安装 CMake，可使用现有包管理器，例如 `brew install cmake`。开发构建与启动可用 `./scripts/run-dev.sh`。本地构建默认使用临时签名。
 
-Sumra 是图形应用，文件打开、文档工具与打印均通过界面操作。依赖来源、版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)；实现进展见[开发说明](docs/IMPLEMENTATION_STATUS.md)。遇到问题或有功能建议，可在 GitHub [提交反馈](https://github.com/Ares-X/Sumra/issues)。
+Sumra 是图形应用，文件打开、文档工具与打印均通过界面操作。开发相关信息见[实现说明](docs/IMPLEMENTATION_STATUS.md)、[本地检查](scripts/check-source.sh)和[发布流程](docs/RELEASE_ACTIONS.md)。
+
+## 参与贡献与翻译
+
+欢迎[报告问题、提出功能建议](https://github.com/Ares-X/Sumra/issues)或提交 Pull Request。反馈时请尽量提供 macOS 与 Sumra 版本、文件格式、复现步骤，以及可公开分享的样本。
+
+README 提供英文、简体中文、繁体中文和日语版本。以 [README.md](README.md) 为内容参考，保持章节顺序一致；公共信息变化时同步更新其他版本。各语言共用截图，并链接到技术文档。
 
 ## 许可与致谢
 
-新编写的 Sumra 代码采用 **[AGPL-3.0-or-later](LICENSE)**。上游与移植组件保留各自的许可及版权声明，详见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+新编写的 Sumra 代码采用 **[AGPL-3.0-or-later](LICENSE)**。上游与移植组件保留各自的许可及版权声明；来源、版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-感谢 [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf)、[MuPDF](https://mupdf.com/) 及其他上游项目。Sumra 是独立开发的项目，并非 SumatraPDF 官方版本。功能覆盖与现有差异见 [SumatraPDF 对标说明](docs/SUMATRA_PARITY.md)。
+Sumra 借鉴 [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf)，复用 MuPDF 和 SumatraPDF 的部分文档处理实现，并以 SwiftUI 和 AppKit 构建界面。感谢 [MuPDF](https://mupdf.com/) 及其他上游项目。Sumra 是独立开发的项目，功能覆盖与现有差异见[对标说明](docs/SUMATRA_PARITY.md)。
