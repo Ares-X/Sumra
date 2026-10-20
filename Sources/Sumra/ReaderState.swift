@@ -808,13 +808,20 @@ extension ReaderState {
     // RasterReader is the single consumer of decoder layout notifications.
     func pageLocation(_ page: Int) -> PageLocation { chapterLayout?.location(page: page) ?? .init(page: page) }
     func pageNumber(_ location: PageLocation) -> Int { chapterLayout?.page(for: location) ?? location.page }
-    @discardableResult func applyChapterLayout(_ table: ChapterTable) -> Bool {
+    // Returns whether pagination changed and viewport/search projections need
+    // updating. A laidOut-only publication still advances the authoritative table.
+    @discardableResult func applyChapterLayout(_ table: ChapterTable, beforeRemapping: () -> Void = {}) -> Bool {
         guard chapterLayout != table, table.generation >= (chapterLayout?.generation ?? 0) else { return false }
         let old = chapterLayout
         // A one-page chapter changes only laidOut, not Sumatra's generation.
         // A queued earlier snapshot must not undo a newer same-count publication.
         if let old, table.generation == old.generation,
            (0..<old.chapterCount).contains(where: { old.isLaidOut($0) && !table.isLaidOut($0) }) { return false }
+        if old?.generation == table.generation {
+            chapterLayout = table
+            return false
+        }
+        beforeRemapping()
         func remap(_ position: ReadingPosition) -> ReadingPosition {
             var position = position
             if let location = position.anchor.flatMap({ ChapterTable.bookmarkLocation($0)?.location }) ?? old?.location(page: position.page),

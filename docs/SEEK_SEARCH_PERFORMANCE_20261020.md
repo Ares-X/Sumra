@@ -138,6 +138,16 @@ each empty page. Match publication, the 999+ result cap and source identities
 are preserved; regressions compare batched results with per-page search and
 exercise cancellation, limits and layout stability.
 
+Signed-app investigation also exposed repeated chapter publications. Natural
+chapters often advance only `laidOut`, without changing page numbers. The
+`ReaderState` owner now accepts that metadata without capturing/restoring the
+viewport, remapping search results or issuing a scroll request. Duplicate and
+stale snapshots likewise cannot capture the viewport. Actual pagination changes
+still capture the live position before remapping. Counting applies layout when
+returning hits and at completion; independent decoder notifications continue
+to deliver real pagination changes. Anchor, stale-snapshot and queued-reflow
+regressions cover this distinction.
+
 Sumatra's [TextSearch.cpp](https://github.com/sumatrapdfreader/sumatrapdf/blob/a1120ae6de3b84be0c422dc0da7258e6828c2be6/src/shared/TextSearch.cpp)
 ensures complete ebook layout before traversing pages; its
 [EngineEbook.cpp](https://github.com/sumatrapdfreader/sumatrapdf/blob/a1120ae6de3b84be0c422dc0da7258e6828c2be6/src/shared/EngineEbook.cpp)

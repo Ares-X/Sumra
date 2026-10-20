@@ -2400,8 +2400,9 @@ private struct RasterScrollRequest: Equatable {
     private func applyLayout(_ table: ChapterTable) {
         // Like SyncWithEngineLayout, snapshot the real viewport before page
         // numbers move. Scroll notifications may still be awaiting UI delivery.
-        if let document = state.readerScrollView?.documentView { RasterCanvas.Canvas.recordPosition(in: document) }
-        guard state.applyChapterLayout(table) else { return }
+        guard state.applyChapterLayout(table, beforeRemapping: {
+            if let document = state.readerScrollView?.documentView { RasterCanvas.Canvas.recordPosition(in: document) }
+        }) else { return }
         if selectedMatch?.location != nil || searchMatches.contains(where: { $0.location != nil }) {
             selectedMatch = selectedMatch.map(projectSearchMatch)
             searchMatches = searchMatches.map(projectSearchMatch)
@@ -2561,9 +2562,6 @@ private struct RasterScrollRequest: Equatable {
                         }
                         let count = try await pages.searchPageCount(chapter)
                         guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
-                        // Preparing the chapter publishes its complete page
-                        // geometry. Searching those pages does not change it.
-                        applyLayout(await pages.chapterLayout)
                         let lower = offset == 0 ? startLocation.page : 0
                         let upper = offset == chapters ? startLocation.page : count
                         var page = lower
@@ -2572,8 +2570,8 @@ private struct RasterScrollRequest: Equatable {
                             let batch = try await pages.nextChapterMatches(query, chapter: chapter,
                                 pageRange: page..<upper, options: options, maximum: remaining + 1)
                             guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
-                            applyLayout(batch.layout)
                             let found = batch.matches
+                            if !found.isEmpty { applyLayout(batch.layout) }
                             all += found.prefix(remaining)
                             if found.count > remaining { state.searchCountCapped = true }
                             if (offset == 0 && batch.nextPage == lower + 1 && !all.isEmpty) || state.searchCountCapped ||
@@ -2587,6 +2585,9 @@ private struct RasterScrollRequest: Equatable {
                         if state.searchCountCapped { break }
                         await Task.yield()
                     }
+                    let table = await pages.chapterLayout
+                    guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
+                    applyLayout(table)
                     publishSearchMatches(all); searchTask = nil; state.searchCounting = false; searchStatus()
                     return
                 }

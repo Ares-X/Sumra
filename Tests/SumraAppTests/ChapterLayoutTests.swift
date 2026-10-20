@@ -196,16 +196,26 @@ final class ChapterLayoutTests: XCTestCase {
         var complete = first
         complete.setPageCount(chapter: 0, count: 1)
         XCTAssertEqual(complete.generation, first.generation)
-        XCTAssertTrue(state.applyChapterLayout(complete))
-        XCTAssertFalse(state.applyChapterLayout(first))
+        let position = state.currentPosition
+        var snapshots = 0
+        XCTAssertFalse(state.applyChapterLayout(complete, beforeRemapping: { snapshots += 1 }))
+        XCTAssertFalse(state.applyChapterLayout(first, beforeRemapping: { snapshots += 1 }))
+        XCTAssertFalse(state.applyChapterLayout(complete, beforeRemapping: { snapshots += 1 }))
+        XCTAssertEqual(snapshots, 0, "Metadata and stale/duplicate snapshots must not capture or restore the viewport")
+        XCTAssertEqual(state.currentPosition, position)
         XCTAssertEqual(state.chapterLayout, complete)
         var expanded = complete
         expanded.setPageCount(chapter: 0, count: 8)
-        XCTAssertTrue(state.applyChapterLayout(expanded))
+        XCTAssertTrue(state.applyChapterLayout(expanded, beforeRemapping: {
+            snapshots += 1
+            XCTAssertEqual(state.page, 1, "Capture the live viewport before applying new pagination")
+            state.updatePosition(.init(page: 1, x: 7, y: 11, anchor: "1:0:1"))
+        }))
+        XCTAssertEqual(snapshots, 1)
         XCTAssertEqual(state.page, 8)
         XCTAssertEqual(state.location.anchor, "1:0:1")
-        XCTAssertEqual(state.location.x, 5)
-        XCTAssertEqual(state.location.y, 9)
+        XCTAssertEqual(state.location.x, 7)
+        XCTAssertEqual(state.location.y, 11)
         XCTAssertFalse(state.applyChapterLayout(complete))
         XCTAssertEqual(state.count, 9)
         XCTAssertEqual(state.page, 8)
