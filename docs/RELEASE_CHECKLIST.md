@@ -18,13 +18,16 @@ user-deferred.
 
 ## Current implementation
 
-The current public release is [0.2.6](https://github.com/Ares-X/Sumra/releases/tag/v0.2.6).
-Its section seeking, Home/sidebar follow-up, signed candidate, 25-book GUI sweep
-and actual Sparkle upgrade are recorded in the
-[current corpus acceptance](BOOK_CORPUS_ACCEPTANCE.md#window-close-and-home-follow-up-2026-10-20).
-The new performance round compares upstream tree
-`a1120ae6de3b84be0c422dc0da7258e6828c2be6`; its implementation and measurements
-are recorded in [the October 20 review](PERFORMANCE_PARITY_20261020.md).
+The current public release is [0.2.7](https://github.com/Ares-X/Sumra/releases/tag/v0.2.7),
+from accepted source `af1c4202be127230381ce8bfcf521b031f954c5f`.
+The [current corpus acceptance](BOOK_CORPUS_ACCEPTANCE.md#performance-round-two-and-signed-027-2026-10-20)
+and [October 20 performance review](PERFORMANCE_PARITY_20261020.md) record the
+25-book hosted and actual GUI sweeps, signed bundle/source correspondence,
+public asset verification and actual 0.2.6 → 0.2.7 Sparkle installation.
+The latter review compares official SumatraPDF tree
+`a1120ae6de3b84be0c422dc0da7258e6828c2be6` and retains the measured solid-archive
+first-jump cost, slow complete EPUB counting and capability gaps. Physical
+macOS 13 and trackpad frame-rate behavior remain unexercised in this round.
 A source inventory or historical passing test is not acceptance of a new binary.
 
 ## Earlier release and candidate evidence

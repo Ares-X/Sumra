@@ -106,5 +106,98 @@ query rejection.
 
 Receipts remain under ignored `build/performance-round2-20261020/`. Hosted pixels
 are not physical trackpad smoothness; compact storage and reduced operations
-are not by themselves a latency measurement. Loaded-app and signed-candidate
-observations are recorded separately after acceptance.
+are not by themselves a latency measurement. The signed-candidate and installed-app
+observations below retain their separate coverage.
+
+## Complete inventory measurements
+
+The corrected **25/25** hosted sweep includes Contents opening, three
+source positions and search selection/counting. First confirmed ready is
+0.071–2.027 s; TXT readiness includes outline indexing. Contents opening is
+0.064–0.244 s. Polling and drawing overhead are included; these are not native
+first-frame clocks. The baseline's corresponding first-ready range is
+0.068–2.038 s, so this round does not claim a general opening-speed increase.
+
+| Remaining workload | First selection or middle jump | Completed count or final jump |
+| --- | ---: | ---: |
+| B01 solid comic, new middle/final destinations | 2.634 s | 4.629 s |
+| B10 large EPUB Find | 0.181 s | 72.028 s |
+| B22 EPUB Find | 5.868 s | 20.959 s |
+| B25 51 MB TXT Find | 0.081 s | 0.543 s |
+
+The comic archive owner did not change in this round; its baseline middle/final
+jumps are 2.589/4.641 s. These observations retain the section-decoding limit,
+not a claimed comic extraction speedup. Full-count times are separate from
+first selection and may reach the existing native result cap.
+
+The first extended sweep recorded 24 passes and a CHM timeout. A new early-hit
+wait returned before its realm probe while no hit existed, unlike the old
+complete-count wait. The hidden hosted WebKit scan then stopped progressing;
+its idle-thread sample is retained. An intermediate harness condition also
+incorrectly treated the last command action as a pending-command flag and was
+stopped. The final harness checks the browser coordinator's actual activation,
+validates the destination realm and observes that realm while waiting for the
+first hit. CHM then passes at 5.556/5.584 s for first selection/full count.
+These probes can wake an occluded WebKit process; browser timings are not
+unobserved background performance. The discarded source candidate build was
+cancelled, and the signed candidate uses corrected source `af1c4202`.
+
+## Signed candidate, public release and installed app
+
+The accepted source is `af1c4202be127230381ce8bfcf521b031f954c5f`, built in
+[candidate run 39425079696](https://github.com/Ares-X/Sumra/actions/runs/39425079696).
+The signed 0.2.7 (9) executable UUID is
+`FECE7EEA-2D38-3FFB-8DE4-96273FA4DD49`. All 181 files, five links, 130
+directories and permission modes match provenance. Code signing, the existing
+certificate, nine Mach-O images with arm64 support and macOS 13 deployment
+minimums pass. The corresponding source matches all 13,451 files and 17 links,
+including 428 exported Git project files. These identity checks do not establish
+physical macOS 13 behavior; this round ran on macOS 27.0.1.
+
+The unmodified signed candidate passes **25/25 real-window book workflows**:
+opening, scrolling, navigation and Contents open/close. There are at most six
+native tabs in the same process. Twenty-three books advance a page/chapter
+indicator. The single-chapter MOBI scrolls from 0 to 0.004607 with Next disabled;
+CHM keeps topic 1 while its scroll indicator advances from 0 to 1. Lazy canvas
+growth can reduce normalized scroll fractions, so those fractions alone are not
+an input-to-paint clock. These are sampled workflows, not every-page fidelity
+or trackpad frame-rate acceptance.
+
+The actual 51 MB TXT first selects line 10,287 while counting is still active,
+then reports 1 / 74 results. Find Next reports 2 / 74, and closing Find succeeds.
+This adds real-control delivery evidence to the hosted and synthetic checks.
+Four Home list/grid transitions complete using the initial catalog for that
+Home owner; new window owners still construct their own catalogs. Background
+Home drawing markers do not measure the completion of every cover.
+
+In a retained fresh comic document owner, previously unread destinations 1,050
+and 2,097 first draw in **2.600 / 4.560 s**, measured from render request to native
+canvas first draw at an 853 × 665 point viewport with warm filesystem caches.
+This round does not change archive extraction or erase that section-decoding
+cost. Earlier 0.2.6 all-4,942-comic-page decode evidence applies to the unchanged
+archive/decoder path; it was not rerun as a new every-page check.
+
+All 25 original SHA-256 values, sizes and nanosecond modification times match
+the original inventory after GUI acceptance. User preferences were restored
+and verified before the public update. Receipts remain under ignored
+`build/performance-round2-20261020/`, particularly `candidate-gui-acceptance.json`,
+`candidate-unread-jumps.json`, `originals-after-gui.json` and
+`sparkle-installed-identity.json`.
+
+[Publish run 39428869231](https://github.com/Ares-X/Sumra/actions/runs/39428869231)
+released the exact accepted candidate as
+[0.2.7](https://github.com/Ares-X/Sumra/releases/tag/v0.2.7). All six anonymously
+downloaded public assets match the accepted bytes and asset IDs; all manifest
+entries, the raw main appcast and the Sparkle Ed25519 signature pass. The public
+manifest SHA-256 is
+`cff70c545bfb026049135ea2490a59fd41db90e2fbd11c5d5d60c7ffcb365338`.
+The app ZIP is 15,777,219 bytes. Signing remains the existing self-signed,
+non-notarized distribution; no new trust claim is made.
+
+An actual public **0.2.6 (8) → 0.2.7 (9)** Check for Updates / Install Update /
+Install and Relaunch succeeds. The installed app matches all accepted files,
+links, directories and modes; its loaded process UUID and About version match
+the candidate. The canonical app remains open at B01 page 382, with native
+canvas drawing observed and the original file's hash/size/mtime unchanged.
+Owned QA apps and log/sample processes were stopped; release archives and
+receipts retain recovery and reproduction evidence.

@@ -14,6 +14,42 @@ This report records validation of 25 locally supplied books, with each dated sec
 
 The earlier 25/25 functional sweep exited successfully for opening, sampled rendering and navigation; originals remained byte-identical by inventory checks. That bounded local probe did not establish every page, whole-book search/selection, low memory, smooth trackpad use or the current loaded binary's behavior. Later sections record the additional coverage separately. CHM follows its own WebKit navigation checks. Some source outline targets are missing or empty by design; an empty MOBI outline is not automatically a parser failure.
 
+## Performance round two and signed 0.2.7 (2026-10-20)
+
+The [new performance and upstream implementation review](PERFORMANCE_PARITY_20261020.md)
+records direct repairs to preview scheduling, equal-size page geometry, measured
+bounds, unchanged Contents updates, first-hit TXT delivery and CHM TOC resolution.
+It compares official SumatraPDF tree `a1120ae6de3b84be0c422dc0da7258e6828c2be6`
+and preserves remaining capability and performance gaps. No original-book write,
+new dependency or persistent whole-book payload cache was added.
+
+The full source gate passes 117 Core and 912 application test items (four opt-in
+items skipped), 58 packaging checks and three reader-script syntax checks. The
+last geometry refinement passes its separate 93-case affected recheck. The
+corrected opt-in hosted sweep passes **25/25**, with first/middle/final source
+positions, Contents opening and first-hit/complete-or-capped Find coverage.
+Its initial CHM timeout and stopped intermediate harness are retained in the
+review; realm observation can wake hidden WebKit and limits timing claims.
+
+The exact signed `af1c4202` candidate also passes **25/25 actual GUI workflows**
+for opening, scrolling, navigation and Contents, with six native tabs observed
+in one process. CHM within-topic scrolling and single-chapter MOBI scrolling
+are verified independently of page-number changes. Actual 51 MB TXT selects a
+hit before counting ends, completes 74 results, advances its result counter and
+closes Find. Unread comic jumps still first draw in 2.600 / 4.560 s. This is
+sampled workflow coverage; earlier all-page comic decode evidence is reused
+for the unchanged decoder, and no new every-page or physical trackpad claim is made.
+
+All 25 originals retain SHA-256, size and nanosecond mtime. The
+[public 0.2.7 release](https://github.com/Ares-X/Sumra/releases/tag/v0.2.7) reuses
+the accepted candidate bytes; public downloads, source correspondence, signing,
+manifest and update feed pass. The real 0.2.6 → 0.2.7 Sparkle installation
+matches every accepted bundle file and its loaded UUID
+`FECE7EEA-2D38-3FFB-8DE4-96273FA4DD49`. About confirms 0.2.7 (9). B01 is left
+open at page 382 with native drawing observed and its original unchanged.
+The full receipts, timing limits and remaining work are linked from the review;
+raw books and private queries are excluded from the public source.
+
 ## Window-close and Home follow-up (2026-10-20)
 
 After the section-index core was merged, the reported Home view-switch and
