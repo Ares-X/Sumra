@@ -47,6 +47,7 @@ int archive_read_support_filter_all(struct archive *);
 int archive_read_support_format_all(struct archive *);
 int archive_read_set_option(struct archive *, const char *, const char *, const char *);
 int archive_read_open_filename(struct archive *, const char *, size_t);
+int archive_read_open_fd(struct archive *, int, size_t);
 int archive_read_next_header(struct archive *, struct archive_entry **);
 ssize_t archive_read_data(struct archive *, void *, size_t);
 int archive_read_data_skip(struct archive *);
@@ -59,3 +60,11 @@ const char *archive_entry_pathname_utf8(struct archive_entry *);
 int64_t archive_entry_size(struct archive_entry *);
 int archive_entry_is_encrypted(struct archive_entry *);
 #endif
+
+// Reads a compressed 7z stream through the system decoder. The descriptor stays
+// owned by the caller and its file position is unchanged. LZMA2 packed_size
+// excludes the terminal zero byte; the stream wrapper supplies it.
+int sumra_archive_open_7z_stream(struct archive *, int fd, int64_t offset,
+    int64_t packed_size, int64_t unpacked_size, uint64_t codec,
+    const uint8_t *properties, size_t properties_size);
+uint32_t sumra_archive_crc32(const void *, size_t);

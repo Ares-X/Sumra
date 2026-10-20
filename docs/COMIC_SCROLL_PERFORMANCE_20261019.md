@@ -1,5 +1,10 @@
 # Solid comic scrolling (2026-10-19)
 
+This records the 0.2.5 implementation and measurements. The subsequent
+[0.2.6 section index](COMIC_SEEK_INDEX_20261020.md) uses independent LZMA2
+reset points within a 7z folder, so a distant first access need not traverse
+every preceding section. The first-region and within-section costs below remain.
+
 ## Unread scrolling is the acceptance case
 
 The reported stall occurs when entering unread pages. Returning to visited pages
