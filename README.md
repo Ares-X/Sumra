@@ -1,106 +1,112 @@
-![Sumra — a lightweight, open-source reader for macOS](docs/images/sumra-brand.png)
+<p align="center">
+  <img src="docs/images/sumra-brand.png" alt="Sumra — a lightweight, open-source reader for macOS" width="720">
+</p>
 
 # Sumra — A Lightweight macOS Reader
 
-**Ebooks, comics, images, Markdown and PDF. One native app, focused on reading.**
+**Ebooks, comics, PDFs, images and Markdown. One native Mac app, focused on reading.**
 
-English · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md)
 
-[Download for Mac](https://github.com/Ares-X/Sumra/releases/latest) · [Reading features](#reading-and-document-tools) · [Supported formats](#supported-formats) · [Get started](#get-started) · [Build from source](#build-from-source)
+**macOS 13+ · Apple Silicon · Free and open source**
 
-Sumra is a free, open-source document reader for **macOS 13 and later on Apple Silicon**. Open an EPUB novel, a CBZ comic, a folder of images, Markdown notes or a PDF from Finder, and read them in a familiar Mac interface. Contents, search, bookmarks and reading positions help you find your place.
+[**Download for Mac**](https://github.com/Ares-X/Sumra/releases/latest) · [Release notes](https://github.com/Ares-X/Sumra/releases) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Sumra/issues)
 
-Inspired by [SumatraPDF](https://www.sumatrapdfreader.org/), Sumra keeps the reading experience simple. It reuses MuPDF and parts of SumatraPDF's document handling, with a native SwiftUI and AppKit interface for windows, tabs, menus and system dialogs.
+Open an EPUB novel, a comic archive, a folder of images, Markdown notes or a PDF from Finder. Read in native Mac windows and tabs, choose your layout, and use contents, search and bookmarks to find your place.
 
-![Sumra for macOS displaying Markdown reading notes and contents in light mode](docs/images/reader-light.png)
+![Sumra displaying Markdown reading notes and contents in light mode](docs/images/reader-light.png)
 
 <details>
 <summary>More screenshots: two-page reading, recent files and dark mode</summary>
 
-![Sumra showing the original Markdown demo in a two-page spread with the contents sidebar](docs/images/reader-two-pages.png)
+![Two-page reading with the contents sidebar](docs/images/reader-two-pages.png)
 
-![Sumra home in light mode, with recently read documents](docs/images/home-light.png)
+![Recent documents on the Home screen](docs/images/home-light.png)
 
-![Sumra macOS document reader in dark mode](docs/images/reader-dark.png)
+![Reading in dark mode](docs/images/reader-dark.png)
+
+All screenshots use the repository's [original demo document](docs/demos/Reading-Notes.md).
 
 </details>
 
-Screenshots use the repository's [original demo document](docs/demos/Reading-Notes.md). They contain no private books or user data.
+## Install and start reading
 
-## Download and install
+1. Download the app ZIP from the [latest release](https://github.com/Ares-X/Sumra/releases/latest) and unzip it.
+2. Move **Sumra.app** to **Applications**, then open it.
+3. Press **⌘O** or drag a file into the window. Press **⌘F** to search its text.
 
-Download the app ZIP from the [latest release page](https://github.com/Ares-X/Sumra/releases/latest). It contains the complete **Sumra.app**, including its document engines, ready to move into Applications. The same release provides corresponding source and SHA-256 checksums. PostScript and EPS require the separately installed Ghostscript noted below.
+Public builds use the maintainer's **Ares-X Code Signing** self-signed certificate, rather than an Apple Developer ID certificate, and are not notarized. If macOS blocks the first launch and you trust the download, follow [Apple's instructions](https://support.apple.com/en-us/102445): open **System Settings → Privacy & Security → Open Anyway**, then confirm.
 
-The current distribution target is **Apple Silicon (arm64)**, with a minimum system target of **macOS 13**. Packaging checks every bundled executable and library for ARM support, the system target and resolved runtime dependencies. The GUI has been exercised on macOS 27.0.1; compatibility on a physical Mac running macOS 13 has not yet been verified.
+**Updates:** choose **Help → Check for Updates**, or enable automatic checks in Settings. Sparkle verifies the update and installs it after your confirmation. Each release also includes corresponding source and SHA-256 checksums.
 
-Installation:
+<details>
+<summary>Compatibility and older installations</summary>
 
-1. Download and unzip the app ZIP.
-2. Drag **Sumra.app** into **Applications**.
-3. Open Sumra. If macOS blocks it, go to **System Settings → Privacy & Security**, choose **Open Anyway** for Sumra, and follow the confirmation prompt.
+The release targets **Apple Silicon (arm64)** and **macOS 13 or later**. Bundled executables and libraries are checked for arm64 support, deployment targets and runtime dependencies. GUI acceptance has been performed on macOS 27.0.1; a physical macOS 13 machine has not yet been verified.
 
-Public builds use the maintainer's personal self-signed identity, **Ares-X Code Signing**. This is not an Apple Developer ID signature, and the app is not notarized by Apple, so the first launch may require that confirmation. See [Apple's installation guidance](https://support.apple.com/en-us/102445) for details.
+Version 0.2.0 has no update feed. Install a newer release manually once; 0.2.1 and later support in-app updates. PostScript and EPS require a separate Ghostscript installation.
 
-**Online updates**: starting with 0.2.1, use **Help → Check for Updates** to download and install new releases, or enable automatic checks in Settings. Version 0.2.0 has no update feed and requires one manual installation of 0.2.1 or later. Updates install after your confirmation.
+</details>
 
-## Reading and document tools
+## Made for reading
 
-- **Open files directly**: use Finder, drag files into a window, or continue from the home screen and recent files. Multiple windows and macOS tabs are supported.
-- **Navigate long documents**: contents and chapter-title search, full-text search, thumbnails, bookmarks and remembered reading positions. TXT and MOBI without an authored table of contents can detect standalone chapter titles.
-- **Choose a comfortable layout**: single-page reading, continuous vertical scrolling, two-page spreads and left/right page turns are available across document formats. Continuous reflowable ebooks, text and web documents use a natural text stream without screen-sized paper gaps, wrap to the reading window and use the selected text and paper theme. Fixed pages retain their authored geometry. Ebooks and text offer font and typography settings.
-- **Listen to the text**: use system speech to read document text or a selection aloud.
-- **Work with PDFs**: fill forms, add and edit annotations, undo and redo, save or save a copy. Document tools include page extraction and merging.
-- **Read scanned PDFs**: neutral text scans gain contrast automatically. Turn **Enhance Scanned Pages** off in **View → Document Colors** to see the original appearance; the source file stays unchanged.
-- **Print and export**: use the macOS print panel or export a PDF. Available operations depend on the document's format and permissions.
+- **Native windows and tabs.** Open from Finder, drag files into Sumra, or continue from Home. Enable **Use window tabs** in Settings to keep multiple books together.
+- **A layout that suits the document.** Single-page, continuous scrolling and two-page spreads, with themes and typography controls. Reflowable books adapt to the window; fixed pages keep their original geometry.
+- **Find your place.** Contents, chapter-title search, full-text search, thumbnails, bookmarks and optional reading-position history. TXT and MOBI can detect standalone chapter titles when an authored table of contents is absent.
+- **Navigate comic collections.** Archive folders become Contents entries with their names and nesting preserved. Suitable solid LZMA2 archives support distant jumps through an in-memory section index, without modifying the original or writing an extracted book cache.
+- **Work with PDFs.** Fill forms, edit annotations, undo and redo, extract or merge pages, and save your changes. PDF editing is locked until you choose **Enable Editing**. **Save a Copy** retains editable forms and annotations; **Export PDF** makes a static reading copy.
+- **Listen, print and export.** Read text or a selection aloud with system speech, print through the macOS print panel, or export a PDF. Available operations depend on the format and document permissions.
 
-PDF editing is locked by default for reading. Choose **Enable Editing** before making changes, then save or save a copy to preserve the original. Saving a copy retains editable forms and annotations; exporting a PDF produces a static reading copy.
+Use the sidebar for Contents, thumbnails and bookmarks, the **View** menu for layout and theme, and Settings for typography, history and tabs. **Help → Keyboard Shortcuts** lists commands; shortcuts can be customized in Settings.
 
 ## Supported formats
 
 | Type | Formats |
 | --- | --- |
-| PDF and fixed-page documents | PDF, XPS / OXPS, SVG, DjVu |
+| PDF and fixed pages | PDF, XPS / OXPS, SVG, DjVu |
 | Ebooks | EPUB, MOBI, AZW, PRC, FB2 / compressed FB2 |
 | Comics and images | CBZ, CBR, CB7, CBT, image folders; common image formats including GIF, TIFF and JPEG XL |
-| Text and web documents | Markdown, HTML / XHTML, CHM, TXT and related plain text, TCR |
+| Text and web | Markdown, HTML / XHTML, CHM, TXT and related plain text, TCR |
 | Other compatible formats | PDF-compatible AI, P7M envelopes, LIT |
 | Requires additional software | PostScript / EPS: install Ghostscript separately |
 
-Large Markdown documents use MuPDF and support single-page, continuous and two-page reading; WebKit compatibility mode is selectable. HTML and CHM use WebKit for reading. CHM prose fits the reading viewport, and plain-text topics use the reader's typography; repeated fixed-column Chinese prose flows across source line breaks while retaining the source text. Changing the reader font, size or line spacing overrides CHM publisher styles. Printing and PDF export for HTML, CHM and Markdown compatibility mode use MuPDF layout, so the output may differ from the reading view.
+Support varies by file variant. Sumra does not provide OCR or DRM removal; scanned pages need an existing text layer for text search.
 
-Reflowable ebooks and native Markdown compact redundant blank prose rows and empty paragraphs. Preformatted text, tables, image blocks and explicit page breaks keep their layout. Recognized CHM prose uses compact paragraph gaps while retaining its original text.
+<details>
+<summary>Rendering notes and format limitations</summary>
 
-Format support does not cover every file variant. Sumra does not provide OCR or DRM removal; searching scanned pages requires an existing text layer. See the [format and engine notes](docs/SUMATRA_ENGINE_PARITY.md) for detailed coverage.
+- Markdown uses MuPDF, with an optional WebKit compatibility mode. HTML and CHM use WebKit for reading; their printing and PDF export use MuPDF layout and may look different from the reading view.
+- Reflowable ebooks and native Markdown compact redundant blank prose rows and empty paragraphs, while preserving preformatted text, tables, image blocks and explicit page breaks. Recognized CHM prose also uses compact paragraph spacing; changing its font, size or line spacing overrides publisher styles.
+- Neutral text scans in PDFs gain contrast automatically. Turn **Enhance Scanned Pages** off under **View → Document Colors** to see the original appearance. The source file stays unchanged.
+- Section indexing skips earlier independent sections in suitable comic archives. A first jump still needs to decode preceding data within the target section; it does not make every unseen jump instantaneous.
 
-Comic archives use their folders as Contents. Folder names and nesting are retained, and each entry opens the folder's first image in the existing reading order.
+See [format and engine coverage](docs/SUMATRA_ENGINE_PARITY.md), [Markdown rendering](docs/MARKDOWN_RENDERER_DECISION.md) and [comic section seeking](docs/COMIC_SEEK_INDEX_20261020.md) for details.
 
-## Get started
-
-1. Press **⌘O** to open a file, or drag it into Sumra.
-2. Open the sidebar for contents, thumbnails or bookmarks. The contents search field finds chapter titles.
-3. Press **⌘F** to search document text.
-4. The default reading and Home background is light. Use the **View** menu to adjust layout and theme; ebooks and text offer additional typography settings.
-5. Return through the home screen or recent files to continue from your last reading position.
-
-Find more commands under **Help → Keyboard Shortcuts**. You can customize shortcuts in Settings.
+</details>
 
 ## Build from source
 
-You need macOS, the Apple Swift toolchain and macOS SDK, and CMake. Build scripts fetch pinned native dependencies, so the first build requires internet access. Swift Package Manager fetches a pinned version of Sparkle. Project build, packaging and checking scripts use Swift and system tools; Python is not required.
+You need macOS, the Apple Swift toolchain and macOS SDK, and CMake. The first build needs internet access to fetch pinned native dependencies and Sparkle. Project build and packaging scripts use Swift and system tools; Python is not required.
 
 ```sh
 git clone https://github.com/Ares-X/Sumra.git
 cd Sumra
-./scripts/build-app.sh
+./scripts/build-app.sh --release
 open dist/Sumra.app
 ```
 
-If CMake is missing, install it with your existing package manager; with Homebrew, use `brew install cmake`. Use `./scripts/build-app.sh --release` for an optimized build, or `./scripts/run-dev.sh` to build and launch a development instance. Local builds are ad-hoc signed by default and do not publish a release.
+If needed, install CMake with your package manager, for example `brew install cmake`. For a development build and launch, use `./scripts/run-dev.sh`. Local builds are ad-hoc signed by default.
 
-Sumra is a graphical application: file opening, document tools and printing are operated through its interface. See [THIRD_PARTY.md](THIRD_PARTY.md) for dependency sources, versions and licenses, and the [development notes](docs/IMPLEMENTATION_STATUS.md) for implementation progress. [Report a bug or request a feature](https://github.com/Ares-X/Sumra/issues) on GitHub.
+Sumra is a graphical application; opening files, document tools and printing use its interface. For development, see the [implementation notes](docs/IMPLEMENTATION_STATUS.md), [local checks](scripts/check-source.sh) and [release procedure](docs/RELEASE_ACTIONS.md).
+
+## Contribute and translate
+
+[Bug reports, feature requests](https://github.com/Ares-X/Sumra/issues) and pull requests are welcome. Include the macOS and Sumra versions, file format, reproduction steps and a shareable sample when possible.
+
+The README is available in English, Simplified Chinese, Traditional Chinese and Japanese. Use [README.md](README.md) as the content reference, keep the same section order, and update the other versions when shared information changes. All versions reuse the same screenshots and link to the technical documentation.
 
 ## License and acknowledgments
 
-New Sumra code is licensed under **[AGPL-3.0-or-later](LICENSE)**. Upstream and translated components retain their own licenses and copyright notices; see [THIRD_PARTY.md](THIRD_PARTY.md).
+New Sumra code is licensed under **[AGPL-3.0-or-later](LICENSE)**. Upstream and ported components retain their own licenses and copyright notices; see [THIRD_PARTY.md](THIRD_PARTY.md) for sources, versions and licenses.
 
-Thank you to [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf), [MuPDF](https://mupdf.com/) and the other upstream projects. Sumra is independently developed and is not an official SumatraPDF release. Feature coverage and remaining differences are recorded in the [SumatraPDF reference notes](docs/SUMATRA_PARITY.md).
+Inspired by [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf), Sumra reuses MuPDF and parts of SumatraPDF's document handling with a SwiftUI and AppKit interface. Thanks to [MuPDF](https://mupdf.com/) and the other upstream projects. Sumra is independently developed; the [reference notes](docs/SUMATRA_PARITY.md) describe feature coverage and remaining differences.
