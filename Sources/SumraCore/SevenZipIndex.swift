@@ -224,15 +224,18 @@ final class SevenZipIndex {
     @discardableResult
     private func consume(_ count: Int, keeping: Bool) throws -> Data {
         guard let reader else { throw ReadError("No 7z stream reader") }
-        var left = count, result = Data(), buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while left > 0 {
-            let amount = archive_read_data(reader, &buffer, min(left, buffer.count))
-            guard amount > 0 else { throw Self.error(reader, "Truncated indexed 7z entry") }
-            if keeping { result.append(contentsOf: buffer.prefix(amount)) }
-            position += amount
-            left -= amount
+        var result = Data(count: keeping ? count : min(count, 64 * 1024))
+        try result.withUnsafeMutableBytes { output in
+            var left = count
+            while left > 0 {
+                let destination = output.baseAddress!.advanced(by: keeping ? count - left : 0)
+                let amount = archive_read_data(reader, destination, min(left, 64 * 1024))
+                guard amount > 0 else { throw Self.error(reader, "Truncated indexed 7z entry") }
+                position += amount
+                left -= amount
+            }
         }
-        return result
+        return keeping ? result : Data()
     }
 
     private func point(before target: Int, folder index: Int) throws -> Point {

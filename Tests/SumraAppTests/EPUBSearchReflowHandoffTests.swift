@@ -7,6 +7,48 @@ import XCTest
 
 @MainActor
 final class EPUBSearchReflowHandoffTests: XCTestCase {
+    func testChapterCountingSkipsEmptyPagesAndRetainsMatchLocations() async throws {
+        let directory = try TemporaryDirectory(), query = "LATE_CHAPTER_MATCH"
+        let input = try singleChapterFixture(in: directory.url, query: query)
+        let pages = try Pages(input, format: .mupdf, deferReflowLayout: true)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 16,
+            font: "system", theme: "light", pageSize: CGSize(width: 320, height: 180))
+        let count = try await pages.searchPageCount(0)
+        let layout = await pages.chapterLayout
+        var reference: [RasterMatch] = []
+        for page in 0..<count {
+            reference += try await pages.matches(query, location: .init(chapter: 0, page: page))
+        }
+        XCTAssertEqual(reference.count, 4)
+        XCTAssertGreaterThan(try XCTUnwrap(reference.first?.location).page, 0)
+        var actual: [RasterMatch] = [], cursor = 0
+        while cursor < count {
+            let batch = try await pages.nextChapterMatches(query, chapter: 0, pageRange: cursor..<count,
+                options: .init(), maximum: 1000)
+            XCTAssertGreaterThan(batch.nextPage, cursor)
+            XCTAssertEqual(batch.layout, layout)
+            actual += batch.matches; cursor = batch.nextPage
+        }
+        XCTAssertEqual(actual, reference)
+        let after = await pages.chapterLayout
+        XCTAssertEqual(after, layout, "Searching prepared pages must retain chapter geometry")
+        let absent = try await pages.nextChapterMatches("ABSENT_CHAPTER_QUERY", chapter: 0,
+            pageRange: 0..<count, options: .init(), maximum: 1000)
+        XCTAssertTrue(absent.matches.isEmpty)
+        XCTAssertEqual(absent.nextPage, count)
+        let limited = try await pages.nextChapterMatches(query, chapter: 0, pageRange: 0..<count,
+            options: .init(), maximum: 1)
+        XCTAssertEqual(limited.matches, Array(reference.prefix(1)))
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await pages.nextChapterMatches(query, chapter: 0, pageRange: 0..<count,
+                options: .init(), maximum: 1000)
+        }
+        do { _ = try await cancelled.value; XCTFail("Cancelled counting must not publish a batch") }
+        catch is CancellationError { }
+        withExtendedLifetime(directory) {}
+    }
+
     func testFindWithoutFindPanelSelectsAMatchAfterQueuedReflow() async throws {
         for chapterCount in [1, 14] {
             try await verifyFindAfterQueuedReflow(chapterCount: chapterCount)

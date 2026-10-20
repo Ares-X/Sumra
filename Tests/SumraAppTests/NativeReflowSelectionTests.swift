@@ -83,22 +83,45 @@ final class NativeReflowSelectionTests: XCTestCase {
         try await wait(host, state: state) { state.hasSelection }
         let selected = state.selectedText.filter { !$0.isWhitespace }
         XCTAssertFalse(selected.isEmpty)
+        let reference = try Pages(input, format: .markdown, deferReflowLayout: true)
+        var expectedBounds: [Double: CGRect] = [:]
+        for zoom in [1.0, 1.5, 6.0] {
+            _ = try await reference.relayout(fontSize: 17, lineHeight: 1.6, margin: 32,
+                font: "system", theme: "light", userCSS: state.effectiveUserCSS,
+                useDocumentCSS: state.useDocumentCSS, pageMargins: state.pageMargins,
+                textZoom: zoom, pageSize: CGSize(width: 900, height: 0))
+            expectedBounds[zoom] = try await reference.bounds(0)
+        }
+        func painted(at zoom: Double) -> Bool {
+            guard let canvas = state.readerFocusView as? RasterCanvas.Canvas else { return false }
+            return canvas.pageBounds == expectedBounds[zoom] && canvas.renderRevision == state.renderRevision &&
+                RasterReader.pageIsRendered(in: canvas, pages: pages, location: state.pageLocation(target))
+        }
         for zoom in [1.5, 6.0, 1.0] {
             let revision = state.renderRevision
             state.setZoom(zoom)
-            try await wait(host, state: state) { state.renderRevision > revision }
+            try await wait(host, state: state) { state.renderRevision > revision && painted(at: zoom) }
             XCTAssertTrue(state.hasSelection, "Selection lost at zoom \(zoom)")
             XCTAssertEqual(state.selectedText.filter { !$0.isWhitespace }, selected, "Text changed at zoom \(zoom)")
+            // Begin the next zoom after this style command is acknowledged.
+            let command = state.command.revision
+            state.send(.none)
+            try await wait(host, state: state) {
+                state.command.revision > command && state.command.action == .none && painted(at: zoom)
+            }
         }
         let revision = state.renderRevision
         state.setZoom(1.5)
         try await Task.sleep(nanoseconds: 10_000_000)
         state.setZoom(6)
         try await wait(host, state: state) {
-            state.renderRevision > revision + 1 &&
-                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(target)) &&
+            // Adjacent absolute zooms may coalesce. The final native geometry
+            // and painted selection matter, rather than two layout executions.
+            state.renderRevision > revision && painted(at: 6) &&
                 (state.readerScrollView?.contentView.bounds.minY ?? 0) > (state.readerScrollView?.contentView.bounds.height ?? 0)
         }
+        let finalBounds = try await pages.bounds(target)
+        XCTAssertEqual(finalBounds, expectedBounds[6])
         XCTAssertTrue(state.hasSelection, "Queued reflow must retain the source selection")
         XCTAssertEqual(state.selectedText.filter { !$0.isWhitespace }, selected)
         // Native scrolling must retain the reader-owned selection after its

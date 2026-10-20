@@ -20,3 +20,7 @@ to rerun unchanged workflows or create additional release requirements.
 The [October 20 performance and implementation comparison](PERFORMANCE_PARITY_20261020.md)
 pins a fresh upstream tree and distinguishes aligned owners, measured repairs
 and remaining capability gaps.
+
+The [solid-seek and EPUB-count follow-up](SEEK_SEARCH_PERFORMANCE_20261020.md)
+compares archive replay, retained ebook instructions and native page search,
+with separate extraction, count, hosted and signed-app measurements.
