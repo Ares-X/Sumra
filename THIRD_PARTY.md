@@ -256,3 +256,5 @@ On 2026-10-24, the localization importer used another read-only AppTranslator hi
 `Native/MuPDF.c` uses the already pinned HarfBuzz subset/instancing APIs to bake CoreText-selected variable coordinates into static font outlines before FreeType loading and PDF embedding. The original font file remains unchanged. This adds no dependency, dynamic library, CoreGraphics font-rendering path or PDF document bridge; the existing HarfBuzz source and license notices above apply.
 
 `Native/mupdf-rectangle-unicode.patch` corrects rectangular selection in MuPDF's structured-text owner. It includes zero-width glyph quads when their coordinates lie inside the selected region, preserving combining marks and ligature continuation characters in copy and native assistive text.
+
+`Native/mupdf-html-authored-word-spacing.patch` makes structured-text extraction honor the existing parsed-HTML no-separator provenance before inserting a geometric space. PDF text without HTML provenance keeps its original inference.

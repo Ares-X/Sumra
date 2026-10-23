@@ -28,6 +28,8 @@ reading, PDF reopening and independent CoreGraphics rendering.
 Viewport copy and assistive text retain zero-width combining marks and ligature
 continuations; a geometric selection must not discard their Unicode characters.
 Regression samples cover Arabic, Hindi and decomposed Latin text at three widths.
+HTML source word boundaries also prevent geometric spacing from breaking words
+and their search queries; PDF geometric space inference remains unchanged.
 
 Find and Contents retain marked input across interface updates; candidate
 confirmation/cancellation stays with the input method. Theme names preserve

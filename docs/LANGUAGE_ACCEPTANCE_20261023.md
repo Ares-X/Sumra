@@ -50,8 +50,8 @@ language corpus or native-speaker assessment.
 | Check | Result | Boundary |
 | --- | --- | --- |
 | HTML reflow and PDF export, 39 groups | Character sequences preserved | Compared after NFC normalization and whitespace removal |
-| EPUB, 39 groups at 600/320-point widths | 78/78 text and search checks pass | Both public and local engines; text success does not establish visible glyphs |
-| Exported PDF word queries | 179/179 found | Local output; copy can still contain inferred intra-word whitespace |
+| EPUB, 39 groups at 600/320-point widths | 78/78 text checks pass; original search count invalid | The original probe counted JSON envelope fields instead of actual matches; it cannot establish search success |
+| Exported PDF word queries | Original search count withdrawn pending corrected verification | Query receipts must count the actual matches array; copy can still contain inferred intra-word whitespace |
 | Regular glyphs with default Charis SIL and system Helvetica | 34 representative scalars pass | Not exhaustive script coverage |
 | Hebrew default font, all four styles | Pass after local fix | Baseline regression failed before the fix |
 | Affected font, width-cache, RTL-copy, Thai/CJK-export and localization tests | 11 pass, zero failures | Focused suite; not a new full release acceptance |
