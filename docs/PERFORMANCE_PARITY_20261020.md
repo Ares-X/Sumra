@@ -1,5 +1,9 @@
 # Performance and Sumatra implementation review — 2026-10-20
 
+The [2026-10-23 follow-up](READER_PERFORMANCE_FOLLOWUP_20261023.md) records
+capture-first PDF checkpoints, interruptible search extraction and measured
+large-EPUB count limits.
+
 This round compares Sumra with official SumatraPDF tree
 [`a1120ae6de3b84be0c422dc0da7258e6828c2be6`](https://github.com/sumatrapdfreader/sumatrapdf/tree/a1120ae6de3b84be0c422dc0da7258e6828c2be6).
 It covers the reading owners below and the complete local 25-book inventory.

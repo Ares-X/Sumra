@@ -26,7 +26,7 @@ static SumraMuPDFDocument *open_body(const char *path, const char *body) {
 }
 static char *find(SumraMuPDFDocument *document, const char *query, int page, int flags, int64_t after, int64_t last) {
     char error[512] = {0};
-    char *result = lf_search_pages_at(document, 0, page, query, flags, after, -1, last, NULL, error);
+    char *result = lf_search_pages_at(document, 0, page, query, flags, after, -1, last, NULL, NULL, error);
     check(result != NULL, error);
     return result;
 }

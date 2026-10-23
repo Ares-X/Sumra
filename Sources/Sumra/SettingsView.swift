@@ -208,7 +208,7 @@ enum ReaderPreferences {
         for reader in ReaderWindows.states { reader.scrollbarMode = mode; if reader.isBrowser { reader.send(.style) } }
     }
     static let numbers: Set<String> = ["fontSize", "lineHeight", "margin", "speechRate", "contentsDepth", "sidebarWidth", "pageGridWidth", "pageGridHeight", "pageGridOffsetX", "pageGridOffsetY", "pageGridSubdivisions", "pageGridColor", "zoomIncrement"]
-    static let booleans: Set<String> = ["spread", "rtl", "cover", "automaticLayout", "pageAspectLayout", "landscapeAsSpread", "invertColors", "grayscale", "preservePDFImages", "inverseSearchEnabled", "disableHistory", "disableReadingState", "disableTabs", "restoreSession", "useDocumentCSS", "useFixedPageUI", "showContentsOnOpen", "sidebarRight", "fullPathTitle", "pageInTitle", "checkForUpdates", "homePageSortByFrequentlyRead", "findFloating"]
+    static let booleans: Set<String> = ["spread", "rtl", "cover", "automaticLayout", "pageAspectLayout", "landscapeAsSpread", "invertColors", "grayscale", "preservePDFImages", "inverseSearchEnabled", "disableHistory", "disableReadingState", "disableTabs", "restoreSession", "useDocumentCSS", "useFixedPageUI", "showContentsOnOpen", "sidebarRight", "fullPathTitle", "pageInTitle", "checkForUpdates", "homePageSortByFrequentlyRead", "findFloating", "preservePageTurnPosition", "keepZoomOnLinks"]
     static var keys: Set<String> { strings.union(numbers).union(booleans) }
 
     static func boolean(for key: String) -> Bool {

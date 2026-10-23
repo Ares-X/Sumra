@@ -12,7 +12,7 @@ func chooseDocuments(_ receive: @escaping ([URL]) -> Void) {
 // One command catalog serves the menu bar, command palette and shortcut editor.
 enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
     case open, save, saveCopy, exportPDF, reload, properties, copyPath, close
-    case files, openNoHistory, discard, rename, trash, trashAndNext, home
+    case files, openNoHistory, discard, rename, relocate, trash, trashAndNext, home
     case duplicateTab, duplicateWindow, nextTab, previousTab, nextTabSmart, previousTabSmart, moveTabLeft, moveTabRight, closeOtherTabs, closeLeftTabs, closeRightTabs, closeAllTabs, saveTabGroup, restoreTabGroup, tabColor, reopenClosed, shareEmail, openWith
     case contents, contentsSearch, thumbnails, bookmarks, fullscreen, presentation, palette, ai
     case find, previous, next, goToPage, back, forward, previousFile, nextFile
@@ -169,6 +169,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .openNoHistory: return "Open without History…"
         case .discard: return "Discard Changes"
         case .rename: return "Rename File…"
+        case .relocate: return "Relocate File…"
         case .trash: return "Move File to Trash…"
         case .trashAndNext: return "Trash File and Open Next…"
         case .home: return "Home"
@@ -465,6 +466,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .files, .openNoHistory, .home: return state != nil
         case .discard: return state?.modified == true && state?.busy == false
         case .rename, .trash, .trashAndNext: return state?.document?.url.hasDirectoryPath == false && state?.busy == false
+        case .relocate: return state?.busy == false && (state?.missingFile != nil || state?.document?.url.hasDirectoryPath == false || state?.restoredPayload != nil)
         case .restoreTabGroup, .reopenClosed: return state?.createWindow != nil
         case .close, .nextTab, .previousTab, .nextTabSmart, .previousTabSmart, .moveTabLeft, .moveTabRight, .closeOtherTabs, .closeLeftTabs, .closeRightTabs, .closeAllTabs, .saveTabGroup, .tabColor: return state?.window != nil
         case .save: return state?.canSave == true
@@ -623,6 +625,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
             }
         case .discard: state.discardChanges()
         case .rename: state.renameFile()
+        case .relocate: state.relocateFile()
         case .trash: state.trashFile(openNext: false)
         case .trashAndNext: state.trashFile(openNext: true)
         case .home: state.close()

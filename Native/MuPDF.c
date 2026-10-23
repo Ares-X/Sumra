@@ -1965,7 +1965,7 @@ static void page_search_fragments(SumraJSON *json, const fz_search_match *match)
     lf_json(json, "]");
 }
 
-static char *search_options_on_text(void *document, int chapter, int index, const char *needle, int flags, int64_t after, int64_t maximum, int (*cancelled)(void), char *error, fz_stext_page *window) {
+static char *search_options_on_text(void *document, int chapter, int index, const char *needle, int flags, int64_t after, int64_t maximum, int (*cancelled)(void), char *error, fz_stext_page *window, fz_cookie *cookie) {
     SumraMuPDFDocument *d = document;
     fz_search *search = NULL, *anchor_search = NULL; char *anchor = NULL;
     fz_buffer *buffer = NULL; fz_stext_position *map = NULL;
@@ -1980,14 +1980,14 @@ static char *search_options_on_text(void *document, int chapter, int index, cons
         search = fz_new_search(d->ctx, needle, options);
         // MuPDF owns normalization and match quads. Its iterative API exposes
         // real characters for Sumatra's word-boundary check and cancellation.
-        fz_page *page = load_render_page(d, chapter, index, NULL);
+        fz_page *page = load_render_page(d, chapter, index, cookie);
         // A negative flow candidate avoids extracting every glyph of an unseen
         // continuous chapter. Existing cached glyph text is already cheaper.
         if (!fz_search_needle_bytes(search) ||
             (!window && !d->text_page && !fz_html_page_has_search_candidate(d->ctx, page, search, cancelled))) {
             lf_json(&j, "{\"text\":\"\",\"matches\":[]}");
         } else {
-        fz_feed_search(d->ctx, search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, NULL)), 0);
+        fz_feed_search(d->ctx, search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, cookie)), 0);
         const char *text = NULL, *cursor = NULL; fz_stext_position *position = NULL; size_t offset = 0;
         int backwards = (flags & 4) != 0, locating = !backwards && after >= 0;
         int64_t emitted = 0, boundary = after, last_start = -1;
@@ -2058,7 +2058,7 @@ static char *search_options_on_text(void *document, int chapter, int index, cons
                             anchor = fz_malloc(d->ctx, anchor_length + 1);
                             memcpy(anchor, needle, anchor_length); anchor[anchor_length] = 0;
                             anchor_search = fz_new_search(d->ctx, anchor, options);
-                            fz_feed_search(d->ctx, anchor_search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, NULL)), 0);
+                            fz_feed_search(d->ctx, anchor_search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, cookie)), 0);
                         }
                         while (!anchor_match || anchor_match->begin.ch != result.u.match->begin.ch) {
                             if (cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
@@ -2097,7 +2097,7 @@ static char *search_options_on_text(void *document, int chapter, int index, cons
                 locating = 0;
                 fz_drop_search(d->ctx, search); search = NULL;
                 search = fz_new_search(d->ctx, needle, options);
-                fz_feed_search(d->ctx, search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, NULL)), 0);
+                fz_feed_search(d->ctx, search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, cookie)), 0);
                 cursor = text; position = map; offset = 0;
             }
             if (j.failed) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate search results");
@@ -2114,16 +2114,17 @@ static char *search_options_on_text(void *document, int chapter, int index, cons
 }
 API char *lf_search_options_at(void *document, int chapter, int index, const char *needle, int flags,
     int64_t after, int64_t maximum, int (*cancelled)(void), char *error) {
-    return search_options_on_text(document, chapter, index, needle, flags, after, maximum, cancelled, error, NULL);
+    return search_options_on_text(document, chapter, index, needle, flags, after, maximum, cancelled, error, NULL, NULL);
 }
 
 API char *lf_search_pages_at(void *document, int chapter, int index, const char *needle, int flags,
-    int64_t after, int64_t maximum, int64_t last_page, int (*cancelled)(void), char *error) {
+    int64_t after, int64_t maximum, int64_t last_page, int (*cancelled)(void), void *cookie_opaque, char *error) {
     SumraMuPDFDocument *d = document;
+    fz_cookie *cookie = cookie_opaque;
     // Continuous chapter search already has a source-stream owner and a cheap
     // necessary candidate. The window is for physical paginated documents.
     if (fz_is_document_reflowable(d->ctx, d->doc) && d->doc->layout_h == 0)
-        return lf_search_options_at(document, chapter, index, needle, flags, after, maximum, cancelled, error);
+        return search_options_on_text(document, chapter, index, needle, flags, after, maximum, cancelled, error, NULL, cookie);
     fz_stext_page *window = NULL, *text_page = NULL;
     fz_buffer *buffer = NULL;
     fz_stext_position *map = NULL;
@@ -2133,7 +2134,7 @@ API char *lf_search_pages_at(void *document, int chapter, int index, const char 
     fz_var(window); fz_var(text_page); fz_var(buffer); fz_var(map);
     fz_var(normalizer); fz_var(candidate); fz_var(chunker); fz_var(result);
     fz_try(d->ctx) { do {
-        fz_page *owner_page = load_render_page(d, chapter, index, NULL);
+        fz_page *owner_page = load_render_page(d, chapter, index, cookie);
         if (!d->text_page && fz_is_document_reflowable(d->ctx, d->doc)) {
             candidate = page_search_first_candidate(d->ctx, needle);
             if (candidate && !fz_html_page_has_search_candidate(d->ctx, owner_page, candidate, cancelled)) {
@@ -2156,7 +2157,7 @@ API char *lf_search_pages_at(void *document, int chapter, int index, const char 
         int owner = 1;
         for (;;) {
             if (cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
-            text_page = stext_at(d, location.chapter, location.page, NULL, NULL);
+            text_page = stext_at(d, location.chapter, location.page, NULL, cookie);
             fz_try(d->ctx) {
                 buffer = fz_new_buffer_from_flattened_stext_page(d->ctx, text_page, FZ_TEXT_FLATTEN_KEEP_PARAGRAPHS, &map);
             } fz_catch(d->ctx) { map = NULL; fz_rethrow(d->ctx); }
@@ -2237,7 +2238,7 @@ API char *lf_search_pages_at(void *document, int chapter, int index, const char 
             }
             before = before->next;
         }
-        result = search_options_on_text(document, chapter, index, needle, flags, after, maximum, cancelled, error, window);
+        result = search_options_on_text(document, chapter, index, needle, flags, after, maximum, cancelled, error, window, cookie);
     } while (0); }
     fz_always(d->ctx) {
         fz_free(d->ctx, map); fz_drop_buffer(d->ctx, buffer); fz_drop_stext_page(d->ctx, text_page);

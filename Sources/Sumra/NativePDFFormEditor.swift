@@ -8,7 +8,7 @@ import AppKit
 final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate {
     private let widget: PDFAnnotationSnapshot
     private weak var host: NSView?
-    private let commitValue: (String) async throws -> Void
+    private let commitValue: ([String]) async throws -> Void
     private let didClose: () -> Void
     private let advance: (Bool) -> Void
     private let failure: (Error) -> Void
@@ -23,7 +23,7 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
     private var isChoice: Bool { table != nil }
 
     init(widget: PDFAnnotationSnapshot, host: NSView, frame: CGRect,
-         commitValue: @escaping (String) async throws -> Void,
+         commitValue: @escaping ([String]) async throws -> Void,
          didClose: @escaping () -> Void, advance: @escaping (Bool) -> Void,
          failure: @escaping (Error) -> Void) {
         self.widget = widget; self.host = host; self.commitValue = commitValue
@@ -39,7 +39,7 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
             let list = FormChoiceView()
             let column = NSTableColumn(identifier: .init("value"))
             list.addTableColumn(column); list.headerView = nil
-            list.allowsEmptySelection = true; list.allowsMultipleSelection = false
+            list.allowsEmptySelection = true; list.allowsMultipleSelection = widget.isMultiSelectChoice
             list.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
             scroll.documentView = list; scroll.hasVerticalScroller = true
             scroll.autohidesScrollers = true; scroll.borderType = .bezelBorder
@@ -87,7 +87,11 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
             table.didResign = { [weak self] in self?.lostFocus() }
             table.setAccessibilityLabel(widget.fieldLabel ?? widget.fieldName ?? "")
             table.reloadData()
-            if let index = widget.options?.firstIndex(where: { $0.value == widget.value }) {
+            let options = widget.options ?? []
+            if widget.isMultiSelectChoice {
+                let selected = widget.selectedValues ?? []
+                table.selectRowIndexes(IndexSet(options.indices.filter { selected.contains(options[$0].value) }), byExtendingSelection: false)
+            } else if let index = options.firstIndex(where: { $0.value == widget.value }) {
                 table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
             }
         }
@@ -145,16 +149,18 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
     private func beginCommit() -> Task<Void, Error>? {
         guard completed == nil else { return nil }
         if let commitTask { return commitTask }
-        let value: String
+        let values: [String]
         if let table {
-            guard let options = widget.options, options.indices.contains(table.selectedRow) else { cancel(); return nil }
-            value = options[table.selectedRow].value
+            let options = widget.options ?? []
+            if !widget.isMultiSelectChoice && table.selectedRow < 0 { cancel(); return nil }
+            values = table.selectedRowIndexes.map { options[$0].value }
         } else if let combo = field as? NSComboBox {
-            value = comboExportValue ?? combo.stringValue
-        } else { value = field?.stringValue ?? textView?.string ?? "" }
+            values = [comboExportValue ?? combo.stringValue]
+        } else { values = [field?.stringValue ?? textView?.string ?? ""] }
+        let previous = widget.isMultiSelectChoice ? widget.selectedValues ?? [] : [widget.value ?? ""]
         let operation = Task {
             do {
-                if value != (widget.value ?? "") { try await commitValue(value) }
+                if widget.isMultiSelectChoice ? Set(values) != Set(previous) : values != previous { try await commitValue(values) }
                 commitTask = nil
                 close(committed: true)
             } catch {
@@ -221,13 +227,15 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
 
     private func lostFocus() {
         guard completed == nil, commitTask == nil else { return }
-        if isChoice { cancel() }
+        if isChoice && !widget.isMultiSelectChoice { cancel() }
         // Presenting the validation error can itself move focus. Do not submit
         // the rejected value again until the user edits it or explicitly retries.
         else if !validationFailed { requestCommit() }
     }
 
-    @objc private func choose() { requestCommit() }
+    @objc private func choose() {
+        if !widget.isMultiSelectChoice { requestCommit() }
+    }
 
     private func command(_ selector: Selector) -> Bool {
         switch selector {
@@ -382,6 +390,8 @@ private final class FormChoiceView: NSTableView {
     override func keyDown(with event: NSEvent) {
         let selector: Selector?
         switch event.keyCode {
+        case 51 where allowsMultipleSelection, 117 where allowsMultipleSelection:
+            deselectAll(nil); return
         case 53: selector = #selector(NSResponder.cancelOperation(_:))
         case 48: selector = event.modifierFlags.contains(.shift) ? #selector(NSResponder.insertBacktab(_:)) : #selector(NSResponder.insertTab(_:))
         case 36, 76: selector = #selector(NSResponder.insertNewline(_:))

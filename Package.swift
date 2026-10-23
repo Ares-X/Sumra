@@ -11,12 +11,16 @@ let package = Package(
 )
 
 #if os(macOS)
-package.products = [.executable(name: "Sumra", targets: ["Sumra"])]
+package.products = [.executable(name: "Sumra", targets: ["Sumra"]),
+                    .library(name: "SumraQuickLook", type: .static, targets: ["SumraQuickLook"])]
 package.dependencies = [.package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")]
 package.targets += [
         .executableTarget(name: "Sumra", dependencies: ["SumraCore", .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS]))],
                           resources: [.copy("Resources/Reader"), .copy("Resources/Localizations")],
                           linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"], .when(platforms: [.macOS]))]),
-        .testTarget(name: "SumraAppTests", dependencies: ["Sumra"])
+        .testTarget(name: "SumraAppTests", dependencies: ["Sumra"]),
+        .target(name: "SumraQuickLook", dependencies: ["SumraCore"],
+                swiftSettings: [.unsafeFlags(["-application-extension"])]),
+        .testTarget(name: "SumraQuickLookTests", dependencies: ["SumraQuickLook"])
 ]
 #endif

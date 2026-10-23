@@ -18,7 +18,7 @@ final class NativePDFFormEditorTests: XCTestCase {
         let original = "First line\nSecond line", replacement = "Edited first\nEdited second"
         var values = [String]()
         let editor = NativePDFFormEditor(widget: widget(flags: 1 << 12, value: original), host: host, frame: fieldFrame,
-            commitValue: { values.append($0) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
+            commitValue: { values.append($0[0]) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
         defer { editor.cancel() }
         let input = try XCTUnwrap((host.subviews.first as? NSScrollView)?.documentView as? NSTextView)
         let history = try XCTUnwrap(input.undoManager)
@@ -66,7 +66,7 @@ final class NativePDFFormEditorTests: XCTestCase {
         defer { window.contentView = nil; window.close() }
         var values = [String](), closes = 0
         let editor = NativePDFFormEditor(widget: widget(), host: host, frame: fieldFrame,
-            commitValue: { values.append($0) }, didClose: { closes += 1 }, advance: { _ in }, failure: { XCTFail("\($0)") })
+            commitValue: { values.append($0[0]) }, didClose: { closes += 1 }, advance: { _ in }, failure: { XCTFail("\($0)") })
         defer { editor.cancel() }
         let field = try XCTUnwrap(host.subviews.first as? NSTextField)
         let input = try XCTUnwrap(field.currentEditor() as? NSTextView)
@@ -83,7 +83,7 @@ final class NativePDFFormEditorTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === host, "Committed input must return document commands to its host")
 
         let cancelled = NativePDFFormEditor(widget: widget(), host: host, frame: fieldFrame,
-            commitValue: { values.append($0) }, didClose: { closes += 1 }, advance: { _ in }, failure: { XCTFail("\($0)") })
+            commitValue: { values.append($0[0]) }, didClose: { closes += 1 }, advance: { _ in }, failure: { XCTFail("\($0)") })
         (host.subviews.first as? NSTextField)?.stringValue = "discarded"
         cancelled.cancel()
         try await cancelled.commit()
@@ -103,7 +103,8 @@ final class NativePDFFormEditorTests: XCTestCase {
         var release: CheckedContinuation<Void, Never>?
         var values = [String]()
         let editor = NativePDFFormEditor(widget: widget(), host: host, frame: fieldFrame,
-            commitValue: { value in
+            commitValue: { submitted in
+                let value = submitted[0]
                 values.append(value)
                 await withCheckedContinuation { release = $0; started.fulfill() }
             }, didClose: { closed.fulfill() }, advance: { _ in XCTFail("Blur must not advance fields") },
@@ -176,7 +177,8 @@ final class NativePDFFormEditorTests: XCTestCase {
         defer { window.contentView = nil; window.close() }
         var attempts = [String](), closes = 0
         let editor = NativePDFFormEditor(widget: widget(), host: host, frame: fieldFrame,
-            commitValue: { value in attempts.append(value); if value == "invalid" { throw Rejected() } },
+            commitValue: { submitted in
+                let value = submitted[0]; attempts.append(value); if value == "invalid" { throw Rejected() } },
             didClose: { closes += 1 }, advance: { _ in }, failure: { _ in XCTFail("Explicit commit propagates its error") })
         let field = try XCTUnwrap(host.subviews.first as? NSTextField)
         field.stringValue = "invalid"
@@ -203,7 +205,7 @@ final class NativePDFFormEditorTests: XCTestCase {
         var values = [String]()
         let options: [PDFAnnotationSnapshot.Choice] = [.init(label: "First choice", value: "one"), .init(label: "Second choice", value: "two")]
         let editor = NativePDFFormEditor(widget: widget(type: 4, value: "one", options: options), host: host, frame: fieldFrame,
-            commitValue: { values.append($0) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
+            commitValue: { values.append($0[0]) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
         let scroll = try XCTUnwrap(host.subviews.first as? NSScrollView)
         let table = try XCTUnwrap(scroll.documentView as? NSTableView)
         XCTAssertEqual(table.selectedRow, 0)
@@ -218,12 +220,49 @@ final class NativePDFFormEditorTests: XCTestCase {
         XCTAssertEqual(values, ["two"])
 
         let cancelled = NativePDFFormEditor(widget: widget(type: 3, value: "one", options: options), host: host, frame: fieldFrame,
-            commitValue: { values.append($0) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
+            commitValue: { values.append($0[0]) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
         let otherTable = try XCTUnwrap((host.subviews.first as? NSScrollView)?.documentView as? NSTableView)
         XCTAssertTrue(otherTable.resignFirstResponder())
         try await cancelled.commit()
         XCTAssertEqual(values, ["two"])
         XCTAssertTrue(host.subviews.isEmpty)
+    }
+
+    func testMultiSelectDraftKeepsEveryExportAndAllowsClearing() async throws {
+        let host = NSView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
+        let options: [PDFAnnotationSnapshot.Choice] = [
+            .init(label: "First label", value: "one"), .init(label: "Second label", value: "two"),
+            .init(label: "Third label", value: "three")]
+        var snapshot = widget(type: 4, flags: 1 << 21, value: "", options: options)
+        snapshot.selectedValues = ["one", "three"]
+        var submitted = [[String]]()
+        let editor = NativePDFFormEditor(widget: snapshot, host: host, frame: fieldFrame,
+            commitValue: { submitted.append($0) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
+        let table = try XCTUnwrap((host.subviews.first as? NSScrollView)?.documentView as? NSTableView)
+        XCTAssertTrue(table.allowsMultipleSelection)
+        XCTAssertEqual(table.selectedRowIndexes, IndexSet([0, 2]))
+        table.selectRowIndexes(IndexSet([1, 2]), byExtendingSelection: false)
+        _ = NSApplication.shared.sendAction(try XCTUnwrap(table.action), to: table.target, from: table)
+        XCTAssertTrue(submitted.isEmpty, "Clicking must leave the draft open for another selection")
+        editor.updateFrame(fieldFrame.applying(CGAffineTransform(scaleX: 1.2, y: 1.2)))
+        XCTAssertEqual(table.selectedRowIndexes, IndexSet([1, 2]))
+        try await editor.commit()
+        XCTAssertEqual(submitted, [["two", "three"]])
+
+        let clear = NativePDFFormEditor(widget: snapshot, host: host, frame: fieldFrame,
+            commitValue: { submitted.append($0) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
+        let clearing = try XCTUnwrap((host.subviews.first as? NSScrollView)?.documentView as? NSTableView)
+        clearing.deselectAll(nil)
+        try await clear.commit()
+        XCTAssertEqual(submitted, [["two", "three"], []])
+        for (type, flags) in [(4, 0), (3, 1 << 21)] {
+            let single = NativePDFFormEditor(widget: widget(type: type, flags: flags, value: "one", options: options),
+                host: host, frame: fieldFrame, commitValue: { _ in XCTFail("Unchanged single choice") },
+                didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
+            let control = try XCTUnwrap((host.subviews.first as? NSScrollView)?.documentView as? NSTableView)
+            XCTAssertFalse(control.allowsMultipleSelection, "Only listboxes with bit 21 support multi-selection")
+            single.cancel()
+        }
     }
 
     func testLocalReaderMonitorPreservesChoiceFieldArrowInput() throws {
@@ -248,7 +287,7 @@ final class NativePDFFormEditorTests: XCTestCase {
                 .init(label: "Second choice", value: "two"), .init(label: "Third choice", value: "three")]
             var values = [String]()
             let editor = NativePDFFormEditor(widget: widget(type: type, value: "one", options: options),
-                host: host, frame: fieldFrame, commitValue: { values.append($0) },
+                host: host, frame: fieldFrame, commitValue: { values.append($0[0]) },
                 didClose: { state.nativePDFFormEditor = nil }, advance: { _ in }, failure: { XCTFail("\($0)") })
             state.nativePDFFormEditor = editor
             let table = try XCTUnwrap((host.subviews.first as? NSScrollView)?.documentView as? NSTableView)
@@ -297,7 +336,7 @@ final class NativePDFFormEditorTests: XCTestCase {
         for (original, typed) in [("one", nil), ("First choice", nil), ("one", "Other typed"), ("one", "Second choice")] as [(String, String?)] {
             var values = [String]()
             let editor = NativePDFFormEditor(widget: widget(type: 3, flags: (1 << 17) | (1 << 18), value: original, options: options), host: host, frame: fieldFrame,
-                commitValue: { values.append($0) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
+                commitValue: { values.append($0[0]) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
             defer { editor.cancel() }
             let combo = try XCTUnwrap(host.subviews.first as? NSComboBox)
             XCTAssertEqual(combo.stringValue, original == "one" ? "First choice" : original)
@@ -310,7 +349,7 @@ final class NativePDFFormEditorTests: XCTestCase {
         }
         var values = [String]()
         let selected = NativePDFFormEditor(widget: widget(type: 3, flags: (1 << 17) | (1 << 18), value: "one", options: options), host: host, frame: fieldFrame,
-            commitValue: { values.append($0) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
+            commitValue: { values.append($0[0]) }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
         defer { selected.cancel() }
         let combo = try XCTUnwrap(host.subviews.first as? NSComboBox)
         combo.selectItem(at: 1)
@@ -328,7 +367,8 @@ final class NativePDFFormEditorTests: XCTestCase {
         defer { window.contentView = nil; window.close() }
         var attempts = [String](), closes = 0
         let editor = NativePDFFormEditor(widget: widget(type: 3, flags: (1 << 17) | (1 << 18), value: "custom"), host: host, frame: fieldFrame,
-            commitValue: { value in attempts.append(value); if value == "invalid" { throw Rejected() } },
+            commitValue: { submitted in
+                let value = submitted[0]; attempts.append(value); if value == "invalid" { throw Rejected() } },
             didClose: { closes += 1 }, advance: { _ in }, failure: { XCTFail("\($0)") })
         defer { editor.cancel() }
         let combo = try XCTUnwrap(host.subviews.first as? NSComboBox)
@@ -360,7 +400,7 @@ final class NativePDFFormEditorTests: XCTestCase {
 
         var value: String?
         let multiline = NativePDFFormEditor(widget: widget(flags: 1 << 12), host: host, frame: fieldFrame,
-            commitValue: { value = $0 }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
+            commitValue: { value = $0[0] }, didClose: {}, advance: { _ in }, failure: { XCTFail("\($0)") })
         let view = try XCTUnwrap((host.subviews.first as? NSScrollView)?.documentView as? NSTextView)
         XCTAssertFalse(multiline.textView(view, doCommandBy: #selector(NSResponder.insertNewline(_:))))
         view.string = "first\nsecond"
@@ -373,7 +413,7 @@ final class NativePDFFormEditorTests: XCTestCase {
         let advanced = expectation(description: "Advanced after a successful commit")
         var events = [String]()
         let editor = NativePDFFormEditor(widget: widget(), host: host, frame: fieldFrame,
-            commitValue: { events.append($0) }, didClose: { events.append("closed") },
+            commitValue: { events.append($0[0]) }, didClose: { events.append("closed") },
             advance: { backwards in events.append(backwards ? "previous" : "next"); advanced.fulfill() }, failure: { XCTFail("\($0)") })
         let field = try XCTUnwrap(host.subviews.first as? NSTextField)
         field.stringValue = "submitted"
@@ -493,7 +533,8 @@ final class NativePDFFormEditorTests: XCTestCase {
         defer { state.windowClosed() }
         var values = [String]()
         let editor = NativePDFFormEditor(widget: widget(), host: host, frame: fieldFrame,
-            commitValue: { value in
+            commitValue: { submitted in
+                let value = submitted[0]
                 values.append(value)
                 if value == "invalid" { throw Rejected() }
             }, didClose: { state.nativePDFFormEditor = nil }, advance: { _ in }, failure: { XCTFail("\($0)") })
@@ -554,7 +595,8 @@ final class NativePDFFormEditorTests: XCTestCase {
         defer { state.windowClosed() }
         var values = [String]()
         let editor = NativePDFFormEditor(widget: widget(), host: host, frame: fieldFrame,
-            commitValue: { value in
+            commitValue: { submitted in
+                let value = submitted[0]
                 values.append(value)
                 if value == "invalid" { throw Rejected() }
             }, didClose: { state.nativePDFFormEditor = nil }, advance: { _ in }, failure: { XCTFail("\($0)") })

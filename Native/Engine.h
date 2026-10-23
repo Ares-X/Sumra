@@ -76,7 +76,7 @@ API char *lf_search_options_at(void *document, int chapter, int page, const char
 // logical hit with page/chapter fragments. last_page is the final allowed flat
 // page in the current contiguous range, or -1 for the rest of the document.
 API char *lf_search_pages_at(void *document, int chapter, int page, const char *needle, int flags,
-    int64_t after, int64_t maximum, int64_t last_page, int (*cancelled)(void), char *error);
+    int64_t after, int64_t maximum, int64_t last_page, int (*cancelled)(void), void *cookie, char *error);
 // Markdown-only document search. flags retain bits 1/2/4 above; bit 8 counts
 // from the document start; bit 16 includes the source cursor's occurrence.
 // The optional cursor is a source anchor from a prior result. allowed_bits is
@@ -141,3 +141,6 @@ static char *lf_json_finish(SumraJSON *j, char *error) {
     if (!j->failed) return j->data;
     free(j->data); snprintf(error, 512, "Cannot allocate document metadata"); return NULL;
 }
+
+// Multi-select listbox values use MuPDF choice arrays; scalar fields retain their event setter.
+API int lf_pdf_live_widget_values(void *document, int page, int object, int count, const char **values, char *error);

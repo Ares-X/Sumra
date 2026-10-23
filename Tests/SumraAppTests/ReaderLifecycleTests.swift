@@ -373,7 +373,7 @@ final class ReaderLifecycleTests: XCTestCase {
 
             let renamed = directory.url.appendingPathComponent("Renamed.txt")
             try FileManager.default.moveItem(at: b, to: renamed)
-            ReaderFiles.replaceHistory(b, with: renamed)
+            ReaderFiles.migrate(b, to: renamed, recordsHistory: true)
             XCTAssertEqual(ReaderFiles.ordered(frequentlyRead: true, at: later), [renamed, a])
             ReaderFiles.forget(renamed)
             XCTAssertEqual(ReaderFiles.recent, [a])
@@ -447,7 +447,7 @@ final class ReaderLifecycleTests: XCTestCase {
             ReaderWindows.save([WindowPayload(path: source.path), WindowPayload(path: alias.path)], key: "closedDocuments")
             let renamed = files.appendingPathComponent("Renamed.txt")
             try FileManager.default.moveItem(at: source, to: renamed)
-            ReaderFiles.replaceHistory(source, with: renamed)
+            ReaderFiles.migrate(source, to: renamed, recordsHistory: true)
             XCTAssertEqual(ReaderFiles.recent, [renamed, other])
             XCTAssertEqual(ReaderWindows.saved("closedDocuments").map(\.path), [renamed.path, renamed.path])
 

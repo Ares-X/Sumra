@@ -127,6 +127,9 @@ struct ReadingDocument: Identifiable {
 
     var url: URL
     let content: Content
+    // Opening decides whether the PDF is the source document or an extracted /
+    // converted view of a container. Moving that source cannot change its type.
+    let hasSeparatePDFSource: Bool
     let temporary: TemporaryDirectory?
     var sourceTemporary: TemporaryDirectory?
     /// The selected policy and effective renderer exist only for inspected Markdown.
@@ -154,6 +157,10 @@ struct ReadingDocument: Identifiable {
          markdownSourceSignature: String? = nil) {
         self.url = url
         self.content = content
+        if case .pages(let pages) = content, pages.isPDF {
+            let pdfSource = pages.pdfSourceURL
+            hasSeparatePDFSource = url != pdfSource && !PDFTools.sameFile(url, pdfSource)
+        } else { hasSeparatePDFSource = false }
         self.temporary = temporary
         self.markdownPreference = markdownPreference
         self.markdownRenderer = markdownRenderer
@@ -197,12 +204,6 @@ struct ReadingDocument: Identifiable {
             while let block = try sourceFile.read(upToCount: 1_048_576), !block.isEmpty { try output.write(contentsOf: block) }
             try output.synchronize()
         }
-    }
-
-    var hasSeparatePDFSource: Bool {
-        guard case .pages(let pages) = content, pages.isPDF else { return false }
-        let source = pages.pdfSourceURL
-        return url != source && !PDFTools.sameFile(url, source)
     }
 
     // Converted/unwrapped PDFs can save either the live PDF, including edits,

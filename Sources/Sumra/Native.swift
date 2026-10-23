@@ -325,11 +325,12 @@ final class NativeFile {
         let temporary: TemporaryDirectory
         let url: URL
         let checkpoint: FileCheckpoint
+        let sourceCheckpoint: FileCheckpoint
 
-        init(_ source: URL, expected: FileCheckpoint) throws {
+        init(_ source: URL) throws {
             let file = try FileHandle(forReadingFrom: source)
             defer { try? file.close() }
-            guard let opened = FileVersion(descriptor: file.fileDescriptor), expected.version.matchesContentMetadata(opened) else {
+            guard let opened = FileVersion(descriptor: file.fileDescriptor), FileVersion(source) == opened else {
                 throw ReadError("The PDF file changed while opening. Open it again.")
             }
             var attributes = stat()
@@ -388,25 +389,26 @@ final class NativeFile {
             NativeReadingPerformance.mark(needsCopy ? "pdf-source-copy" : "pdf-source-clone",
                                           started: snapshotStarted, persistent: true)
             try Task.checkCancellation()
-            // A streaming copy can span concurrent source writes. Digest equality
-            // with the pre-open checkpoint is required even when metadata agrees.
-            // Source metadata can change while AppKit opens a file. The snapshot
-            // digest below remains authoritative for the PDF bytes.
+            // Capture owns this boundary. A clone is immutable as soon as the
+            // syscall returns; a copy must keep the same source version through
+            // its final write. Include ctime so equal-size writes restoring mtime
+            // cannot pass. Later source edits do not affect captured bytes.
+            guard FileVersion(descriptor: file.fileDescriptor) == opened, FileVersion(source) == opened else {
+                throw ReadError("The PDF file changed while opening. Open it again.")
+            }
             let captured: FileCheckpoint?
             if let streamedDigest, let version = FileVersion(snapshot) {
-                // Hash the bytes as they are written. The newly created private
-                // file has no other writer, so copying needs no second read.
                 captured = FileCheckpoint(version: version, digest: streamedDigest)
             } else { captured = try FileCheckpoint(snapshot) }
-            guard let copied = FileVersion(descriptor: file.fileDescriptor), expected.version.matchesContentMetadata(copied),
-                  let captured, captured.digest == expected.digest else {
-                throw ReadError("The PDF file changed while opening. Open it again.")
+            guard let captured else {
+                throw ReadError("The PDF snapshot changed while opening. Open it again.")
             }
             guard chmod(snapshot.path, 0o400) == 0, let version = FileVersion(snapshot) else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
             self.temporary = temporary; url = snapshot
             checkpoint = FileCheckpoint(version: version, digest: captured.digest)
+            sourceCheckpoint = FileCheckpoint(version: opened, digest: captured.digest)
         }
     }
 
@@ -417,19 +419,16 @@ final class NativeFile {
         guard let directory else { throw ReadError("Missing native engine directory") }
         return directory.appendingPathComponent(engine.rawValue + ".dylib")
     }
-    convenience init(_ url: URL, engine: NativeEngine, password: String? = nil, deferReflowLayout: Bool = false, sourceCheckpoint: FileCheckpoint? = nil, deferMarkdownMetadata: Bool = false) throws {
+    convenience init(_ url: URL, engine: NativeEngine, password: String? = nil, deferReflowLayout: Bool = false, deferMarkdownMetadata: Bool = false) throws {
         try self.init(url, engine: engine, password: password, deferReflowLayout: deferReflowLayout,
-                      sourceCheckpoint: sourceCheckpoint, retainedPDFSource: nil, deferMarkdownMetadata: deferMarkdownMetadata)
+                      retainedPDFSource: nil, deferMarkdownMetadata: deferMarkdownMetadata)
     }
 
     private init(_ url: URL, engine: NativeEngine, password: String?, deferReflowLayout: Bool,
-                 sourceCheckpoint: FileCheckpoint?, retainedPDFSource: PDFSource?, deferMarkdownMetadata: Bool = false) throws {
+                 retainedPDFSource: PDFSource?, deferMarkdownMetadata: Bool = false) throws {
         authenticationPassword = password ?? ""
-        let version = sourceCheckpoint?.version ?? (engine == .mupdf ? FileVersion(url) : nil)
+        let version = engine == .mupdf ? FileVersion(url) : nil
         var pdfSource = retainedPDFSource
-        if engine == .mupdf, pdfSource == nil, let sourceCheckpoint {
-            pdfSource = try PDFSource(url, expected: sourceCheckpoint)
-        }
         let path = try Self.libraryURL(for: engine)
         let loaderStarted = DispatchTime.now().uptimeNanoseconds
         NativeReadingPerformance.mark("native-loader-entry", persistent: true)
@@ -451,10 +450,7 @@ final class NativeFile {
                 let result = recognize(url.path, &error)
                 guard result >= 0 else { throw Self.failure(error, "Cannot recognize this file") }
                 if result == 1 {
-                    guard let captured = try FileCheckpoint(url), captured.version == version else {
-                        throw ReadError("The PDF file changed while opening. Open it again.")
-                    }
-                    pdfSource = try PDFSource(url, expected: captured)
+                    pdfSource = try PDFSource(url)
                 }
             }
             var opened: UnsafeMutableRawPointer?
@@ -523,7 +519,7 @@ final class NativeFile {
             // on every open. Its source nodes belong to the bytes, not that inode.
             if engine == .mupdf, pdfSource == nil, ["document.mobihtml", "document.mobi", "document.fb2", "document.html"].contains(url.lastPathComponent) {
                 sourceRevision = SHA256.hash(data: try Data(contentsOf: url, options: .mappedIfSafe)).map { String(format: "%02x", $0) }.joined()
-            } else { sourceRevision = version?.signature ?? "" }
+            } else { sourceRevision = pdfSource?.sourceCheckpoint.version.signature ?? version?.signature ?? "" }
             self.library = library; self.document = document; initialCount = count; self.engine = engine; closeDocument = close
             self.fixedLayoutEPUB = fixedLayoutEPUB
             lazyChapters = deferred; chapterTable = table
@@ -533,6 +529,8 @@ final class NativeFile {
         } catch { dlclose(library); throw error }
     }
     deinit { closeDocument(document); dlclose(library) }
+
+    var pdfOpeningCheckpoint: FileCheckpoint? { pdfSource?.sourceCheckpoint }
 
     func validatePDFSource() throws {
         guard let pdfSource else { throw ReadError("The PDF source cannot be verified. Reload it before saving, exporting or printing.") }
@@ -566,7 +564,7 @@ final class NativeFile {
         guard !info.dirty, info.undoPosition == 0, engine == .mupdf, let pdfSource else { return nil }
         try validatePDFSource()
         return try NativeFile(pdfSource.url, engine: .mupdf, password: password, deferReflowLayout: false,
-                              sourceCheckpoint: nil, retainedPDFSource: pdfSource)
+                              retainedPDFSource: pdfSource)
     }
 
     var hasChapters: Bool { (chapterTable?.chapterCount ?? 1) > 1 }
@@ -1116,14 +1114,14 @@ final class NativeFile {
         return value != 0
     }
     func matches(_ query: String, page: Int, options: TextSearchOptions = .init(), after: Int? = nil,
-                 backwards: Bool = false, maximum: Int? = nil) throws -> [RasterMatch] {
+                 backwards: Bool = false, maximum: Int? = nil, cancellation: NativeRenderCancellation? = nil) throws -> [RasterMatch] {
         try Task.checkCancellation()
         guard !query.isEmpty else { return [] }
         if let maximum, maximum <= 0 { return [] }
         if backwards, let after, after <= 0 { return [] }
         if engine == .mupdf {
             typealias Cancelled = @convention(c) () -> Int32
-            typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, UnsafePointer<CChar>, Int32, Int64, Int64, Int64, Cancelled, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+            typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, UnsafePointer<CChar>, Int32, Int64, Int64, Int64, Cancelled, UnsafeMutableRawPointer?, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
             guard let fn = symbol("lf_search_pages_at", Search.self) else { throw ReadError("Incompatible MuPDF engine: lf_search_pages_at") }
             let location = try preparedLocation(page)
             if options.allowedPages?.contains(page) == false { return [] }
@@ -1133,9 +1131,9 @@ final class NativeFile {
             let cancelled: Cancelled = { Task<Never, Never>.isCancelled ? 1 : 0 }
             let pointer = query.withCString {
                 fn(document, Int32(location.chapter), Int32(location.page), $0, flags,
-                   after.map { Int64(max(-1, $0)) } ?? -1, maximum.map { Int64($0) } ?? -1, Int64(lastPage), cancelled, &error)
+                   after.map { Int64(max(-1, $0)) } ?? -1, maximum.map { Int64($0) } ?? -1, Int64(lastPage), cancelled, cancellation?.handle, &error)
             }
-            if Task.isCancelled { if let pointer { free(pointer) }; throw CancellationError() }
+            if Task.isCancelled || cancellation?.isCancelled == true { if let pointer { free(pointer) }; throw CancellationError() }
             struct Fragment: Decodable { let chapter, page: Int; let rects: [[Double]] }
             struct Hit: Decodable {
                 let start, length: Int

@@ -1651,6 +1651,77 @@ final class NativePDFToolsTests: XCTestCase {
         }
     }
 
+    @MainActor func testMultiSelectChoiceRetainsAllExportsAcrossUndoClearAndReopen() throws {
+        let directory = try fixtureDirectory(), source = directory.appendingPathComponent("multi-choice.pdf")
+        let original = rawPDF([
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm 10 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [5 0 R 7 0 R 9 0 R 12 0 R] >>",
+            "<< /FT /Ch /Ff 2097152 /T (multi) /V [(one) (three)] /I [0 2] /Opt [[(one) (First label)] [(two) (Second label)] [(three) (Third label)]] /Kids [5 0 R 12 0 R] /AA << /V << /S /JavaScript /JS (event.rc = false;) >> >> >>",
+            "<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [20 220 180 330] /F 4 /P 3 0 R /DA (/Helv 12 Tf 0 g) >>",
+            "<< /FT /Ch /Ff 2097153 /T (readonly) /V [(one)] /Opt [(one) (two)] /Kids [7 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /Parent 6 0 R /Rect [20 100 180 180] /F 4 /P 3 0 R /DA (/Helv 12 Tf 0 g) >>",
+            "<< /FT /Ch /Ff 131072 /T (scalar) /V (one) /Opt [(one) (two)] /Kids [9 0 R] /AA << /V << /S /JavaScript /JS (event.rc = event.value != 'rejected';) >> >> >>",
+            "<< /Type /Annot /Subtype /Widget /Parent 8 0 R /Rect [200 100 360 130] /F 4 /P 3 0 R /DA (/Helv 12 Tf 0 g) >>",
+            "<< /Fields [4 0 R 6 0 R 8 0 R] /DA (/Helv 12 Tf 0 g) /DR << /Font << /Helv 11 0 R >> >> >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            "<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [200 220 360 330] /F 4 /P 3 0 R /DA (/Helv 12 Tf 0 g) >>"
+        ])
+        try original.write(to: source)
+        func selections(_ file: NativeFile) throws -> [[String]] {
+            try file.pdfAnnotations(0).filter { $0.fieldName == "multi" }.map { $0.selectedValues ?? [] }
+        }
+        var live: NativeFile? = try NativeFile(source, engine: .mupdf)
+        XCTAssertEqual(try selections(XCTUnwrap(live)), [["one", "three"], ["one", "three"]])
+        XCTAssertThrowsError(try live?.pdfSetWidgetValues(page: 0, id: 5, values: ["two"]))
+        try live?.pdfSetEditing(true)
+        XCTAssertThrowsError(try live?.pdfSetWidgetValues(page: 0, id: 7, values: ["two"]))
+        XCTAssertThrowsError(try live?.pdfSetWidgetValues(page: 0, id: 9, values: ["one", "two"]))
+        XCTAssertThrowsError(try live?.pdfSetWidgetValue(page: 0, id: 9, value: "rejected"), "Scalar choice validation must remain active")
+        // MuPDF's array setter does not dispatch the scalar /AA validation
+        // script, and the GUI must not serialize an array as one scalar string.
+        try live?.pdfSetWidgetValues(page: 0, id: 5, values: ["two", "three"])
+        XCTAssertEqual(try selections(XCTUnwrap(live)), [["two", "three"], ["two", "three"]])
+        try live?.pdfUndo(redo: false)
+        XCTAssertEqual(try selections(XCTUnwrap(live)), [["one", "three"], ["one", "three"]])
+        try live?.pdfUndo(redo: true)
+        XCTAssertEqual(try selections(XCTUnwrap(live)), [["two", "three"], ["two", "three"]])
+        try live?.pdfSetWidgetValues(page: 0, id: 5, values: [])
+        XCTAssertEqual(try selections(XCTUnwrap(live)), [[], []])
+        XCTAssertTrue(try XCTUnwrap(live?.pdfAnnotations(0).first { $0.fieldName == "multi" }).isEmptyFormField)
+        let cleared = directory.appendingPathComponent("cleared.pdf")
+        try live?.pdfWrite(to: cleared)
+        try live?.pdfUndo(redo: false)
+        try live?.pdfSetWidgetValues(page: 0, id: 5, values: ["two", "three"])
+        let saved = directory.appendingPathComponent("selected.pdf")
+        try live?.pdfWrite(to: saved)
+        live = nil // Close the editing document before independent readers open it.
+        let reopened = try NativeFile(saved, engine: .mupdf)
+        XCTAssertEqual(try selections(reopened), [["two", "three"], ["two", "three"]])
+        let reopenedClear = try NativeFile(cleared, engine: .mupdf)
+        XCTAssertEqual(try selections(reopenedClear), [[], []])
+        XCTAssertEqual(try Data(contentsOf: source), original, "Writing copies must preserve source bytes")
+
+        // PDFKit supplies the independent page/document objects; inspect /V
+        // through its pageRef because widgetStringValue exposes only a scalar.
+        for (url, expected) in [(saved, ["two", "three"]), (cleared, [])] {
+            let pdf = try XCTUnwrap(PDFDocument(url: url)), page = try XCTUnwrap(pdf.page(at: 0))
+            XCTAssertEqual(page.annotations.filter { $0.fieldName == "multi" }.count, 2)
+            var annotations: CGPDFArrayRef?, widget: CGPDFDictionaryRef?, parent: CGPDFDictionaryRef?, values: CGPDFArrayRef?
+            XCTAssertTrue(CGPDFDictionaryGetArray(try XCTUnwrap(page.pageRef?.dictionary), "Annots", &annotations))
+            XCTAssertTrue(CGPDFArrayGetDictionary(try XCTUnwrap(annotations), 0, &widget))
+            XCTAssertTrue(CGPDFDictionaryGetDictionary(try XCTUnwrap(widget), "Parent", &parent))
+            XCTAssertTrue(CGPDFDictionaryGetArray(try XCTUnwrap(parent), "V", &values))
+            let array = try XCTUnwrap(values)
+            XCTAssertEqual(CGPDFArrayGetCount(array), expected.count)
+            for (index, value) in expected.enumerated() {
+                var text: CGPDFStringRef?
+                XCTAssertTrue(CGPDFArrayGetString(array, index, &text))
+                XCTAssertEqual(try XCTUnwrap(CGPDFStringCopyTextString(XCTUnwrap(text))) as String, value)
+            }
+        }
+    }
+
     @MainActor func testChoiceExportValueKeepsItsDisplayAppearanceAcrossSaveAndUndo() throws {
         let directory = try fixtureDirectory(), source = directory.appendingPathComponent("choice.pdf")
         // The /Opt arrays live on parent fields, not their page widgets. The

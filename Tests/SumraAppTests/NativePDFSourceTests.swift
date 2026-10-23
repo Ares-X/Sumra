@@ -33,10 +33,10 @@ final class NativePDFSourceTests: XCTestCase {
         let source = sourceDirectory.url.appendingPathComponent("source.pdf")
         let original = Data("Original PDF bytes".utf8)
         try original.write(to: source)
-        let expected = try XCTUnwrap(NativeFile.FileCheckpoint(source))
-        var snapshot: NativeFile.PDFSource? = try NativeFile.PDFSource(source, expected: expected)
+        let expectedVersion = try XCTUnwrap(NativeFile.FileVersion(source))
+        var snapshot: NativeFile.PDFSource? = try NativeFile.PDFSource(source)
         let input = try XCTUnwrap(snapshot?.url), directory = input.deletingLastPathComponent()
-        XCTAssertNotEqual(NativeFile.FileVersion(input)?.inode, expected.version.inode)
+        XCTAssertNotEqual(NativeFile.FileVersion(input)?.inode, expectedVersion.inode)
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? NSNumber, 0o700)
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: input.path)[.posixPermissions] as? NSNumber, 0o400)
         let writer = try FileHandle(forWritingTo: source)
@@ -47,73 +47,71 @@ final class NativePDFSourceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: source), Data("External replacement".utf8))
     }
 
-    func testSnapshotAcceptsMetadataChangesAfterItsSourceCheckpoint() throws {
+    func testSnapshotCapturesSourceWithExistingFinderMetadata() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
         let source = directory.url.appendingPathComponent("source.pdf")
         let original = Data("Original PDF bytes".utf8)
         try original.write(to: source)
-        let expected = try XCTUnwrap(NativeFile.FileCheckpoint(source))
+        let expectedVersion = try XCTUnwrap(NativeFile.FileVersion(source))
         let metadata = Data("benign metadata".utf8)
         XCTAssertEqual(source.path.withCString { path in
             metadata.withUnsafeBytes { setxattr(path, "com.sumra.test-metadata", $0.baseAddress, $0.count, 0, 0) }
         }, 0)
         let changed = try XCTUnwrap(NativeFile.FileVersion(source))
-        XCTAssertNotEqual(changed, expected.version)
-        XCTAssertTrue(expected.version.matchesContentMetadata(changed))
-        let snapshot = try NativeFile.PDFSource(source, expected: expected)
+        XCTAssertNotEqual(changed, expectedVersion)
+        XCTAssertTrue(expectedVersion.matchesContentMetadata(changed))
+        let snapshot = try NativeFile.PDFSource(source)
         XCTAssertEqual(try Data(contentsOf: snapshot.url), original)
         XCTAssertEqual(try Data(contentsOf: source), original)
     }
 
-    func testSnapshotRejectsChangedBytesWithRestoredModificationTime() throws {
+    func testSnapshotUsesCurrentCapturedBytesAfterEarlierWriteWithRestoredModificationTime() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
         let source = directory.url.appendingPathComponent("source.pdf")
         let original = Data("Original PDF bytes".utf8), replacement = Data("Modified PDF bytes".utf8)
         XCTAssertEqual(original.count, replacement.count)
         try original.write(to: source)
-        let expected = try XCTUnwrap(NativeFile.FileCheckpoint(source))
+        let before = try XCTUnwrap(NativeFile.FileVersion(source))
+        let writer = try FileHandle(forWritingTo: source)
+        try writer.write(contentsOf: replacement); try writer.close()
+        var times = [timespec(tv_sec: 0, tv_nsec: Int(UTIME_OMIT)),
+                     timespec(tv_sec: before.modifiedSeconds, tv_nsec: before.modifiedNanoseconds)]
+        XCTAssertEqual(source.path.withCString { utimensat(AT_FDCWD, $0, &times, 0) }, 0)
+        let snapshot = try NativeFile.PDFSource(source)
+        XCTAssertEqual(try Data(contentsOf: snapshot.url), replacement)
+        XCTAssertEqual(snapshot.checkpoint.digest, SHA256.hash(data: replacement))
+        XCTAssertEqual(snapshot.sourceCheckpoint.version, NativeFile.FileVersion(source))
+        XCTAssertTrue(try snapshot.sourceCheckpoint.matches(source))
+    }
+
+    func testCapturedCheckpointRejectsLaterWritesEvenWhenModificationTimeIsRestored() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let source = directory.url.appendingPathComponent("source.pdf")
+        let original = Data("Original PDF bytes".utf8), replacement = Data("Modified PDF bytes".utf8)
+        try original.write(to: source)
+        let snapshot = try NativeFile.PDFSource(source), expected = snapshot.sourceCheckpoint
         let writer = try FileHandle(forWritingTo: source)
         try writer.write(contentsOf: replacement); try writer.close()
         var times = [timespec(tv_sec: 0, tv_nsec: Int(UTIME_OMIT)),
                      timespec(tv_sec: expected.version.modifiedSeconds, tv_nsec: expected.version.modifiedNanoseconds)]
         XCTAssertEqual(source.path.withCString { utimensat(AT_FDCWD, $0, &times, 0) }, 0)
-        let changed = try XCTUnwrap(NativeFile.FileVersion(source))
-        XCTAssertTrue(expected.version.matchesContentMetadata(changed))
-        XCTAssertThrowsError(try NativeFile.PDFSource(source, expected: expected)) {
-            XCTAssertTrue($0.localizedDescription.contains("changed while opening"))
-        }
-        XCTAssertEqual(try Data(contentsOf: source), replacement)
+        XCTAssertFalse(try expected.matches(source))
+        XCTAssertEqual(try Data(contentsOf: snapshot.url), original)
     }
 
-    func testSnapshotRejectsDifferentBytesEvenWithTheExpectedSourceMetadata() throws {
+    func testCapturedCheckpointRejectsReplacementPathWhileSnapshotRetainsItsBytes() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
         let source = directory.url.appendingPathComponent("source.pdf")
-        try Data("Current PDF bytes".utf8).write(to: source)
-        let checkpoint = try XCTUnwrap(NativeFile.FileCheckpoint(source))
-        let different = NativeFile.FileCheckpoint(version: checkpoint.version, digest: SHA256.hash(data: Data("Earlier bytes".utf8)))
-        XCTAssertThrowsError(try NativeFile.PDFSource(source, expected: different)) {
-            XCTAssertTrue($0.localizedDescription.contains("changed while opening"))
-        }
-        XCTAssertTrue(try checkpoint.matches(source))
-    }
-
-    func testStreamingSnapshotRejectsBytesThatDoNotMatchTheCheckpoint() throws {
-        let directory = try TemporaryDirectory()
-        defer { withExtendedLifetime(directory) {} }
-        let source = directory.url.appendingPathComponent("locked.pdf")
-        let bytes = Data(repeating: 0x61, count: 1_048_576 + 17)
-        try bytes.write(to: source)
-        XCTAssertEqual(chflags(source.path, UInt32(UF_IMMUTABLE)), 0)
-        defer { _ = chflags(source.path, 0) }
-        let expected = try XCTUnwrap(NativeFile.FileCheckpoint(source))
-        let different = NativeFile.FileCheckpoint(version: expected.version, digest: SHA256.hash(data: Data("stale".utf8)))
-        XCTAssertThrowsError(try NativeFile.PDFSource(source, expected: different)) {
-            XCTAssertTrue($0.localizedDescription.contains("changed while opening"))
-        }
-        XCTAssertEqual(try Data(contentsOf: source), bytes)
+        let original = Data("Original PDF bytes".utf8)
+        try original.write(to: source)
+        let snapshot = try NativeFile.PDFSource(source)
+        try Data("Replaced PDF bytes".utf8).write(to: source, options: .atomic)
+        XCTAssertFalse(try snapshot.sourceCheckpoint.matches(source))
+        XCTAssertEqual(try Data(contentsOf: snapshot.url), original)
     }
 
     func testSnapshotOpensFinderLockedSourceWithoutChangingOrLeakingIt() throws {
@@ -124,12 +122,12 @@ final class NativePDFSourceTests: XCTestCase {
         try original.write(to: source)
         XCTAssertEqual(chflags(source.path, UInt32(UF_IMMUTABLE)), 0)
         defer { _ = chflags(source.path, 0) }
-        let expected = try XCTUnwrap(NativeFile.FileCheckpoint(source))
-        var snapshot: NativeFile.PDFSource? = try NativeFile.PDFSource(source, expected: expected)
+        let expectedVersion = try XCTUnwrap(NativeFile.FileVersion(source))
+        var snapshot: NativeFile.PDFSource? = try NativeFile.PDFSource(source)
         let input = try XCTUnwrap(snapshot?.url)
         XCTAssertEqual(try Data(contentsOf: input), original)
-        XCTAssertEqual(snapshot?.checkpoint.digest, expected.digest)
-        XCTAssertEqual(NativeFile.FileVersion(source), expected.version)
+        XCTAssertEqual(snapshot?.checkpoint.digest, SHA256.hash(data: original))
+        XCTAssertEqual(NativeFile.FileVersion(source), expectedVersion)
         snapshot = nil
         XCTAssertFalse(FileManager.default.fileExists(atPath: input.deletingLastPathComponent().path))
     }

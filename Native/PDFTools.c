@@ -798,13 +798,13 @@ static int signed_fields(fz_context *ctx, pdf_document *doc) {
 }
 // Follow the same parent-chain/cycle rule as MuPDF's pdf_walk_parent.
 // pdf_dict_get_inheritable returns the value, not the dictionary owning it.
-static pdf_obj *signature_value_owner(fz_context *ctx, pdf_obj *field) {
+static pdf_obj *field_attribute_owner(fz_context *ctx, pdf_obj *field, pdf_obj *key) {
     pdf_obj *node = field, *slow = field;
     int halfbeat = 11;
     while (node) {
-        if (pdf_dict_get(ctx, node, PDF_NAME(V))) return node;
+        if (pdf_dict_get(ctx, node, key)) return node;
         node = pdf_dict_get(ctx, node, PDF_NAME(Parent));
-        if (node == slow) fz_throw(ctx, FZ_ERROR_FORMAT, "cycle in signature field parent chain");
+        if (node == slow) fz_throw(ctx, FZ_ERROR_FORMAT, "cycle in form field parent chain");
         if (--halfbeat == 0) { slow = pdf_dict_get(ctx, slow, PDF_NAME(Parent)); halfbeat = 2; }
     }
     return NULL;
@@ -822,7 +822,7 @@ static void rewrite_signatures(fz_context *ctx, pdf_document *doc, int invalidat
             page = pdf_load_page(ctx, doc, i);
             for (pdf_annot *widget = pdf_first_widget(ctx, page); widget; widget = pdf_next_widget(ctx, widget)) {
                 if (pdf_widget_type(ctx, widget) != PDF_WIDGET_TYPE_SIGNATURE || !pdf_widget_is_signed(ctx, widget)) continue;
-                pdf_obj *owner = signature_value_owner(ctx, pdf_annot_obj(ctx, widget));
+                pdf_obj *owner = field_attribute_owner(ctx, pdf_annot_obj(ctx, widget), PDF_NAME(V));
                 // This public operation validates the widget's inherited
                 // ReadOnly flag and regenerates its unsigned appearance.
                 pdf_clear_signature(ctx, widget);
@@ -2330,6 +2330,23 @@ API int lf_pdf_live_widget_value(void *opaque, int page_number, int object_numbe
     pdf_update_page(ctx, page); pdf_update_open_pages(ctx, doc);
     LIVE_ANNOT_END
 }
+// Unlike the scalar setter, MuPDF's array setter does not dispatch field
+// keystroke/validation/calculation events. Preserve that upstream behavior.
+API int lf_pdf_live_widget_values(void *opaque, int page_number, int object_number, int count, const char **values, char *error) {
+    LIVE_ANNOT_BEGIN(FZ_PERMISSION_FORM, "Fill form field")
+    if (pdf_widget_is_readonly(ctx, annot)) fz_throw(ctx, FZ_ERROR_ARGUMENT, "This form field is read-only");
+    if (!pdf_choice_widget_is_multiselect(ctx, annot))
+        fz_throw(ctx, FZ_ERROR_ARGUMENT, "This form field does not accept multiple selections");
+    // The upstream array setter addresses annot->obj directly. Select the
+    // named field owner, just as its scalar update_field_value does, so /Kids
+    // widgets continue sharing one authoritative value.
+    pdf_annot field = *annot;
+    pdf_obj *owner = field_attribute_owner(ctx, annot->obj, PDF_NAME(T));
+    if (owner) field.obj = owner;
+    pdf_choice_widget_set_value(ctx, &field, count, values);
+    pdf_update_page(ctx, page); pdf_update_open_pages(ctx, doc);
+    LIVE_ANNOT_END
+}
 API int lf_pdf_live_widget_toggle(void *opaque, int page_number, int object_number, char *error) {
     LIVE_ANNOT_BEGIN(FZ_PERMISSION_FORM, "Toggle form field")
     if (pdf_widget_is_readonly(ctx, annot)) fz_throw(ctx, FZ_ERROR_ARGUMENT, "This form field is read-only");
@@ -2483,7 +2500,7 @@ static void live_json_annotation(fz_context *ctx, SumraJSON *json, pdf_annot *an
     }
     lf_json(json, "]");
     if (kind == PDF_ANNOT_WIDGET) {
-        char *name = NULL; fz_var(name);
+        char *name = NULL; const char **selected = NULL; fz_var(name); fz_var(selected);
         fz_try(ctx) {
             name = pdf_load_field_name(ctx, object);
             lf_json(json, ",\"fieldName\":"); lf_json_string(json, name);
@@ -2494,6 +2511,19 @@ static void live_json_annotation(fz_context *ctx, SumraJSON *json, pdf_annot *an
             }
             lf_json(json, ",\"fieldFlags\":"); lf_json_number(json, pdf_annot_field_flags(ctx, annot));
             lf_json(json, ",\"value\":"); lf_json_string(json, pdf_field_value(ctx, object));
+            if (pdf_widget_type(ctx, annot) == PDF_WIDGET_TYPE_COMBOBOX || pdf_widget_type(ctx, annot) == PDF_WIDGET_TYPE_LISTBOX) {
+                pdf_annot field = *annot;
+                pdf_obj *owner = field_attribute_owner(ctx, object, PDF_NAME(V));
+                if (owner) field.obj = owner;
+                int count = pdf_choice_widget_value(ctx, &field, NULL);
+                selected = fz_malloc_array(ctx, count, const char *);
+                pdf_choice_widget_value(ctx, &field, selected);
+                lf_json(json, ",\"selectedValues\":[");
+                for (int i = 0; i < count; ++i) {
+                    if (i) lf_json(json, ","); lf_json_string(json, selected[i]);
+                }
+                lf_json(json, "]");
+            }
             lf_json(json, ",\"readOnly\":"); lf_json(json, pdf_widget_is_readonly(ctx, annot) ? "true" : "false");
             lf_json(json, ",\"maxLength\":"); lf_json_number(json, pdf_widget_type(ctx, annot) == PDF_WIDGET_TYPE_TEXT ? pdf_text_widget_max_len(ctx, annot) : 0);
             lf_json(json, ",\"options\":[");
@@ -2503,7 +2533,7 @@ static void live_json_annotation(fz_context *ctx, SumraJSON *json, pdf_annot *an
             }
             lf_json(json, "]");
         }
-        fz_always(ctx) { fz_free(ctx, name); }
+        fz_always(ctx) { fz_free(ctx, name); fz_free(ctx, selected); }
         fz_catch(ctx) { fz_rethrow(ctx); }
     }
     lf_json(json, "}");

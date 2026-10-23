@@ -77,6 +77,7 @@ struct ReaderView: View {
             else if state.showFind { state.showFindPanel() }
             else { focusReader() }
         }
+        .background(ReaderSelectionToolbar(state: state).frame(width: 0, height: 0))
         .background(ReaderFindPanel(state: state, isPresented: state.showFind && findFloating && !state.presentation).frame(width: 0, height: 0))
         .sheet(isPresented: $state.showPalette) { CommandPalette(state: state, open: openFiles) }
         .sheet(isPresented: $state.showFiles) { DocumentFileBrowser(state: state, folder: state.document?.url.deletingLastPathComponent(), dismissOnOpen: true).frame(width: 620, height: 460) }
@@ -92,7 +93,7 @@ struct ReaderView: View {
         .alert(
             L("Unable to complete action"),
             isPresented: Binding(
-                get: { state.error != nil },
+                get: { state.error != nil && state.missingFile == nil },
                 set: { if !$0 { state.error = nil } }
             )
         ) {
@@ -165,6 +166,10 @@ struct ReaderView: View {
         }
         ToolbarItem(id: "layout", placement: .automatic, showsByDefault: true) {
             layoutOptions.disabled(!state.hasDocument)
+        }
+        ToolbarItem(id: "readingSettings", placement: .automatic, showsByDefault: true) {
+            Button(action: state.editTypography) { Label(L("Reading Settings"), systemImage: "textformat") }
+                .help(L("Reading Settings")).disabled(!state.hasDocument)
         }
         ToolbarItem(id: "find", placement: .automatic, showsByDefault: true) {
             Button { state.showFindPanel() } label: { Image(systemName: "magnifyingglass") }
@@ -992,7 +997,7 @@ struct TypographyMenu: View {
     var body: some View {
         let _ = language
         Group {
-            Button(L("Typography and CSS…"), action: state.editTypography)
+            Button(L("Reading Settings…"), action: state.editTypography)
             Toggle(L("Use Changes as Defaults"), isOn: $state.typographyForAll)
             if state.isCHM {
                 Toggle(L("Use document styles"), isOn: Binding(

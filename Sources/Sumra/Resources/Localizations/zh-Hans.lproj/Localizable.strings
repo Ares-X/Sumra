@@ -861,3 +861,81 @@
 "Sample text" = "示例文本";
 
 "Link" = "链接";
+
+"Reading Settings" = "阅读设置";
+
+"Typography" = "字体排版";
+
+"Layout" = "布局";
+
+"Margins" = "页边距";
+
+"Advanced Typography and CSS" = "高级排版与 CSS";
+
+"Apply Margins and CSS" = "应用页边距和 CSS";
+
+"Changes appear in your document immediately." = "更改会立即显示在文档中。";
+
+"Margins: top right bottom left" = "页边距：上 右 下 左";
+
+"Leave margins blank to use the document default." = "留空页边距以使用文档默认值。";
+
+"Keep current zoom when following links" = "跟随链接时保持当前缩放";
+
+"Keep scroll position when turning pages" = "翻页时保持页内位置";
+
+"Right-to-left" = "从右向左";
+
+"Read" = "朗读";
+
+"Highlight" = "高亮";
+
+"Index" = "索引";
+
+"Search Index" = "搜索索引";
+
+"No results" = "没有结果";
+
+"Find a command to add" = "搜索要添加的命令";
+
+"Edit advanced JSON" = "编辑高级 JSON";
+
+"Button label (optional)" = "按钮标签（可选）";
+
+"Icon" = "图标";
+
+"Text label" = "文字标签";
+
+"Move Up" = "上移";
+
+"Move Down" = "下移";
+
+"Remove" = "移除";
+
+"No extra buttons. Choose Add Command to begin." = "尚无额外按钮。选择“添加命令”开始。";
+
+"The toolbar JSON could not be read. Open the advanced editor to correct it." = "无法读取工具栏 JSON。请打开高级编辑器修正。";
+
+"Add commands, choose their icons and arrange them below. Drag the Custom Buttons group in Customize Toolbar to move or hide it." = "在下方添加命令、选择图标并调整顺序。可在“自定义工具栏”中拖移或隐藏“自定义按钮”组。";
+
+"Locate Missing File" = "重新定位缺失文件";
+
+"Relocate…" = "重新定位…";
+
+"Relocate File…" = "重新定位文件…";
+
+"Keep Open" = "保持打开";
+
+"File moved or deleted" = "文件已移动或删除";
+
+"File moved; unsaved edits remain open" = "文件已移动；未保存的编辑仍保留在当前文档中";
+
+"Choose the new location of this document. Its reading position and saved associations will follow it." = "选择此文档的新位置。阅读进度和已保存的关联记录会随之迁移。";
+
+"Press shortcut…" = "请按快捷键…";
+
+"Record shortcut" = "录入快捷键";
+
+"Record…" = "录入…";
+
+"Click, then press a shortcut. Escape cancels. Recording replaces all bindings for this command." = "点击后按下快捷键。按 Esc 取消。录入会替换此命令的全部绑定。";
