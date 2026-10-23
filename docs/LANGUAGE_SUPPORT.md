@@ -29,7 +29,10 @@ Viewport copy and assistive text retain zero-width combining marks and ligature
 continuations; a geometric selection must not discard their Unicode characters.
 Regression samples cover Arabic, Hindi and decomposed Latin text at three widths.
 HTML source word boundaries also prevent geometric spacing from breaking words
-and their search queries; PDF geometric space inference remains unchanged.
+and their search queries. New PDF exports retain those boundaries as standard
+ActualText word scopes, including visual continuation outlines. Reopened copy
+and search respect the authored word; visible outlines also contribute to the
+highlight when a text-bearing glyph has zero width.
 
 Find and Contents retain marked input across interface updates; candidate
 confirmation/cancellation stays with the input method. Theme names preserve
@@ -37,13 +40,20 @@ literal Unicode, including combining marks and emoji. Automated tests use
 the native `NSTextInputClient` composition/commit APIs. This is distinct from
 physically choosing an input method and its candidates.
 
-Exported PDF text can contain inferred spaces inside shaped words, so some
-whole-word searches still miss even when character order is retained. Corrected
-sample queries found 159 of 179 words in both official 0.2.9 output and the
-0.2.10 local output. This is an existing PDF extraction limitation, not complete
-search acceptance for those scripts; Urdu and several Indic/Southeast Asian
-samples are affected. EPUB sample searches use the actual matches array and
-pass at both tested widths.
+The 0.2.12 PDF-export correction addresses the audit's 20 missed queries:
+new exports find all 179 sampled words across the 39 representative groups.
+Regressions also cover exact copy, adjacent-word phrases, real wrapping,
+inline font/color changes and the painted bounds of an Urdu word. A separate
+correction maps the installed Oriya MN font's AAT deleted-glyph marker to a
+no-glyph source character, preserving the Odia text and preventing its PDF
+outline from shifting by a font advance. Ordinary
+PDFs without authored metadata retain geometric space inference. Older exports
+and third-party PDFs can still contain ambiguous geometry or missing text;
+this change does not recover their absent word boundaries. The host PDFKit
+extractor also returns visual/reversed order for the Urdu sample in both old
+and new output; standard ActualText and Sumra's logical copy do not establish
+correct extraction in every external reader. EPUB sample
+searches use the actual matches array and pass at both tested widths.
 
 Reflowable EPUB CSS vertical writing and ruby are not currently implemented
 by the native reflow engine. The representative Mongolian sample is Cyrillic,

@@ -18,7 +18,7 @@ user-deferred.
 
 ## Current implementation
 
-The current public release is [0.2.8](https://github.com/Ares-X/Sumra/releases/tag/v0.2.8),
+The acceptance baseline below belongs to [0.2.8](https://github.com/Ares-X/Sumra/releases/tag/v0.2.8),
 from accepted source `5b557d1a61d1b6b12b9eda03dcda2191dafad16f`.
 The [current corpus acceptance](BOOK_CORPUS_ACCEPTANCE.md#solid-seeks-and-epub-counts-for-028-2026-10-20)
 and [seek/search review](SEEK_SEARCH_PERFORMANCE_20261020.md) record the

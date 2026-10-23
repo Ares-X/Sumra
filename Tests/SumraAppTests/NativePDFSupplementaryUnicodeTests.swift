@@ -55,13 +55,12 @@ final class NativePDFSupplementaryUnicodeTests: XCTestCase {
         guard process.terminationStatus == 0 else { return }
 
         let boundary = "AB\u{FFFE}\u{FFFF}\u{10000}\u{10001}\u{103FE}\u{103FF}\u{10400}\u{10402}😀"
-        for name in ["boundary", "emoji"] {
+        for (name, expectedText, pageIndex) in [("boundary", boundary, 0), ("emoji", "Latin 😀", 1), ("source-clip", "Alpha Beta", 0)] {
             for kind in ["full", "subset"] {
                 let url = directory.url.appendingPathComponent("\(name)-\(kind).pdf")
                 let pdf = try XCTUnwrap(PDFDocument(url: url))
-                let pageIndex = name == "emoji" ? 1 : 0
                 let text = try XCTUnwrap(pdf.page(at: pageIndex)?.string)
-                XCTAssertTrue(text.contains(name == "emoji" ? "Latin 😀" : boundary),
+                XCTAssertTrue(text.contains(expectedText),
                               "Platform text extraction must preserve every supplementary scalar")
                 let cgPDF = try XCTUnwrap(CGPDFDocument(url as CFURL))
                 let cgPage = try XCTUnwrap(cgPDF.page(at: pageIndex + 1))
