@@ -506,11 +506,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .pdfEditing: state.setPDFEditingEnabled(!state.pdfEditingEnabled)
         case .setTheme:
-            let alert = NSAlert(); alert.messageText = L("Choose Theme…")
-            let picker = NSPopUpButton(); picker.addItems(withTitles: ReaderTheme.all.map { L($0.name) })
-            picker.selectItem(at: ReaderTheme.all.firstIndex { $0.id == state.theme } ?? 0)
-            alert.accessoryView = picker; alert.addButton(withTitle: L("Apply")); alert.addButton(withTitle: L("Cancel"))
-            if alert.runModal() == .alertFirstButtonReturn { state.setTheme(ReaderTheme.all[picker.indexOfSelectedItem].id) }
+            state.chooseTheme()
         case .print: state.printDocument()
         case .screenshotHotkey: ScreenshotHotkey.configure(state)
         case .imageBounds: state.showImageBounds.toggle()

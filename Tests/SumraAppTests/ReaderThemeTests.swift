@@ -1,0 +1,82 @@
+#if os(macOS)
+import Foundation
+import XCTest
+@testable import Sumra
+
+final class ReaderThemeTests: XCTestCase {
+    func testFivePresetsAndRetiredIDsRemainReadable() throws {
+        XCTAssertEqual(ReaderTheme.builtins.map(\.id), ["light", "light-warm", "dark", "dracula", "gruvbox"])
+        XCTAssertEqual(ReaderTheme.builtins.first?.background, 0xffffff)
+        let retired = ["dark-from-3-5", "charcoal", "solarized-light", "solarized-dark", "nebula", "greeny", "choco", "purpy", "one-dark", "monokai", "nord", "github-dark", "catppuccin-mocha", "tokyo-night", "night-owl", "ayu", "palenight"]
+        try withDefaults { defaults in
+            for id in retired {
+                XCTAssertNotNil(ReaderTheme.resolve(id, defaults: defaults), id)
+                XCTAssertFalse(ReaderTheme.builtins.contains { $0.id == id })
+            }
+            let solarized = try XCTUnwrap(ReaderTheme.resolve("solarized-dark", defaults: defaults))
+            XCTAssertEqual(solarized.background, 0x002b36)
+            XCTAssertEqual(solarized.text, 0x839496)
+            XCTAssertNil(ReaderTheme.resolve("unknown", defaults: defaults))
+            XCTAssertTrue(ReaderTheme.custom(defaults: defaults).isEmpty)
+        }
+    }
+
+    func testNamedPaletteSaveEditReloadAndDeletePreserveItsIdentity() throws {
+        try withDefaults { defaults in
+            let original = ReaderTheme.makeCustom(name: "My paper", text: 0x123456, background: 0xfedcba, link: 0xabcdef)
+            XCTAssertTrue(original.isCustom)
+            XCTAssertEqual(original.displayName, "My paper")
+            try ReaderTheme.saveCustom(original, defaults: defaults)
+            XCTAssertEqual(ReaderTheme.custom(defaults: defaults), [original])
+            XCTAssertEqual(ReaderTheme.resolve(original.id, defaults: defaults), original)
+
+            let second = ReaderTheme.makeCustom(name: "Dark", text: 0xffffff, background: 0x010203, link: 0x405060)
+            try ReaderTheme.saveCustom(second, defaults: defaults)
+            let edited = ReaderTheme(id: original.id, name: "Renamed", text: 0x112233, background: 0xffffff, link: 0x445566)
+            try ReaderTheme.saveCustom(edited, defaults: defaults)
+            XCTAssertEqual(ReaderTheme.custom(defaults: defaults), [edited, second])
+            let stored = try XCTUnwrap(defaults.string(forKey: "customThemes"))
+            XCTAssertEqual(try ReaderTheme.decodeCustom(stored), [edited, second])
+            XCTAssertEqual(ReaderTheme.resolve(original.id, defaults: defaults), edited)
+            XCTAssertEqual(second.displayName, "Dark", "User-entered names must remain literal")
+
+            try ReaderTheme.deleteCustom(id: original.id, defaults: defaults)
+            XCTAssertEqual(ReaderTheme.custom(defaults: defaults), [second])
+            XCTAssertNil(ReaderTheme.resolve(original.id, defaults: defaults))
+            try ReaderTheme.deleteCustom(id: second.id, defaults: defaults)
+            XCTAssertEqual(try ReaderTheme.decodeCustom(try XCTUnwrap(defaults.string(forKey: "customThemes"))), [])
+        }
+    }
+
+    func testInvalidImportedPalettesAndInvalidSaveDoNotReplaceSavedColors() throws {
+        try withDefaults { defaults in
+            let saved = ReaderTheme.makeCustom(name: "Saved", text: 0, background: 0xffffff, link: 0x123456)
+            try ReaderTheme.saveCustom(saved, defaults: defaults)
+            let invalid = [
+                ReaderTheme(id: "light", name: "Invalid preset ID", text: 0, background: 0xffffff, link: 0),
+                ReaderTheme(id: "custom-", name: "Missing identity", text: 0, background: 0xffffff, link: 0),
+                ReaderTheme(id: "custom-blank", name: " \n", text: 0, background: 0xffffff, link: 0),
+                ReaderTheme(id: saved.id, name: "Invalid color", text: 0x1000000, background: 0xffffff, link: 0)
+            ]
+            for theme in invalid {
+                XCTAssertThrowsError(try ReaderTheme.saveCustom(theme, defaults: defaults))
+                XCTAssertEqual(ReaderTheme.custom(defaults: defaults), [saved])
+            }
+            let duplicate = String(decoding: try JSONEncoder().encode([saved, saved]), as: UTF8.self)
+            XCTAssertThrowsError(try ReaderTheme.decodeCustom(duplicate))
+            XCTAssertThrowsError(try ReaderTheme.decodeCustom("invalid JSON"))
+            defaults.set("invalid JSON", forKey: "customThemes")
+            XCTAssertThrowsError(try ReaderTheme.saveCustom(saved, defaults: defaults))
+            XCTAssertThrowsError(try ReaderTheme.deleteCustom(id: saved.id, defaults: defaults))
+            XCTAssertEqual(defaults.string(forKey: "customThemes"), "invalid JSON")
+        }
+    }
+
+    private func withDefaults(_ body: (UserDefaults) throws -> Void) throws {
+        let suite = "Sumra.ReaderThemeTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try body(defaults)
+    }
+}
+#endif

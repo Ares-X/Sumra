@@ -833,7 +833,7 @@ final class BrowserReaderTests: XCTestCase {
         return { ...original, viewportRestored, restoredImages, reading, margins, custom, customPublishedColor, restored:bodyStyle() };
         """, in: view, arguments: [
             "lightCSS": ReaderTheme.all[0].css,
-            "customCSS": ReaderTheme.all[1].css + "\nbody{font-size:27px!important;padding:5px!important;color:rgb(50,60,70)!important}.published{color:rgb(70,80,90)!important}"
+            "customCSS": try XCTUnwrap(ReaderTheme.resolve("dark")).css + "\nbody{font-size:27px!important;padding:5px!important;color:rgb(50,60,70)!important}.published{color:rgb(70,80,90)!important}"
         ]) as? [String: Any]
         XCTAssertEqual(result?["font"] as? String, "29px")
         XCTAssertEqual(result?["color"] as? String, "rgb(0, 0, 0)", "Reader theme overrides publisher text colors while preserving its font size")
@@ -860,7 +860,7 @@ final class BrowserReaderTests: XCTestCase {
         XCTAssertEqual(restoredImages?["y"] as? Double, deferred?["y"] as? Double)
         let authored = result?["body"] as? [String: String]
         XCTAssertEqual(authored, ["font": "serif", "size": "23px", "line": "28.75px", "margin": "11px 13px",
-                                  "padding": "7px 9px", "color": "rgb(0, 0, 0)", "background": "rgb(242, 242, 242)"])
+                                  "padding": "7px 9px", "color": "rgb(0, 0, 0)", "background": "rgb(255, 255, 255)"])
         let reading = result?["reading"] as? [String: String]
         XCTAssertEqual(reading?["font"], "monospace")
         XCTAssertEqual(reading?["size"], "20px")

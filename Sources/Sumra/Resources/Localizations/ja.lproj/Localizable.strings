@@ -250,3 +250,18 @@
 "Copy Comment" = "コメントをコピー";
 "Copy Link Address" = "リンク先のアドレスをコピー";
 "Show Comment" = "コメントを表示";
+"Choose an installed font, such as Iowan Old Style. To use a font file, install it with Font Book first." = "Iowan Old Style など、インストール済みのフォントを選べます。フォントファイルを使うには、先に Font Book でインストールしてください。";
+
+"Customize…" = "カスタマイズ…";
+
+"Customize Theme…" = "テーマをカスタマイズ…";
+
+"Save and Apply" = "保存して適用";
+
+"Delete Theme" = "テーマを削除";
+
+"Choose colors or enter six-digit RGB values." = "色を選ぶか、6桁のRGB値を入力してください。";
+
+"Sample text" = "サンプルテキスト";
+
+"Link" = "リンク";

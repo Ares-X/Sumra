@@ -6,6 +6,7 @@ import SumraCore
 struct ReaderView: View {
     @ObservedObject var state: ReaderState
     @AppStorage("language") private var language = "system"
+    @AppStorage("customThemes") private var customThemes = "[]"
     @AppStorage("findFloating") private var findFloating = false
     @AppStorage("sidebarRight") private var sidebarRight = false
     @FocusState private var sidebarFocused: Bool
@@ -17,6 +18,7 @@ struct ReaderView: View {
 
     var body: some View {
         let _ = language
+        let _ = customThemes
         VStack(spacing: 0) {
             if state.showFind && !findFloating && !state.presentation {
                 ReaderFindControls(state: state, floating: $findFloating, close: closeFind)
@@ -233,7 +235,9 @@ struct ReaderView: View {
             }
             Menu(L("Theme")) {
                 Button(L("System Theme")) { state.setTheme("system") }
-                ForEach(ReaderTheme.all) { theme in Button(L(theme.name)) { state.setTheme(theme.id) } }
+                ForEach(ReaderTheme.all) { theme in Button(theme.displayName) { state.setTheme(theme.id) } }
+                Divider()
+                Button(L("Choose Theme…")) { state.chooseTheme() }
             }
         } label: { Label(L("Reading Options"), systemImage: "rectangle.split.2x1") }
         .labelStyle(.iconOnly).menuStyle(.borderlessButton).fixedSize().help(L("Reading Options"))
@@ -989,12 +993,7 @@ struct TypographyMenu: View {
                     set: { state.useDocumentCSS = $0; state.applyTypography() }))
             }
             Group {
-                Picker(L("Font"), selection: $state.font) {
-                    Text(L("System")).tag("system")
-                    Text(L("Serif")).tag("serif")
-                    Text(L("Sans Serif")).tag("sans-serif")
-                    Text(L("Monospace")).tag("monospace")
-                }
+                ReaderFontPicker(selection: $state.font)
                 .onChange(of: state.font) { _ in state.applyTypography(overrideDocumentStyles: true) }
 
                 Stepper(String(format: L("Font %d pt"), Int(state.fontSize)), value: $state.fontSize, in: 10...36, step: 1)
@@ -1011,6 +1010,32 @@ struct TypographyMenu: View {
                     state.pageMargins = PageMargins(cssValues: [value])
                     state.applyTypography()
                 }), in: 0...96, step: 8)
+        }
+    }
+}
+
+struct ReaderFontPicker: View {
+    @Binding var selection: String
+    static var families: [String] {
+        NSFontManager.shared.availableFontFamilies.sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
+
+    var body: some View {
+        let families = Self.families
+        Picker(L("Font"), selection: $selection) {
+            Text(L("System")).tag("system")
+            Text(L("Serif")).tag("serif")
+            Text(L("Sans Serif")).tag("sans-serif")
+            Text(L("Monospace")).tag("monospace")
+            Divider()
+            if !["system", "serif", "sans-serif", "monospace"].contains(selection), !families.contains(selection) {
+                Text(selection).tag(selection)
+            }
+            ForEach(families, id: \.self) { family in
+                Text(family).tag(family)
+            }
         }
     }
 }

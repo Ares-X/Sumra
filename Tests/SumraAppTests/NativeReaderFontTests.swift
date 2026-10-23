@@ -6,6 +6,24 @@ import XCTest
 @testable import Sumra
 
 final class NativeReaderFontTests: XCTestCase {
+    func testInstalledIowanFamilyIsUsedInReflowAndVectorExport() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let source = directory.url.appendingPathComponent("installed-font.html")
+        try "<html><body><p>Iowan Old Style reading font, with italic <em>letters</em> and <strong>bold</strong>.</p></body></html>"
+            .write(to: source, atomically: true, encoding: .utf8)
+        let file = try NativeFile(source, engine: .mupdf)
+        _ = try file.relayout(fontSize: 20, lineHeight: 1.4, font: "Iowan Old Style", theme: "light")
+        let export = directory.url.appendingPathComponent("iowan.pdf")
+        XCTAssertTrue(try file.exportPDF(to: export))
+        let pdf = try NativeFile(export, engine: .mupdf)
+        let report = try pdf.pdfResourceReport()
+        for face in ["Iowan Old Style Roman", "Iowan Old Style Italic", "Iowan Old Style Bold"] {
+            XCTAssertTrue(report.contains(face), report)
+        }
+        XCTAssertTrue(try XCTUnwrap(pdf.text(0)).contains("Iowan Old Style reading font"))
+    }
+
     func testCommonGlyphCoverageAndSystemFontLifetime() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()

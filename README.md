@@ -59,6 +59,12 @@ Version 0.2.0 has no update feed. Install a newer release manually once; 0.2.1 a
 
 Use the sidebar for Contents, thumbnails and bookmarks, the **View** menu for layout and theme, and Settings for typography, history and tabs. **Help → Keyboard Shortcuts** lists commands; shortcuts can be customized in Settings.
 
+Choose from five built-in reading themes, or save your own text, background and link colors. **View → Document Colors → Choose Theme…** previews the selection; **Customize…** creates a named palette or edits the selected custom theme. Previously saved theme settings remain readable:
+
+![Preview of Sumra's five built-in reading themes](docs/images/themes.png)
+
+Choose installed fonts from the reading **Font** menu or Settings. **Typography and CSS…** also accepts a family name, such as `Iowan Old Style`, including supplemental fonts macOS omits from its available-font list. Install your own font files with macOS Font Book first. **Light** uses pure white paper. For per-document colors, open **View → Document Colors → Custom Document Colors…**; **Use Theme** restores the theme palette.
+
 ## Supported formats
 
 | Type | Formats |

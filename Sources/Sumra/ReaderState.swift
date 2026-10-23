@@ -665,7 +665,7 @@ extension ReaderState {
 
     var palette: ReaderTheme {
         let id = theme == "system" ? (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light") : theme
-        let base = ReaderTheme.all.first { $0.id == id } ?? ReaderTheme.all[0]
+        let base = ReaderTheme.resolve(id) ?? ReaderTheme.builtins[0]
         guard customTextColor != nil || customBackgroundColor != nil else { return base }
         return ReaderTheme(id: "custom", name: "Custom", text: customTextColor ?? base.text, background: customBackgroundColor ?? base.background, link: base.link)
     }
@@ -1512,6 +1512,7 @@ extension ReaderState {
     }
 
     func setTheme(_ value: String) {
+        customTextColor = nil; customBackgroundColor = nil
         theme = value
         UserDefaults.standard.set(value, forKey: "theme")
         if value != "system" { UserDefaults.standard.set(value, forKey: palette.dark ? "lastDarkTheme" : "lastLightTheme") }
