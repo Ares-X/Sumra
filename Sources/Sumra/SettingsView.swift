@@ -142,32 +142,59 @@ struct SettingsView:View{
 private struct ShortcutSettings: View {
     @AppStorage("shortcuts") private var shortcuts = "{}"
     @AppStorage("language") private var language = "system"
+    @State private var query = ""
+    @State private var advanced = false
     private var overrides: [String: String] {
         (try? JSONDecoder().decode([String: String].self, from: Data(shortcuts.utf8))) ?? [:]
     }
     var body: some View {
         let _ = language
+        let conflicts = ReaderShortcutSettings.conflicts(overrides: overrides)
         VStack(alignment: .leading) {
-            Text(L("Use cmd, shift, alt, ctrl plus a letter, arrow, Tab, Home, End, PageUp, PageDown, Delete or F1–F24. Separate bindings with semicolons. Leave blank to disable."))
+            TextField(L("Search commands"), text: $query)
+                .textFieldStyle(.roundedBorder)
+            Toggle(L("Edit shortcut text"), isOn: $advanced)
+            Text(L(advanced
+                ? "Use cmd, shift, alt, ctrl plus a letter, arrow, Tab, Home, End, PageUp, PageDown, Delete or F1–F24. Separate bindings with semicolons. Leave blank to disable."
+                : "Click Record, then press a shortcut. Escape cancels. Recording replaces all bindings for that command."))
                 .font(.caption).foregroundStyle(.secondary)
-            List(ReaderMenuCommand.allCases) { command in
-                HStack {
+            List(ReaderMenuCommand.allCases.filter {
+                query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.id.localizedCaseInsensitiveContains(query)
+            }) { command in
+                VStack(alignment: .leading, spacing: 4) {
                     Text(command.title)
-                    Spacer()
-                    TextField(L("Shortcut"), text: Binding(
-                        get: { overrides[command.id] ?? command.defaultShortcut },
-                        set: { value in
-                            var edited = overrides
-                            edited[command.id] = value
-                            if let data = try? JSONEncoder().encode(edited) { shortcuts = String(decoding: data, as: UTF8.self) }
-                        }))
-                        .frame(width: 140)
-                        .textFieldStyle(.roundedBorder)
-                        .foregroundStyle(readerShortcutBindings(overrides[command.id] ?? command.defaultShortcut).allSatisfy { readerShortcut($0) != nil } ? Color.primary : .red)
-                }
+                    HStack {
+                        let binding = ReaderShortcutSettings.binding(for: command, overrides: overrides)
+                        if advanced {
+                            TextField(L("Shortcut"), text: Binding(
+                                get: { ReaderShortcutSettings.binding(for: command, overrides: overrides) },
+                                set: { value in var edited = overrides; edited[command.id] = value; save(edited) }))
+                                .textFieldStyle(.roundedBorder)
+                                .foregroundStyle(readerShortcutBindings(binding).allSatisfy { readerShortcut($0) != nil } ? Color.primary : .red)
+                        } else {
+                            Text(binding.isEmpty ? L("None") : binding)
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                            Spacer()
+                            ShortcutRecorder { value in var edited = overrides; edited[command.id] = value; save(edited) }
+                                .frame(width: 95)
+                        }
+                        Button(L("Reset")) { var edited = overrides; edited.removeValue(forKey: command.id); save(edited) }
+                            .disabled(overrides[command.id] == nil)
+                            .help(L("Restore this command's default shortcuts"))
+                    }
+                    if let others = conflicts[command] {
+                        Text(L("Also assigned to") + ": " + others.map(\.title).joined(separator: ", "))
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }.padding(.vertical, 3)
             }
             Button(L("Restore Defaults")) { shortcuts = "{}" }
         }.padding()
+    }
+    private func save(_ edited: [String: String]) {
+        if let data = try? JSONEncoder().encode(edited) { shortcuts = String(decoding: data, as: UTF8.self) }
     }
 }
 

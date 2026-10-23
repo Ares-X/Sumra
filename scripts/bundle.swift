@@ -227,6 +227,10 @@ func package() throws {
             "CFBundleTypeName": "Readable documents", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
             "CFBundleTypeExtensions": Set(suffixes).sorted()
         ]],
+        "CFBundleURLTypes": [[
+            "CFBundleURLName": "dev.aresx.leaf.synctex", "CFBundleTypeRole": "Viewer",
+            "CFBundleURLSchemes": ["sumra"]
+        ]],
         "LSSupportsOpeningDocumentsInPlace": true, "LSMultipleInstancesProhibited": true,
         "CFBundleIconFile": "Sumra-Light.icns"
     ]

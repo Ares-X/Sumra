@@ -247,6 +247,7 @@ private final class ReaderSpeechDelegate: NSObject, NSSpeechSynthesizerDelegate 
 final class ReaderState: ObservableObject {
     @Published var document: ReadingDocument? {
         didSet {
+            if document != nil { restoredPayload = nil }
             pdfEditingEnabled = false; nativePDFInfo = nil; nativePDFSelection = nil; nativePDFAnnotationTool = nil
             nativePDFSignatureSelection = nil
             nativePDFFormEditor?.cancel(); nativePDFFormPage = nil; fitPresetRestore = nil
@@ -290,6 +291,7 @@ final class ReaderState: ObservableObject {
             selectedContents = nil
         }
     }
+    @Published var chmIndex: [CHMKeyword] = []
     private(set) var outlineRevision = 0
     @Published var collapsedContents = Set<Int>() {
         didSet { if collapsedContents != oldValue { contentsExpansionRevision &+= 1 } }
@@ -444,6 +446,8 @@ final class ReaderState: ObservableObject {
     private var wheelTurnedPage = false
     private var wheelPageTurnTime: TimeInterval?
     weak var window: NSWindow?
+    @Published private(set) var restoredPayload: WindowPayload?
+    private var restoredLoadStarted = false
     @Published private(set) var isWindowClosed = false
     weak var findWindow: NSWindow?
     var createWindow: ((WindowPayload) -> Void)?
@@ -480,8 +484,9 @@ final class ReaderState: ObservableObject {
     private var watch: DispatchSourceFileSystemObject?
     private(set) var generation = 0
 
-    init(recordsHistory: Bool = true) {
-        self.recordsHistory = recordsHistory
+    init(recordsHistory: Bool = true, restoring payload: WindowPayload? = nil) {
+        self.recordsHistory = payload?.recordsHistory ?? recordsHistory
+        restoredPayload = payload
         speech.delegate = speechDelegate
         speechDelegate.word = { [weak self] range in
             guard let self, self.speechFollow, self.speechRequested, self.speechHighlightEnabled else { return }
@@ -1531,6 +1536,14 @@ extension ReaderState {
 }
 
 extension ReaderState {
+    func activateRestoredDocument() {
+        guard !restoredLoadStarted, let payload = restoredPayload, let path = payload.path else { return }
+        restoredLoadStarted = true
+        requestedHistory = payload.recordsHistory != false && !UserDefaults.standard.bool(forKey: "disableHistory")
+        requestedPosition = payload.position
+        load(URL(fileURLWithPath: path).standardizedFileURL, reloading: false)
+    }
+
     private func persistedMarkdownPosition(_ renderer: MarkdownRenderer, for url: URL, recordsHistory: Bool) -> ReadingPosition? {
         guard recordsHistory, !UserDefaults.standard.bool(forKey: "disableReadingState") else { return nil }
         let key = "position:" + url.standardizedFileURL.path + ":markdown:" + renderer.rawValue
@@ -1584,6 +1597,7 @@ extension ReaderState {
 
     func open(_ url: URL) {
         afterDiscard {
+            self.restoredPayload = nil
             self.requestedHistory = !UserDefaults.standard.bool(forKey: "disableHistory")
             self.requestedPosition = nil
             self.load(url.standardizedFileURL, reloading: false)
@@ -1592,6 +1606,7 @@ extension ReaderState {
 
     func openWithoutHistory(_ url: URL, at position: ReadingPosition? = nil) {
         afterDiscard {
+            self.restoredPayload = nil
             self.requestedHistory = false
             self.requestedPosition = position
             self.load(url.standardizedFileURL, reloading: false)
@@ -1600,6 +1615,7 @@ extension ReaderState {
 
     func openTemporary(_ url: URL, keeping directory: TemporaryDirectory, at position: ReadingPosition? = nil) {
         afterDiscard {
+            self.restoredPayload = nil
             self.requestedHistory = false
             self.requestedPosition = position
             self.load(url.standardizedFileURL, reloading: false, temporary: directory)
@@ -1608,6 +1624,7 @@ extension ReaderState {
 
     func open(_ url: URL, at position: ReadingPosition) {
         afterDiscard {
+            self.restoredPayload = nil
             self.requestedHistory = !UserDefaults.standard.bool(forKey: "disableHistory")
             self.requestedPosition = position
             self.load(url.standardizedFileURL, reloading: false)
@@ -1618,6 +1635,7 @@ extension ReaderState {
 
     private func closeDocument() {
         ReaderWindows.rememberClosed(self)
+        restoredPayload = nil
         generation += 1
         requestedPosition = nil
         persist()
@@ -1643,6 +1661,14 @@ extension ReaderState {
     func reload() {
         guard !busy, let url = document?.url else { return }
         afterDiscard { self.load(url, reloading: true, password: self.password) }
+    }
+
+    func reload(at position: ReadingPosition) {
+        guard let url = document?.url else { return }
+        afterDiscard {
+            self.requestedPosition = position
+            self.load(url, reloading: true, password: self.password)
+        }
     }
 
     func rememberPassword(_ value: String) { password = value }
@@ -1880,8 +1906,16 @@ extension ReaderState {
     static func restoreSavedPDFPosition(_ saved: ReadingPosition, pages: Pages) async throws -> ReadingPosition {
         guard pages.isPDF, saved.pdfCoordinateSpace != "fitz", saved.x != nil || saved.y != nil else { return saved }
         let count = await pages.count
+        if saved.pdfCoordinateSpace == "synctex", !(0..<count).contains(saved.page) {
+            throw ReadError("The SyncTeX destination page is not in the reloaded PDF.")
+        }
         let geometry = try await pages.pdfPageGeometry(min(max(0, saved.page), max(0, count - 1)))
-        return saved.convertingPDFCoordinates(geometry.transform)
+        var position = saved
+        if saved.pdfCoordinateSpace == "synctex" {
+            position.x = geometry.mediaBox.minX + (saved.x ?? 0)
+            position.y = geometry.mediaBox.maxY - (saved.y ?? 0)
+        }
+        return position.convertingPDFCoordinates(geometry.transform)
     }
 
     func deleteBookmark(_ id: UUID) {
@@ -2077,6 +2111,7 @@ extension ReaderState {
         // A retained SwiftUI scene must stop rendering before document teardown
         // publishes nil; returning Home is a separate, still-open-window action.
         isWindowClosed = true
+        restoredPayload = nil
         persist()
         generation += 1
         loading?.cancel()
@@ -2119,6 +2154,7 @@ private extension ReaderState {
         contentsQuery = ""
         contentsSearchRequested = false
         outline = []
+        chmIndex = []
         landscapePages = []
         outlineBusy = false
         showFind = false
@@ -2264,7 +2300,10 @@ private extension ReaderState {
                         reloadedPosition = explicit ?? markdownPositions[renderer] ?? persistedMarkdownPosition(renderer, for: opened.url, recordsHistory: openingHistory) ?? ReadingPosition()
                     } else { reloadedPosition = ReadingPosition() }
                 } else if reloading, let openingPosition {
-                    reloadedPosition = openingPosition
+                    if case .pages(let pages) = opened.content, pages.isPDF {
+                        reloadedPosition = try await Self.restoreSavedPDFPosition(openingPosition, pages: pages)
+                        guard !Task.isCancelled, currentGeneration == generation else { return }
+                    } else { reloadedPosition = openingPosition }
                 } else if reloading, case .browser(let source) = document?.content, source is MarkupSource {
                     reloadedPosition = filePosition
                 } else { reloadedPosition = nil }

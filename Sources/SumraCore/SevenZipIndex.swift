@@ -228,6 +228,7 @@ final class SevenZipIndex {
         try result.withUnsafeMutableBytes { output in
             var left = count
             while left > 0 {
+                try Task.checkCancellation()
                 let destination = output.baseAddress!.advanced(by: keeping ? count - left : 0)
                 let amount = archive_read_data(reader, destination, min(left, 64 * 1024))
                 guard amount > 0 else { throw Self.error(reader, "Truncated indexed 7z entry") }

@@ -42,7 +42,7 @@ The HTML text-region patch reuses upstream draw groups before shaping visible
 paragraphs and source glyphs. Finite pages retain upstream page clipping; natural
 chapters use font-metric bounds to keep partially visible boundary lines.
 
-Current source-level residuals are recorded in the [2026-10-10 gap audit](SUMATRA_GAP_AUDIT_20261010.md), including fixed-page cross-page phrases, CHM keyword indexes and object-level dark rendering. Existing owners and unverified runtime behavior are distinguished there.
+The [2026-10-23 follow-up](READER_GAPS_20261023.md) adds physical-page phrase continuation, CHM keyword indexes, forward SyncTeX, lazy session startup and bounded archive entry retention. It distinguishes source validation from installed-app/editor/printer acceptance. The [2026-10-10 gap audit](SUMATRA_GAP_AUDIT_20261010.md) remains a historical snapshot; object-level dark rendering and broader interoperability remain open.
 
 The [large-text performance investigation](LARGE_TEXT_PERFORMANCE_20261010.md)
 compares the current upstream page/text cache boundary with natural-height
@@ -52,7 +52,7 @@ retains the remaining whole-chapter CPU limitations.
 | Function | Existing path | Acceptance boundary |
 | --- | --- | --- |
 | Reading, labels, outlines, destinations, links/actions, embedded files and images | Live MuPDF document through `NativePDF.swift`, `NativePDFActions.swift` and `Pages.swift`. | Remote/action variants, malformed graphs, attachments and exact corpus rendering. |
-| Forms and scripts | AppKit editor commits values into the same MuPDF/MuJS document; calculation, validation, appearance and journal changes share it. | Broader field types, IME/hardware input, permissions, scripts and saved-reopen matrix. |
+| Forms and scripts | AppKit editor commits values into the same MuPDF/MuJS document; calculation, validation, appearance and journal changes share it. List fields currently commit one selection. | Multi-select list fields, broader field types, IME/hardware input, permissions, scripts and saved-reopen matrix. |
 | Annotation creation/properties/clipboard/undo | `NativePDFAnnotations.swift`, `NativePDFClipboard.swift` and MuPDF journal cover notes, text marks, shapes, ink, stamps, attachments, redaction marks and supported gestures. | Imported appearances, chosen colors, geometry handles, flags, cross-window and other annotation types need wider current-build GUI checks. |
 | Save and copy | Ordinary PDF Save uses live source; converted/extracted containers offer edited PDF or original-container bytes through Save a Copy. | External replacement, encryption, signatures, attachments and output failure matrix. |
 | PDF tools | Page extraction/deletion/merge, text/outline/XMP and attachment export, images, compression, baking, encryption, redaction and page-image output reuse MuPDF writers. | Catalog-level preservation and output inspection; compression does not promise target size or image quality. |

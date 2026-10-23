@@ -298,7 +298,7 @@ struct ReaderView: View {
                     if state.showAnnotations { AnnotationList(state: state) }
                     else if state.showBookmarks { bookmarksSidebar }
                     else if state.showThumbnails { thumbnailsSidebar }
-                    else if state.showContents { contentsSidebar }
+                    else if state.showContents { contentsNavigation }
                     else if state.showSearchResults && !findFloating { ReaderSearchResults(state: state) }
                     else { contentsSidebar }
                 }.frame(minWidth: 180, idealWidth: 220, maxWidth: 360)
@@ -317,6 +317,13 @@ struct ReaderView: View {
         if state.showThumbnails { return L("Thumbnails") }
         if state.showContents { return L("Contents") }
         return L("Search Results")
+    }
+
+    @ViewBuilder
+    private var contentsNavigation: some View {
+        if state.isCHM && !state.chmIndex.isEmpty {
+            CHMContentsPane(state: state) { contentsSidebar }
+        } else { contentsSidebar }
     }
 
     @ViewBuilder

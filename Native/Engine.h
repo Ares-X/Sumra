@@ -72,6 +72,11 @@ API int lf_content_bounds_at(void *document, int chapter, int page, float *bound
 // backward bounds the next anchor's end by that start (Sumatra TextSearch).
 // -1 means no cursor (after) or no limit (maximum).
 API char *lf_search_options_at(void *document, int chapter, int page, const char *needle, int flags, int64_t after, int64_t maximum, int (*cancelled)(void), char *error);
+// Physical-page search retains the owner page's UTF-16 cursor and emits one
+// logical hit with page/chapter fragments. last_page is the final allowed flat
+// page in the current contiguous range, or -1 for the rest of the document.
+API char *lf_search_pages_at(void *document, int chapter, int page, const char *needle, int flags,
+    int64_t after, int64_t maximum, int64_t last_page, int (*cancelled)(void), char *error);
 // Markdown-only document search. flags retain bits 1/2/4 above; bit 8 counts
 // from the document start; bit 16 includes the source cursor's occurrence.
 // The optional cursor is a source anchor from a prior result. allowed_bits is

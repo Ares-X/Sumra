@@ -100,11 +100,27 @@ final class NativePDFSourceTests: XCTestCase {
         XCTAssertTrue(try checkpoint.matches(source))
     }
 
+    func testStreamingSnapshotRejectsBytesThatDoNotMatchTheCheckpoint() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let source = directory.url.appendingPathComponent("locked.pdf")
+        let bytes = Data(repeating: 0x61, count: 1_048_576 + 17)
+        try bytes.write(to: source)
+        XCTAssertEqual(chflags(source.path, UInt32(UF_IMMUTABLE)), 0)
+        defer { _ = chflags(source.path, 0) }
+        let expected = try XCTUnwrap(NativeFile.FileCheckpoint(source))
+        let different = NativeFile.FileCheckpoint(version: expected.version, digest: SHA256.hash(data: Data("stale".utf8)))
+        XCTAssertThrowsError(try NativeFile.PDFSource(source, expected: different)) {
+            XCTAssertTrue($0.localizedDescription.contains("changed while opening"))
+        }
+        XCTAssertEqual(try Data(contentsOf: source), bytes)
+    }
+
     func testSnapshotOpensFinderLockedSourceWithoutChangingOrLeakingIt() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
         let source = directory.url.appendingPathComponent("locked.pdf")
-        let original = Data("Locked PDF bytes".utf8)
+        let original = Data(repeating: 0x61, count: 2 * 1_048_576 + 17)
         try original.write(to: source)
         XCTAssertEqual(chflags(source.path, UInt32(UF_IMMUTABLE)), 0)
         defer { _ = chflags(source.path, 0) }
@@ -112,6 +128,7 @@ final class NativePDFSourceTests: XCTestCase {
         var snapshot: NativeFile.PDFSource? = try NativeFile.PDFSource(source, expected: expected)
         let input = try XCTUnwrap(snapshot?.url)
         XCTAssertEqual(try Data(contentsOf: input), original)
+        XCTAssertEqual(snapshot?.checkpoint.digest, expected.digest)
         XCTAssertEqual(NativeFile.FileVersion(source), expected.version)
         snapshot = nil
         XCTAssertFalse(FileManager.default.fileExists(atPath: input.deletingLastPathComponent().path))
