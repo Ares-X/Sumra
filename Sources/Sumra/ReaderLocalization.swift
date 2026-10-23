@@ -34,6 +34,20 @@ enum ReaderLocalization {
         language == "system" ? L("System") : Locale(identifier: language).localizedString(forIdentifier: language) ?? language
     }
 
+    private struct Coverage: Decodable { let translated: Int; let total: Int }
+    private static let coverage: [String: Coverage] = {
+        guard let root = bundles["en"]?.bundleURL.deletingLastPathComponent(),
+              let data = try? Data(contentsOf: root.appendingPathComponent("coverage.json")),
+              let values = try? JSONDecoder().decode([String: Coverage].self, from: data) else { return [:] }
+        return values
+    }()
+
+    static func isPartial(_ selected: String) -> Bool {
+        let resolved = selected == "system" ? language : selected
+        guard let value = coverage[resolved] else { return true }
+        return value.translated < value.total
+    }
+
     static func string(_ value: String) -> String {
         bundles[language]?.localizedString(forKey: value, value: value, table: nil) ?? value
     }

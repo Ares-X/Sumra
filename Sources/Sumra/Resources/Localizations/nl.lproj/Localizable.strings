@@ -250,3 +250,52 @@
 "Copy Comment" = "Notitie kopiëren";
 "Copy Link Address" = "Verwijzing kopiëren";
 "Show Comment" = "Opmerking weergeven";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "Toevoegen";
+"Chapter:" = "Hoofdstuk:";
+"Choose Theme…" = "Thema wijzigen…";
+"Custom" = "Aangepast";
+"Default fit" = "Standaard zoom";
+"Default theme" = "Uiterlijk";
+"Expand Contents to Level 2" = "Uitvouwen tot niveau 2";
+"Expand Contents to Level 3" = "Uitvouwen tot niveau 3";
+"Filter setting names" = "Filterinstellingen";
+"Fit Visible Content" = "Zichtbaar passend maken";
+"Font size" = "Tekstgrootte";
+"Line height" = "Regelafstand";
+"Link" = "Link";
+"Original Document Colors" = "Documentkleuren volgen thema: Uit";
+"Page:" = "Pagina:";
+"Remember recent documents" = "Onthoud geopende bestanden";
+"Restore Defaults" = "Standaardwaarden herstellen";
+"Right-to-left by default" = "Rechts naar links";
+"Show Transparency Grid" = "Transparantieraster";
+"Show contents when opening" = "Toon de bladwijzerwerkbalk indien beschikbaar";
+"Theme Colors (Legacy)" = "Documentkleuren volgen thema: Legacy (tekst, achtergrond en afbeeldingen inkleuren)";
+"Theme Colors (Smart)" = "Documentkleuren volgen thema: Slim (tekst en achtergrond inkleuren, geen afbeeldingen)";
+"Toggle Light and Dark Theme" = "Licht/Donker Thema Wisselen";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "Aanpassen…";
+"Customize Theme…" = "Thema aanpassen…";
+"Save and Apply" = "Opslaan en toepassen";
+"Delete Theme" = "Thema verwijderen";
+"Choose colors or enter six-digit RGB values." = "Kies kleuren of voer RGB-waarden van zes cijfers in.";
+"Sample text" = "Voorbeeldtekst";
+"Language" = "Taal";
+"System" = "Systeem";
+"Serif" = "Met schreef";
+"Sans Serif" = "Schreefloos";
+"Monospace" = "Vaste breedte";
+"Reading" = "Lezen";
+"Default typography" = "Standaardtypografie";
+"Scrollbars" = "Schuifbalken";
+"Shortcuts" = "Sneltoetsen";
+"Toolbar" = "Werkbalk";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "Naam";
+"Paged" = "Per pagina";
+"Use window tabs" = "Gebruik tabs";
+"Partial translation" = "Gedeeltelijk vertaald";
+"Untranslated interface text is shown in English." = "Onvertaalde interfacetekst wordt in het Engels weergegeven.";

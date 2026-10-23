@@ -250,3 +250,52 @@
 "Copy Comment" = "Salin Komentar";
 "Copy Link Address" = "Salin Alamat Tautan";
 "Show Comment" = "Tampilkan Komentar";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "Tambah";
+"Chapter:" = "Bab:";
+"Choose Theme…" = "Ubah Tema…";
+"Custom" = "Kustom";
+"Default fit" = "Pembesaran Standar";
+"Default theme" = "Tema";
+"Expand Contents to Level 2" = "Perluas ke Level 2";
+"Expand Contents to Level 3" = "Perluas ke Level 3";
+"Filter setting names" = "Pengaturan filter";
+"Fit Visible Content" = "Sesuaikan Tampilan";
+"Font size" = "Ukuran Teks";
+"Line height" = "Spasi baris";
+"Link" = "Tautan";
+"Original Document Colors" = "Warna dokumen mengikuti tema: Mati";
+"Page:" = "Halaman:";
+"Remember recent documents" = "Ingat berkas yang pernah dibuka";
+"Restore Defaults" = "Kembalikan ke default";
+"Right-to-left by default" = "Kanan ke kiri";
+"Show Transparency Grid" = "Kisi Transparansi";
+"Show contents when opening" = "Tampilkan kolom markah jika tersedia";
+"Theme Colors (Legacy)" = "Warna dokumen mengikuti tema: Lama (warnai ulang teks, latar belakang dan gambar)";
+"Theme Colors (Smart)" = "Warna dokumen mengikuti tema: Pintar (warnai ulang teks dan latar belakang, bukan gambar)";
+"Toggle Light and Dark Theme" = "Aktifkan/Nonaktifkan Tema Terang/Gelap";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "Sesuaikan…";
+"Customize Theme…" = "Sesuaikan Tema…";
+"Save and Apply" = "Simpan dan Terapkan";
+"Delete Theme" = "Hapus Tema";
+"Choose colors or enter six-digit RGB values." = "Pilih warna atau masukkan nilai RGB enam digit.";
+"Sample text" = "Teks contoh";
+"Language" = "Bahasa";
+"System" = "Sistem";
+"Serif" = "Serif";
+"Sans Serif" = "Tanpa Serif";
+"Monospace" = "Lebar Tetap";
+"Reading" = "Membaca";
+"Default typography" = "Tipografi Bawaan";
+"Scrollbars" = "Bilah Gulir";
+"Shortcuts" = "Pintasan";
+"Toolbar" = "Bilah Alat";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "Nama";
+"Paged" = "Per Halaman";
+"Use window tabs" = "Gunakan tab";
+"Partial translation" = "Terjemahan sebagian";
+"Untranslated interface text is shown in English." = "Teks antarmuka yang belum diterjemahkan ditampilkan dalam bahasa Inggris.";

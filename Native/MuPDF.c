@@ -6,6 +6,8 @@
 #include <stdatomic.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include <hb.h>
+#include <hb-subset.h>
 
 // EngineMupdf::RenderPage serializes replay on one document: JBIG2 streams
 // can retain the same global glyphs with non-atomic jbig2dec refcounts. The
@@ -217,6 +219,67 @@ __attribute__((destructor)) static void drop_system_font_files(void) {
     }
 }
 
+typedef struct { hb_subset_input_t *input; hb_face_t *face; int ok; } FontAxes;
+static void pin_system_font_axis(const void *key, const void *value, void *opaque) {
+    FontAxes *axes = opaque;
+    int32_t tag; float coordinate;
+    CFNumberGetValue(key, kCFNumberSInt32Type, &tag);
+    CFNumberGetValue(value, kCFNumberFloatType, &coordinate);
+    if (!hb_subset_input_pin_axis_location(axes->input, axes->face, (hb_tag_t)tag, coordinate)) axes->ok = 0;
+}
+// Bake the system-selected variable instance with the HarfBuzz already used
+// for PDF font subsetting. Reading and embedding then share the same static
+// outlines, including in the compact FreeType build without variation support.
+static fz_buffer *instance_system_font(fz_context *ctx, fz_buffer *data, CTFontRef font, CFDictionaryRef variations) {
+    CFDataRef names = CTFontCopyTable(font, kCTFontTableName, kCTFontTableOptionNoOptions);
+    hb_blob_t *blob = NULL, *output = NULL;
+    hb_face_t *face = NULL, *instance = NULL;
+    hb_subset_input_t *input = NULL;
+    fz_buffer *result = NULL;
+    fz_var(blob); fz_var(output); fz_var(face); fz_var(instance); fz_var(input); fz_var(result);
+    fz_hb_lock(ctx);
+    fz_try(ctx) {
+        if (!names || data->len > UINT_MAX) fz_throw(ctx, FZ_ERROR_FORMAT, "Cannot identify the variable font face");
+        blob = hb_blob_create_or_fail((const char *)data->data, (unsigned)data->len, HB_MEMORY_MODE_READONLY, NULL, NULL);
+        if (!blob) fz_throw(ctx, FZ_ERROR_SYSTEM, "Cannot allocate variable font data");
+        for (unsigned i = 0; i < hb_face_count(blob); ++i) {
+            face = hb_face_create(blob, i);
+            hb_blob_t *table = hb_face_reference_table(face, HB_TAG('n','a','m','e'));
+            unsigned length; const char *bytes = hb_blob_get_data(table, &length);
+            int matches = length == CFDataGetLength(names) && !memcmp(bytes, CFDataGetBytePtr(names), length);
+            hb_blob_destroy(table);
+            if (matches) break;
+            hb_face_destroy(face); face = NULL;
+        }
+        if (!face) fz_throw(ctx, FZ_ERROR_FORMAT, "Cannot match the system variable font face");
+        input = hb_subset_input_create_or_fail();
+        if (!input) fz_throw(ctx, FZ_ERROR_SYSTEM, "Cannot allocate variable font instance");
+        hb_set_invert(hb_subset_input_glyph_set(input));
+        hb_subset_input_set_flags(input, HB_SUBSET_FLAGS_RETAIN_GIDS | HB_SUBSET_FLAGS_NOTDEF_OUTLINE);
+        if (!hb_subset_input_pin_all_axes_to_default(input, face)) fz_throw(ctx, FZ_ERROR_FORMAT, "Cannot pin variable font axes");
+        FontAxes axes = { input, face, 1 };
+        CFDictionaryApplyFunction(variations, pin_system_font_axis, &axes);
+        if (!axes.ok) fz_throw(ctx, FZ_ERROR_FORMAT, "Cannot select system font coordinates");
+        instance = hb_subset_or_fail(face, input);
+        if (!instance) fz_throw(ctx, FZ_ERROR_FORMAT, "Cannot instantiate system font");
+        output = hb_face_reference_blob(instance);
+        unsigned length; const char *bytes = hb_blob_get_data(output, &length);
+        if (!length) fz_throw(ctx, FZ_ERROR_FORMAT, "Empty system font instance");
+        result = fz_new_buffer_from_copied_data(ctx, (const unsigned char *)bytes, length);
+    }
+    fz_always(ctx) {
+        if (output) hb_blob_destroy(output);
+        if (instance) hb_face_destroy(instance);
+        if (input) hb_subset_input_destroy(input);
+        if (face) hb_face_destroy(face);
+        if (blob) hb_blob_destroy(blob);
+        fz_hb_unlock(ctx);
+        if (names) CFRelease(names);
+    }
+    fz_catch(ctx) { fz_rethrow(ctx); }
+    return result;
+}
+
 // CoreText locates installed fonts; MuPDF's bundled FreeType remains the sole
 // font decoder. Match the PostScript name so TTC collections use the right face.
 static fz_font *load_coretext_font(fz_context *ctx, CTFontRef font, const char *name, int exact, uint32_t codepoint) {
@@ -228,12 +291,20 @@ static fz_font *load_coretext_font(fz_context *ctx, CTFontRef font, const char *
     if (postscript) CFRelease(postscript); if (url) CFRelease(url);
     // LastResort draws missing-script boxes rather than the requested glyph.
     if (!found || !strcmp(ps, "LastResort") || (exact && strcmp(name, ps))) return NULL;
-    fz_buffer *data = NULL; fz_font *result = NULL;
-    fz_var(data); fz_var(result);
+    CFDictionaryRef variations = CTFontCopyVariation(font);
+    fz_buffer *data = NULL, *instance = NULL; fz_font *result = NULL;
+    fz_var(data); fz_var(instance); fz_var(result);
     fz_try(ctx) {
         data = load_system_font_data(ctx, path);
+        if (variations && CFDictionaryGetCount(variations)) {
+            instance = instance_system_font(ctx, data, font, variations);
+            result = fz_new_font_from_buffer(ctx, ps, instance, 0, 0);
+            CTFontSymbolicTraits traits = CTFontGetSymbolicTraits(font);
+            result->flags.is_bold = (traits & kCTFontBoldTrait) != 0;
+            result->flags.is_italic = (traits & kCTFontItalicTrait) != 0;
+        }
         int faces = 1;
-        for (int i = 0; i < faces; ++i) {
+        for (int i = 0; !result && i < faces; ++i) {
             result = fz_new_font_from_buffer(ctx, NULL, data, i, 0);
             FT_Face face = fz_font_ft_face(ctx, result);
             fz_ft_lock(ctx);
@@ -250,7 +321,7 @@ static fz_font *load_coretext_font(fz_context *ctx, CTFontRef font, const char *
             fz_drop_font(ctx, result); result = NULL;
         }
     }
-    fz_always(ctx) { fz_drop_buffer(ctx, data); }
+    fz_always(ctx) { fz_drop_buffer(ctx, instance); fz_drop_buffer(ctx, data); if (variations) CFRelease(variations); }
     fz_catch(ctx) {
         fz_drop_font(ctx, result); result = NULL;
         fz_warn(ctx, "Cannot load system font '%s': %s", name, fz_convert_error(ctx, NULL));
@@ -467,7 +538,9 @@ static fz_font *load_system_script_font(fz_context *ctx, uint32_t codepoint, int
     if (locale) CFRelease(locale);
     CFRelease(base); CFRelease(sample);
     if (!font) return NULL;
-    font = style_system_font(font, bold, italic);
+    // CoreText has already selected a script face from the styled base.
+    // Re-resolving its traits can replace that face with .TimesFB, which
+    // has no file URL for FreeType (the Hebrew fallback on macOS).
     fz_font *result = load_coretext_font(ctx, font, "script fallback", 0, codepoint);
     CFRelease(font);
     // fz_new_font_from_buffer retains these bytes and reads the face's real

@@ -250,3 +250,52 @@
 "Copy Comment" = "মতামত কপি হোক";
 "Copy Link Address" = "কপি  লিঙ্ক অ্যাড্রেস";
 "Show Comment" = "মন্তব্য দেখান";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "যোগ করুন";
+"Chapter:" = "অধ্যায়:";
+"Choose Theme…" = "থিম পরিবর্তন করুন…";
+"Custom" = "কাস্টম";
+"Default fit" = "পুর্ব নির্ধারিত বড় আকৃতি";
+"Default theme" = "থিম";
+"Expand Contents to Level 2" = "স্তর ২ এ প্রসারিত করুন";
+"Expand Contents to Level 3" = "স্তর ৩ এ প্রসারিত করুন";
+"Filter setting names" = "ফিল্টার সেটিংস";
+"Fit Visible Content" = "দৃশ্যমান ফিট করুন";
+"Font size" = "টেক্সট আকার";
+"Line height" = "লাইন ব্যবধান";
+"Link" = "লিংক";
+"Original Document Colors" = "নথির রঙ থিম অনুসরণ করে: বন্ধ";
+"Page:" = "পৃষ্ঠা:";
+"Remember recent documents" = "খোলা ফাইলগুলি মনে রাখুন";
+"Restore Defaults" = "ডিফল্টে ফিরে যান";
+"Right-to-left by default" = "ডান থেকে বামে";
+"Show Transparency Grid" = "স্বচ্ছতা গ্রিড";
+"Show contents when opening" = "উপলব্ধ থাকলে বুকমার্ক সাইডবার দেখান";
+"Theme Colors (Legacy)" = "নথির রঙ থিম অনুসরণ করে: লিগ্যাসি (টেক্সট, ব্যাকগ্রাউন্ড এবং ছবি পুনরায় রঙ করুন)";
+"Theme Colors (Smart)" = "নথির রঙ থিম অনুসরণ করে: স্মার্ট (টেক্সট এবং ব্যাকগ্রাউন্ড পুনরায় রঙ করুন, ছবি নয়)";
+"Toggle Light and Dark Theme" = "হালকা/গাঢ় থিম টগল করুন";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "কাস্টমাইজ করুন…";
+"Customize Theme…" = "থিম কাস্টমাইজ করুন…";
+"Save and Apply" = "সংরক্ষণ করে প্রয়োগ করুন";
+"Delete Theme" = "থিম মুছুন";
+"Choose colors or enter six-digit RGB values." = "রং বেছে নিন বা ছয় অঙ্কের RGB মান লিখুন।";
+"Sample text" = "নমুনা লেখা";
+"Language" = "ভাষা";
+"System" = "সিস্টেম";
+"Serif" = "সেরিফ";
+"Sans Serif" = "স্যান্স সেরিফ";
+"Monospace" = "সমান প্রস্থ";
+"Reading" = "পড়া";
+"Default typography" = "ডিফল্ট টাইপোগ্রাফি";
+"Scrollbars" = "স্ক্রল বার";
+"Shortcuts" = "শর্টকাট";
+"Toolbar" = "টুলবার";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "নাম";
+"Paged" = "পৃষ্ঠা অনুযায়ী";
+"Use window tabs" = "ট্যাব ব্যবহার করুন";
+"Partial translation" = "আংশিক অনুবাদ";
+"Untranslated interface text is shown in English." = "ইন্টারফেসের অনুবাদ না করা লেখা ইংরেজিতে দেখানো হয়।";

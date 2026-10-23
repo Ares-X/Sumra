@@ -30,17 +30,41 @@ static const struct { int scalar, script, language; const char *label; } samples
     {0x9F98, UCDN_SCRIPT_HAN, FZ_LANG_zh_Hant, "Rare traditional Chinese character"},
     {0x0E01, UCDN_SCRIPT_THAI, FZ_LANG_UNSET, "Thai ko kai"},
     {0x0915, UCDN_SCRIPT_DEVANAGARI, FZ_LANG_UNSET, "Devanagari ka"},
+    {0x0995, UCDN_SCRIPT_BENGALI, FZ_LANG_UNSET, "Bengali ka"},
+    {0x0A15, UCDN_SCRIPT_GURMUKHI, FZ_LANG_UNSET, "Gurmukhi ka"},
+    {0x0A95, UCDN_SCRIPT_GUJARATI, FZ_LANG_UNSET, "Gujarati ka"},
+    {0x0B15, UCDN_SCRIPT_ORIYA, FZ_LANG_UNSET, "Odia ka"},
+    {0x0B95, UCDN_SCRIPT_TAMIL, FZ_LANG_UNSET, "Tamil ka"},
+    {0x0C15, UCDN_SCRIPT_TELUGU, FZ_LANG_UNSET, "Telugu ka"},
+    {0x0C95, UCDN_SCRIPT_KANNADA, FZ_LANG_UNSET, "Kannada ka"},
+    {0x0D15, UCDN_SCRIPT_MALAYALAM, FZ_LANG_UNSET, "Malayalam ka"},
+    {0x0D9A, UCDN_SCRIPT_SINHALA, FZ_LANG_UNSET, "Sinhala ka"},
+    {0x0E81, UCDN_SCRIPT_LAO, FZ_LANG_UNSET, "Lao ko"},
+    {0x0F40, UCDN_SCRIPT_TIBETAN, FZ_LANG_UNSET, "Tibetan ka"},
+    {0x1000, UCDN_SCRIPT_MYANMAR, FZ_LANG_UNSET, "Myanmar ka"},
+    {0x1780, UCDN_SCRIPT_KHMER, FZ_LANG_UNSET, "Khmer ka"},
+    {0x1200, UCDN_SCRIPT_ETHIOPIC, FZ_LANG_UNSET, "Ethiopic ha"},
+    {0x0531, UCDN_SCRIPT_ARMENIAN, FZ_LANG_UNSET, "Armenian ayb"},
+    {0x10D0, UCDN_SCRIPT_GEORGIAN, FZ_LANG_UNSET, "Georgian an"},
     {0x222B, UCDN_SCRIPT_COMMON, FZ_LANG_UNSET, "Math integral"},
     {0x1D11E, UCDN_SCRIPT_COMMON, FZ_LANG_UNSET, "Music G clef"},
     {0x1F600, UCDN_SCRIPT_COMMON, FZ_LANG_UNSET, "Emoji grinning face"},
 };
 
-static void check_samples(fz_context *ctx)
+static void check_samples(fz_context *ctx, int style)
 {
     fz_font *base = NULL;
     fz_var(base);
     fz_try(ctx) {
-        base = fz_new_base14_font(ctx, "Helvetica");
+        if (style < 0) base = fz_new_base14_font(ctx, "Helvetica");
+        else {
+            // The default EPUB face lacks Hebrew. A system Helvetica face
+            // can already contain it, bypassing the fallback we need to test.
+            int size;
+            const unsigned char *data = fz_lookup_builtin_font(ctx, "Charis SIL", style & 1, style >> 1, &size);
+            if (!data) fz_throw(ctx, FZ_ERROR_GENERIC, "Missing default reader font");
+            base = fz_new_font_from_memory(ctx, NULL, data, size, 0, 0);
+        }
         for (size_t i = 0; i < sizeof(samples) / sizeof(samples[0]); ++i) {
             fz_font *font = NULL;
             int gid = fz_encode_character_with_fallback(ctx, base, samples[i].scalar,
@@ -118,7 +142,8 @@ int main(void)
             check(gid > 0 && !fz_is_empty_rect(fz_bound_glyph(survivor, live, gid, fz_identity)),
                 "Font bytes survive the first context's teardown");
         }
-        check_samples(survivor);
+        check_samples(survivor, -1);
+        for (int style = 0; style < 4; ++style) check_samples(survivor, style);
         check_collection_resources(survivor);
     }
     fz_catch(survivor) { fprintf(stderr, "%s\n", fz_caught_message(survivor)); failed = 1; }
@@ -134,7 +159,8 @@ int main(void)
             named = fz_load_system_font(ctx, "Helvetica", 0, 0, 1);
             check(named && fz_encode_character(ctx, named, 'W') > 0,
                 "Repeated named-font loads reuse valid bytes after context teardown");
-            check_samples(ctx);
+            check_samples(ctx, -1);
+            check_samples(ctx, 0);
         }
         fz_always(ctx) { fz_drop_font(ctx, named); }
         fz_catch(ctx) { fprintf(stderr, "%s\n", fz_caught_message(ctx)); failed = 1; }

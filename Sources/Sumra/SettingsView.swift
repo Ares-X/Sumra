@@ -46,9 +46,13 @@ struct SettingsView:View{
             .pickerStyle(.segmented)
             .onChange(of: appIcon) { AppIcon.apply($0) }
             Picker(L("Language"), selection: $language) {
-                ForEach(ReaderLocalization.languages, id: \.self) { Text(ReaderLocalization.name($0)).tag($0) }
+                ForEach(ReaderLocalization.languages, id: \.self) { code in
+                    Text(ReaderLocalization.name(code) + (code != "system" && ReaderLocalization.isPartial(code) ? " — " + L("Partial translation") : "")).tag(code)
+                }
             }
-            Text(L("Untranslated Sumra-specific text uses English.")).font(.caption).foregroundStyle(.secondary)
+            if ReaderLocalization.isPartial(language) {
+                Text(L("Untranslated interface text is shown in English.")).font(.caption).foregroundStyle(.secondary)
+            }
             Picker(L("Default theme"),selection:$theme){Text(L("System")).tag("system");ForEach(ReaderTheme.all) { Text($0.displayName).tag($0.id) }}
             Picker(L("Default fit"),selection:$fit) { ForEach(ReadingZoom.fitTitles.keys.sorted(), id: \.self) { Text(L(ReadingZoom.fitTitles[$0]!)).tag($0) } }
             TextField(L("Zoom levels (%)"), text: $zoomLevels)
@@ -121,7 +125,7 @@ struct SettingsView:View{
         ExternalActionSettings().tabItem { Text(L("External")) }
         ReaderToolbarSettings().tabItem { Text(L("Toolbar")) }
         AdvancedSettings().tabItem { Text(L("Advanced")) }
-    }.padding().frame(width: 500, height: 540)
+    }.id(language).padding().frame(width: 500, height: 540)
         .onChange(of: zoomLevels) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: zoomIncrement) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: scrollbarMode) { _ in ReaderPreferences.applyScrollbarDefaults() }

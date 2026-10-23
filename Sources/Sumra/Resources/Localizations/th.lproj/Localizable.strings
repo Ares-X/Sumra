@@ -250,3 +250,52 @@
 "Copy Comment" = "คัดลอก ความเห็น";
 "Copy Link Address" = "คัดลอก ที่อยู่เชื่อมโยง";
 "Show Comment" = "แสดงความคิดเห็น";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "เพิ่ม";
+"Chapter:" = "บท:";
+"Choose Theme…" = "เปลี่ยนธีม…";
+"Custom" = "กำหนดเอง";
+"Default fit" = "การขยายเข้าออก ค่าเริ่มต้น";
+"Default theme" = "ธีม";
+"Expand Contents to Level 2" = "ขยายไปยังระดับ 2";
+"Expand Contents to Level 3" = "ขยายไปยังระดับ 3";
+"Filter setting names" = "การตั้งค่าตัวกรอง";
+"Fit Visible Content" = "พอดีกับส่วนที่มองเห็น";
+"Font size" = "ขนาดข้อความ";
+"Line height" = "ระยะห่างระหว่างบรรทัด";
+"Link" = "ลิงก์";
+"Original Document Colors" = "สีของเอกสารตามธีม: ปิด";
+"Page:" = "หน้า:";
+"Remember recent documents" = "จดจำ ไฟล์ที่เปิดอยู่";
+"Restore Defaults" = "รีเซ็ตเป็นค่าเริ่มต้น";
+"Right-to-left by default" = "ขวาไปซ้าย";
+"Show Transparency Grid" = "ตารางความโปร่งใส";
+"Show contents when opening" = "แสดง แถบข้างบุ๊คมาร์คเมื่อพร้อมใช้งาน";
+"Theme Colors (Legacy)" = "สีของเอกสารตามธีม: แบบเดิม (ปรับสีข้อความ พื้นหลัง และรูปภาพ)";
+"Theme Colors (Smart)" = "สีของเอกสารตามธีม: อัจฉริยะ (ปรับสีข้อความและพื้นหลัง ไม่ปรับสีรูปภาพ)";
+"Toggle Light and Dark Theme" = "สลับธีมสว่าง/มืด";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "ปรับแต่ง…";
+"Customize Theme…" = "ปรับแต่งธีม…";
+"Save and Apply" = "บันทึกและนำไปใช้";
+"Delete Theme" = "ลบธีม";
+"Choose colors or enter six-digit RGB values." = "เลือกสีหรือป้อนค่า RGB หกหลัก";
+"Sample text" = "ข้อความตัวอย่าง";
+"Language" = "ภาษา";
+"System" = "ระบบ";
+"Serif" = "มีเชิง";
+"Sans Serif" = "ไม่มีเชิง";
+"Monospace" = "ความกว้างคงที่";
+"Reading" = "การอ่าน";
+"Default typography" = "รูปแบบตัวอักษรเริ่มต้น";
+"Scrollbars" = "แถบเลื่อน";
+"Shortcuts" = "ปุ่มลัด";
+"Toolbar" = "แถบเครื่องมือ";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "ชื่อ";
+"Paged" = "ทีละหน้า";
+"Use window tabs" = "ใช้แท็บ";
+"Partial translation" = "แปลบางส่วน";
+"Untranslated interface text is shown in English." = "ข้อความส่วนติดต่อที่ยังไม่ได้แปลจะแสดงเป็นภาษาอังกฤษ";

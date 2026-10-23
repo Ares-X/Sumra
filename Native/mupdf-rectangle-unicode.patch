@@ -1,0 +1,14 @@
+--- a/source/fitz/stext-search.c
++++ b/source/fitz/stext-search.c
+@@ -536,7 +536,10 @@
+ 			for (ch = line->first_char; ch; ch = ch->next)
+ 			{
+ 				fz_rect r = fz_rect_from_quad(ch->quad);
+-				if (!fz_is_empty_rect(fz_intersect_rect(r, area)))
++				/* Zero-width marks and ligature continuations still carry Unicode.
++				 * Their position can be inside even when the intersection has no area. */
++				if (r.x0 < area.x1 && r.x1 > area.x0 &&
++					r.y0 < area.y1 && r.y1 > area.y0)
+ 				{
+ 					line_had_text = 1;
+ 					if (need_new_line)

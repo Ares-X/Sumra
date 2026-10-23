@@ -4,6 +4,10 @@ import XCTest
 @testable import Sumra
 
 final class HTMLDrawIndexTests: XCTestCase {
+    func testHTMLAuthoredWordSpacingOverridesGeometricInference() throws {
+        try runNativeFixture("HTMLAuthoredSpacing")
+    }
+
     func testPaginatedHTMLDrawingMatchesConservativeTraversalAfterReflow() throws {
         try runNativeFixture("HTMLDrawIndex")
     }

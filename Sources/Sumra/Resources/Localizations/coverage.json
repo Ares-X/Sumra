@@ -1,0 +1,294 @@
+{
+  "af": {
+    "total": 643,
+    "translated": 242
+  },
+  "ar": {
+    "total": 643,
+    "translated": 262
+  },
+  "az": {
+    "total": 643,
+    "translated": 242
+  },
+  "be": {
+    "total": 643,
+    "translated": 242
+  },
+  "bg": {
+    "total": 643,
+    "translated": 242
+  },
+  "bn": {
+    "total": 643,
+    "translated": 262
+  },
+  "bs": {
+    "total": 643,
+    "translated": 242
+  },
+  "ca": {
+    "total": 643,
+    "translated": 242
+  },
+  "ca-ES-valencia": {
+    "total": 643,
+    "translated": 242
+  },
+  "ckb": {
+    "total": 643,
+    "translated": 242
+  },
+  "co": {
+    "total": 643,
+    "translated": 242
+  },
+  "cs": {
+    "total": 643,
+    "translated": 242
+  },
+  "cy": {
+    "total": 643,
+    "translated": 242
+  },
+  "da": {
+    "total": 643,
+    "translated": 242
+  },
+  "de": {
+    "total": 643,
+    "translated": 262
+  },
+  "el": {
+    "total": 643,
+    "translated": 242
+  },
+  "en": {
+    "total": 643,
+    "translated": 643
+  },
+  "es": {
+    "total": 643,
+    "translated": 262
+  },
+  "et": {
+    "total": 643,
+    "translated": 242
+  },
+  "eu": {
+    "total": 643,
+    "translated": 242
+  },
+  "fa": {
+    "total": 643,
+    "translated": 242
+  },
+  "fi": {
+    "total": 643,
+    "translated": 242
+  },
+  "fo": {
+    "total": 643,
+    "translated": 242
+  },
+  "fr": {
+    "total": 643,
+    "translated": 262
+  },
+  "fy": {
+    "total": 643,
+    "translated": 242
+  },
+  "ga": {
+    "total": 643,
+    "translated": 242
+  },
+  "gl": {
+    "total": 643,
+    "translated": 242
+  },
+  "he": {
+    "total": 643,
+    "translated": 262
+  },
+  "hi": {
+    "total": 643,
+    "translated": 262
+  },
+  "hr": {
+    "total": 643,
+    "translated": 242
+  },
+  "hu": {
+    "total": 643,
+    "translated": 242
+  },
+  "hy": {
+    "total": 643,
+    "translated": 242
+  },
+  "id": {
+    "total": 643,
+    "translated": 262
+  },
+  "it": {
+    "total": 643,
+    "translated": 262
+  },
+  "ja": {
+    "total": 643,
+    "translated": 263
+  },
+  "jv": {
+    "total": 643,
+    "translated": 242
+  },
+  "ka": {
+    "total": 643,
+    "translated": 242
+  },
+  "ko": {
+    "total": 643,
+    "translated": 262
+  },
+  "kw": {
+    "total": 643,
+    "translated": 242
+  },
+  "lt": {
+    "total": 643,
+    "translated": 242
+  },
+  "lv": {
+    "total": 643,
+    "translated": 242
+  },
+  "mk": {
+    "total": 643,
+    "translated": 242
+  },
+  "ml": {
+    "total": 643,
+    "translated": 242
+  },
+  "ms": {
+    "total": 643,
+    "translated": 242
+  },
+  "my": {
+    "total": 643,
+    "translated": 242
+  },
+  "nb": {
+    "total": 643,
+    "translated": 242
+  },
+  "ne": {
+    "total": 643,
+    "translated": 242
+  },
+  "nl": {
+    "total": 643,
+    "translated": 262
+  },
+  "nn": {
+    "total": 643,
+    "translated": 242
+  },
+  "pa": {
+    "total": 643,
+    "translated": 242
+  },
+  "pl": {
+    "total": 643,
+    "translated": 262
+  },
+  "pt-BR": {
+    "total": 643,
+    "translated": 262
+  },
+  "pt-PT": {
+    "total": 643,
+    "translated": 262
+  },
+  "ro": {
+    "total": 643,
+    "translated": 242
+  },
+  "ru": {
+    "total": 643,
+    "translated": 262
+  },
+  "sat": {
+    "total": 643,
+    "translated": 242
+  },
+  "si": {
+    "total": 643,
+    "translated": 242
+  },
+  "sk": {
+    "total": 643,
+    "translated": 242
+  },
+  "sl": {
+    "total": 643,
+    "translated": 242
+  },
+  "sn": {
+    "total": 643,
+    "translated": 242
+  },
+  "sq": {
+    "total": 643,
+    "translated": 242
+  },
+  "sr-Cyrl": {
+    "total": 643,
+    "translated": 242
+  },
+  "sr-Latn": {
+    "total": 643,
+    "translated": 242
+  },
+  "sv": {
+    "total": 643,
+    "translated": 242
+  },
+  "ta": {
+    "total": 643,
+    "translated": 242
+  },
+  "th": {
+    "total": 643,
+    "translated": 262
+  },
+  "tl": {
+    "total": 643,
+    "translated": 242
+  },
+  "tr": {
+    "total": 643,
+    "translated": 262
+  },
+  "uk": {
+    "total": 643,
+    "translated": 242
+  },
+  "uz": {
+    "total": 643,
+    "translated": 242
+  },
+  "vi": {
+    "total": 643,
+    "translated": 262
+  },
+  "zh-Hans": {
+    "total": 643,
+    "translated": 643
+  },
+  "zh-Hant": {
+    "total": 643,
+    "translated": 267
+  }
+}

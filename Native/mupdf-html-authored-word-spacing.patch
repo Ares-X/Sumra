@@ -1,0 +1,11 @@
+--- a/source/fitz/stext-device.c
++++ b/source/fitz/stext-device.c
+@@ -1040,7 +1040,7 @@
+ 		glyph = -1;
+ 
+ 	/* Add synthetic space */
+-	if (c != ' ' && add_space && !(dev->flags & FZ_STEXT_INHIBIT_SPACES))
++	if (c != ' ' && add_space && !dev->source_no_separator_before && !(dev->flags & FZ_STEXT_INHIBIT_SPACES))
+ 		add_char_to_line(ctx, page, cur_line, trm, font, size, ' ', (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? NON_ACCURATE_GLYPH_ADDED_SPACE : NON_ACCURATE_GLYPH, &dev->pen, &p, bidi, dev->color, add_space, flags, dev->flags, 0, 0, 0, 0);
+ 
+ 	add_char_to_line(ctx, page, cur_line, trm, font, size, c, (dev->flags & FZ_STEXT_ACCURATE_BBOXES) ? glyph : NON_ACCURATE_GLYPH, &p, &q, bidi, dev->color, 0, flags, dev->flags, dev->source_node, dev->source_offset, dev->source_part++, dev->source_no_separator_before);

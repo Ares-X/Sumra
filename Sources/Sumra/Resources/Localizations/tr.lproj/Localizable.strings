@@ -250,3 +250,52 @@
 "Copy Comment" = "Açıklamayı Kopyala";
 "Copy Link Address" = "Bağlantı Adresini Kopyala";
 "Show Comment" = "Yorumu Göster";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "Ekle";
+"Chapter:" = "Bölüm:";
+"Choose Theme…" = "Temayı Değiştir…";
+"Custom" = "Özel";
+"Default fit" = "Öntanımlı Yakınlaştırma";
+"Default theme" = "Tema";
+"Expand Contents to Level 2" = "Seviye 2'ye Genişlet";
+"Expand Contents to Level 3" = "3. Seviyeye Genişlet";
+"Filter setting names" = "Filtre ayarları";
+"Fit Visible Content" = "Görünene Sığdır";
+"Font size" = "Metin Boyutu";
+"Line height" = "Satır aralığı";
+"Link" = "Bağlantı";
+"Original Document Colors" = "Belge renkleri temayı takip eder: Kapalı";
+"Page:" = "Sayfa:";
+"Remember recent documents" = "Açılan dosyaları anımsa";
+"Restore Defaults" = "Varsayılanlara sıfırla";
+"Right-to-left by default" = "Sağdan sola";
+"Show Transparency Grid" = "Şeffaflık Izgarası";
+"Show contents when opening" = "Varsa yer imleri yan çubuğunu göster";
+"Theme Colors (Legacy)" = "Belge renkleri temayı takip eder: Eski (metin, arka plan ve görselleri yeniden renklendir)";
+"Theme Colors (Smart)" = "Belge renkleri temayı takip eder: Akıllı (metin ve arka planı yeniden renklendir, görselleri değil)";
+"Toggle Light and Dark Theme" = "Açık/Koyu Temayı Değiştir";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "Özelleştir…";
+"Customize Theme…" = "Temayı Özelleştir…";
+"Save and Apply" = "Kaydet ve Uygula";
+"Delete Theme" = "Temayı Sil";
+"Choose colors or enter six-digit RGB values." = "Renkleri seçin veya altı haneli RGB değerleri girin.";
+"Sample text" = "Örnek metin";
+"Language" = "Dil";
+"System" = "Sistem";
+"Serif" = "Serifli";
+"Sans Serif" = "Serifsiz";
+"Monospace" = "Eş Aralıklı";
+"Reading" = "Okuma";
+"Default typography" = "Varsayılan Tipografi";
+"Scrollbars" = "Kaydırma Çubukları";
+"Shortcuts" = "Kısayollar";
+"Toolbar" = "Araç Çubuğu";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "Ad";
+"Paged" = "Sayfa Sayfa";
+"Use window tabs" = "Sekme kullan";
+"Partial translation" = "Kısmi çeviri";
+"Untranslated interface text is shown in English." = "Çevrilmemiş arayüz metinleri İngilizce gösterilir.";

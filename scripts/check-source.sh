@@ -7,6 +7,7 @@ cd "$(dirname "$0")/.."
 for source in Sources/Sumra/*.swift; do
     swiftc -frontend -parse -target arm64-apple-macosx13.0 "$source"
 done
+python3 scripts/audit-localizations.py --check
 swift test
 # Packaging exercises macOS libarchive, ditto and app metadata.
 if [ "$(uname -s)" = Darwin ]; then Tests/Packaging/run-tests.sh; fi

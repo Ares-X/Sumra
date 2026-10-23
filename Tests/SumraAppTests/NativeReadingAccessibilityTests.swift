@@ -8,6 +8,29 @@ import XCTest
 
 @MainActor
 final class NativeReadingAccessibilityTests: XCTestCase {
+    func testNaturalViewportAccessibilityKeepsArabicAndIndicCombiningCharacters() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let source = directory.url.appendingPathComponent("languages.html")
+        let arabic = "القراءة تفتح آفاقًا جديدة. العربية 123 ABC"
+        let hindi = "पढ़ना हमें दुनिया को समझने में मदद करता है।"
+        let latin = "cafe\u{301} a\u{308} ffi"
+        try "<html><meta charset='utf-8'><body><p dir='rtl'>\(arabic)</p><p>\(hindi)</p><p>\(latin)</p></body></html>"
+            .write(to: source, atomically: true, encoding: .utf8)
+        let file = try NativeFile(source, engine: .mupdf)
+        func characters(_ text: String) -> String { text.precomposedStringWithCanonicalMapping.filter { !$0.isWhitespace } }
+        for width in [320.0, 600.0, 900.0] {
+            _ = try file.relayout(fontSize: 22, lineHeight: 1.6, font: "system", theme: "light",
+                                  pageSize: CGSize(width: width, height: 0))
+            let bounds = try XCTUnwrap(file.bounds(0))
+            let selection = try file.selection(0, from: bounds.origin, to: CGPoint(x: bounds.maxX, y: bounds.maxY), mode: 3)
+            let expected = characters(arabic + hindi + latin)
+            XCTAssertEqual(characters(selection.text), expected, "Viewport copy lost characters at width \(width)")
+            let snapshot = NativeReadingAccessibilitySnapshot(words: try XCTUnwrap(selection.words))
+            XCTAssertEqual(characters(snapshot.text as String), expected, "Assistive text lost characters at width \(width)")
+        }
+    }
+
     func testUTF16RangesAndPaintedWrapsPreserveNativeSequence() throws {
         let words = [word("中", 10, 10), word("😀", 20, 10), word(" ", 0, 0, empty: true),
                      word("文", 10, 30), word("\n", 0, 0, empty: true), word("א", 20, 50), word("ב", 10, 50)]

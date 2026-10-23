@@ -250,3 +250,52 @@
 "Copy Comment" = "نسخ التعليق";
 "Copy Link Address" = "نسخ رابط العنوان";
 "Show Comment" = "إظهار التعليق";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "إضافة";
+"Chapter:" = "الفصل:";
+"Choose Theme…" = "تغيير المظهر…";
+"Custom" = "مخصص";
+"Default fit" = "التكبير الافتراضي";
+"Default theme" = "قالب";
+"Expand Contents to Level 2" = "توسيع إلى المستوى 2";
+"Expand Contents to Level 3" = "توسيع إلى المستوى 3";
+"Filter setting names" = "إعدادات التصفية";
+"Fit Visible Content" = "ملاءمة المرئي";
+"Font size" = "حجم النص";
+"Line height" = "تباعد الأسطر";
+"Link" = "رابط";
+"Original Document Colors" = "ألوان المستند تتبع السمة: إيقاف";
+"Page:" = "الصفحة";
+"Remember recent documents" = "تذكر الملفات المفتوحة";
+"Restore Defaults" = "إعادة تعيين إلى الافتراضيات";
+"Right-to-left by default" = "من اليمين إلى اليسار";
+"Show Transparency Grid" = "شبكة الشفافية";
+"Show contents when opening" = "اظهار قائمة العناوين في الشريط الجانبي عند توفرها";
+"Theme Colors (Legacy)" = "ألوان المستند تتبع السمة: قديم (إعادة تلوين النص والخلفية والصور)";
+"Theme Colors (Smart)" = "ألوان المستند تتبع السمة: ذكي (إعادة تلوين النص والخلفية، وليس الصور)";
+"Toggle Light and Dark Theme" = "تبديل السمة الفاتحة/الداكنة";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "تخصيص…";
+"Customize Theme…" = "تخصيص المظهر…";
+"Save and Apply" = "حفظ وتطبيق";
+"Delete Theme" = "حذف المظهر";
+"Choose colors or enter six-digit RGB values." = "اختر الألوان أو أدخل قيم RGB من ست خانات.";
+"Sample text" = "نص تجريبي";
+"Language" = "اللغة";
+"System" = "النظام";
+"Serif" = "بزوائد";
+"Sans Serif" = "بلا زوائد";
+"Monospace" = "ثابت العرض";
+"Reading" = "القراءة";
+"Default typography" = "إعدادات الخط الافتراضية";
+"Scrollbars" = "أشرطة التمرير";
+"Shortcuts" = "اختصارات";
+"Toolbar" = "شريط الأدوات";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "الاسم";
+"Paged" = "صفحة بصفحة";
+"Use window tabs" = "استعمال التبويبات";
+"Partial translation" = "ترجمة جزئية";
+"Untranslated interface text is shown in English." = "تُعرض نصوص الواجهة غير المترجمة باللغة الإنجليزية.";

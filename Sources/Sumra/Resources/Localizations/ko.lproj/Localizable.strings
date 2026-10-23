@@ -250,3 +250,52 @@
 "Copy Comment" = "주석(설명) 복사";
 "Copy Link Address" = "링크 주소 복사";
 "Show Comment" = "댓글 표시";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "추가";
+"Chapter:" = "챕터:";
+"Choose Theme…" = "테마 변경…";
+"Custom" = "사용자 정의";
+"Default fit" = "기본 확대/축소";
+"Default theme" = "테마";
+"Expand Contents to Level 2" = "레벨 2까지 펼치기";
+"Expand Contents to Level 3" = "레벨 3까지 펼치기";
+"Filter setting names" = "필터 설정";
+"Fit Visible Content" = "보이는 영역에 맞춤";
+"Font size" = "텍스트 크기";
+"Line height" = "줄 간격";
+"Link" = "링크";
+"Original Document Colors" = "문서 색상이 테마를 따름: 끔";
+"Page:" = "페이지:";
+"Remember recent documents" = "열었던 파일(들) 기억";
+"Restore Defaults" = "기본값으로 재설정";
+"Right-to-left by default" = "오른쪽에서 왼쪽으로";
+"Show Transparency Grid" = "투명도 격자";
+"Show contents when opening" = "가능한 경우 북마크 사이드바 표시";
+"Theme Colors (Legacy)" = "문서 색상이 테마를 따름: 레거시 (텍스트, 배경 및 이미지 재색상화)";
+"Theme Colors (Smart)" = "문서 색상이 테마를 따름: 스마트 (텍스트와 배경은 다시 칠하되 이미지는 제외)";
+"Toggle Light and Dark Theme" = "라이트/다크 테마 토글";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "사용자화…";
+"Customize Theme…" = "테마 사용자화…";
+"Save and Apply" = "저장 및 적용";
+"Delete Theme" = "테마 삭제";
+"Choose colors or enter six-digit RGB values." = "색상을 선택하거나 6자리 RGB 값을 입력하세요.";
+"Sample text" = "예제 텍스트";
+"Language" = "언어";
+"System" = "시스템";
+"Serif" = "명조체";
+"Sans Serif" = "고딕체";
+"Monospace" = "고정폭";
+"Reading" = "읽기";
+"Default typography" = "기본 서체 설정";
+"Scrollbars" = "스크롤 막대";
+"Shortcuts" = "단축키";
+"Toolbar" = "도구 막대";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "이름";
+"Paged" = "페이지별";
+"Use window tabs" = "탭 사용";
+"Partial translation" = "일부 번역";
+"Untranslated interface text is shown in English." = "번역되지 않은 인터페이스 텍스트는 영어로 표시됩니다.";

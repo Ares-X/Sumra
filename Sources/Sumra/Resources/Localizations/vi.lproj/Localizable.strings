@@ -250,3 +250,52 @@
 "Copy Comment" = "Chép chú thích";
 "Copy Link Address" = "Chép địa chỉ liên kết";
 "Show Comment" = "Hiển thị bình luận";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "Thêm";
+"Chapter:" = "Chương:";
+"Choose Theme…" = "Thay đổi giao diện…";
+"Custom" = "Tùy chỉnh";
+"Default fit" = "Kích thước mặc định";
+"Default theme" = "Chủ đề";
+"Expand Contents to Level 2" = "Mở rộng đến Cấp 2";
+"Expand Contents to Level 3" = "Mở rộng đến Cấp 3";
+"Filter setting names" = "Cài đặt bộ lọc";
+"Fit Visible Content" = "Vừa vặn hiển thị";
+"Font size" = "Cỡ chữ";
+"Line height" = "Khoảng cách dòng";
+"Link" = "Liên kết";
+"Original Document Colors" = "Màu sắc tài liệu theo chủ đề: Tắt";
+"Page:" = "Trang:";
+"Remember recent documents" = "Nhớ các tập tin đã mở";
+"Restore Defaults" = "Đặt lại về mặc định";
+"Right-to-left by default" = "Phải sang trái";
+"Show Transparency Grid" = "Lưới trong suốt";
+"Show contents when opening" = "Hiện chỉ dấu sách nếu có";
+"Theme Colors (Legacy)" = "Màu sắc tài liệu theo chủ đề: Cũ (đổi màu văn bản, nền và hình ảnh)";
+"Theme Colors (Smart)" = "Màu sắc tài liệu theo chủ đề: Thông minh (đổi màu văn bản và nền, không đổi hình ảnh)";
+"Toggle Light and Dark Theme" = "Bật/tắt Giao diện Sáng/Tối";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "Tùy chỉnh…";
+"Customize Theme…" = "Tùy chỉnh giao diện…";
+"Save and Apply" = "Lưu và áp dụng";
+"Delete Theme" = "Xóa giao diện";
+"Choose colors or enter six-digit RGB values." = "Chọn màu hoặc nhập giá trị RGB gồm sáu chữ số.";
+"Sample text" = "Văn bản mẫu";
+"Language" = "Ngôn ngữ";
+"System" = "Hệ thống";
+"Serif" = "Có chân";
+"Sans Serif" = "Không chân";
+"Monospace" = "Đơn cách";
+"Reading" = "Đọc";
+"Default typography" = "Kiểu chữ mặc định";
+"Scrollbars" = "Thanh cuộn";
+"Shortcuts" = "Phím tắt";
+"Toolbar" = "Thanh công cụ";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "Tên";
+"Paged" = "Theo trang";
+"Use window tabs" = "Dùng thẻ";
+"Partial translation" = "Bản dịch một phần";
+"Untranslated interface text is shown in English." = "Văn bản giao diện chưa được dịch sẽ hiển thị bằng tiếng Anh.";

@@ -107,6 +107,8 @@ Sumra is a graphical application; opening files, document tools and printing use
 
 ## Contribute and translate
 
+Settings marks partially translated interface languages; missing labels use English. Document font coverage is separate and depends on embedded, bundled and installed fonts. See [language support and validation](docs/LANGUAGE_SUPPORT.md) for tested scripts and current layout limits.
+
 [Bug reports, feature requests](https://github.com/Ares-X/Sumra/issues) and pull requests are welcome. Include the macOS and Sumra versions, file format, reproduction steps and a shareable sample when possible.
 
 The README is available in English, Simplified Chinese, Traditional Chinese and Japanese. Use [README.md](README.md) as the content reference, keep the same section order, and update the other versions when shared information changes. All versions reuse the same screenshots and link to the technical documentation.
