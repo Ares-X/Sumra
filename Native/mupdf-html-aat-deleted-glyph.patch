@@ -1,0 +1,12 @@
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -3782,6 +3782,9 @@
+ 	int glyph, int unicode, fz_html_flow *node, uint32_t byte_offset, fz_html_box *box,
+ 	int markup_lang, uint32_t source_offset)
+ {
++	/* AAT's deleted-glyph marker retains a source character, but has no ink. */
++	if (glyph == 0xffff)
++		glyph = -1;
+ 	fz_show_glyph(ctx, text, font, trm, glyph, unicode, 0, node->bidi_level, box->markup_dir, markup_lang);
+ 	text->tail->items[text->tail->len-1].source_node = node->source_node;
+ 	text->tail->items[text->tail->len-1].source_offset = source_offset + byte_offset;

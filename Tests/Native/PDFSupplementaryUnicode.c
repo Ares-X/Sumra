@@ -141,12 +141,66 @@ static void diagnose_han(fz_context *ctx)
     }
     if(url) CFRelease(url); CFRelease(ps); CFRelease(font); CFRelease(base); CFRelease(sample);
 }
+// Source metadata must not change the union of text clips or physical lines.
+static void check_source_word_rendering(fz_context *ctx, const char *dir)
+{
+    for (int clip=0;clip<2;++clip) {
+        pdf_document *doc=pdf_create_document(ctx);
+        pdf_obj *resources=pdf_new_dict(ctx,doc,1);
+        fz_buffer *contents=fz_new_buffer(ctx,256);
+        fz_device *dev=pdf_new_pdf_device(ctx,doc,fz_identity,resources,contents);
+        fz_text *text=fz_new_text(ctx); fz_font *font=fz_new_base14_font(ctx,"Helvetica");
+        fz_matrix trm=fz_make_matrix(40,0,0,-40,20,50);
+        if (clip) fz_show_string(ctx,text,font,trm,"Alpha Beta",0,0,FZ_BIDI_LTR,FZ_LANG_UNSET);
+        else {
+            fz_show_string(ctx,text,font,trm,"Alp",0,0,FZ_BIDI_LTR,FZ_LANG_UNSET);
+            trm.f=100; fz_show_string(ctx,text,font,trm,"habet",0,0,FZ_BIDI_LTR,FZ_LANG_UNSET);
+        }
+        for (fz_text_span *span=text->head;span;span=span->next) for (int i=0;i<span->len;++i) {
+            span->items[i].source_node=1; span->items[i].source_offset=i;
+            span->items[i].source_no_separator_before=i>0 && span->items[i-1].ucs!=' ';
+        }
+        fz_rect box=fz_make_rect(0,0,300,150); float color[]={0,0,0};
+        if (clip) {
+            fz_clip_text(ctx,dev,text,fz_identity,box);
+            fz_path *path=fz_new_path(ctx); fz_rectto(ctx,path,0,0,300,150);
+            fz_fill_path(ctx,dev,path,0,fz_identity,fz_device_rgb(ctx),color,1,fz_default_color_params);
+            fz_drop_path(ctx,path); fz_pop_clip(ctx,dev);
+        } else fz_fill_text(ctx,dev,text,fz_identity,fz_device_rgb(ctx),color,1,fz_default_color_params);
+        fz_close_device(ctx,dev); fz_drop_device(ctx,dev);
+        pdf_obj *object=pdf_add_page(ctx,doc,box,0,resources,contents);
+        pdf_insert_page(ctx,doc,0,object); pdf_drop_obj(ctx,object);
+        pdf_page *page=pdf_load_page(ctx,doc,0);
+        if (clip) {
+            fz_pixmap *pix=fz_new_pixmap_from_page(ctx,(fz_page*)page,fz_identity,fz_device_rgb(ctx),0);
+            int ink[2]={0};
+            for(int y=0;y<pix->h;++y) for(int x=0;x<pix->w;++x)
+                if(pix->samples[y*pix->stride+x*pix->n+1]<128) ++ink[x>=125];
+            printf("source text clip ink=%d,%d\n",ink[0],ink[1]);
+            check(ink[0]>100 && ink[1]>100,"disjoint source words retain their clipping union");
+            fz_drop_pixmap(ctx,pix);
+        } else {
+            fz_stext_page *st=fz_new_stext_page_from_page(ctx,(fz_page*)page,NULL); int lines=0;
+            for(fz_stext_block *b=st->first_block;b;b=b->next) if(b->type==FZ_STEXT_BLOCK_TEXT)
+                for(fz_stext_line *l=b->u.t.first_line;l;l=l->next) ++lines;
+            printf("wrapped source word physical lines=%d\n",lines);
+            check(lines==2,"ActualText preserves genuine physical line breaks");
+            fz_drop_stext_page(ctx,st);
+        }
+        fz_drop_page(ctx,(fz_page*)page);
+        if (clip) save_case(ctx,dir,"source-clip",doc,"Alpha Beta",1);
+        fz_drop_text(ctx,text); fz_drop_font(ctx,font);
+        fz_drop_buffer(ctx,contents); pdf_drop_obj(ctx,resources); pdf_drop_document(ctx,doc);
+    }
+}
+
 int main(int argc,char **argv)
 {
     if(argc!=2) return 2; fz_context *ctx=lf_new_context(64<<20); if(!ctx)return 2; lf_install_system_fonts(ctx);
     fz_try(ctx) {
         pdf_document *doc=make_boundary(ctx); inspect(ctx,doc,0,expected,1); save_case(ctx,argv[1],"boundary",doc,expected,1); pdf_drop_document(ctx,doc);
         doc=make_rich(ctx,"Latin 😀"); inspect(ctx,doc,0,"Latin 😀",1); save_case(ctx,argv[1],"emoji",doc,"Latin 😀",1); pdf_drop_document(ctx,doc);
+        check_source_word_rendering(ctx,argv[1]);
         // A failed glyph remains an explicit OPEN observation; it cannot make a support claim.
         diagnose_han(ctx); doc=make_rich(ctx,"Latin 𠀀"); inspect(ctx,doc,0,"Latin 𠀀",0); save_case(ctx,argv[1],"rare-han-open",doc,"Latin 𠀀",0); pdf_drop_document(ctx,doc);
     } fz_catch(ctx) { fprintf(stderr,"FAIL exception: %s\n",fz_caught_message(ctx)); ++failures; }
