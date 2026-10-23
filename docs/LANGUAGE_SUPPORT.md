@@ -25,6 +25,10 @@ The glyph test exercises regular, bold, italic and bold-italic fallback from
 the actual default Charis SIL faces. Separate tests verify variable weight in
 reading, PDF reopening and independent CoreGraphics rendering.
 
+Viewport copy and assistive text retain zero-width combining marks and ligature
+continuations; a geometric selection must not discard their Unicode characters.
+Regression samples cover Arabic, Hindi and decomposed Latin text at three widths.
+
 Find and Contents retain marked input across interface updates; candidate
 confirmation/cancellation stays with the input method. Theme names preserve
 literal Unicode, including combining marks and emoji. Automated tests use
