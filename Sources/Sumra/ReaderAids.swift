@@ -26,6 +26,7 @@ extension ReaderState {
         editor.onChange = { [weak editor] in save.isEnabled = editor?.isValid == true }
         save.isEnabled = editor.isValid
         let response = alert.runModal()
+        editor.closeColorPanel()
         do {
             if response == .alertFirstButtonReturn {
                 let saved = ReaderTheme(id: base.isCustom ? base.id : "custom-" + UUID().uuidString,
@@ -49,24 +50,21 @@ extension ReaderState {
 
     func configureDocumentColors() {
         let alert = NSAlert(); alert.messageText = L("Custom Document Colors…")
-        let text = NSColorWell(), background = NSColorWell()
-        for well in [text, background] {
-            well.colorWellStyle = .expanded
-            well.widthAnchor.constraint(equalToConstant: 160).isActive = true
-            well.heightAnchor.constraint(equalToConstant: 28).isActive = true
-        }
-        text.color = ReaderTheme.color(palette.text); background.color = ReaderTheme.color(palette.background)
-        let grid = NSGridView(views: [[NSTextField(labelWithString: L("Text")), text], [NSTextField(labelWithString: L("Background")), background]])
-        grid.column(at: 1).width = 160; grid.rowSpacing = 8
-        grid.setFrameSize(grid.fittingSize)
-        alert.accessoryView = grid
-        alert.addButton(withTitle: L("Apply")); alert.addButton(withTitle: L("Use Theme")); alert.addButton(withTitle: L("Cancel"))
+        let editor = ReaderThemeEditorView(theme: palette, editsName: false)
+        alert.accessoryView = editor
+        let apply = alert.addButton(withTitle: L("Apply"))
+        alert.addButton(withTitle: L("Use Theme")); alert.addButton(withTitle: L("Cancel"))
+        editor.onChange = { [weak editor] in apply.isEnabled = editor?.isValid == true }
+        apply.isEnabled = editor.isValid
         let response = alert.runModal()
+        editor.closeColorPanel()
         if response == .alertFirstButtonReturn {
-            customTextColor = ReaderTheme.rgb(text.color); customBackgroundColor = ReaderTheme.rgb(background.color)
+            customTextColor = editor.text.value; customBackgroundColor = editor.paper.value
+            customLinkColor = editor.link.value
             documentColors = "smart"
-        } else if response == .alertSecondButtonReturn { customTextColor = nil; customBackgroundColor = nil }
-        else { return }
+        } else if response == .alertSecondButtonReturn {
+            customTextColor = nil; customBackgroundColor = nil; customLinkColor = nil
+        } else { return }
         if isText || isBrowser || reflowable { send(.style) }
     }
 
@@ -899,7 +897,7 @@ final class ReaderThemeColorInput: NSStackView, NSTextFieldDelegate {
     init(_ value: UInt32, label: String) {
         super.init(frame: .zero)
         orientation = .horizontal; spacing = 10
-        well.colorWellStyle = .expanded; well.color = ReaderTheme.color(value)
+        well.colorWellStyle = .default; well.color = ReaderTheme.color(value)
         well.widthAnchor.constraint(equalToConstant: 120).isActive = true
         well.heightAnchor.constraint(equalToConstant: 28).isActive = true
         well.setAccessibilityLabel(label)
@@ -925,8 +923,10 @@ final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
     let name = NSTextField(), text: ReaderThemeColorInput, paper: ReaderThemeColorInput, link: ReaderThemeColorInput
     let preview: ReaderThemePreview
     var onChange: (() -> Void)?
-    var isValid: Bool { !name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.value != nil && paper.value != nil && link.value != nil }
-    init(theme: ReaderTheme) {
+    private let editsName: Bool
+    var isValid: Bool { (!editsName || !name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) && text.value != nil && paper.value != nil && link.value != nil }
+    init(theme: ReaderTheme, editsName: Bool = true) {
+        self.editsName = editsName
         text = ReaderThemeColorInput(theme.text, label: L("Text"))
         paper = ReaderThemeColorInput(theme.background, label: L("Background"))
         link = ReaderThemeColorInput(theme.link, label: L("Link"))
@@ -936,9 +936,10 @@ final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
         name.stringValue = theme.isCustom ? theme.name : theme.displayName + " " + L("Custom")
         name.setAccessibilityLabel(L("Theme name")); name.delegate = self
         name.widthAnchor.constraint(equalToConstant: 230).isActive = true
-        let grid = NSGridView(views: [[NSTextField(labelWithString: L("Theme name")), name],
-            [NSTextField(labelWithString: L("Text")), text], [NSTextField(labelWithString: L("Background")), paper],
-            [NSTextField(labelWithString: L("Link")), link]])
+        var rows: [[NSView]] = [[NSTextField(labelWithString: L("Text")), text],
+            [NSTextField(labelWithString: L("Background")), paper], [NSTextField(labelWithString: L("Link")), link]]
+        if editsName { rows.insert([NSTextField(labelWithString: L("Theme name")), name], at: 0) }
+        let grid = NSGridView(views: rows)
         grid.rowSpacing = 8; grid.columnSpacing = 12
         addArrangedSubview(grid)
         let hint = NSTextField(labelWithString: L("Choose colors or enter six-digit RGB values."))
@@ -948,6 +949,10 @@ final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
         setFrameSize(fittingSize)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func closeColorPanel() {
+        for input in [text, paper, link] { input.well.deactivate() }
+        if NSColorPanel.sharedColorPanelExists { NSColorPanel.shared.orderOut(nil) }
+    }
     func controlTextDidChange(_ obj: Notification) { changed() }
     private func changed() {
         if let text = text.value, let background = paper.value, let link = link.value {

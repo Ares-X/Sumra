@@ -7,7 +7,7 @@ import XCTest
 @testable import Sumra
 
 final class EPUBCoverAspectTests: XCTestCase {
-    private func fixture(in directory: URL) throws -> URL {
+    private func fixture(in directory: URL, coverDocument: String? = nil, guide: Bool = false) throws -> URL {
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
         let context = try XCTUnwrap(CGContext(data: nil, width: 200, height: 300, bitsPerComponent: 8, bytesPerRow: 800,
@@ -38,6 +38,16 @@ final class EPUBCoverAspectTests: XCTestCase {
         ]
         for (index, chapter) in chapters.enumerated() {
             files["c\(index).xhtml"] = "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>@page{margin:0}html,body{margin:0}svg{display:block;width:100%;height:100%}</style></head><body><svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' \(chapter.0)>\(chapter.1)</svg></body></html>"
+        }
+        if let coverDocument {
+            files["c0.xhtml"] = coverDocument
+            if guide {
+                files["content.opf"] = files["content.opf"]?.replacingOccurrences(of: "</package>",
+                    with: "<guide><reference type='cover' href='c0.xhtml#cover'/></guide></package>")
+            } else {
+                files["content.opf"] = files["content.opf"]?.replacingOccurrences(of: "id='c0'", with: "id='Cover'")
+                    .replacingOccurrences(of: "idref='c0'", with: "idref='Cover' linear='no'")
+            }
         }
         for (name, contents) in files { try contents.write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8) }
         let zip = Process(); zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); zip.currentDirectoryURL = directory
@@ -109,6 +119,73 @@ final class EPUBCoverAspectTests: XCTestCase {
         let aligned = try file.image(file.page(.init(chapter: 5, page: 0)), width: 360)
         let right = try coloredBounds(aligned)
         XCTAssertEqual(right.maxX, 360, accuracy: 1); XCTAssertEqual(right.minY, 0, accuracy: 1)
+    }
+
+    func testDeclaredImageCoversFitOnePageAcrossPublisherWrappersAndWindowSizes() throws {
+        let bodies = [
+            "<div id='cover'><a name='legacy-cover'/><svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='0 0 200 300' preserveAspectRatio='none'><image width='200' height='300' href='cover.png'/></svg></div>",
+            "<p><img src='cover.png'/></p>",
+            "<div style='height:50%;margin-bottom:-250px'></div><div style='height:0;position:relative'><table style='height:500px;width:100%'><tr><td><img src='cover.png'/></td></tr></table></div>"
+        ]
+        for (index, body) in bodies.enumerated() {
+            let directory = try TemporaryDirectory()
+            defer { withExtendedLifetime(directory) {} }
+            let html = "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>body{margin:2em}p{margin:1em}svg{width:98%;height:100%}</style></head><body>\(body)</body></html>"
+            let file = try NativeFile(fixture(in: directory.url, coverDocument: html, guide: index == 0), engine: .mupdf)
+            for size in [CGSize(width: 720, height: 480), CGSize(width: 360, height: 480), CGSize(width: 480, height: 720)] {
+                _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light", pageSize: size)
+                XCTAssertEqual(file.chapterTable?.pageCount(0), 1, "A cover must not create a leading or trailing empty page")
+                if index == 0 {
+                    XCTAssertEqual(try file.resolve("c0.xhtml#cover")?.page, 0)
+                    XCTAssertEqual(try file.resolve("c0.xhtml#legacy-cover")?.page, 0)
+                }
+                let image = try file.image(0, width: Int(size.width))
+                let red = try coloredBounds(image), blue = try coloredBounds(image, blue: true)
+                XCTAssertEqual(red.width / red.height, 2.0 / 3.0, accuracy: 0.015)
+                XCTAssertEqual(blue.width / blue.height, 1, accuracy: 0.025)
+                XCTAssertEqual(red.midX, CGFloat(image.width) / 2, accuracy: 2)
+                XCTAssertEqual(red.midY, CGFloat(image.height) / 2, accuracy: 2)
+                XCTAssertEqual(min(CGFloat(image.width) - red.width, CGFloat(image.height) - red.height), 0, accuracy: 2,
+                    "The cover must grow to the available page, including small raster sources")
+            }
+            _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light", pageSize: CGSize(width: 360, height: 0))
+            let continuous = try file.image(0, width: 360)
+            let red = try coloredBounds(continuous)
+            XCTAssertEqual(red.width / red.height, 2.0 / 3.0, accuracy: 0.015)
+            XCTAssertEqual(red.width, 360, accuracy: 2, "Continuous covers use their natural height at the reading width")
+        }
+    }
+
+    func testKeepTogetherFigureReservesItsCaptionAfterEarlierText() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let html = """
+            <html><head><style>@page{margin:0}body{margin:8px}p{margin:0;line-height:20px}
+            div{page-break-inside:avoid}img{width:100%;height:auto}</style></head><body>
+            <p>BEFORE FIGURE</p><div><p style='margin-top:12px'><img src='cover.png'/></p>
+            <p>ASSOCIATED CAPTION</p></div><p>AFTER FIGURE</p></body></html>
+            """
+        let file = try NativeFile(fixture(in: directory.url, coverDocument: html), engine: .mupdf)
+        for size in [CGSize(width: 720, height: 480), CGSize(width: 360, height: 480)] {
+            _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light", pageSize: size)
+            let first = try XCTUnwrap(file.text(0))
+            XCTAssertTrue(first.contains("BEFORE FIGURE"))
+            XCTAssertTrue(first.contains("ASSOCIATED CAPTION"), "The figure's caption must stay on its image page")
+            let image = try file.image(0, width: Int(size.width))
+            let red = try coloredBounds(image)
+            XCTAssertEqual(red.width / red.height, 2.0 / 3.0, accuracy: 0.015)
+            let following = try (0..<(file.chapterTable?.pageCount(0) ?? 0)).map { try file.text($0) ?? "" }.joined()
+            XCTAssertTrue(following.contains("AFTER FIGURE"), "The layout measurement must retain following content")
+        }
+    }
+
+    func testDeclaredTextCoverKeepsItsAuthoredContent() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let html = "<html><body><p>AUTHOR TITLE</p><img src='cover.png'/></body></html>"
+        let file = try NativeFile(fixture(in: directory.url, coverDocument: html), engine: .mupdf)
+        _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light", pageSize: CGSize(width: 360, height: 480))
+        XCTAssertTrue(try XCTUnwrap(file.text(0)).contains("AUTHOR TITLE"))
     }
 
     func testContinuousSVGPercentHeightUsesTheIntrinsicRatio() throws {

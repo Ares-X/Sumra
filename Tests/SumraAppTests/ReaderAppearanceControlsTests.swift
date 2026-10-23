@@ -5,20 +5,41 @@ import XCTest
 
 @MainActor
 final class ReaderAppearanceControlsTests: XCTestCase {
-    func testDocumentColorWellOpensTheSystemColorPanel() {
+    func testDocumentColorWellOpensTheSystemColorPanelAndClosesWithDialog() {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
+        var wells: [NSColorWell] = []
         inspectModal(response: .alertThirdButtonReturn) { content in
-            let well = try XCTUnwrap(self.descendants(content, of: NSColorWell.self).last)
+            wells = self.descendants(content, of: NSColorWell.self)
+            let well = try XCTUnwrap(wells.last)
             well.activate(true)
             let panel = NSColorPanel.shared
             XCTAssertTrue(well.isActive)
             XCTAssertTrue(panel.isVisible, "The color panel must open while the document-color dialog is modal")
             XCTAssertTrue(panel.worksWhenModal, "The color panel must accept input during the alert's modal session")
-            well.deactivate()
-            panel.orderOut(nil)
         }
         state.configureDocumentColors()
+        XCTAssertFalse(NSColorPanel.shared.isVisible)
+        XCTAssertTrue(wells.allSatisfy { !$0.isActive })
+    }
+
+    func testColorPanelSwitchesExclusiveWellsWithoutChangingOtherInputs() {
+        _ = NSApplication.shared
+        let editor = ReaderThemeEditorView(theme: ReaderTheme.builtins[0])
+        defer { editor.closeColorPanel() }
+        editor.text.well.activate(true)
+        editor.paper.well.activate(true)
+        XCTAssertFalse(editor.text.well.isActive)
+        XCTAssertTrue(editor.paper.well.isActive)
+        XCTAssertEqual(ReaderTheme.rgb(NSColorPanel.shared.color), editor.paper.value)
+        editor.paper.well.color = .white
+        editor.paper.well.sendAction(editor.paper.well.action, to: editor.paper.well.target)
+        XCTAssertEqual(editor.paper.value, 0xffffff)
+        editor.link.well.activate(true)
+        XCTAssertFalse(editor.paper.well.isActive)
+        XCTAssertEqual(ReaderTheme.rgb(NSColorPanel.shared.color), editor.link.value)
+        XCTAssertEqual(editor.paper.value, 0xffffff)
+        XCTAssertEqual(editor.preview.theme.background, 0xffffff)
     }
 
     func testThemeDialogDisplaysClickableChoicesAndAppliesSelection() {
@@ -39,25 +60,44 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertEqual(state.theme, "light-warm")
     }
 
-    func testDocumentColorWellsAreClickableAndApplyPureWhitePaper() {
+    func testDocumentColorEditorAppliesPreviewsAndPersistsAllThreeColors() throws {
         _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let keys = ["theme", "lastLightTheme"]
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
         let state = ReaderState(recordsHistory: false)
         inspectModal { content in
-            let wells = self.descendants(content, of: NSColorWell.self)
-            XCTAssertEqual(wells.count, 2)
-            for well in wells { self.assertClickable(well, in: content) }
-            try XCTUnwrap(wells.first).color = .black
-            try XCTUnwrap(wells.last).color = .white
+            let editor = try XCTUnwrap(self.descendants(content, of: ReaderThemeEditorView.self).first)
+            XCTAssertNil(editor.name.superview, "Document colors have no saved theme name")
+            for input in [editor.text, editor.paper, editor.link] { self.assertClickable(input.well, in: content) }
+            for (input, hex) in [(editor.text, "#000000"), (editor.paper, "#FFFFFF"), (editor.link, "#123456")] {
+                input.hex.stringValue = hex
+                input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+            }
+            XCTAssertEqual(editor.preview.theme.link, 0x123456)
+            editor.paper.well.activate(true)
         }
         state.configureDocumentColors()
         XCTAssertEqual(state.palette.text, 0x000000)
         XCTAssertEqual(state.palette.background, 0xffffff)
+        XCTAssertEqual(state.palette.link, 0x123456)
         XCTAssertEqual(state.documentColors, "smart")
+        XCTAssertFalse(NSColorPanel.shared.isVisible)
+        let position = try JSONDecoder().decode(ReadingPosition.self, from: JSONEncoder().encode(state.currentPosition))
+        let restored = ReaderState(recordsHistory: false)
+        restored.apply(position)
+        XCTAssertEqual(restored.palette.link, 0x123456)
+        XCTAssertEqual(restored.customTextColor, 0x000000)
+        XCTAssertEqual(restored.customBackgroundColor, 0xffffff)
 
         inspectModal(response: .alertSecondButtonReturn) { _ in }
         state.configureDocumentColors()
         XCTAssertNil(state.customTextColor)
         XCTAssertNil(state.customBackgroundColor)
+        XCTAssertNil(state.customLinkColor)
+        restored.setTheme("light")
+        XCTAssertNil(restored.customLinkColor)
     }
 
     func testTypographyDialogCanSelectInstalledIowanFamily() {
@@ -81,7 +121,7 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
         state.theme = "light"; state.font = "serif"
-        state.customTextColor = 0x123456; state.customBackgroundColor = 0xffffff
+        state.customTextColor = 0x123456; state.customBackgroundColor = 0xffffff; state.customLinkColor = 0xabcdef
         inspectModal(response: .alertSecondButtonReturn) { content in
             self.descendants(content, of: NSPopUpButton.self).first?.selectItem(at: 3)
         }
@@ -93,6 +133,7 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         state.configureDocumentColors()
         XCTAssertEqual(state.customTextColor, 0x123456)
         XCTAssertEqual(state.customBackgroundColor, 0xffffff)
+        XCTAssertEqual(state.customLinkColor, 0xabcdef)
         inspectModal(response: .alertSecondButtonReturn) { content in
             self.descendants(content, of: NSComboBox.self).first?.stringValue = "Iowan Old Style"
         }
@@ -152,6 +193,7 @@ final class ReaderAppearanceControlsTests: XCTestCase {
     }
 
     func testAdvancedSettingsImportRestoresCustomPaletteAndRetiredThemeIDs() throws {
+        _ = NSApplication.shared
         let defaults = UserDefaults.standard
         let keys = ["customThemes", "customCommands", "theme", "lastDarkTheme", "lastLightTheme"]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }

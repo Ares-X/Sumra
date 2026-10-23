@@ -285,7 +285,11 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openPendingFiles() {
-        guard let createWindow, !pendingFiles.isEmpty else { return }
+        guard !pendingFiles.isEmpty else { return }
+        // Finder can send the open request before SwiftUI installs a window.
+        // Activate now so the initial scene does not wait for a Dock click.
+        NSApp.activate(ignoringOtherApps: true)
+        guard let createWindow else { return }
         let urls = pendingFiles
         pendingFiles.removeAll()
         for url in urls {
@@ -297,7 +301,6 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
                 createWindow(WindowPayload(path: url.path))
             }
         }
-        NSApp.activate(ignoringOtherApps: true)
     }
     func applicationWillUpdate(_ notification: Notification) {
         undoCommands.update()

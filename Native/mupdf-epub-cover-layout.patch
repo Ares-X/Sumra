@@ -1,0 +1,807 @@
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -81,7 +81,8 @@
+ 	FZ_HTML_FLAVOR_MOBI = 1,
+ 	FZ_HTML_FLAVOR_MARKDOWN = 2,
+ 	FZ_HTML_FLAVOR_FICTIONBOOK2 = 3,
+-	FZ_HTML_FLAVOR_EPUB_FIXED = 4
++	FZ_HTML_FLAVOR_EPUB_FIXED = 4,
++	FZ_HTML_FLAVOR_EPUB_COVER = 5
+ } fz_html_flavor;
+ 
+ typedef struct fz_htdoc_format
+--- a/source/html/css-apply.c
++++ b/source/html/css-apply.c
+@@ -1863,6 +1863,7 @@
+ 	value = value_from_property(match, PRO_SUMRA_PROSE_SPACING);
+ 	style->compact_prose_spacing = value && !strcmp(value->data, "compact");
+ 	style->text_decoration = text_decoration_from_property(match);
++	style->page_break_inside = page_break_from_property(match, PRO_PAGE_BREAK_INSIDE);
+ 	style->page_break_before = page_break_from_property(match, PRO_PAGE_BREAK_BEFORE);
+ 	style->page_break_after = page_break_from_property(match, PRO_PAGE_BREAK_AFTER);
+ 
+--- a/source/html/css-properties.gperf
++++ b/source/html/css-properties.gperf
+@@ -71,6 +71,7 @@
+ padding-top,PRO_PADDING_TOP
+ page-break-after,PRO_PAGE_BREAK_AFTER
+ page-break-before,PRO_PAGE_BREAK_BEFORE
++page-break-inside,PRO_PAGE_BREAK_INSIDE
+ position,PRO_POSITION
+ quotes,PRO_QUOTES
+ right,PRO_INSET_RIGHT
+--- a/source/html/css-properties.h
++++ b/source/html/css-properties.h
+@@ -1,6 +1,6 @@
+-/* ANSI-C code produced by gperf version 3.2.1 */
+-/* Command-line: gperf source/html/css-properties.gperf  */
+-/* Computed positions: -k'1-2,$' */
++/* ANSI-C code produced by gperf version 3.0.3 */
++/* Command-line: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/gperf -L ANSI-C source/html/css-properties.gperf  */
++/* Computed positions: -k'1-2,12,$' */
+ 
+ #if !((' ' == 32) && ('!' == 33) && ('"' == 34) && ('#' == 35) \
+       && ('%' == 37) && ('&' == 38) && ('\'' == 39) && ('(' == 40) \
+@@ -26,18 +26,18 @@
+       && ('w' == 119) && ('x' == 120) && ('y' == 121) && ('z' == 122) \
+       && ('{' == 123) && ('|' == 124) && ('}' == 125) && ('~' == 126))
+ /* The character set is not based on ISO-646.  */
+-#error "gperf generated tables don't work with this execution character set. Please report a bug to <bug-gperf@gnu.org>."
++#error "gperf generated tables don't work with this execution character set. Please report a bug to <bug-gnu-gperf@gnu.org>."
+ #endif
+ 
+ #line 1 "source/html/css-properties.gperf"
+ struct css_property_info { const char *name; int key; };
+ 
+-#define TOTAL_KEYWORDS 81
++#define TOTAL_KEYWORDS 82
+ #define MIN_WORD_LENGTH 3
+ #define MAX_WORD_LENGTH 25
+-#define MIN_HASH_VALUE 8
+-#define MAX_HASH_VALUE 155
+-/* maximum key range = 148, duplicates = 0 */
++#define MIN_HASH_VALUE 3
++#define MAX_HASH_VALUE 209
++/* maximum key range = 207, duplicates = 0 */
+ 
+ #ifdef __GNUC__
+ __inline
+@@ -47,56 +47,81 @@
+ #endif
+ #endif
+ static unsigned int
+-css_property_hash (register const char *str, register size_t len)
++css_property_hash (register const char *str, register unsigned int len)
+ {
+   static unsigned char asso_values[] =
+     {
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156,  35, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156,  25,   5,   0,
+-        5,   5, 110,  50,  75,  70, 156, 156,   0,  25,
+-       50,   5,   0,  20,  30,  65,   0,  20,  25,   5,
+-      156,   5, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
+-      156, 156, 156, 156, 156, 156
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210,  15, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210,  25,  10,  70,
++       45,   5,   0,  40,  40,  20, 210, 210,  65,  25,
++       95,   0,   0,   5,  10,  70,   0,   5,  75,  15,
++      210,  20, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
++      210, 210, 210, 210, 210, 210
+     };
+-  return len + asso_values[(unsigned char)str[1]] + asso_values[(unsigned char)str[0]] + asso_values[(unsigned char)str[len - 1]];
++  register unsigned int hval = len;
++
++  switch (hval)
++    {
++      default:
++        hval += asso_values[(unsigned char)str[11]];
++      /*FALLTHROUGH*/
++      case 11:
++      case 10:
++      case 9:
++      case 8:
++      case 7:
++      case 6:
++      case 5:
++      case 4:
++      case 3:
++      case 2:
++        hval += asso_values[(unsigned char)str[1]];
++      /*FALLTHROUGH*/
++      case 1:
++        hval += asso_values[(unsigned char)str[0]];
++        break;
++    }
++  return hval + asso_values[(unsigned char)str[len - 1]];
+ }
+ 
+-#if (defined __GNUC__ && __GNUC__ + (__GNUC_MINOR__ >= 6) > 4) || (defined __clang__ && __clang_major__ >= 3)
+-#pragma GCC diagnostic push
+-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+-#endif
+ static struct css_property_info css_property_list[] =
+   {
+-    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
+-#line 82 "source/html/css-properties.gperf"
++    {""}, {""}, {""},
++#line 83 "source/html/css-properties.gperf"
+     {"top",PRO_INSET_TOP},
+-#line 53 "source/html/css-properties.gperf"
+-    {"left",PRO_INSET_LEFT},
+-    {""}, {""},
+-#line 40 "source/html/css-properties.gperf"
+-    {"content",PRO_CONTENT},
+-    {""}, {""}, {""},
+-#line 80 "source/html/css-properties.gperf"
++#line 44 "source/html/css-properties.gperf"
++    {"font",PRO_FONT},
++    {""}, {""}, {""}, {""}, {""}, {""},
++#line 49 "source/html/css-properties.gperf"
++    {"font-weight",PRO_FONT_WEIGHT},
++#line 48 "source/html/css-properties.gperf"
++    {"font-variant",PRO_FONT_VARIANT},
++    {""},
++#line 46 "source/html/css-properties.gperf"
++    {"font-size",PRO_FONT_SIZE},
++#line 47 "source/html/css-properties.gperf"
++    {"font-style",PRO_FONT_STYLE},
++#line 81 "source/html/css-properties.gperf"
+     {"text-indent",PRO_TEXT_INDENT},
+     {""}, {""}, {""},
+ #line 31 "source/html/css-properties.gperf"
+@@ -105,189 +130,194 @@
+     {"border-left",PRO_BORDER_LEFT},
+ #line 25 "source/html/css-properties.gperf"
+     {"border-right",PRO_BORDER_RIGHT},
++    {""}, {""}, {""},
++#line 14 "source/html/css-properties.gperf"
++    {"border",PRO_BORDER},
+     {""}, {""}, {""}, {""},
++#line 45 "source/html/css-properties.gperf"
++    {"font-family",PRO_FONT_FAMILY},
+ #line 30 "source/html/css-properties.gperf"
+     {"border-style",PRO_BORDER_STYLE},
+-    {""}, {""},
+-#line 20 "source/html/css-properties.gperf"
+-    {"border-collapse",PRO_BORDER_COLLAPSE},
+-#line 33 "source/html/css-properties.gperf"
+-    {"border-top-style",PRO_BORDER_TOP_STYLE},
+-#line 23 "source/html/css-properties.gperf"
+-    {"border-left-style",PRO_BORDER_LEFT_STYLE},
+ #line 27 "source/html/css-properties.gperf"
+     {"border-right-style",PRO_BORDER_RIGHT_STYLE},
+ #line 17 "source/html/css-properties.gperf"
+     {"border-bottom-style",PRO_BORDER_BOTTOM_STYLE},
+-#line 37 "source/html/css-properties.gperf"
+-    {"clear",PRO_CLEAR},
++#line 77 "source/html/css-properties.gperf"
++    {"right",PRO_INSET_RIGHT},
+ #line 71 "source/html/css-properties.gperf"
+     {"padding-top",PRO_PADDING_TOP},
+ #line 69 "source/html/css-properties.gperf"
+     {"padding-left",PRO_PADDING_LEFT},
+-#line 70 "source/html/css-properties.gperf"
+-    {"padding-right",PRO_PADDING_RIGHT},
+-    {""},
+-#line 38 "source/html/css-properties.gperf"
+-    {"color",PRO_COLOR},
+-#line 36 "source/html/css-properties.gperf"
+-    {"bottom",PRO_INSET_BOTTOM},
+-    {""},
+-#line 66 "source/html/css-properties.gperf"
+-    {"overflow-wrap",PRO_OVERFLOW_WRAP},
+-#line 81 "source/html/css-properties.gperf"
+-    {"text-transform",PRO_TEXT_TRANSFORM},
+-#line 12 "source/html/css-properties.gperf"
+-    {"background",PRO_BACKGROUND},
+-#line 14 "source/html/css-properties.gperf"
+-    {"border",PRO_BORDER},
+-#line 73 "source/html/css-properties.gperf"
+-    {"page-break-before",PRO_PAGE_BREAK_BEFORE},
+-#line 15 "source/html/css-properties.gperf"
+-    {"border-bottom",PRO_BORDER_BOTTOM},
+-    {""}, {""}, {""},
+-#line 19 "source/html/css-properties.gperf"
+-    {"border-color",PRO_BORDER_COLOR},
+-    {""}, {""}, {""},
+-#line 32 "source/html/css-properties.gperf"
+-    {"border-top-color",PRO_BORDER_TOP_COLOR},
+-#line 22 "source/html/css-properties.gperf"
+-    {"border-left-color",PRO_BORDER_LEFT_COLOR},
+ #line 26 "source/html/css-properties.gperf"
+     {"border-right-color",PRO_BORDER_RIGHT_COLOR},
+ #line 16 "source/html/css-properties.gperf"
+     {"border-bottom-color",PRO_BORDER_BOTTOM_COLOR},
++    {""},
++#line 36 "source/html/css-properties.gperf"
++    {"bottom",PRO_INSET_BOTTOM},
++#line 19 "source/html/css-properties.gperf"
++    {"border-color",PRO_BORDER_COLOR},
++    {""},
++#line 82 "source/html/css-properties.gperf"
++    {"text-transform",PRO_TEXT_TRANSFORM},
++    {""}, {""},
++#line 23 "source/html/css-properties.gperf"
++    {"border-left-style",PRO_BORDER_LEFT_STYLE},
++#line 15 "source/html/css-properties.gperf"
++    {"border-bottom",PRO_BORDER_BOTTOM},
++    {""}, {""},
++#line 50 "source/html/css-properties.gperf"
++    {"height",PRO_HEIGHT},
++#line 22 "source/html/css-properties.gperf"
++    {"border-left-color",PRO_BORDER_LEFT_COLOR},
++    {""}, {""},
++#line 20 "source/html/css-properties.gperf"
++    {"border-collapse",PRO_BORDER_COLLAPSE},
++    {""},
++#line 73 "source/html/css-properties.gperf"
++    {"page-break-before",PRO_PAGE_BREAK_BEFORE},
++    {""}, {""},
+ #line 64 "source/html/css-properties.gperf"
+     {"margin-top",PRO_MARGIN_TOP},
+ #line 62 "source/html/css-properties.gperf"
+     {"margin-left",PRO_MARGIN_LEFT},
+ #line 63 "source/html/css-properties.gperf"
+     {"margin-right",PRO_MARGIN_RIGHT},
+-#line 74 "source/html/css-properties.gperf"
+-    {"position",PRO_POSITION},
++#line 9 "source/html/css-properties.gperf"
++    {"-webkit-text-fill-color",PRO_TEXT_FILL_COLOR},
+ #line 68 "source/html/css-properties.gperf"
+     {"padding-bottom",PRO_PADDING_BOTTOM},
+-#line 78 "source/html/css-properties.gperf"
+-    {"text-align",PRO_TEXT_ALIGN},
+-    {""}, {""}, {""},
+-#line 54 "source/html/css-properties.gperf"
+-    {"letter-spacing",PRO_LETTER_SPACING},
+-#line 79 "source/html/css-properties.gperf"
+-    {"text-decoration",PRO_TEXT_DECORATION},
++#line 10 "source/html/css-properties.gperf"
++    {"-webkit-text-stroke-color",PRO_TEXT_STROKE_COLOR},
++    {""},
++#line 74 "source/html/css-properties.gperf"
++    {"page-break-inside",PRO_PAGE_BREAK_INSIDE},
++#line 28 "source/html/css-properties.gperf"
++    {"border-right-width",PRO_BORDER_RIGHT_WIDTH},
++#line 18 "source/html/css-properties.gperf"
++    {"border-bottom-width",PRO_BORDER_BOTTOM_WIDTH},
++#line 43 "source/html/css-properties.gperf"
++    {"float",PRO_FLOAT},
++#line 86 "source/html/css-properties.gperf"
++    {"white-space",PRO_WHITE_SPACE},
++#line 67 "source/html/css-properties.gperf"
++    {"padding",PRO_PADDING},
++    {""},
++#line 53 "source/html/css-properties.gperf"
++    {"left",PRO_INSET_LEFT},
++    {""},
+ #line 72 "source/html/css-properties.gperf"
+     {"page-break-after",PRO_PAGE_BREAK_AFTER},
++#line 40 "source/html/css-properties.gperf"
++    {"content",PRO_CONTENT},
++#line 70 "source/html/css-properties.gperf"
++    {"padding-right",PRO_PADDING_RIGHT},
++    {""},
+ #line 88 "source/html/css-properties.gperf"
+-    {"word-spacing",PRO_WORD_SPACING},
+-    {""},
+-#line 29 "source/html/css-properties.gperf"
+-    {"border-spacing",PRO_BORDER_SPACING},
+-    {""},
+-#line 13 "source/html/css-properties.gperf"
+-    {"background-color",PRO_BACKGROUND_COLOR},
+-#line 39 "source/html/css-properties.gperf"
+-    {"columns",PRO_COLUMNS},
+-    {""}, {""}, {""},
+-#line 55 "source/html/css-properties.gperf"
+-    {"line-height",PRO_LINE_HEIGHT},
+-#line 67 "source/html/css-properties.gperf"
+-    {"padding",PRO_PADDING},
+-    {""}, {""},
+-#line 56 "source/html/css-properties.gperf"
+-    {"list-style",PRO_LIST_STYLE},
+-#line 50 "source/html/css-properties.gperf"
+-    {"height",PRO_HEIGHT},
+-#line 42 "source/html/css-properties.gperf"
+-    {"display",PRO_DISPLAY},
+-#line 61 "source/html/css-properties.gperf"
+-    {"margin-bottom",PRO_MARGIN_BOTTOM},
+-    {""},
+-#line 59 "source/html/css-properties.gperf"
+-    {"list-style-type",PRO_LIST_STYLE_TYPE},
+-#line 57 "source/html/css-properties.gperf"
+-    {"list-style-image",PRO_LIST_STYLE_IMAGE},
+-    {""},
+-#line 9 "source/html/css-properties.gperf"
+-    {"-webkit-text-fill-color",PRO_TEXT_FILL_COLOR},
+-#line 83 "source/html/css-properties.gperf"
+-    {"vertical-align",PRO_VERTICAL_ALIGN},
+-#line 10 "source/html/css-properties.gperf"
+-    {"-webkit-text-stroke-color",PRO_TEXT_STROKE_COLOR},
+-#line 85 "source/html/css-properties.gperf"
+-    {"white-space",PRO_WHITE_SPACE},
+-#line 35 "source/html/css-properties.gperf"
+-    {"border-width",PRO_BORDER_WIDTH},
+-#line 77 "source/html/css-properties.gperf"
+-    {"src",PRO_SRC},
+-    {""}, {""},
++    {"width",PRO_WIDTH},
+ #line 34 "source/html/css-properties.gperf"
+     {"border-top-width",PRO_BORDER_TOP_WIDTH},
+ #line 24 "source/html/css-properties.gperf"
+     {"border-left-width",PRO_BORDER_LEFT_WIDTH},
+-#line 28 "source/html/css-properties.gperf"
+-    {"border-right-width",PRO_BORDER_RIGHT_WIDTH},
+-#line 18 "source/html/css-properties.gperf"
+-    {"border-bottom-width",PRO_BORDER_BOTTOM_WIDTH},
++    {""},
++#line 29 "source/html/css-properties.gperf"
++    {"border-spacing",PRO_BORDER_SPACING},
++#line 38 "source/html/css-properties.gperf"
++    {"color",PRO_COLOR},
+ #line 76 "source/html/css-properties.gperf"
+-    {"right",PRO_INSET_RIGHT},
+-#line 60 "source/html/css-properties.gperf"
+-    {"margin",PRO_MARGIN},
++    {"quotes",PRO_QUOTES},
+ #line 65 "source/html/css-properties.gperf"
+     {"orphans",PRO_ORPHANS},
+-    {""}, {""},
+-#line 84 "source/html/css-properties.gperf"
+-    {"visibility",PRO_VISIBILITY},
++#line 61 "source/html/css-properties.gperf"
++    {"margin-bottom",PRO_MARGIN_BOTTOM},
++    {""},
++#line 12 "source/html/css-properties.gperf"
++    {"background",PRO_BACKGROUND},
++    {""},
++#line 42 "source/html/css-properties.gperf"
++    {"display",PRO_DISPLAY},
++    {""}, {""},
++#line 11 "source/html/css-properties.gperf"
++    {"-webkit-text-stroke-width",PRO_TEXT_STROKE_WIDTH},
++#line 55 "source/html/css-properties.gperf"
++    {"line-height",PRO_LINE_HEIGHT},
++    {""}, {""}, {""},
++#line 56 "source/html/css-properties.gperf"
++    {"list-style",PRO_LIST_STYLE},
++#line 33 "source/html/css-properties.gperf"
++    {"border-top-style",PRO_BORDER_TOP_STYLE},
++#line 35 "source/html/css-properties.gperf"
++    {"border-width",PRO_BORDER_WIDTH},
+ #line 75 "source/html/css-properties.gperf"
+-    {"quotes",PRO_QUOTES},
+-    {""}, {""}, {""},
+-#line 43 "source/html/css-properties.gperf"
+-    {"float",PRO_FLOAT},
+-    {""}, {""}, {""},
+-#line 44 "source/html/css-properties.gperf"
+-    {"font",PRO_FONT},
+-    {""}, {""}, {""}, {""},
++    {"position",PRO_POSITION},
++    {""},
++#line 59 "source/html/css-properties.gperf"
++    {"list-style-type",PRO_LIST_STYLE_TYPE},
++#line 32 "source/html/css-properties.gperf"
++    {"border-top-color",PRO_BORDER_TOP_COLOR},
++#line 89 "source/html/css-properties.gperf"
++    {"word-spacing",PRO_WORD_SPACING},
++    {""}, {""},
++#line 79 "source/html/css-properties.gperf"
++    {"text-align",PRO_TEXT_ALIGN},
++#line 87 "source/html/css-properties.gperf"
++    {"widows",PRO_WIDOWS},
++    {""},
++#line 66 "source/html/css-properties.gperf"
++    {"overflow-wrap",PRO_OVERFLOW_WRAP},
+ #line 8 "source/html/css-properties.gperf"
+     {"-mupdf-leading",PRO_LEADING},
++#line 80 "source/html/css-properties.gperf"
++    {"text-decoration",PRO_TEXT_DECORATION},
++    {""}, {""}, {""}, {""},
+ #line 52 "source/html/css-properties.gperf"
+     {"inset",PRO_INSET},
+-#line 49 "source/html/css-properties.gperf"
+-    {"font-weight",PRO_FONT_WEIGHT},
+-#line 48 "source/html/css-properties.gperf"
+-    {"font-variant",PRO_FONT_VARIANT},
+-    {""},
+-#line 46 "source/html/css-properties.gperf"
+-    {"font-size",PRO_FONT_SIZE},
+-#line 47 "source/html/css-properties.gperf"
+-    {"font-style",PRO_FONT_STYLE},
+-#line 45 "source/html/css-properties.gperf"
+-    {"font-family",PRO_FONT_FAMILY},
+-    {""}, {""},
+-#line 41 "source/html/css-properties.gperf"
+-    {"direction",PRO_DIRECTION},
+     {""}, {""}, {""}, {""},
+-#line 58 "source/html/css-properties.gperf"
+-    {"list-style-position",PRO_LIST_STYLE_POSITION},
+-#line 11 "source/html/css-properties.gperf"
+-    {"-webkit-text-stroke-width",PRO_TEXT_STROKE_WIDTH},
+-    {""}, {""}, {""}, {""}, {""},
+-#line 86 "source/html/css-properties.gperf"
+-    {"widows",PRO_WIDOWS},
++#line 85 "source/html/css-properties.gperf"
++    {"visibility",PRO_VISIBILITY},
++#line 57 "source/html/css-properties.gperf"
++    {"list-style-image",PRO_LIST_STYLE_IMAGE},
++    {""}, {""}, {""}, {""},
++#line 13 "source/html/css-properties.gperf"
++    {"background-color",PRO_BACKGROUND_COLOR},
+     {""}, {""}, {""}, {""}, {""},
+ #line 51 "source/html/css-properties.gperf"
+     {"hyphens",PRO_HYPHENS},
+-    {""}, {""},
+-#line 87 "source/html/css-properties.gperf"
+-    {"width",PRO_WIDTH}
++    {""}, {""}, {""}, {""}, {""}, {""},
++#line 54 "source/html/css-properties.gperf"
++    {"letter-spacing",PRO_LETTER_SPACING},
++    {""}, {""},
++#line 39 "source/html/css-properties.gperf"
++    {"columns",PRO_COLUMNS},
++    {""}, {""},
++#line 37 "source/html/css-properties.gperf"
++    {"clear",PRO_CLEAR},
++#line 60 "source/html/css-properties.gperf"
++    {"margin",PRO_MARGIN},
++    {""},
++#line 78 "source/html/css-properties.gperf"
++    {"src",PRO_SRC},
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++    {""}, {""}, {""}, {""}, {""}, {""},
++#line 41 "source/html/css-properties.gperf"
++    {"direction",PRO_DIRECTION},
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++    {""}, {""},
++#line 58 "source/html/css-properties.gperf"
++    {"list-style-position",PRO_LIST_STYLE_POSITION},
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++#line 84 "source/html/css-properties.gperf"
++    {"vertical-align",PRO_VERTICAL_ALIGN}
+   };
+-#if (defined __GNUC__ && __GNUC__ + (__GNUC_MINOR__ >= 6) > 4) || (defined __clang__ && __clang_major__ >= 3)
+-#pragma GCC diagnostic pop
+-#endif
+ 
+ struct css_property_info *
+-css_property_lookup (register const char *str, register size_t len)
++css_property_lookup (register const char *str, register unsigned int len)
+ {
+   if (len <= MAX_WORD_LENGTH && len >= MIN_WORD_LENGTH)
+     {
+-      register unsigned int key = css_property_hash (str, len);
++      unsigned int key = css_property_hash (str, len);
+ 
+       if (key <= MAX_HASH_VALUE)
+         {
+@@ -297,5 +327,5 @@
+             return &css_property_list[key];
+         }
+     }
+-  return (struct css_property_info *) 0;
++  return 0;
+ }
+--- a/source/html/epub-doc.c
++++ b/source/html/epub-doc.c
+@@ -77,6 +77,7 @@
+ 	char *path;
+ 	int number;
+ 	int fixed_layout;
++	int cover;
+ };
+ 
+ struct epub_page
+@@ -483,7 +484,7 @@
+ 	fz_try(ctx)
+ 		html = fz_parse_html(ctx, doc->set, zip, base_uri, buf,
+ 			ch->fixed_layout ? NULL : doc->super.user_css, 1, 1,
+-			ch->fixed_layout ? FZ_HTML_FLAVOR_EPUB_FIXED : FZ_HTML_FLAVOR_DEFAULT,
++			ch->fixed_layout ? FZ_HTML_FLAVOR_EPUB_FIXED : ch->cover ? FZ_HTML_FLAVOR_EPUB_COVER : FZ_HTML_FLAVOR_DEFAULT,
+ 			ch->fixed_layout ? 1 : doc->super.publisher_css);
+ 	fz_always(ctx)
+ 		fz_drop_buffer(ctx, buf);
+@@ -1026,7 +1027,7 @@
+ 	char base_uri[2048];
+ 	const char *full_path;
+ 	const char *version;
+-	char ncx[2048], s[2048];
++	char ncx[2048], s[2048], cover[2048] = "";
+ 	char *prefixed_full_path = NULL;
+ 	size_t prefix_len;
+ 	int i, fixed_layout = 0;
+@@ -1111,6 +1112,18 @@
+ 		}
+ 
+ 		manifest = fz_xml_find_down(package, "manifest");
++		fz_xml *guide = fz_xml_find_down(package, "guide");
++		for (fz_xml *ref = fz_xml_find_down(guide, "reference"); ref; ref = fz_xml_find_next(ref, "reference"))
++		{
++			const char *type = fz_xml_att(ref, "type"), *href = fz_xml_att(ref, "href");
++			if (type && !strcmp(type, "cover") && href)
++			{
++				fz_snprintf(cover, sizeof cover, "%s/%s", base_uri, href);
++				fz_cleanname(fz_urldecode(cover));
++				char *fragment = strchr(cover, '#');
++				if (fragment) *fragment = 0;
++			}
++		}
+ 		spine = fz_xml_find_down(package, "spine");
+ 		const char *direction = fz_xml_att(spine, "page-progression-direction");
+ 		if (direction)
+@@ -1156,6 +1169,8 @@
+ 				fz_try(ctx)
+ 				{
+ 					doc->spine[i] = epub_load_chapter(ctx, doc, s, i);
++					const char *idref = fz_xml_att(itemref, "idref");
++					doc->spine[i]->cover = !strcmp(s, cover) || (i == 0 && idref && !fz_strcasecmp(idref, "cover"));
+ 					doc->spine[i]->fixed_layout = fixed || (!reflow && fixed_layout);
+ 					if (doc->spine[i]->fixed_layout)
+ 						++doc->fixed_chapters;
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -183,6 +183,7 @@
+ 	PRO_PADDING_TOP,
+ 	PRO_PAGE_BREAK_AFTER,
+ 	PRO_PAGE_BREAK_BEFORE,
++	PRO_PAGE_BREAK_INSIDE,
+ 	PRO_POSITION,
+ 	PRO_QUOTES,
+ 	PRO_SRC,
+@@ -312,6 +313,7 @@
+ 	unsigned int white_space : 3;
+ 	unsigned int compact_prose_spacing : 1;
+ 	unsigned int vertical_align : 4;
++	unsigned int page_break_inside : 3;
+ 	unsigned int page_break_before : 3;
+ 	unsigned int page_break_after : 3;
+ 	unsigned int visibility : 2;
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -605,6 +605,7 @@
+ 	float page[4];
+ 	/* Keep the containing canvas for positioning without inserting page breaks. */
+ 	int no_pagination;
++	float figure_image_height;
+ 	/* The ancestor trbl is the trbl for the last positioned
+ 	 * node we have walked though. Boxes with "absolute" positioning
+ 	 * will be positioned relative to this. Initially this will be the
+@@ -1076,6 +1077,18 @@
+ 				node->w = node->h * aspect;
+ 			if (width.unit != N_AUTO && height.unit == N_AUTO)
+ 				node->h = (aspect == 0) ? 0 : (node->w / aspect);
++
++			/* Reserve enclosing block insets, rather than earlier paragraphs:
++			 * an oversized image must fit one page without consuming a blank
++			 * page just to accommodate its own top/bottom margins. */
++			if (!ld->no_pagination)
++				for (fz_html_box *ancestor = top; ancestor; ancestor = ancestor->up)
++					if (fz_html_box_has_boxes(ancestor) && ancestor->up)
++						max_h -= ancestor->u.block.margin[T] + ancestor->u.block.margin[B] +
++							ancestor->u.block.padding[T] + ancestor->u.block.padding[B] +
++							ancestor->u.block.border[T] + ancestor->u.block.border[B];
++			if (ld->figure_image_height > 0)
++				max_h = fz_min(max_h, ld->figure_image_height);
+ 
+ 			/* Shrink image to fit on one page if needed */
+ 			if (!ld->no_pagination && max_w > 0 && node->w > max_w)
+@@ -2941,6 +2954,25 @@
+ 
+ 	Return 1 if we should restart at the next block, 0 otherwise.
+ */
++static int figure_image(fz_html_tree *tree, fz_html_box *box, fz_html_flow **image)
++{
++	for (; box; box = box->next)
++	{
++		if (box->type == BOX_FLOW)
++		{
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
++				if (flow->type == FLOW_IMAGE)
++				{
++					if (*image) return 0;
++					*image = flow;
++				}
++		}
++		else if (fz_html_box_has_boxes(box) && !figure_image(tree, box->down, image))
++			return 0;
++	}
++	return 1;
++}
++
+ static int layout_block(fz_html_tree *tree, fz_context *ctx, layout_data *ld, fz_html_box *box)
+ {
+ 	fz_html_box *child;
+@@ -2950,8 +2982,25 @@
+ 	float em = box->s.layout.em;
+ 	int eop = 0;
+ 	position_data position;
++	float previous_figure_height = ld->figure_image_height;
+ 
+ 	assert(fz_html_box_has_boxes(box));
++
++	if (!ld->no_pagination && !restart && style->page_break_inside == PB_AVOID && previous_figure_height == 0)
++	{
++		fz_html_flow *image = NULL;
++		if (figure_image(tree, box->down, &image) && image)
++		{
++			/* Measure the unbroken figure, including the caption's actual
++			 * wrapped lines, before assigning the image its page budget. */
++			layout_data measure = *ld;
++			measure.no_pagination = 1;
++			layout_block(tree, ctx, &measure, box);
++			float non_image = measure.used[B] - ld->bounds[T] - image->h;
++			float available = ld->bounds[B] - ld->bounds[T] - non_image;
++			if (available > 0) ld->figure_image_height = available;
++		}
++	}
+ 
+ 	/* If restart is non-NULL, we are running in restartable mode. */
+ 	if (restart)
+@@ -3096,6 +3145,8 @@
+ 		if (SHOULD_STOP_FOR_RESTART(restart))
+ 			return 1;
+ 	}
++
++	ld->figure_image_height = previous_figure_height;
+ 
+ 	return 0;
+ }
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -248,6 +248,7 @@
+ 
+ struct genstate
+ {
++	int is_epub_cover;
+ 	fz_pool *pool;
+ 	fz_html_tree *tree;
+ 	fz_html_font_set *set;
+@@ -1471,6 +1472,12 @@
+ 			local_style.height.unit = strchr(h_att, '%') ? N_PERCENT : N_LENGTH;
+ 		}
+ 
++		if (g->is_epub_cover)
++		{
++			local_style.width = (fz_css_number){ 100, N_PERCENT };
++			local_style.height = (fz_css_number){ 100, N_PERCENT };
++			local_style.svg_aspect = svg_parse_preserve_aspect_ratio(NULL);
++		}
+ 		img = load_html_image(ctx, g->zip, g->base_uri, src);
+ 		gen2_image_common(ctx, g, root_box, node, img, display, &local_style);
+ 	}
+@@ -2348,6 +2355,69 @@
+ 	return s;
+ }
+ 
++/* Only a declared, single-image cover gets reader-controlled page fitting.
++ * Text covers and all ordinary chapters retain their authored layout. */
++static int cover_image(fz_xml *node, fz_xml **image)
++{
++	for (; node; node = fz_xml_next(node))
++	{
++		if (fz_xml_is_tag(node, "img") || fz_xml_is_tag(node, "svg"))
++		{
++			if (*image) return 0;
++			*image = node;
++		}
++		else if (fz_xml_text(node))
++		{
++			const unsigned char *text = (const unsigned char *)fz_xml_text(node);
++			while (*text) if (*text++ > 32) return 0;
++		}
++		else if (!cover_image(fz_xml_down(node), image))
++			return 0;
++	}
++	return 1;
++}
++
++static void cover_targets(fz_context *ctx, fz_xml *node, fz_xml *image, fz_xml *targets)
++{
++	for (; node; node = fz_xml_next(node))
++	{
++		if (node == image) continue;
++		const char *id = fz_xml_att(node, "id");
++		const char *name = fz_xml_is_tag(node, "a") ? fz_xml_att(node, "name") : NULL;
++		if (id || name)
++		{
++			fz_xml *target = fz_dom_create_element(ctx, targets, "a");
++			if (id) fz_dom_add_attribute(ctx, target, "id", id);
++			if (name) fz_dom_add_attribute(ctx, target, "name", name);
++			fz_dom_append_child(ctx, targets, target);
++		}
++		cover_targets(ctx, fz_xml_down(node), image, targets);
++	}
++}
++
++static int normalize_epub_cover(fz_context *ctx, fz_xml *root)
++{
++	fz_xml *body = fz_dom_body(ctx, root), *image = NULL, *node;
++	if (!body || !cover_image(fz_xml_down(body), &image) || !image)
++		return 0;
++	/* Wrapper layout is replaced, but published fragment destinations stay
++	 * addressable on the same cover page. The image retains its own id. */
++	fz_xml *targets = fz_dom_create_element(ctx, root, "span");
++	cover_targets(ctx, fz_xml_down(body), image, targets);
++	fz_dom_remove(ctx, image);
++	while ((node = fz_xml_down(body))) fz_dom_remove(ctx, node);
++	while ((node = fz_xml_down(targets))) fz_dom_append_child(ctx, body, node);
++	fz_dom_append_child(ctx, body, image);
++	fz_dom_remove_attribute(ctx, root, "style");
++	fz_dom_remove_attribute(ctx, body, "style");
++	fz_dom_remove_attribute(ctx, image, "style");
++	fz_dom_remove_attribute(ctx, image, "width");
++	fz_dom_remove_attribute(ctx, image, "height");
++	if (fz_xml_is_tag(image, "svg"))
++		fz_dom_add_attribute(ctx, image, "preserveAspectRatio", "xMidYMid meet");
++	return 1;
++}
++
+ static void
+ xml_to_boxes(fz_context *ctx,
+ 	fz_html_font_set *set,
+@@ -2397,6 +2467,11 @@
+ 		memset(metadata, 0, sizeof(*metadata));
+ 
+ 	root = fz_xml_root(g.xml);
++	if (flavor == FZ_HTML_FLAVOR_EPUB_COVER && normalize_epub_cover(ctx, root))
++	{
++		g.is_epub_cover = 1;
++		publisher_css = g.publisher_css = 0;
++	}
+ 	g.css = fz_new_css(ctx);
+ 
+ #ifndef NDEBUG
+@@ -2438,6 +2513,9 @@
+ 			fz_parse_css(ctx, g.css, user_css, "<user>");
+ 			fz_add_css_font_faces(ctx, g.set, g.zip, ".", g.css, 0);
+ 		}
++		if (g.is_epub_cover)
++			fz_parse_css(ctx, g.css, "@page{margin:0!important}html,body{margin:0!important;padding:0!important}"
++				"img,svg{display:block;width:100%;height:100%;margin:0;padding:0}", "<epub-cover>");
+ 	}
+ 	fz_catch(ctx)
+ 	{
