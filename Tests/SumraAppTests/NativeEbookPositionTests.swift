@@ -100,6 +100,10 @@ final class NativeEbookPositionTests: XCTestCase {
 
     @MainActor
     func testNativeEbookCapturePreserveDiscardAndCloseSaveKeepRendererIndependentPosition() async throws {
+        let defaults = UserDefaults.standard
+        let savedPreference = defaults.object(forKey: "disableReadingState")
+        defaults.set(false, forKey: "disableReadingState")
+        defer { defaults.set(savedPreference, forKey: "disableReadingState") }
         let directory = try TemporaryDirectory(), source = directory.url.appendingPathComponent("document.mobihtml")
         defer { withExtendedLifetime(directory) {} }
         try ("<html><body>" + (0..<80).map { "<p>Saved passage \($0) retains its location across reader mode changes.</p>" }.joined() + "</body></html>")

@@ -37,6 +37,14 @@ literal Unicode, including combining marks and emoji. Automated tests use
 the native `NSTextInputClient` composition/commit APIs. This is distinct from
 physically choosing an input method and its candidates.
 
+Exported PDF text can contain inferred spaces inside shaped words, so some
+whole-word searches still miss even when character order is retained. Corrected
+sample queries found 159 of 179 words in both official 0.2.9 output and the
+0.2.10 local output. This is an existing PDF extraction limitation, not complete
+search acceptance for those scripts; Urdu and several Indic/Southeast Asian
+samples are affected. EPUB sample searches use the actual matches array and
+pass at both tested widths.
+
 Reflowable EPUB CSS vertical writing and ruby are not currently implemented
 by the native reflow engine. The representative Mongolian sample is Cyrillic,
 not traditional vertical Mongolian. An installed font alone does not provide

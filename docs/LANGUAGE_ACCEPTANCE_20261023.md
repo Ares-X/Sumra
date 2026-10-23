@@ -62,6 +62,13 @@ The UI scan found 427 direct literal `L(...)` keys. Simplified Chinese contains
 menu/command labels are outside that scan, so these are mechanical subset
 counts, not overall completion percentages.
 
+Correction on October 24: fresh exports and actual-match queries against the
+verified official 0.2.9 bundle found 159/179 exported-PDF words. The 0.2.10 local
+engine/output had the same 20 misses, involving inferred intra-word spaces.
+The former 179/179 claim is withdrawn. Corrected EPUB queries pass 78/78 in the
+local follow-up. Receipts are in `build/language-fix/`; this is not full-script
+linguistic acceptance.
+
 Raster review caught the Hebrew defect. Reading/export rasters were also
 compared; exact equality is not universal, including for English. This audit
 does not treat different antialiasing or raster phases as glyph corruption.
