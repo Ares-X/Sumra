@@ -125,7 +125,7 @@ struct SettingsView:View{
         ExternalActionSettings().tabItem { Text(L("External")) }
         ReaderToolbarSettings().tabItem { Text(L("Toolbar")) }
         AdvancedSettings().tabItem { Text(L("Advanced")) }
-    }.padding().frame(width: 500, height: 540)
+    }.id(language).padding().frame(width: 500, height: 540)
         .onChange(of: zoomLevels) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: zoomIncrement) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: scrollbarMode) { _ in ReaderPreferences.applyScrollbarDefaults() }
