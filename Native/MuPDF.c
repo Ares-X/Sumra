@@ -1902,18 +1902,20 @@ static fz_search *page_search_first_candidate(fz_context *ctx, const char *needl
 }
 
 API int lf_search_chapter_candidate(void *document, int chapter, const char *needle, int flags,
-                                    int (*cancelled)(void), char *error) {
+                                    int (*cancelled)(void), void *cookie_opaque, char *error) {
     SumraMuPDFDocument *d = document;
+    fz_cookie *cookie = cookie_opaque;
     fz_search *search = NULL;
     int possible = 0;
     fz_var(search); fz_var(possible);
     fz_try(d->ctx) {
+        if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
         fz_search_options options = flags & 1 ? FZ_SEARCH_EXACT : FZ_SEARCH_IGNORE_CASE | FZ_SEARCH_IGNORE_DIACRITICS;
         search = d->doc->layout_h != 0 ? page_search_first_candidate(d->ctx, needle)
             : fz_new_search(d->ctx, needle, options);
         if (!search) possible = 1;
         else if (fz_search_needle_bytes(search))
-            possible = fz_epub_chapter_has_search_candidate(d->ctx, d->doc, chapter, search, cancelled);
+            possible = fz_epub_chapter_has_search_candidate(d->ctx, d->doc, chapter, search, cancelled, cookie);
     }
     fz_always(d->ctx) { fz_drop_search(d->ctx, search); }
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); return -1; }
@@ -1984,7 +1986,7 @@ static char *search_options_on_text(void *document, int chapter, int index, cons
         // A negative flow candidate avoids extracting every glyph of an unseen
         // continuous chapter. Existing cached glyph text is already cheaper.
         if (!fz_search_needle_bytes(search) ||
-            (!window && !d->text_page && !fz_html_page_has_search_candidate(d->ctx, page, search, cancelled))) {
+            (!window && !d->text_page && !fz_html_page_has_search_candidate(d->ctx, page, search, cancelled, cookie))) {
             lf_json(&j, "{\"text\":\"\",\"matches\":[]}");
         } else {
         fz_feed_search(d->ctx, search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, cookie)), 0);
@@ -2007,7 +2009,7 @@ static char *search_options_on_text(void *document, int chapter, int index, cons
             anchor_length = (size_t)(p - needle);
         }
         while (maximum < 0 || emitted < maximum) {
-            if (cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+            if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
             fz_search_result result = backwards || locating ? fz_search_backwards(d->ctx, search) : fz_search_forwards(d->ctx, search);
             int restart = 0;
             if (result.reason == FZ_SEARCH_COMPLETE) {
@@ -2061,7 +2063,7 @@ static char *search_options_on_text(void *document, int chapter, int index, cons
                             fz_feed_search(d->ctx, anchor_search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, cookie)), 0);
                         }
                         while (!anchor_match || anchor_match->begin.ch != result.u.match->begin.ch) {
-                            if (cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+                            if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
                             fz_search_result prefix = fz_search_backwards(d->ctx, anchor_search);
                             if (prefix.reason == FZ_SEARCH_COMPLETE) { anchor_match = NULL; break; }
                             if (prefix.reason == FZ_SEARCH_MORE_INPUT) fz_feed_search(d->ctx, anchor_search, NULL, prefix.u.seq_needed);
@@ -2137,7 +2139,7 @@ API char *lf_search_pages_at(void *document, int chapter, int index, const char 
         fz_page *owner_page = load_render_page(d, chapter, index, cookie);
         if (!d->text_page && fz_is_document_reflowable(d->ctx, d->doc)) {
             candidate = page_search_first_candidate(d->ctx, needle);
-            if (candidate && !fz_html_page_has_search_candidate(d->ctx, owner_page, candidate, cancelled)) {
+            if (candidate && !fz_html_page_has_search_candidate(d->ctx, owner_page, candidate, cancelled, cookie)) {
                 result = strdup("{\"text\":\"\",\"matches\":[]}");
                 if (!result) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate search results");
                 break;
@@ -2156,7 +2158,7 @@ API char *lf_search_pages_at(void *document, int chapter, int index, const char 
         fz_location location = fz_make_location(chapter, index);
         int owner = 1;
         for (;;) {
-            if (cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+            if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
             text_page = stext_at(d, location.chapter, location.page, NULL, cookie);
             fz_try(d->ctx) {
                 buffer = fz_new_buffer_from_flattened_stext_page(d->ctx, text_page, FZ_TEXT_FLATTEN_KEEP_PARAGRAPHS, &map);
@@ -2166,7 +2168,7 @@ API char *lf_search_pages_at(void *document, int chapter, int index, const char 
             fz_stext_line *source_line = NULL;
             int line_number = 0;
             for (const char *p = text; *p; ++serial) {
-                if ((serial & 1023) == 0 && cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+                if ((serial & 1023) == 0 && ((cookie && cookie->abort) || (cancelled && cancelled()))) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
                 int rune; p += fz_chartorune(&rune, p);
                 fz_stext_char *source = map[serial].ch;
                 PageSearchChar *item = fz_pool_alloc(d->ctx, window->pool, sizeof(*item));

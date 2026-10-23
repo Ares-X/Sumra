@@ -102,6 +102,9 @@ final class NativeEbookPositionTests: XCTestCase {
     func testNativeEbookCapturePreserveDiscardAndCloseSaveKeepRendererIndependentPosition() async throws {
         let directory = try TemporaryDirectory(), source = directory.url.appendingPathComponent("document.mobihtml")
         defer { withExtendedLifetime(directory) {} }
+        let defaults = UserDefaults.standard, disabled = defaults.object(forKey: "disableReadingState")
+        defaults.set(false, forKey: "disableReadingState")
+        defer { defaults.set(disabled, forKey: "disableReadingState") }
         try ("<html><body>" + (0..<80).map { "<p>Saved passage \($0) retains its location across reader mode changes.</p>" }.joined() + "</body></html>")
             .write(to: source, atomically: true, encoding: .utf8)
         let pages = try Pages(source, format: .mupdf, deferReflowLayout: true), state = ReaderState()
@@ -125,6 +128,7 @@ final class NativeEbookPositionTests: XCTestCase {
         defer { state.windowClosed(); UserDefaults.standard.removeObject(forKey: key) }
         state.updatePosition(.init(page: original.page, x: 40, y: 80))
         state.persist() // Save before the debounced source lookup can finish.
+        _ = try XCTUnwrap(defaults.data(forKey: key), "Persist must immediately save the position before its asynchronous passage lookup")
         let deadline = Date().addingTimeInterval(5)
         var saved: ReadingPosition?
         repeat {

@@ -29,9 +29,18 @@ UserUnit, mixed page sizes, unread-page saves, signatures, journal behavior and
 multi-select field parent/sibling ownership. They do not replace real complex
 samples. These four public documents are a limited addition to the historical
 [book corpus](BOOK_CORPUS_ACCEPTANCE.md), not proof of fidelity for every PDF,
-form script, external reader or printer. MuPDF's multi-value choice setter does
-not dispatch scalar keystroke/validation events. Dependent calculations now run
-on page update, and scripts reading `Field.value` receive multiple selected
-exports as an array of strings. The [follow-up](READER_FOLLOWUP_20261024.md)
-records calculation/undo/save/reopen coverage; array assignment from scripts and
-complete multi-select event APIs are not claimed.
+form script, external reader or printer. The shared MuPDF choice setter now
+handles GUI option indices, script export arrays, commit keystroke/validation
+rejection and dependent calculations. `Field.value` and `currentValueIndices`
+retain export and row identity through undo/save/reopen, including duplicate
+exports. The [goal receipt](READER_GOAL_20261024.md) records the focused event,
+index, exception and native-editor coverage and its remaining gesture/API limits.
+Complete AcroForm compatibility is not claimed.
+
+For duplicate-export choice labels and list scrolling, the generated fixture also
+exposed a PDFKit consumer limitation: its normal Widget redraw uses its own UI
+and ignores the saved `/I`, `/TI` and selection appearance in that sample. The
+saved Form XObjects are inspected and rendered independently with CoreGraphics,
+including their original font resources. This verifies Sumra's saved appearance;
+PDFKit's custom Widget UI is not accepted as visually identical. See the
+[goal receipt](READER_GOAL_20261024.md).

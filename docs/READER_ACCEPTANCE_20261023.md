@@ -1,5 +1,9 @@
 # Reader batch acceptance status — 2026-10-23
 
+The [goal completion follow-up](READER_GOAL_20261024.md) supersedes the search,
+choice-field event/index, first authentication and accessibility limitations
+recorded below; earlier measurements remain historical observations.
+
 This record distinguishes source implementation, observed behavior, and scenarios
 that remain unavailable or unexercised. It describes the isolated reader branch,
 not publication or acceptance of every possible document variant.

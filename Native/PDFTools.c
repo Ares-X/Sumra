@@ -2330,20 +2330,28 @@ API int lf_pdf_live_widget_value(void *opaque, int page_number, int object_numbe
     pdf_update_page(ctx, page); pdf_update_open_pages(ctx, doc);
     LIVE_ANNOT_END
 }
-// Unlike the scalar setter, MuPDF's array setter does not dispatch scalar field
-// keystroke/validation events. Its normal calculation owner runs on page update.
 API int lf_pdf_live_widget_values(void *opaque, int page_number, int object_number, int count, const char **values, char *error) {
     LIVE_ANNOT_BEGIN(FZ_PERMISSION_FORM, "Fill form field")
     if (pdf_widget_is_readonly(ctx, annot)) fz_throw(ctx, FZ_ERROR_ARGUMENT, "This form field is read-only");
     if (!pdf_choice_widget_is_multiselect(ctx, annot))
         fz_throw(ctx, FZ_ERROR_ARGUMENT, "This form field does not accept multiple selections");
-    // The upstream array setter addresses annot->obj directly. Select the
-    // named field owner, just as its scalar update_field_value does, so /Kids
-    // widgets continue sharing one authoritative value.
-    pdf_annot field = *annot;
-    pdf_obj *owner = field_attribute_owner(ctx, annot->obj, PDF_NAME(T));
-    if (owner) field.obj = owner;
-    pdf_choice_widget_set_value(ctx, &field, count, values);
+    pdf_choice_widget_set_value(ctx, annot, count, values);
+    pdf_update_page(ctx, page); pdf_update_open_pages(ctx, doc);
+    LIVE_ANNOT_END
+}
+API int lf_pdf_live_widget_indices(void *opaque, int page_number, int object_number, int count, const int *indices, char *error) {
+    LIVE_ANNOT_BEGIN(FZ_PERMISSION_FORM, "Fill form field")
+    if (pdf_widget_is_readonly(ctx, annot)) fz_throw(ctx, FZ_ERROR_ARGUMENT, "This form field is read-only");
+    pdf_obj *selection = NULL; fz_var(selection);
+    // Field values belong to the document xref; local xrefs hold temporary appearances.
+    fz_try(ctx) {
+        selection = pdf_new_array(ctx, doc, count);
+        for (int i = 0; i < count; ++i) pdf_array_push_int(ctx, selection, indices[i]);
+        if (!pdf_set_choice_field_values(ctx, doc, annot->obj, selection, 1, annot->ignore_trigger_events, 1))
+            fz_throw(ctx, FZ_ERROR_ARGUMENT, "The form's validation rejected this value");
+    }
+    fz_always(ctx) { pdf_drop_obj(ctx, selection); }
+    fz_catch(ctx) { fz_rethrow(ctx); }
     pdf_update_page(ctx, page); pdf_update_open_pages(ctx, doc);
     LIVE_ANNOT_END
 }
@@ -2500,7 +2508,8 @@ static void live_json_annotation(fz_context *ctx, SumraJSON *json, pdf_annot *an
     }
     lf_json(json, "]");
     if (kind == PDF_ANNOT_WIDGET) {
-        char *name = NULL; const char **selected = NULL; fz_var(name); fz_var(selected);
+        char *name = NULL; const char **selected = NULL; int *selected_indices = NULL;
+        fz_var(name); fz_var(selected); fz_var(selected_indices);
         fz_try(ctx) {
             name = pdf_load_field_name(ctx, object);
             lf_json(json, ",\"fieldName\":"); lf_json_string(json, name);
@@ -2523,6 +2532,14 @@ static void live_json_annotation(fz_context *ctx, SumraJSON *json, pdf_annot *an
                     if (i) lf_json(json, ","); lf_json_string(json, selected[i]);
                 }
                 lf_json(json, "]");
+                count = pdf_choice_field_value_indices(ctx, object, NULL);
+                selected_indices = fz_malloc_array(ctx, count, int);
+                pdf_choice_field_value_indices(ctx, object, selected_indices);
+                lf_json(json, ",\"selectedIndices\":[");
+                for (int i = 0; i < count; ++i) {
+                    if (i) lf_json(json, ","); lf_json_number(json, selected_indices[i]);
+                }
+                lf_json(json, "]");
             }
             lf_json(json, ",\"readOnly\":"); lf_json(json, pdf_widget_is_readonly(ctx, annot) ? "true" : "false");
             lf_json(json, ",\"maxLength\":"); lf_json_number(json, pdf_widget_type(ctx, annot) == PDF_WIDGET_TYPE_TEXT ? pdf_text_widget_max_len(ctx, annot) : 0);
@@ -2533,7 +2550,7 @@ static void live_json_annotation(fz_context *ctx, SumraJSON *json, pdf_annot *an
             }
             lf_json(json, "]");
         }
-        fz_always(ctx) { fz_free(ctx, name); fz_free(ctx, selected); }
+        fz_always(ctx) { fz_free(ctx, name); fz_free(ctx, selected); fz_free(ctx, selected_indices); }
         fz_catch(ctx) { fz_rethrow(ctx); }
     }
     lf_json(json, "}");

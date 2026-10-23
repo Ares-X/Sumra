@@ -77,6 +77,10 @@ API char *lf_search_options_at(void *document, int chapter, int page, const char
 // page in the current contiguous range, or -1 for the rest of the document.
 API char *lf_search_pages_at(void *document, int chapter, int page, const char *needle, int flags,
     int64_t after, int64_t maximum, int64_t last_page, int (*cancelled)(void), void *cookie, char *error);
+// Parsed EPUB/CSS candidate before layout. The optional request cookie uses
+// the same cancellation owner as page search, without a callback per flow node.
+API int lf_search_chapter_candidate(void *document, int chapter, const char *needle, int flags,
+    int (*cancelled)(void), void *cookie, char *error);
 // Markdown-only document search. flags retain bits 1/2/4 above; bit 8 counts
 // from the document start; bit 16 includes the source cursor's occurrence.
 // The optional cursor is a source anchor from a prior result. allowed_bits is

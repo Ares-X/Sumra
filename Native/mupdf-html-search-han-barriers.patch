@@ -1,0 +1,43 @@
+--- a/source/fitz/stext-search.c
++++ b/source/fitz/stext-search.c
+@@ -1476,8 +1476,8 @@
+  }
+ }
+ 
+-/* Like the authored-source search, this candidate feeds Fitz its own stext
+- * chunks. Removing characters outside the needle only broadens possible hits. */
++/* The laid-out natural-page candidate feeds Fitz its own stext chunks.
++ * Drop non-Han conservatively; unrelated Han remain necessary barriers. */
+ struct fz_search_character_candidate
+ {
+  const fz_search *normalizer;
+@@ -1591,13 +1591,22 @@
+   for (const char *p = normalized; *p && !candidate->found; )
+   {
+    p += fz_chartorune(&rune, p);
+-   for (size_t i = 0; i < candidate->count; ++i)
+-    if (candidate->characters[i] == rune)
+-    {
+-     if (candidate->last_projected != rune) append_character_candidate(ctx, candidate, rune);
+-     candidate->last_projected = rune;
+-     break;
+-    }
++   size_t i;
++   for (i = 0; i < candidate->count; ++i)
++    if (candidate->characters[i] == rune) break;
++   if (i < candidate->count)
++   {
++    if (candidate->last_projected != rune) append_character_candidate(ctx, candidate, rune);
++    candidate->last_projected = rune;
++   }
++   else if (rune >= 0x3400 && rune <= 0x9fff)
++   {
++    /* The laid-out, visible LTR walk emits these Han into default stext.
++     * Different Han cannot disappear as overprint duplicates. Keep one per
++     * unrelated run so removing it cannot invent a needle across the gap. */
++    if (candidate->last_projected != -1) append_character_candidate(ctx, candidate, rune);
++    candidate->last_projected = -1;
++   }
+   }
+  }
+  return candidate->found;

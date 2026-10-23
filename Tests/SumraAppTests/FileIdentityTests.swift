@@ -243,8 +243,9 @@ final class FileIdentityTests: XCTestCase {
         if let square { state.nativePDFSelection = .annotation(page: 0, square) }
         let host = NSView(frame: CGRect(x: 0, y: 0, width: 240, height: 320))
         let editor = NativePDFFormEditor(widget: widget, host: host, frame: CGRect(x: 10, y: 10, width: 220, height: 30),
-            commitValue: { values in
-                try await pages.pdfSetWidgetValue(page: 0, id: widget.id, value: values.first ?? "")
+            commitValue: { input in
+                guard case .text(let value) = input else { XCTFail("Expected text field input"); return }
+                try await pages.pdfSetWidgetValue(page: 0, id: widget.id, value: value)
                 try await state.nativePDFDidChange(pages)
             }, didClose: { state.nativePDFFormEditor = nil; state.nativePDFFormPage = nil },
             advance: { _ in }, failure: { XCTFail("\($0)") })

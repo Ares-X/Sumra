@@ -48,6 +48,7 @@ struct PDFAnnotationSnapshot: Decodable, Identifiable, Equatable, Sendable {
     let options: [Choice]?
     var isSigned: Bool? = nil
     var selectedValues: [String]? = nil
+    var selectedIndices: [Int]? = nil
     var isMultiSelectChoice: Bool { fieldType == 4 && (fieldFlags ?? 0) & (1 << 21) != 0 }
     var bounds: CGRect { CGRect(raster: rect) }
     var copyBounds: CGRect { designRect.map { CGRect(raster: $0) } ?? bounds }
@@ -446,6 +447,15 @@ extension NativeFile {
         defer { strings.forEach { free($0) } }
         let pointers = strings.map { Optional(UnsafePointer($0)) }
         try pdfCall("lf_pdf_live_widget_values", Set.self) { $0(document, Int32(page), id, Int32(values.count), pointers, &$1) }
+    }
+
+    func pdfSetWidgetIndices(page: Int, id: Int32, indices: [Int]) throws {
+        defer { invalidatePDFCaches() }
+        typealias Set = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, Int32, UnsafePointer<Int32>?, UnsafeMutablePointer<CChar>) -> Int32
+        let selected = indices.map(Int32.init)
+        try pdfCall("lf_pdf_live_widget_indices", Set.self) { set, error in
+            selected.withUnsafeBufferPointer { set(document, Int32(page), id, Int32(selected.count), $0.baseAddress, &error) }
+        }
     }
 
     func pdfToggleWidget(page: Int, id: Int32) throws {

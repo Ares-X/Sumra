@@ -1,16 +1,236 @@
+--- a/include/mupdf/pdf/form.h
++++ b/include/mupdf/pdf/form.h
+@@ -111,6 +111,13 @@
+ 	array of their names
+ */
+ void pdf_choice_widget_set_value(fz_context *ctx, pdf_annot *tw, int n, const char *opts[]);
++
++/* Replace a choice selection with export strings or option indices.
++ * GUI bulk replacements request the commit keystroke; script assignments validate. */
++int pdf_set_choice_field_values(fz_context *ctx, pdf_document *doc, pdf_obj *field, pdf_obj *values, int indices, int ignore_trigger_events, int keystroke);
++
++/* Return selected option indices in option order. Pass NULL to query count. */
++int pdf_choice_field_value_indices(fz_context *ctx, pdf_obj *field, int *indices);
+ 
+ int pdf_choice_field_option_count(fz_context *ctx, pdf_obj *field);
+ const char *pdf_choice_field_option(fz_context *ctx, pdf_obj *field, int exportval, int i);
 --- a/source/pdf/pdf-form.c
 +++ b/source/pdf/pdf-form.c
-@@ -1401,6 +1401,7 @@
- 		pdf_dict_del(ctx, annot->obj, PDF_NAME(I));
+@@ -159,6 +159,8 @@
+ 		return;
  
- 		pdf_field_mark_dirty(ctx, annot->obj);
-+		annot->page->doc->recalculate = 1;
+ 	pdf_dict_put_text_string(ctx, obj, PDF_NAME(V), text);
++	if (pdf_field_type(ctx, obj) == PDF_WIDGET_TYPE_LISTBOX || pdf_field_type(ctx, obj) == PDF_WIDGET_TYPE_COMBOBOX)
++		pdf_dict_del(ctx, obj, PDF_NAME(I));
+ 
+ 	pdf_field_mark_dirty(ctx, obj);
+ }
+@@ -254,6 +256,9 @@
+ 		pdf_dict_put(ctx, field, PDF_NAME(V), dv);
+ 	else
+ 		pdf_dict_del(ctx, field, PDF_NAME(V));
++
++	if (pdf_field_type(ctx, field) == PDF_WIDGET_TYPE_LISTBOX || pdf_field_type(ctx, field) == PDF_WIDGET_TYPE_COMBOBOX)
++		pdf_dict_del(ctx, field, PDF_NAME(I));
+ 
+ 	if (kids == NULL)
+ 	{
+@@ -1322,6 +1327,45 @@
+ 		return pdf_to_text_string(ctx, ent);
+ }
+ 
++int pdf_choice_field_value_indices(fz_context *ctx, pdf_obj *field, int *indices)
++{
++	pdf_obj *selected = pdf_dict_get_inheritable(ctx, field, PDF_NAME(I));
++	pdf_obj *value = pdf_dict_get_inheritable(ctx, field, PDF_NAME(V));
++	int count = pdf_is_array(ctx, value) ? pdf_array_len(ctx, value) : (pdf_is_string(ctx, value) ? 1 : 0);
++	int options = pdf_choice_field_option_count(ctx, field), at = 0;
++
++	if (count == 0)
++		return 0;
++	for (int i = 0; i < options; ++i)
++	{
++		int match = 0;
++		if (pdf_is_array(ctx, selected))
++		{
++			for (int j = 0, n = pdf_array_len(ctx, selected); j < n; ++j)
++				if (pdf_array_get_int(ctx, selected, j) == i)
++					match = 1;
++		}
++		else
++		{
++			for (int j = 0; j < count; ++j)
++			{
++				const char *v = pdf_is_array(ctx, value) ? pdf_array_get_text_string(ctx, value, j) : pdf_to_text_string(ctx, value);
++				if (!strcmp(v, pdf_choice_field_option(ctx, field, 1, i)))
++					match = 1;
++			}
++		}
++		if (match)
++		{
++			if (indices)
++				indices[at] = i;
++			++at;
++			if (count == 1)
++				break;
++		}
++	}
++	return at;
++}
++
+ int pdf_choice_widget_is_multiselect(fz_context *ctx, pdf_annot *tw)
+ {
+ 	pdf_annot *annot = (pdf_annot *)tw;
+@@ -1371,42 +1415,120 @@
+ 	}
+ }
+ 
+-void pdf_choice_widget_set_value(fz_context *ctx, pdf_annot *tw, int n, const char *opts[])
+-{
+-	pdf_annot *annot = (pdf_annot *)tw;
+-	pdf_obj *optarr = NULL;
+-	int i;
+-
++int pdf_set_choice_field_values(fz_context *ctx, pdf_document *doc, pdf_obj *field, pdf_obj *input, int indices, int ignore_trigger_events, int keystroke)
++{
++	pdf_obj *owner = find_head_of_field_group(ctx, field);
++	pdf_obj *values = NULL, *selected = NULL;
++	char *validated = NULL;
++	pdf_keystroke_event evt = { 0 };
++	int count = pdf_array_len(ctx, input), options, accepted = 1;
++	int type = pdf_field_type(ctx, field);
++
++	if (type != PDF_WIDGET_TYPE_LISTBOX && type != PDF_WIDGET_TYPE_COMBOBOX)
++		fz_throw(ctx, FZ_ERROR_ARGUMENT, "This field is not a choice field");
++	if (count > 1 && (type != PDF_WIDGET_TYPE_LISTBOX || !(pdf_field_flags(ctx, field) & PDF_CH_FIELD_IS_MULTI_SELECT)))
++		fz_throw(ctx, FZ_ERROR_ARGUMENT, "This field does not accept multiple selections");
++	if (owner)
++		field = owner;
++	options = pdf_choice_field_option_count(ctx, field);
++	fz_var(values);
++	fz_var(selected);
++	fz_var(validated);
++	fz_var(accepted);
++	fz_var(evt);
++	fz_try(ctx)
++	{
++		values = pdf_new_array(ctx, doc, count);
++		selected = pdf_new_array(ctx, doc, count);
++		/* One ordered selection owns both /V and /I, including duplicate exports. */
++		for (int j = 0; j < count; ++j)
++		{
++			int found = 0, index = pdf_array_get_int(ctx, input, j);
++			const char *value = pdf_array_get_text_string(ctx, input, j);
++			if (indices && index == -1 && count == 1)
++				continue;
++			for (int i = 0; i < options; ++i)
++				if (indices ? i == index : !strcmp(value, pdf_choice_field_option(ctx, field, 1, i)))
++				{
++					found = 1;
++					break;
++				}
++			if (!found)
++				fz_throw(ctx, FZ_ERROR_ARGUMENT, "Choice selection is not an offered option");
++		}
++		for (int i = 0; i < options; ++i)
++			for (int j = 0; j < count; ++j)
++				if (indices ? pdf_array_get_int(ctx, input, j) == i : !strcmp(pdf_array_get_text_string(ctx, input, j), pdf_choice_field_option(ctx, field, 1, i)))
++				{
++					pdf_array_push_text_string(ctx, values, pdf_choice_field_option(ctx, field, 1, i));
++					pdf_array_push_int(ctx, selected, i);
++					break;
++				}
++		count = pdf_array_len(ctx, values);
++		/* Acrobat exposes no array through event.value. A bulk replacement
++		 * has no individual selection gesture from which to derive changeEx. */
++		if (!ignore_trigger_events && keystroke)
++		{
++			evt.value = count == 1 ? pdf_array_get_text_string(ctx, values, 0) : "";
++			evt.change = "";
++			evt.selStart = evt.selEnd = -1;
++			evt.willCommit = 1;
++			accepted = pdf_field_event_keystroke(ctx, doc, field, &evt);
++		}
++		if (accepted && !ignore_trigger_events)
++			accepted = pdf_field_event_validate(ctx, doc, field, count == 1 ? (keystroke && evt.newValue ? evt.newValue : pdf_array_get_text_string(ctx, values, 0)) : "", &validated);
++		if (accepted)
++		{
++			/* Multi-value event.value is read-only; a scalar validation may
++			 * still replace its single export, as in the scalar field API. */
++			if (count == 1 && validated && strcmp(validated, pdf_array_get_text_string(ctx, values, 0)))
++			{
++				pdf_dict_put_text_string(ctx, field, PDF_NAME(V), validated);
++				pdf_dict_del(ctx, field, PDF_NAME(I));
++			}
++			else
++			{
++				pdf_dict_put(ctx, field, PDF_NAME(V), count == 1 ? pdf_array_get(ctx, values, 0) : values);
++				pdf_dict_put(ctx, field, PDF_NAME(I), selected);
++			}
++			pdf_field_mark_dirty(ctx, field);
++			doc->recalculate = 1;
++		}
++	}
++	fz_always(ctx)
++	{
++		pdf_drop_obj(ctx, values);
++		pdf_drop_obj(ctx, selected);
++		fz_free(ctx, validated);
++		fz_free(ctx, evt.newValue);
++		fz_free(ctx, evt.newChange);
++	}
++	fz_catch(ctx)
++		fz_rethrow(ctx);
++	return accepted;
++}
++
++void pdf_choice_widget_set_value(fz_context *ctx, pdf_annot *annot, int n, const char *opts[])
++{
++	pdf_obj *values = NULL;
+ 	if (!annot)
+ 		return;
+-
+ 	begin_annot_op(ctx, annot, "Set choice");
+-
+-	fz_var(optarr);
++	fz_var(values);
+ 	fz_try(ctx)
+ 	{
+-		if (n != 1)
+-		{
+-			optarr = pdf_new_array(ctx, annot->page->doc, n);
+-
+-			for (i = 0; i < n; i++)
+-				pdf_array_push_text_string(ctx, optarr, opts[i]);
+-
+-			pdf_dict_put_drop(ctx, annot->obj, PDF_NAME(V), optarr);
+-		}
+-		else
+-			pdf_dict_put_text_string(ctx, annot->obj, PDF_NAME(V), opts[0]);
+-
+-		/* FIXME: when n > 1, we should be regenerating the indexes */
+-		pdf_dict_del(ctx, annot->obj, PDF_NAME(I));
+-
+-		pdf_field_mark_dirty(ctx, annot->obj);
++		values = pdf_new_array(ctx, annot->page->doc, n);
++		for (int i = 0; i < n; ++i)
++			pdf_array_push_text_string(ctx, values, opts[i]);
++		if (!pdf_set_choice_field_values(ctx, annot->page->doc, annot->obj, values, 0, annot->ignore_trigger_events, 1))
++			fz_throw(ctx, FZ_ERROR_ARGUMENT, "The form's validation rejected this value");
  		end_annot_op(ctx, annot);
  	}
++	fz_always(ctx)
++		pdf_drop_obj(ctx, values);
  	fz_catch(ctx)
+ 	{
+ 		abandon_annot_op(ctx, annot);
+-		pdf_drop_obj(ctx, optarr);
+ 		fz_rethrow(ctx);
+ 	}
+ }
 --- a/source/pdf/pdf-js.c
 +++ b/source/pdf/pdf-js.c
-@@ -342,20 +342,46 @@
+@@ -342,32 +342,162 @@
  {
  	pdf_js *js = js_getcontext(J);
  	pdf_obj *field = js_touserdata(J, 0, "Field");
@@ -62,6 +282,405 @@
 +		else
 +			js_pushstring(J, str);
 +	}
++}
++
++/* Convert JS entries before entering Fitz exception scopes. Getters and
++ * toString may throw, so keep the PDF array under a MuJS cleanup scope. */
++static pdf_obj *field_selection_input(js_State *J, int indices)
++{
++	pdf_js *js = js_getcontext(J);
++	pdf_obj *values = NULL;
++	int array = js_isarray(J, 1);
++	int n = array ? js_getlength(J, 1) : 1;
++	fz_try(js->ctx)
++		values = pdf_new_array(js->ctx, js->doc, n);
++	fz_catch(js->ctx)
++		rethrow(js);
++	if (js_try(J))
++	{
++		pdf_drop_obj(js->ctx, values);
++		js_throw(J);
++	}
++	for (int i = 0; i < n; ++i)
++	{
++		const char *text = NULL;
++		int index = 0;
++		if (array)
++			js_getindex(J, 1, i);
++		else
++			js_copy(J, 1);
++		if (indices)
++			index = js_tointeger(J, -1);
++		else
++			text = js_tostring(J, -1);
++		fz_try(js->ctx)
++		{
++			if (indices)
++				pdf_array_push_int(js->ctx, values, index);
++			else
++				pdf_array_push_text_string(js->ctx, values, text);
++		}
++		fz_catch(js->ctx)
++			rethrow(js);
++		js_pop(J, 1);
++	}
++	js_endtry(J);
++	return values;
++}
++
++static void field_setSelection(js_State *J, int indices)
++{
++	pdf_js *js = js_getcontext(J);
++	pdf_obj *field = js_touserdata(J, 0, "Field");
++	pdf_obj *values = field_selection_input(J, indices);
++	fz_try(js->ctx)
++		(void)pdf_set_choice_field_values(js->ctx, js->doc, field, values, indices, 0, 0);
++	fz_always(js->ctx)
++		pdf_drop_obj(js->ctx, values);
++	fz_catch(js->ctx)
++		rethrow(js);
  }
  
  static void field_setValue(js_State *J)
+ {
+ 	pdf_js *js = js_getcontext(J);
+ 	pdf_obj *field = js_touserdata(J, 0, "Field");
+-	const char *value = js_tostring(J, 1);
+-
++	const char *value;
++	if (js_isarray(J, 1))
++	{
++		field_setSelection(J, 0);
++		return;
++	}
++	value = js_tostring(J, 1);
+ 	fz_try(js->ctx)
+ 		(void)pdf_set_field_value(js->ctx, js->doc, field, value, 0);
+ 	fz_catch(js->ctx)
+ 		rethrow(js);
++}
++
++static void field_getCurrentValueIndices(js_State *J)
++{
++	pdf_js *js = js_getcontext(J);
++	pdf_obj *field = js_touserdata(J, 0, "Field");
++	int *selected = NULL, count = 0;
++	fz_var(selected);
++	fz_try(js->ctx)
++	{
++		count = pdf_choice_field_value_indices(js->ctx, field, NULL);
++		selected = fz_malloc_array(js->ctx, count, int);
++		pdf_choice_field_value_indices(js->ctx, field, selected);
++	}
++	fz_catch(js->ctx)
++	{
++		fz_free(js->ctx, selected);
++		rethrow(js);
++	}
++	if (js_try(J))
++	{
++		fz_free(js->ctx, selected);
++		js_throw(J);
++	}
++	if (count <= 1)
++		js_pushnumber(J, count == 1 ? selected[0] : -1);
++	else
++	{
++		js_newarray(J);
++		for (int i = 0; i < count; ++i)
++		{
++			js_pushnumber(J, selected[i]);
++			js_setindex(J, -2, i);
++		}
++	}
++	js_endtry(J);
++	fz_free(js->ctx, selected);
++}
++
++static void field_setCurrentValueIndices(js_State *J)
++{
++	field_setSelection(J, 1);
+ }
+ 
+ static void field_getType(js_State *J)
+@@ -940,6 +1070,7 @@
+ 	js_newobject(J);
+ 	{
+ 		addproperty(J, "Field.value", field_getValue, field_setValue);
++		addproperty(J, "Field.currentValueIndices", field_getCurrentValueIndices, field_setCurrentValueIndices);
+ 		addproperty(J, "Field.type", field_getType, field_setType);
+ 		addproperty(J, "Field.borderStyle", field_getBorderStyle, field_setBorderStyle);
+ 		addproperty(J, "Field.textColor", field_getTextColor, field_setTextColor);
+@@ -1128,10 +1259,26 @@
+ 	}
+ }
+ 
++static void event_allocation_error(pdf_js *js)
++{
++	fz_try(js->ctx)
++		fz_throw(js->ctx, FZ_ERROR_GENERIC, "form event: %s", js_trystring(js->imp, -1, "JavaScript exception"));
++	fz_always(js->ctx)
++		js_pop(js->imp, 1);
++	fz_catch(js->ctx)
++		fz_rethrow(js->ctx);
++}
++
+ void pdf_js_event_init(pdf_js *js, pdf_obj *target, const char *value, int willCommit)
+ {
+ 	if (js)
+ 	{
++		pdf_obj *volatile kept = NULL;
++		if (js_try(js->imp))
++		{
++			pdf_drop_obj(js->ctx, kept);
++			event_allocation_error(js);
++		}
+ 		js_getglobal(js->imp, "event");
+ 		{
+ 			js_pushboolean(js->imp, 1);
+@@ -1141,13 +1288,16 @@
+ 			js_setproperty(js->imp, -2, "willCommit");
+ 
+ 			js_getregistry(js->imp, "Field");
+-			js_newuserdata(js->imp, "Field", pdf_keep_obj(js->ctx, target), field_finalize);
++			kept = pdf_keep_obj(js->ctx, target);
++			js_newuserdata(js->imp, "Field", kept, field_finalize);
++			kept = NULL;
+ 			js_setproperty(js->imp, -2, "target");
+ 
+ 			js_pushstring(js->imp, value);
+ 			js_setproperty(js->imp, -2, "value");
+ 		}
+ 		js_pop(js->imp, 1);
++		js_endtry(js->imp);
+ 	}
+ }
+ 
+@@ -1189,9 +1339,19 @@
+ {
+ 	if (js)
+ 	{
++		int choice = pdf_field_type(js->ctx, target) == PDF_WIDGET_TYPE_LISTBOX || pdf_field_type(js->ctx, target) == PDF_WIDGET_TYPE_COMBOBOX;
+ 		pdf_js_event_init(js, target, evt->value, evt->willCommit);
++		if (js_try(js->imp))
++			event_allocation_error(js);
+ 		js_getglobal(js->imp, "event");
+ 		{
++			if (choice && evt->willCommit)
++			{
++				js_pushstring(js->imp, "");
++				js_setproperty(js->imp, -2, "changeEx");
++			}
++			else
++				js_delproperty(js->imp, -1, "changeEx");
+ 			js_pushstring(js->imp, evt->change);
+ 			js_setproperty(js->imp, -2, "change");
+ 			js_pushnumber(js->imp, evt->selStart);
+@@ -1200,6 +1360,7 @@
+ 			js_setproperty(js->imp, -2, "selEnd");
+ 		}
+ 		js_pop(js->imp, 1);
++		js_endtry(js->imp);
+ 	}
+ }
+ 
+--- a/source/pdf/pdf-appearance.c
++++ b/source/pdf/pdf-appearance.c
+@@ -2131,7 +2131,9 @@
+ 	{
+ 		if (!*res)
+ 			*res = pdf_new_dict(ctx, annot->page->doc, 1);
+-		res_font = pdf_dict_put_dict(ctx, *res, PDF_NAME(Font), 1);
++		res_font = pdf_dict_get(ctx, *res, PDF_NAME(Font));
++		if (!res_font)
++			res_font = pdf_dict_put_dict(ctx, *res, PDF_NAME(Font), 1);
+ 		add_required_fonts(ctx, annot->page->doc, res_font, lang, font, fontname, text);
+ 
+ 		if (size == 0)
+@@ -2726,28 +2728,14 @@
+ 	*bbox = *rect;
+ }
+ 
+-static void
+-pdf_write_tx_widget_appearance(fz_context *ctx, pdf_annot *annot, fz_buffer *buf,
+-	const fz_rect *rect, fz_rect *bbox, fz_matrix *matrix, pdf_obj **res,
+-	const char *text, int ff)
+-{
+-	fz_text_language lang;
+-	const char *font;
+-	float size, color[4];
++static float
++pdf_write_widget_background(fz_context *ctx, pdf_annot *annot, fz_buffer *buf,
++	const fz_rect *rect, fz_rect *bbox, fz_matrix *matrix, int *has_bc)
++{
+ 	float w, h, t, b;
+-	int has_bc = 0;
+-	int q, r, n;
+-
+-#if FZ_ENABLE_HTML_ENGINE
+-	const char *rc, *ds;
+-	char *free_rc = NULL;
+-	char ds_buf[400];
+-#endif
+-
++	int r;
++	*has_bc = 0;
+ 	r = pdf_dict_get_int(ctx, pdf_dict_get(ctx, annot->obj, PDF_NAME(MK)), PDF_NAME(R));
+-	q = pdf_annot_quadding(ctx, annot);
+-	pdf_annot_default_appearance(ctx, annot, &font, &size, &n, color);
+-	lang = pdf_annot_language(ctx, annot);
+ 
+ 	w = rect->x1 - rect->x0;
+ 	h = rect->y1 - rect->y0;
+@@ -2766,10 +2754,37 @@
+ 	if (b > 0 && pdf_write_MK_BC_appearance(ctx, annot, buf))
+ 	{
+ 		fz_append_printf(ctx, buf, "%g %g %g %g re\ns\n", b/2, b/2, w-b, h-b);
+-		has_bc = 1;
++		*has_bc = 1;
+ 	}
+ 
+ 	fz_append_printf(ctx, buf, "%g %g %g %g re\nW\nn\n", b, b, w-b*2, h-b*2);
++	return b;
++}
++
++static void
++pdf_write_tx_widget_appearance(fz_context *ctx, pdf_annot *annot, fz_buffer *buf,
++	const fz_rect *rect, fz_rect *bbox, fz_matrix *matrix, pdf_obj **res,
++	const char *text, int ff)
++{
++	fz_text_language lang;
++	const char *font;
++	float size, color[4];
++	float w, h, b;
++	int has_bc = 0;
++	int q, n;
++
++#if FZ_ENABLE_HTML_ENGINE
++	const char *rc, *ds;
++	char *free_rc = NULL;
++	char ds_buf[400];
++#endif
++
++	q = pdf_annot_quadding(ctx, annot);
++	pdf_annot_default_appearance(ctx, annot, &font, &size, &n, color);
++	lang = pdf_annot_language(ctx, annot);
++	b = pdf_write_widget_background(ctx, annot, buf, rect, bbox, matrix, &has_bc);
++	w = bbox->x1;
++	h = bbox->y1;
+ 
+ #if FZ_ENABLE_HTML_ENGINE
+ 	ds = pdf_dict_get_text_string_opt(ctx, annot->obj, PDF_NAME(DS));
+@@ -2901,53 +2916,67 @@
+ 	const fz_rect *rect, fz_rect *bbox, fz_matrix *matrix, pdf_obj **res)
+ {
+ 	int ff = pdf_field_flags(ctx, annot->obj);
+-	if (ff & PDF_CH_FIELD_IS_COMBO)
+-	{
+-		const char *value = pdf_field_value(ctx, annot->obj);
+-		const char *display = value;
+-		int i, n = pdf_choice_field_option_count(ctx, annot->obj);
+-		for (i = 0; value && i < n; ++i)
+-		{
+-			const char *export = pdf_choice_field_option(ctx, annot->obj, 1, i);
+-			if (export && !strcmp(value, export))
++	int *selected = NULL;
++	int count = pdf_choice_field_value_indices(ctx, annot->obj, NULL);
++	fz_var(selected);
++	fz_try(ctx)
++	{
++		selected = fz_malloc_array(ctx, count, int);
++		pdf_choice_field_value_indices(ctx, annot->obj, selected);
++		if (ff & PDF_CH_FIELD_IS_COMBO)
++		{
++			const char *display = count ? pdf_choice_field_option(ctx, annot->obj, 0, selected[0]) : pdf_field_value(ctx, annot->obj);
++			/* TODO: Pop-down arrow */
++			pdf_write_tx_widget_appearance(ctx, annot, buf, rect, bbox, matrix, res, display, 0);
++		}
++		else
++		{
++			const char *font;
++			float size, color[4], white[] = { 1, 1, 1 };
++			float b, w, h, padding, lineheight;
++			int n, has_bc, at = 0;
++			int top = pdf_dict_get_inheritable_int(ctx, annot->obj, PDF_NAME(TI));
++			int options = pdf_choice_field_option_count(ctx, annot->obj);
++			int q = pdf_annot_quadding(ctx, annot);
++			fz_text_language lang = pdf_annot_language(ctx, annot);
++			pdf_annot_default_appearance(ctx, annot, &font, &size, &n, color);
++			if (size == 0)
++				size = 12;
++			lineheight = size * 1.116f;
++			b = pdf_write_widget_background(ctx, annot, buf, rect, bbox, matrix, &has_bc);
++			w = bbox->x1;
++			h = bbox->y1;
++			padding = b * 2;
++			if (top < 0)
++				top = 0;
++			while (at < count && selected[at] < top)
++				++at;
++			/* TODO: Scrollbar. /TI already identifies the first visible row. */
++			for (int i = top; i < options; ++i)
+ 			{
+-				display = pdf_choice_field_option(ctx, annot->obj, 0, i);
+-				break;
++				float y = h - padding - (i - top + 1) * lineheight;
++				int chosen = at < count && selected[at] == i;
++				if (y + lineheight <= b)
++					break;
++				fz_append_string(ctx, buf, "q\n");
++				if (chosen)
++				{
++					fz_append_printf(ctx, buf, "0.153 0.384 0.741 rg\n%g %g %g %g re f\n", b, y, w - b * 2, lineheight);
++					++at;
++				}
++				fz_append_printf(ctx, buf, "1 0 0 1 %g %g cm\n", padding, y);
++				write_variable_text(ctx, annot, buf, res, lang, pdf_choice_field_option(ctx, annot->obj, 0, i),
++					font, size, chosen ? 3 : n, chosen ? white : color, q, w - padding * 2, lineheight, 0,
++					0.8f, 1.2f, 0, 0, 0);
++				fz_append_string(ctx, buf, "Q\n");
+ 			}
+-		}
+-		/* TODO: Pop-down arrow */
+-		pdf_write_tx_widget_appearance(ctx, annot, buf, rect, bbox, matrix, res,
+-			display, 0);
+-	}
+-	else
+-	{
+-		fz_buffer *text = fz_new_buffer(ctx, 1024);
+-		fz_try(ctx)
+-		{
+-			pdf_obj *opt = pdf_dict_get(ctx, annot->obj, PDF_NAME(Opt));
+-			int i = pdf_dict_get_int(ctx, annot->obj, PDF_NAME(TI));
+-			int n = pdf_array_len(ctx, opt);
+-			/* TODO: Scrollbar */
+-			/* TODO: Highlight selected items */
+-			if (i < 0)
+-				i = 0;
+-			for (; i < n; ++i)
+-			{
+-				pdf_obj *val = pdf_array_get(ctx, opt, i);
+-				if (pdf_is_array(ctx, val))
+-					fz_append_string(ctx, text, pdf_array_get_text_string(ctx, val, 1));
+-				else
+-					fz_append_string(ctx, text, pdf_to_text_string(ctx, val));
+-				fz_append_byte(ctx, text, '\n');
+-			}
+-			pdf_write_tx_widget_appearance(ctx, annot, buf, rect, bbox, matrix, res,
+-				fz_string_from_buffer(ctx, text), PDF_TX_FIELD_IS_MULTILINE);
+-		}
+-		fz_always(ctx)
+-			fz_drop_buffer(ctx, text);
+-		fz_catch(ctx)
+-			fz_rethrow(ctx);
+-	}
++			fz_append_string(ctx, buf, "Q\nEMC\n");
++		}
++	}
++	fz_always(ctx)
++		fz_free(ctx, selected);
++	fz_catch(ctx)
++		fz_rethrow(ctx);
+ }
+ 
+ static void

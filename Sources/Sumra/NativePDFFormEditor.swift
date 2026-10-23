@@ -6,9 +6,14 @@ import AppKit
 // validation, calculations and the committed value; this object owns only input.
 @MainActor
 final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate {
+    enum Input: Equatable, Sendable {
+        case text(String)
+        case optionIndices([Int])
+    }
+
     private let widget: PDFAnnotationSnapshot
     private weak var host: NSView?
-    private let commitValue: ([String]) async throws -> Void
+    private let commitValue: (Input) async throws -> Void
     private let didClose: () -> Void
     private let advance: (Bool) -> Void
     private let failure: (Error) -> Void
@@ -23,7 +28,7 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
     private var isChoice: Bool { table != nil }
 
     init(widget: PDFAnnotationSnapshot, host: NSView, frame: CGRect,
-         commitValue: @escaping ([String]) async throws -> Void,
+         commitValue: @escaping (Input) async throws -> Void,
          didClose: @escaping () -> Void, advance: @escaping (Bool) -> Void,
          failure: @escaping (Error) -> Void) {
         self.widget = widget; self.host = host; self.commitValue = commitValue
@@ -64,7 +69,7 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
         super.init()
         field?.stringValue = widget.value ?? ""
         if let combo = field as? NSComboBox,
-           let index = widget.options?.firstIndex(where: { $0.value == widget.value }) {
+           let index = widget.selectedIndices?.first {
             combo.selectItem(at: index)
             comboExportValue = widget.options?[index].value
         }
@@ -87,13 +92,7 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
             table.didResign = { [weak self] in self?.lostFocus() }
             table.setAccessibilityLabel(widget.fieldLabel ?? widget.fieldName ?? "")
             table.reloadData()
-            let options = widget.options ?? []
-            if widget.isMultiSelectChoice {
-                let selected = widget.selectedValues ?? []
-                table.selectRowIndexes(IndexSet(options.indices.filter { selected.contains(options[$0].value) }), byExtendingSelection: false)
-            } else if let index = options.firstIndex(where: { $0.value == widget.value }) {
-                table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
-            }
+            table.selectRowIndexes(IndexSet(widget.selectedIndices ?? []), byExtendingSelection: false)
         }
         host.addSubview(container)
         updateFrame(frame)
@@ -149,18 +148,21 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
     private func beginCommit() -> Task<Void, Error>? {
         guard completed == nil else { return nil }
         if let commitTask { return commitTask }
-        let values: [String]
+        let input: Input, previous: Input
         if let table {
-            let options = widget.options ?? []
             if !widget.isMultiSelectChoice && table.selectedRow < 0 { cancel(); return nil }
-            values = table.selectedRowIndexes.map { options[$0].value }
+            input = .optionIndices(Array(table.selectedRowIndexes))
+            previous = .optionIndices(widget.selectedIndices ?? [])
         } else if let combo = field as? NSComboBox {
-            values = [comboExportValue ?? combo.stringValue]
-        } else { values = [field?.stringValue ?? textView?.string ?? ""] }
-        let previous = widget.isMultiSelectChoice ? widget.selectedValues ?? [] : [widget.value ?? ""]
+            input = .text(comboExportValue ?? combo.stringValue)
+            previous = .text(widget.value ?? "")
+        } else {
+            input = .text(field?.stringValue ?? textView?.string ?? "")
+            previous = .text(widget.value ?? "")
+        }
         let operation = Task {
             do {
-                if widget.isMultiSelectChoice ? Set(values) != Set(previous) : values != previous { try await commitValue(values) }
+                if input != previous { try await commitValue(input) }
                 commitTask = nil
                 close(committed: true)
             } catch {

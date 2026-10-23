@@ -4,7 +4,10 @@ This isolated source batch builds on the earlier reader-correctness work and the
 separate reading-controls release. It does not change versions, release feeds,
 installed apps, dependencies, or the GUI-only product scope. Source changes,
 local test evidence, and external workflow acceptance remain separate; see the
-[current acceptance matrix](READER_ACCEPTANCE_20261023.md).
+[acceptance matrix](READER_ACCEPTANCE_20261023.md). The
+[2026-10-24 goal follow-up](READER_GOAL_20261024.md) records the current search,
+form, authentication, accessibility and 61-patch results; measurements below
+remain the observations from the earlier batch.
 
 ## Implemented in source
 
@@ -18,7 +21,7 @@ local test evidence, and external workflow acceptance remain separate; see the
 | Navigation and reading controls | Named tab groups restore lazily; page-turn offset preservation, keep-zoom-on-links, and destination hints are implemented. Reading settings expose installed fonts and editable CSS. | `NavigationPositionTests`, `ReaderUsabilityTests`, and the existing lifecycle/appearance suites. Local test receipts are summarized in the acceptance matrix; hosted and physical-device use remains separate. |
 | Toolbar and selection | Custom extra-button list/icon editing and a contextual selection toolstrip are implemented. | `ReaderUsabilityTests` covers selection actions, placement, and panel behavior. Custom-editor and end-to-end interaction acceptance are subject to the current test receipt, not inferred from source presence. |
 | Quick Look | Two Quick Look app extensions use shared reader core and bundled MuPDF for EPUB and comic previews. | `QuickLookBookTests` exercises comic navigation and a constructed SVG EPUB using the bundled engine. Real Finder verification passed for comic navigation from 1/2 through 2/2; Finder EPUB preview also passed after prelinking the shared engine for the extension sandbox and fixing Retina bitmap fitting; the complete portrait cover was visually inspected. |
-| MuPDF patch tracking | The ordered local patch inventory now contains 59 patches. | [Patch-to-behavior map](MUPDF_PATCHES.md) records closest evidence, indirect coverage, missing fixtures, and unknown upstream status. It is a maintenance aid, not a release gate. |
+| MuPDF patch tracking | The earlier inventory contained 59 patches; the current map contains 61. | [Patch-to-behavior map](MUPDF_PATCHES.md) records closest evidence, indirect coverage, missing fixtures, and unknown upstream status. It is a maintenance aid, not a release gate. |
 
 The search implementation keeps printed end-of-line hyphens distinct from
 soft-hyphen and authored inline-hyphen semantics. Do not join unrelated authored

@@ -1100,16 +1100,19 @@ final class NativeFile {
     func selection(_ page: Int, range: NSRange) throws -> RasterSelection {
         try RasterSelection.select(words(page), range: range)
     }
-    func chapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions) throws -> Bool {
+    func chapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions,
+                         cancellation: NativeRenderCancellation? = nil) throws -> Bool {
         try Task.checkCancellation()
+        if cancellation?.isCancelled == true { throw CancellationError() }
         typealias Cancelled = @convention(c) () -> Int32
-        typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, UnsafePointer<CChar>, Int32, Cancelled, UnsafeMutablePointer<CChar>) -> Int32
+        typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, UnsafePointer<CChar>, Int32, Cancelled?, UnsafeMutableRawPointer?, UnsafeMutablePointer<CChar>) -> Int32
         guard let fn = symbol("lf_search_chapter_candidate", Search.self) else { throw ReadError("Incompatible MuPDF engine: lf_search_chapter_candidate") }
         var error = [CChar](repeating: 0, count: 512)
         let flags: Int32 = (options.caseSensitive ? 1 : 0) | (options.wholeWord ? 2 : 0)
-        let cancelled: Cancelled = { Task<Never, Never>.isCancelled ? 1 : 0 }
-        let value = query.withCString { fn(document, Int32(chapter), $0, flags, cancelled, &error) }
+        let cancelled: Cancelled? = cancellation == nil ? { Task<Never, Never>.isCancelled ? 1 : 0 } : nil
+        let value = query.withCString { fn(document, Int32(chapter), $0, flags, cancelled, cancellation?.handle, &error) }
         try Task.checkCancellation()
+        if cancellation?.isCancelled == true { throw CancellationError() }
         guard value >= 0 else { throw Self.failure(error, "Cannot search chapter text") }
         return value != 0
     }
@@ -1121,14 +1124,14 @@ final class NativeFile {
         if backwards, let after, after <= 0 { return [] }
         if engine == .mupdf {
             typealias Cancelled = @convention(c) () -> Int32
-            typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, UnsafePointer<CChar>, Int32, Int64, Int64, Int64, Cancelled, UnsafeMutableRawPointer?, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+            typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, UnsafePointer<CChar>, Int32, Int64, Int64, Int64, Cancelled?, UnsafeMutableRawPointer?, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
             guard let fn = symbol("lf_search_pages_at", Search.self) else { throw ReadError("Incompatible MuPDF engine: lf_search_pages_at") }
             let location = try preparedLocation(page)
             if options.allowedPages?.contains(page) == false { return [] }
             let lastPage = options.allowedPages?.rangeView.first(where: { $0.contains(page) }).map { $0.upperBound - 1 } ?? -1
             var error = [CChar](repeating: 0, count: 512)
             let flags: Int32 = (options.caseSensitive ? 1 : 0) | (options.wholeWord ? 2 : 0) | (backwards ? 4 : 0)
-            let cancelled: Cancelled = { Task<Never, Never>.isCancelled ? 1 : 0 }
+            let cancelled: Cancelled? = cancellation == nil ? { Task<Never, Never>.isCancelled ? 1 : 0 } : nil
             let pointer = query.withCString {
                 fn(document, Int32(location.chapter), Int32(location.page), $0, flags,
                    after.map { Int64(max(-1, $0)) } ?? -1, maximum.map { Int64($0) } ?? -1, Int64(lastPage), cancelled, cancellation?.handle, &error)

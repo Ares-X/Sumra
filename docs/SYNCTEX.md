@@ -58,7 +58,10 @@ replacement PDF's geometry, including a PDF already unlocked with its reader
 password while preserving editing permissions. On 2026-10-24, actual VS Code
 tasks delivered requests through Launch Services to an isolated development
 bundle, reused its window, and navigated after an atomic PDF/index replacement.
-See the [acceptance receipt](READER_FOLLOWUP_20261024.md) for its limits.
+A further editor workflow opened an encrypted PDF for the first time, retried an
+incorrect password, retained the requested target and reused the authenticated
+window. See the [goal receipt](READER_GOAL_20261024.md) for those observations and
+the [earlier acceptance receipt](READER_FOLLOWUP_20261024.md) for their limits.
 
 
 ## VS Code task example

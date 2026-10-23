@@ -1,5 +1,9 @@
 # Remaining reader follow-up — 2026-10-24
 
+The [goal completion follow-up](READER_GOAL_20261024.md) supersedes the search,
+choice-field event/index, first authentication and accessibility limitations
+recorded below; earlier measurements remain historical observations.
+
 This batch continues the [previous acceptance record](READER_ACCEPTANCE_20261023.md)
 on `fix/reader-gaps-20261023`, in its isolated worktree. The active original
 checkout, installed application, release feed and dependencies were preserved.

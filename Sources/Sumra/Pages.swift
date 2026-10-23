@@ -1062,6 +1062,9 @@ actor Pages {
     func pdfSetWidgetValues(page: Int, id: Int32, values: [String]) throws {
         try mutatePDF { try $0.pdfSetWidgetValues(page: page, id: id, values: values) }
     }
+    func pdfSetWidgetIndices(page: Int, id: Int32, indices: [Int]) throws {
+        try mutatePDF { try $0.pdfSetWidgetIndices(page: page, id: id, indices: indices) }
+    }
     func pdfToggleWidget(page: Int, id: Int32) throws { try mutatePDF { try $0.pdfToggleWidget(page: page, id: id) } }
     func pdfSave(to destination: URL) throws {
         // Ordinary Save updates the opened file through its alias, keeping the
@@ -1478,8 +1481,12 @@ actor Pages {
         try document.native?.ensureChapter(chapter)
         return chapterLayout.pageCount(chapter)
     }
-    func searchChapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions) throws -> Bool {
-        try document.native?.chapterMayMatch(query, chapter: chapter, options: options) ?? false
+    func searchChapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions) async throws -> Bool {
+        try Task.checkCancellation()
+        let cancellation = document.native?.engine == .mupdf ? try NativeRenderCancellation() : nil
+        return try await withTaskCancellationHandler {
+            try document.native?.chapterMayMatch(query, chapter: chapter, options: options, cancellation: cancellation) ?? false
+        } onCancel: { cancellation?.cancel() }
     }
     func matches(_ query: String, location: PageLocation, options: TextSearchOptions = .init(), after: Int? = nil,
                  backwards: Bool = false, maximum: Int? = nil) async throws -> [RasterMatch] {
@@ -4580,11 +4587,40 @@ struct NativeReadingAccessibilitySnapshot {
         private var embeddedData: (data: Data, documentID: UUID)?
         var readingReady = false
         private let readingAccessibility = NativeReadingAccessibilityPage()
+        private var formAccessibility = [NativePDFFormAccessibilityElement]()
+        private var formAccessibilityDocument: UUID?
+        private var formAccessibilityPage = 0
         override func isAccessibilityElement() -> Bool { true }
         override func accessibilityRole() -> NSAccessibility.Role? { .group }
         override func accessibilityChildren() -> [Any]? {
+            updateFormAccessibility()
             let controls = super.accessibilityChildren() ?? []
-            return readingAccessibility.isAccessibilityElement() ? [readingAccessibility] + controls : controls
+            let fields = formAccessibility.filter { $0.widget.id != formWidget?.id && $0.isAccessibilityElement() }
+            var children: [Any] = readingAccessibility.isAccessibilityElement() ? [readingAccessibility] : []
+            children.append(contentsOf: fields); children.append(contentsOf: controls)
+            return children
+        }
+        private func updateFormAccessibility() {
+            guard pages?.isPDF == true, let state, let documentID = state.document?.id,
+                  state.annotationsVisible, state.nativePDFInfo?.permissions.accessibility == true else {
+                formAccessibility.removeAll(); formAccessibilityDocument = nil; return
+            }
+            if formAccessibilityDocument != documentID || formAccessibilityPage != page {
+                formAccessibility.removeAll(); formAccessibilityDocument = documentID; formAccessibilityPage = page
+            }
+            let previous = formAccessibility, elementPage = page
+            formAccessibility = pdfAnnotations.filter {
+                $0.type == "Widget" && $0.flags & 35 == 0 &&
+                    ($0.fieldType.map { [2, 3, 4, 5, 7].contains($0) } == true || $0.isUnsignedSignature)
+            }.map { field in
+                let element = previous.first { $0.widget.id == field.id } ??
+                    NativePDFFormAccessibilityElement(widget: field, host: self) { [weak self] field in
+                        guard let self, self.state?.document?.id == documentID, self.page == elementPage else { return false }
+                        return self.activateWidget(field)
+                    }
+                element.widget = field; element.transform = pageTransform; element.enabled = canActivateWidget(field)
+                return element
+            }
         }
         func updateReadingAccessibility() {
             readingAccessibility.view = self
@@ -5206,10 +5242,13 @@ struct NativeReadingAccessibilitySnapshot {
             if let start { selections?.cursor = start }
             if selectionMode == 0, event.clickCount >= 2, let start { select(from: start, to: start, mode: event.clickCount == 2 ? 1 : 2) }
         }
+        private func canActivateWidget(_ field: PDFAnnotationSnapshot) -> Bool {
+            pages?.isPDF == true && state?.canEditPDF == true && state?.annotationsVisible == true &&
+                state?.nativePDFInfo?.permissions.form == true && field.readOnly == false && field.flags & 35 == 0 &&
+                (field.fieldType.map { [2, 3, 4, 5, 7].contains($0) } == true || field.isUnsignedSignature)
+        }
         @discardableResult private func activateWidget(_ field: PDFAnnotationSnapshot) -> Bool {
-            guard let state, let pages, pages.isPDF, state.canEditPDF,
-                  state.nativePDFInfo?.permissions.form == true, field.readOnly == false,
-                  let kind = field.fieldType, [2, 3, 4, 5, 7].contains(kind) || field.isUnsignedSignature else { return false }
+            guard let state, let pages, canActivateWidget(field) else { return false }
             // Pushbuttons keep their link action path. Unsigned signature
             // widgets use the existing signing dialog (FormFields.cpp).
             // Like FormFields.cpp, only the active text/choice widget has a view.
@@ -5240,13 +5279,14 @@ struct NativeReadingAccessibilitySnapshot {
                     }
                     formWidget = current
                     let editor = NativePDFFormEditor(widget: current, host: self, frame: current.bounds.applying(pageTransform),
-                        commitValue: { [weak state] values in
+                        commitValue: { [weak state] input in
                             guard let state, state.document?.id == documentID, state.nativePDF === pages,
                                   state.pdfEditingEnabled else { throw CancellationError() }
-                            if current.isMultiSelectChoice {
-                                try await pages.pdfSetWidgetValues(page: page, id: current.id, values: values)
-                            } else {
-                                try await pages.pdfSetWidgetValue(page: page, id: current.id, value: values.first ?? "")
+                            switch input {
+                            case .text(let value):
+                                try await pages.pdfSetWidgetValue(page: page, id: current.id, value: value)
+                            case .optionIndices(let indices):
+                                try await pages.pdfSetWidgetIndices(page: page, id: current.id, indices: indices)
                             }
                             try await state.nativePDFDidChange(pages)
                         }, didClose: { [weak self, weak state] in
@@ -5255,26 +5295,32 @@ struct NativeReadingAccessibilitySnapshot {
                                 state?.nativePDFFormEditor = nil; state?.nativePDFFormPage = nil
                             }
                             formEditor = nil; formWidget = nil; needsDisplay = true
-                        }, advance: { [weak self] backwards in self?.advanceWidget(from: current.id, backwards: backwards) },
+                            NSAccessibility.post(element: self, notification: .layoutChanged)
+                        }, advance: { [weak self] backwards in _ = self?.advanceWidget(from: current.id, backwards: backwards) },
                         failure: { [weak state] error in
                             if state?.document?.id == documentID { state?.error = error.localizedDescription }
                         })
                     formEditor = editor; state.nativePDFFormEditor = editor; state.nativePDFFormPage = page
                     needsDisplay = true
+                    NSAccessibility.post(element: self, notification: .layoutChanged)
                 } catch { if state.document?.id == documentID { state.error = error.localizedDescription } }
             }
             return true
         }
-        private func advanceWidget(from id: Int32, backwards: Bool) {
+        @discardableResult private func advanceWidget(from id: Int32?, backwards: Bool) -> Bool {
             // Upstream's adjacent-widget walk remains on the same page.
             let fields = pdfAnnotations.filter {
-                $0.type == "Widget" && $0.readOnly == false && $0.flags & 35 == 0 &&
+                canActivateWidget($0) &&
                     $0.fieldType.map { [3, 4, 7].contains($0) } == true
             }
-            guard let index = fields.firstIndex(where: { $0.id == id }), fields.count > 1 else { return }
-            let next = fields[(index + (backwards ? -1 : 1) + fields.count) % fields.count]
+            guard !fields.isEmpty else { return false }
+            let next: PDFAnnotationSnapshot
+            if let id, let index = fields.firstIndex(where: { $0.id == id }) {
+                guard fields.count > 1 else { return false }
+                next = fields[(index + (backwards ? -1 : 1) + fields.count) % fields.count]
+            } else { next = backwards ? fields[fields.count - 1] : fields[0] }
             scrollToVisible(next.bounds.applying(pageTransform))
-            activateWidget(next)
+            return activateWidget(next)
         }
         override func mouseDragged(with event: NSEvent) {
             if let panStart, let scroll = enclosingScrollView ?? selectionScroll {
@@ -5521,6 +5567,11 @@ struct NativeReadingAccessibilitySnapshot {
             }
         }
         override func keyDown(with event: NSEvent) {
+            if event.keyCode == 48, pages?.isPDF == true, state?.canEditPDF == true,
+               event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.shift).isEmpty,
+               advanceWidget(from: nil, backwards: event.modifierFlags.contains(.shift)) {
+                return
+            }
             if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
                 switch event.charactersIgnoringModifiers?.lowercased() {
                 case "c": copy(nil); return

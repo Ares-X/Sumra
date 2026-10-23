@@ -2440,6 +2440,7 @@ private extension ReaderState {
                     alert.messageText = L("Document Password")
                     alert.informativeText = required.localizedDescription
                     let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+                    field.setAccessibilityLabel(L("Document Password"))
                     alert.accessoryView = field
                     alert.addButton(withTitle: L("Open"))
                     alert.addButton(withTitle: L("Cancel"))
