@@ -43,6 +43,97 @@ final class BrowserReaderTests: XCTestCase {
         XCTAssertEqual(metadata.toc, "toc.hhc")
     }
 
+    func testKeywordIndexMetadataUsesWindowsThenSystem() {
+        var windows = Data(repeating: 0, count: 196)
+        windows[0] = 1; windows[4] = 188; windows[8 + 0x64] = 1
+        let metadata = CHMMetadata(system: system([(1, Data("fallback.hhk\0".utf8))]),
+                                   windows: windows, strings: Data("\0keywords.hhk\0".utf8))
+        XCTAssertEqual(metadata.keywordIndex, "keywords.hhk")
+        XCTAssertEqual(CHMMetadata(system: system([(1, Data("fallback.hhk\0".utf8))])).keywordIndex, "fallback.hhk")
+    }
+
+    @MainActor
+    func testHHKRetainsDuplicateAndMultipleTopicDestinations() async throws {
+        let result = try await javascript("""
+        const index = `<ul><li><object type="text/sitemap"><param name="Name" value="Search">
+          <param name="Name" value="First topic"><param name="Local" value="FIRST.HTM#one">
+          <param name="Name" value="Second topic"><param name="Local" value="second.htm"></object></li>
+          <li><object><param name="Name" value="search"><param name="Local" value="first.htm#two"></object></li>
+          <li><object><param name="Name" value="Search"><param name="Local" value="first.htm#one"></object></li>
+          <li><object><param name="Name" value="Extra"><param name="Local" value="extensionless"></object></li>
+          <li><object><param name="Name" value="Missing"><param name="Local" value="absent.htm"></object></li></ul>`;
+        return await indexCHM({home:'first.htm', index:'words.hhk', indexData:btoa(index),
+          entries:['first.htm','second.htm','extensionless'].map(filename => ({filename}))});
+        """) as? [String: Any]
+        let keywords = try XCTUnwrap(result?["keywords"] as? [[String: Any]])
+        XCTAssertEqual(keywords.compactMap { $0["keyword"] as? String }, ["Search", "Extra"])
+        let topics = try XCTUnwrap(keywords.first?["topics"] as? [[String: Any]])
+        XCTAssertEqual(topics.compactMap { $0["title"] as? String }, ["First topic", "Second topic", "search"])
+        XCTAssertEqual(topics.compactMap { $0["target"] as? String }, ["first.htm#one", "second.htm", "first.htm#two"].map { "leaf://book/entry/" + $0 })
+        XCTAssertEqual(topics.compactMap { $0["page"] as? Int }, [0, 1, 0])
+        XCTAssertEqual(result?["pages"] as? [String], ["first.htm", "second.htm", "extensionless"].map { "leaf://book/entry/" + $0 })
+    }
+
+    @MainActor
+    func testHHKUsesSystemEncodingAndKeywordFiltering() async throws {
+        let result = try await javascript("""
+        const prefix = '<ul><li><object><param name="Name" value="';
+        const suffix = '"><param name="Local" value="topic.htm"></object></li></ul>';
+        const bytes = [...new TextEncoder().encode(prefix), 0xb2, 0xe2, 0xca, 0xd4, ...new TextEncoder().encode(suffix)];
+        return await indexCHM({home:'topic.htm', index:'words.hhk', charset:'gbk',
+          indexData:btoa(String.fromCharCode(...bytes)), entries:[{filename:'topic.htm'}]});
+        """) as? [String: Any]
+        let data = try JSONSerialization.data(withJSONObject: result?["keywords"] ?? [])
+        let keywords = try JSONDecoder().decode([CHMKeyword].self, from: data)
+        XCTAssertEqual(keywords.first?.keyword, "测试")
+        XCTAssertEqual(CHMKeyword.matching(" 测 ", in: keywords).count, 1)
+        XCTAssertTrue(CHMKeyword.matching("absent", in: keywords).isEmpty)
+        let latin = [CHMKeyword(keyword: "Café", topics: [])]
+        XCTAssertEqual(CHMKeyword.matching("CAFE", in: latin).count, 1)
+    }
+
+    @MainActor
+    func testNativeKeywordIndexOpensEveryTopicAndKeepsContents() async throws {
+        let hhk = """
+        <ul><li><object><param name="Name" value="Reading"><param name="Name" value="Start">
+        <param name="Local" value="first.html#start"><param name="Name" value="More">
+        <param name="Local" value="MORE.HTM#end"></object></li></ul>
+        """
+        let hhc = "<ul><li><object><param name=Name value=Contents><param name=Local value=first.html></object></li></ul>"
+        let paragraphs = String(repeating: "<p>Surrounding reading text</p>", count: 40)
+        let first = paragraphs + "<h1 id=start>Start reading</h1>" + paragraphs
+        let more = paragraphs + "<h1 id=end>More reading</h1>" + paragraphs
+        let (state, view) = try await loadedReaderFixture(topic: ("/first.html", Data(first.utf8)), home: "/first.html", additionalTopics: [
+            ("/words.hhk", Data(hhk.utf8)), ("/toc.hhc", Data(hhc.utf8)),
+            ("/more.htm", Data(more.utf8))])
+        XCTAssertEqual(state.outline.map(\.title), ["Contents"])
+        let keyword = try XCTUnwrap(state.chmIndex.first)
+        XCTAssertEqual(keyword.keyword, "Reading")
+        let coordinator = try XCTUnwrap(view.navigationDelegate as? BrowserReader.Coordinator)
+        for topic in keyword.topics {
+            state.navigate(.href(topic.target))
+            let command = state.command
+            state.send(.none)
+            coordinator.command = command.revision; coordinator.deliver(command, to: view)
+            try await waitForNextCommand(state, after: command.revision)
+            var url = try XCTUnwrap(URLComponents(string: topic.target))
+            let fragment = try XCTUnwrap(url.fragment)
+            url.fragment = nil
+            try await waitUntil { coordinator.ready && state.currentPosition.anchor == url.string }
+            let top = try await evaluate("return document.getElementById(fragment).getBoundingClientRect().top", in: view,
+                                         arguments: ["fragment": fragment]) as? Double
+            XCTAssertEqual(try XCTUnwrap(top), 0, accuracy: 2)
+            XCTAssertNil(state.error)
+            XCTAssertEqual(state.page, topic.page)
+            coordinator.deliver(state.command, to: view)
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+        state.close()
+        XCTAssertTrue(state.chmIndex.isEmpty)
+    }
+
     func testTruncatedRecordDoesNotReadPastItsPayload() {
         let metadata = CHMMetadata(system: Data([3, 0, 0, 0, 2, 0, 20, 0, 65]))
         XCTAssertTrue(metadata.home.isEmpty)

@@ -1,0 +1,62 @@
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -912,7 +912,7 @@
+ void fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em);
+ int fz_html_has_search_candidate(fz_context *ctx, fz_html *html, int page, const fz_search *search, int (*cancelled)(void));
+ int fz_html_has_search_phrase_candidate(fz_context *ctx, fz_html *html, const fz_search *search, int (*cancelled)(void));
+-void fz_draw_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page);
++void fz_draw_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page, fz_cookie *cookie);
+ void fz_draw_html_text_region(fz_context *ctx, fz_device *dev, fz_html *html, int page, fz_rect region);
+ void fz_draw_html_region(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page, fz_rect region, fz_cookie *cookie);
+ int fz_draw_html_source(fz_context *ctx, fz_device *dev, fz_html *html, uint32_t node, uint32_t offset);
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -5167,7 +5167,7 @@
+ }
+ 
+ void
+-fz_draw_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page)
++fz_draw_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page, fz_cookie *cookie)
+ {
+ 	float page_top = page * html->page_h;
+ 	float page_bot = (page + 1) * html->page_h;
+@@ -5192,7 +5192,7 @@
+ 			ctm = fz_pre_translate(ctm, html->page_margin[L], html->page_margin[T]);
+ 			/* Page culling would discard overflow whose children or glyphs
+ 			 * still intersect the viewport. Let the device clip the canvas. */
+-			draw_restarted_html(&html->tree, ctx, dev, ctm, html->tree.root, 0, html->page_h, NULL, 1, NULL, NULL);
++			draw_restarted_html(&html->tree, ctx, dev, ctm, html->tree.root, 0, html->page_h, NULL, 1, cookie, NULL);
+ 		}
+ 		fz_always(ctx)
+ 		{
+@@ -5212,7 +5212,7 @@
+ 
+ 	ctm = fz_pre_translate(ctm, html->page_margin[L], html->page_margin[T]);
+ 
+-	fz_draw_restarted_html(&html->tree, ctx, dev, ctm, html->tree.root, page_top, page_bot, NULL);
++	draw_restarted_html(&html->tree, ctx, dev, ctm, html->tree.root, page_top, page_bot, NULL, 0, cookie, NULL);
+ }
+ 
+ void fz_draw_html_region(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page, fz_rect region, fz_cookie *cookie)
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -244,7 +244,7 @@
+ {
+ 	html_page *page = (html_page*)page_;
+ 	html_document *doc = page->doc;
+-	fz_draw_html(ctx, dev, ctm, page->html, page->number);
++	fz_draw_html(ctx, dev, ctm, page->html, page->number, cookie);
+ }
+ 
+ static fz_html *html_text_page(fz_page *page_, int *number)
+--- a/source/html/epub-doc.c
++++ b/source/html/epub-doc.c
+@@ -557,7 +557,7 @@
+ {
+ 	epub_page *page = (epub_page*)page_;
+ 
+-	fz_draw_html(ctx, dev, ctm, page->html, page->number);
++	fz_draw_html(ctx, dev, ctm, page->html, page->number, cookie);
+ }
+ 
+ fz_html *fz_epub_page_html(fz_page *page_, int *number)

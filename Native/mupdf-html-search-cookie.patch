@@ -1,0 +1,177 @@
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -119,8 +119,8 @@
+ 
+ /* Conservative laid-out flow candidate check. Includes generated CSS text and
+  * list marks. One means possible/unsupported; zero proves no text match. */
+-int fz_html_page_has_search_candidate(fz_context *ctx, fz_page *page, const fz_search *search, int (*cancelled)(void));
++int fz_html_page_has_search_candidate(fz_context *ctx, fz_page *page, const fz_search *search, int (*cancelled)(void), fz_cookie *cookie);
+ /* Same parsed EPUB/CSS tree as page loading, without typography or page counts. */
+-int fz_epub_chapter_has_search_candidate(fz_context *ctx, fz_document *doc, int chapter, const fz_search *search, int (*cancelled)(void));
++int fz_epub_chapter_has_search_candidate(fz_context *ctx, fz_document *doc, int chapter, const fz_search *search, int (*cancelled)(void), fz_cookie *cookie);
+ 
+ #endif /* MUPDF_FITZ_HTML_H */
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -910,8 +910,8 @@
+ void fz_add_css_font_faces(fz_context *ctx, fz_html_font_set *set, fz_archive *dir, const char *base_uri, fz_css *css, int tainted);
+ 
+ void fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em);
+-int fz_html_has_search_candidate(fz_context *ctx, fz_html *html, int page, const fz_search *search, int (*cancelled)(void));
+-int fz_html_has_search_phrase_candidate(fz_context *ctx, fz_html *html, const fz_search *search, int (*cancelled)(void));
++int fz_html_has_search_candidate(fz_context *ctx, fz_html *html, int page, const fz_search *search, int (*cancelled)(void), fz_cookie *cookie);
++int fz_html_has_search_phrase_candidate(fz_context *ctx, fz_html *html, const fz_search *search, int (*cancelled)(void), fz_cookie *cookie);
+ void fz_draw_html(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page, fz_cookie *cookie);
+ void fz_draw_html_text_region(fz_context *ctx, fz_device *dev, fz_html *html, int page, fz_rect region);
+ void fz_draw_html_region(fz_context *ctx, fz_device *dev, fz_matrix ctm, fz_html *html, int page, fz_rect region, fz_cookie *cookie);
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -4295,11 +4295,11 @@
+ }
+ 
+ static int html_candidate_box(fz_context *ctx, fz_html_tree *tree, fz_html_box *box, fz_html_box *after,
+- const fz_search *search, int *candidates, size_t *count, int (*cancelled)(void), float page_top, float page_bot)
++ const fz_search *search, int *candidates, size_t *count, int (*cancelled)(void), fz_cookie *cookie, float page_top, float page_bot)
+ {
+  for (; box != after; box = box->next)
+  {
+-  if (cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
++  if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
+   /* The renderer uses these same laid-out extents to skip finite pages.
+    * Parsed chapter candidates have infinite bounds and visit every box. */
+   if (isfinite(page_top))
+@@ -4325,7 +4325,7 @@
+    for (size_t i = 0; i < (groups ? groups : 1); ++i)
+    {
+     fz_html_flow *first = box->u.flow.head, *end = NULL;
+-    if (cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
++    if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
+     if (groups)
+     {
+      fz_html_flow_group *group = &box->u.flow.groups[i];
+@@ -4334,7 +4334,7 @@
+     }
+     for (fz_html_flow *flow = first; flow != end; flow = fz_html_flow_next(tree, flow))
+     {
+-     if (cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
++     if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
+      /* Match draw_flow_box's inclusive baseline bounds. */
+      if (flow->y >= page_top && flow->y <= page_bot && flow->type == FLOW_WORD &&
+          html_candidate_text(ctx, search, candidates, count, fz_html_flow_text(flow))) return 1;
+@@ -4350,16 +4350,16 @@
+     {
+      fz_html_draw_group *group = &index->groups[i];
+      if (group->low > page_bot || group->high < page_top) continue;
+-     if (html_candidate_box(ctx, tree, group->first, group->after, search, candidates, count, cancelled, page_top, page_bot)) return 1;
++     if (html_candidate_box(ctx, tree, group->first, group->after, search, candidates, count, cancelled, cookie, page_top, page_bot)) return 1;
+     }
+    }
+-   else if (html_candidate_box(ctx, tree, box->down, NULL, search, candidates, count, cancelled, page_top, page_bot)) return 1;
++   else if (html_candidate_box(ctx, tree, box->down, NULL, search, candidates, count, cancelled, cookie, page_top, page_bot)) return 1;
+   }
+  }
+  return 0;
+ }
+ 
+-int fz_html_has_search_candidate(fz_context *ctx, fz_html *html, int page, const fz_search *search, int (*cancelled)(void))
++int fz_html_has_search_candidate(fz_context *ctx, fz_html *html, int page, const fz_search *search, int (*cancelled)(void), fz_cookie *cookie)
+ {
+  size_t count;
+  int *candidates = fz_search_candidate_characters(ctx, search, &count);
+@@ -4373,7 +4373,7 @@
+   for (size_t i = 0; i < count; )
+    if (candidates[i] == '-') candidates[i] = candidates[--count];
+    else ++i;
+-  if (count) possible = html_candidate_box(ctx, &html->tree, html->tree.root, NULL, search, candidates, &count, cancelled,
++  if (count) possible = html_candidate_box(ctx, &html->tree, html->tree.root, NULL, search, candidates, &count, cancelled, cookie,
+    page < 0 ? -INFINITY : page * html->page_h, page < 0 ? INFINITY : (page + 1) * html->page_h);
+  }
+  fz_always(ctx) { fz_free(ctx, candidates); }
+@@ -4384,12 +4384,12 @@
+ /* Follow fz_draw_html's actual natural-page order and culling. This is a
+  * necessary character projection, not a source replacement for glyph search. */
+ static int html_phrase_candidate_box(fz_context *ctx, fz_html *html, fz_html_box *box,
+- fz_search_character_candidate *candidate, int (*cancelled)(void))
++ fz_search_character_candidate *candidate, int (*cancelled)(void), fz_cookie *cookie)
+ {
+  fz_html_tree *tree = &html->tree;
+  for (; box; box = box->next)
+  {
+-  if (cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
++  if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
+   if (fz_html_box_has_boxes(box))
+   {
+    float low = box->s.layout.y, high = box->s.layout.b;
+@@ -4402,12 +4402,12 @@
+     format_list_number(ctx, box->style->list_style_type, box->list_item, text, sizeof text);
+     if (fz_feed_search_character_candidate(ctx, candidate, text)) return 1;
+    }
+-   if (html_phrase_candidate_box(ctx, html, box->down, candidate, cancelled)) return 1;
++   if (html_phrase_candidate_box(ctx, html, box->down, candidate, cancelled, cookie)) return 1;
+   }
+   else if (box->type == BOX_FLOW)
+    for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
+    {
+-    if (cancelled && cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
++    if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
+     if (flow->type != FLOW_WORD || flow->y < 0 || flow->y > html->page_h) continue;
+     const fz_css_style *style = fz_html_flow_box(tree, flow)->style;
+     if (style->visibility != V_VISIBLE || (!style->text_fill_color.a && !style->text_stroke_color.a)) continue;
+@@ -4420,15 +4420,15 @@
+  return 0;
+ }
+ 
+-int fz_html_has_search_phrase_candidate(fz_context *ctx, fz_html *html, const fz_search *search, int (*cancelled)(void))
++int fz_html_has_search_phrase_candidate(fz_context *ctx, fz_html *html, const fz_search *search, int (*cancelled)(void), fz_cookie *cookie)
+ {
+  fz_search_character_candidate *candidate = fz_new_search_character_candidate(ctx, search);
+- if (!candidate) return fz_html_has_search_candidate(ctx, html, -1, search, cancelled);
++ if (!candidate) return fz_html_has_search_candidate(ctx, html, -1, search, cancelled, cookie);
+  int possible = 1;
+  fz_var(possible);
+  fz_try(ctx)
+  {
+-  possible = html_phrase_candidate_box(ctx, html, html->tree.root, candidate, cancelled) ||
++  possible = html_phrase_candidate_box(ctx, html, html->tree.root, candidate, cancelled, cookie) ||
+    fz_finish_search_character_candidate(ctx, candidate);
+  }
+  fz_always(ctx) { fz_drop_search_character_candidate(ctx, candidate); }
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -268,13 +268,13 @@
+ 	return 1;
+ }
+ 
+-int fz_html_page_has_search_candidate(fz_context *ctx, fz_page *page, const fz_search *search, int (*cancelled)(void))
++int fz_html_page_has_search_candidate(fz_context *ctx, fz_page *page, const fz_search *search, int (*cancelled)(void), fz_cookie *cookie)
+ {
+  int number;
+  fz_html *html = html_text_page(page, &number);
+  if (!html || html->fixed_layout) return 1;
+- if (html->layout_h == 0) return fz_html_has_search_phrase_candidate(ctx, html, search, cancelled);
+- return fz_html_has_search_candidate(ctx, html, number, search, cancelled);
++ if (html->layout_h == 0) return fz_html_has_search_phrase_candidate(ctx, html, search, cancelled, cookie);
++ return fz_html_has_search_candidate(ctx, html, number, search, cancelled, cookie);
+ }
+ 
+ int fz_run_html_page_text_region(fz_context *ctx, fz_page *page, fz_device *dev, fz_rect region)
+--- a/source/html/epub-doc.c
++++ b/source/html/epub-doc.c
+@@ -494,7 +494,7 @@
+ }
+ 
+ int fz_epub_chapter_has_search_candidate(fz_context *ctx, fz_document *doc_, int chapter,
+- const fz_search *search, int (*cancelled)(void))
++ const fz_search *search, int (*cancelled)(void), fz_cookie *cookie)
+ {
+  epub_document *doc = (epub_document *)doc_;
+  if (doc_->load_page != epub_load_page) return 1;
+@@ -508,7 +508,7 @@
+  fz_html *html = epub_parse_chapter(ctx, doc, ch);
+  int possible = 1;
+  fz_var(possible);
+- fz_try(ctx) { possible = fz_html_has_search_candidate(ctx, html, -1, search, cancelled); }
++ fz_try(ctx) { possible = fz_html_has_search_candidate(ctx, html, -1, search, cancelled, cookie); }
+  fz_always(ctx) { fz_drop_html(ctx, html); }
+  fz_catch(ctx) { fz_rethrow(ctx); }
+  return possible;

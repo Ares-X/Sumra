@@ -60,6 +60,7 @@ struct CHMMetadata {
     var title = ""
     var home = ""
     var toc = ""
+    var keywordIndex = ""
     var encoding: String.Encoding = .windowsCP1252
 
     var charset: String {
@@ -103,12 +104,13 @@ struct CHMMetadata {
            let recordSize = uint(windows, 4, 4), recordSize >= 188 {
             var offset = 8
             for _ in 0..<min(Int(count), max(0, (windows.count - 8) / Int(recordSize))) {
-                for (field, delta) in [("title", 0x14), ("toc", 0x60), ("home", 0x68)] {
+                for (field, delta) in [("title", 0x14), ("toc", 0x60), ("index", 0x64), ("home", 0x68)] {
                     guard let stringOffset = uint(windows, offset + delta, 4) else { continue }
                     let string = text(strings, at: Int(stringOffset))
                     switch field {
                     case "title": if title.isEmpty { title = string }
                     case "toc": if toc.isEmpty { toc = string }
+                    case "index": if keywordIndex.isEmpty { keywordIndex = string }
                     default: if home.isEmpty { home = string }
                     }
                 }
@@ -116,6 +118,7 @@ struct CHMMetadata {
             }
         }
         if toc.isEmpty { toc = text(records[0]) }
+        if keywordIndex.isEmpty { keywordIndex = text(records[1]) }
         if home.isEmpty { home = text(records[2]) }
         if title.isEmpty { title = text(records[3]) }
     }
@@ -189,9 +192,13 @@ actor CHMSource: BrowserSource {
         if url.path == "/meta" {
             let tocPath = entries.first { $0.lowercased() == metadata.toc.replacingOccurrences(of: "\\", with: "/").trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased() }
                 ?? entries.first { $0.lowercased().hasSuffix(".hhc") }
+            let keywordPath = entries.first { $0.lowercased() == metadata.keywordIndex.replacingOccurrences(of: "\\", with: "/").trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased() }
+                ?? entries.first { $0.lowercased().hasSuffix(".hhk") }
+            let keywordData = try keywordPath.flatMap { index[$0.lowercased()] }.map { try chm.data($0).base64EncodedString() }
             let toc = try tocPath.flatMap { index[$0.lowercased()] }.map { try chm.data($0).base64EncodedString() }
             let data = try JSONSerialization.data(withJSONObject: [
                 "name": metadata.title.isEmpty ? self.url.lastPathComponent : metadata.title,
+                "index": keywordPath ?? "", "indexData": keywordData ?? "",
                 "home": metadata.home, "toc": tocPath ?? "", "tocData": toc ?? "", "charset": metadata.charset,
                 "entries": entries.map { ["filename": $0] }
             ])
@@ -233,7 +240,7 @@ actor CHMSource: BrowserSource {
         return (data, String(data: data, encoding: .utf8) != nil ? "utf-8" : metadata.charset)
     }
     func properties() -> [String: String] {
-        ["Title": metadata.title, "Character Set": metadata.charset, "Home": metadata.home, "Contents": metadata.toc]
+        ["Title": metadata.title, "Character Set": metadata.charset, "Home": metadata.home, "Contents": metadata.toc, "Index": metadata.keywordIndex]
             .filter { !$0.value.isEmpty }
     }
 }
@@ -495,6 +502,8 @@ struct BrowserReader: NSViewRepresentable {
                         pages = urls.compactMap(URL.init(string:))
                         let items = try JSONSerialization.data(withJSONObject: book["toc"] ?? [])
                         outline = try JSONDecoder().decode([ContentsItem].self, from: items)
+                        let keywords = try JSONSerialization.data(withJSONObject: book["keywords"] ?? [])
+                        state.chmIndex = try JSONDecoder().decode([CHMKeyword].self, from: keywords)
                         load(view)
                     } catch { if isCurrent { readerFailed(error) } }
                 }

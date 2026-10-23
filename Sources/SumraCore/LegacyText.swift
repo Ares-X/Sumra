@@ -35,7 +35,7 @@ public enum LegacyText{
             // valid trailer flags (MobiDoc.cpp PrintReplicaTrailerInfo).
             if info.length >= 228, try be(header, 16 + 88, 4) >= 5 { flags = info.flags }
         }
-        return try printReplica(database.text(flags: flags, recover: false).data)
+        return try printReplica(database.text(flags: flags, recover: false))
     }
 
     /// EngineCreate also recognizes Print Replica inside .mobi/.prc/.azw.
@@ -72,8 +72,9 @@ public enum LegacyText{
 
     /// MobiDoc's real image record indexes, KindleEmbedToRecIndex and
     /// MaybeSynthesizeImagePages. Output uses the same MuPDF HTML renderer.
-    /// HUFF/CDIC and trailer-bearing text goes directly to the MOBI HTML adapter.
-    /// nil leaves ordinary books on the existing MOBI path.
+    /// Reuse decoded HTML for ordinary books as well as HUFF/CDIC and trailer
+    /// variants. Returning it avoids decoding the same Palm records in MuPDF.
+    /// Containers without the supported MOBI header stay on the native path.
     public static func mobiContent(_ data: Data) throws -> MobiContent? {
         let database = try PalmDatabase(data)
         guard database.creator == "BOOKMOBI" else { return nil }
@@ -93,8 +94,7 @@ public enum LegacyText{
                 images[record - first + 1] = bytes
             }
         }
-        let decoded = try database.text(flags: info.flags, imageFallback: images.count >= 2)
-        var raw = decoded.data
+        var raw = try database.text(flags: info.flags, imageFallback: images.count >= 2)
         for index in raw.indices where raw[index] == 0 { raw[index] = 32 }
         let codepage = try be(header, 28, 4)
         let encoding: String.Encoding
@@ -122,9 +122,6 @@ public enum LegacyText{
                 if retained.count >= 2 { pages = retained }
             }
         }
-        let hasKindleImages = html.range(of: "kindle:embed:", options: .caseInsensitive) != nil
-        let contiguous = images.keys.sorted() == Array(1..<(images.count + 1))
-        if info.compression != 17480, info.flags == 0, pages.isEmpty, images[cover] == nil, !hasKindleImages, contiguous, !decoded.recovered, !navigation.changed { return nil }
         func page(_ index: Int) -> String { "<img src=\"\(imageName(index))\">" }
         let pageBreak = "<div style=\"page-break-before:always\"></div>"
         if !pages.isEmpty {
@@ -152,7 +149,7 @@ public enum LegacyText{
     /// offsets in the original decompressed bytes, before codepage conversion.
     /// Translate only those offsets to HTML anchors; MuPDF still owns layout.
     private static func mobiNavigation(_ raw: Data, encoding: String.Encoding) throws
-        -> (data: Data, changed: Bool, outline: [(title: String, target: String, level: Int)]) {
+        -> (data: Data, outline: [(title: String, target: String, level: Int)]) {
         let byteText = String(data: raw, encoding: .isoLatin1)!, source = byteText as NSString
         let tags = try NSRegularExpression(pattern: #"<!--[\s\S]*?-->|<![^>]*>|</?([A-Za-z][A-Za-z0-9:_-]*)\b(?:[^\"'>]|\"[^\"]*\"|'[^']*')*>"#)
         let matches = tags.matches(in: byteText, range: NSRange(location: 0, length: source.length))
@@ -260,7 +257,7 @@ public enum LegacyText{
                 }
             }
         }
-        guard !edits.isEmpty else { return (raw, false, outline) }
+        guard !edits.isEmpty else { return (raw, outline) }
         edits.sort { $0.range.location == $1.range.location ? $0.range.length < $1.range.length : $0.range.location < $1.range.location }
         var data = Data(), cursor = 0
         for edit in edits {
@@ -269,7 +266,7 @@ public enum LegacyText{
             cursor = NSMaxRange(edit.range)
         }
         data.append(contentsOf: raw[cursor...])
-        return (data, true, outline)
+        return (data, outline)
     }
 
     private static func coverIndex(_ header: Data, info: MobiHeader) throws -> Int {
@@ -353,7 +350,7 @@ public enum LegacyText{
         let database = try PalmDatabase(data)
         guard ["TEXtREAd", "TEXtTlDc", "DataPlkr"].contains(database.creator) else { throw ReadError("Unsupported Palm database") }
         var raw: Data
-        do { raw = try database.text().data }
+        do { raw = try database.text() }
         catch {
             if database.creator == "DataPlkr" { throw ReadError("This Plucker record format is unsupported: \(error.localizedDescription)") }
             throw error
@@ -403,8 +400,8 @@ public enum LegacyText{
             guard records > 0, records < count else { throw ReadError("Invalid Palm text record count") }
             return records
         }
-        func text(flags: Int = 0, recover: Bool = true, imageFallback: Bool = false) throws -> (data: Data, recovered: Bool) {
-            let header = record(0), length = try be(header, 4, 4), compression = try be(header, 0, 2)
+        func text(flags: Int = 0, recover: Bool = true, imageFallback: Bool = false) throws -> Data {
+            let header = record(0), compression = try be(header, 0, 2)
             guard header.count >= 16 else { throw ReadError("Truncated PalmDOC header") }
             let records = try textRecordCount()
             let huffman: HuffDictionary?
@@ -436,11 +433,11 @@ public enum LegacyText{
             // half the records fail. Only that case requires image fallback.
             if failed > records / 2 {
                 guard imageFallback else { throw firstFailure! }
-                return (Data(), true)
+                return Data()
             }
             // The declared length is a capacity hint, not a truncation or
             // minimum-length contract. Preserve all successfully decoded bytes.
-            return (output, failed > 0 || output.count != length)
+            return output
         }
     }
 

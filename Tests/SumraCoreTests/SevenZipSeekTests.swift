@@ -192,6 +192,35 @@ final class SevenZipSeekTests: XCTestCase {
         XCTAssertEqual(try damaged.data("1.png"), first)
     }
 
+    func testCancellationDuringLargeEntryKeepsCompletedEntriesAndAllowsRecovery() async throws {
+        let first = Data("completed page".utf8)
+        let large = Data(repeating: 66, count: 32 * 1024 * 1024)
+        var blocks = [copyReset(first)]
+        for offset in stride(from: 0, to: large.count, by: 65536) {
+            blocks.append(copyReset(large.subdata(in: offset..<(offset + 65536))))
+        }
+        let url = try writeFixture([("1.png", first), ("2.png", large), ("3.png", first)],
+                                   blocks: blocks + [copyReset(first)])
+        let archive = try Archive(url)
+        XCTAssertEqual(try archive.data("1.png"), first)
+        let started = expectation(description: "entry read started")
+        let read = Task.detached {
+            started.fulfill()
+            return try archive.data("2.png")
+        }
+        await fulfillment(of: [started], timeout: 5)
+        try await Task.sleep(nanoseconds: 1_000_000)
+        read.cancel()
+        do { _ = try await read.value; XCTFail("Expected canceled entry read") }
+        catch is CancellationError { }
+        let moved = url.appendingPathExtension("moved")
+        try FileManager.default.moveItem(at: url, to: moved)
+        defer { try? FileManager.default.removeItem(at: moved) }
+        XCTAssertEqual(try archive.data("1.png"), first)
+        XCTAssertEqual(try archive.data("3.png"), first)
+        XCTAssertEqual(try archive.data("2.png"), large)
+    }
+
     // A minimal plain-header 7z fixture: one LZMA2 coder/folder, named file
     // substreams with individual CRC32 values. Copy chunks contain at most 64K.
     // No compression executable, dependency, book mutation or extracted files.

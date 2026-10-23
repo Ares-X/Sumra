@@ -129,6 +129,7 @@ final class NativeEbookPositionTests: XCTestCase {
         defer { state.windowClosed(); UserDefaults.standard.removeObject(forKey: key) }
         state.updatePosition(.init(page: original.page, x: 40, y: 80))
         state.persist() // Save before the debounced source lookup can finish.
+        _ = try XCTUnwrap(defaults.data(forKey: key), "Persist must immediately save the position before its asynchronous passage lookup")
         let deadline = Date().addingTimeInterval(5)
         var saved: ReadingPosition?
         repeat {

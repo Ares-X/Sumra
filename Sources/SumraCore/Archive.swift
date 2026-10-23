@@ -14,7 +14,11 @@ public final class Archive: @unchecked Sendable {
     private let lock = NSLock()
     private var cursor: OpaquePointer?
     private var cursorIndex = -1
+    // Encoded entry bytes have their own budget, separate from rendered pages.
+    private static let entryCacheLimit = 64 * 1024 * 1024
     private var entryCache = [String: Data]()
+    private var entryOrder = [String]()
+    private var entryBytes = 0
 
     public init(_ url: URL, password: String? = nil) throws {
         self.url = url
@@ -91,16 +95,16 @@ public final class Archive: @unchecked Sendable {
         // completed entries. Keep them available to subsequent page requests.
         try Task.checkCancellation()
         do {
-            // Reuse complete entries like Sumatra Archive::GetFileData[Part]ById,
-            // retaining decoded entries until this Archive is released.
-            // A cache hit does not move the libarchive cursor.
+            // A cache hit promotes the entry without moving the archive cursor.
             if let data = entryCache[entryName] {
+                entryOrder.removeAll { $0 == entryName }
+                entryOrder.append(entryName)
                 return prefixBytes.map { data.prefix($0) } ?? data
             }
             if let indexed {
                 let data = try indexed.read(target) { index, bytes in
                     let name = entries[index]
-                    if positions[name] == index { entryCache[name] = bytes }
+                    if positions[name] == index { remember(bytes, named: name) }
                 }
                 return prefixBytes.map { data.prefix($0) } ?? data
             }
@@ -137,20 +141,18 @@ public final class Archive: @unchecked Sendable {
                 var result = Data()
                 result.reserveCapacity(64 * 1024)
                 var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-                // Skipping a solid 7z entry still decompresses its bytes. Keep
-                // every entry traversed so reverse scrolling never replays it.
+                // Skipping a solid 7z entry still decompresses its bytes. Retain
+                // recent traversed entries for reverse scrolling.
                 // ZIP keeps partial I/O and skips unrelated entries.
                 let readPrefix = is7Zip ? nil : prefixBytes
 
                 while true {
-                    // Finish this solid entry before observing cancellation:
-                    // its bytes and the forward cursor remain reusable.
-                    if !is7Zip { try Task.checkCancellation() }
+                    try Task.checkCancellation()
                     let requested = readPrefix.map { min(buffer.count, $0 - result.count) } ?? buffer.count
                     if requested == 0 { return result }
                     let n = archive_read_data(cursor, &buffer, requested)
                     if n == 0 {
-                        if positions[currentName] == cursorIndex { entryCache[currentName] = result }
+                        if positions[currentName] == cursorIndex { remember(result, named: currentName) }
                         try Task.checkCancellation()
                         if cursorIndex == target { return prefixBytes.map { result.prefix($0) } ?? result }
                         break
@@ -162,14 +164,33 @@ public final class Archive: @unchecked Sendable {
 
             throw ReadError("Archive entry not found: \(name)")
         } catch is CancellationError {
-            if !is7Zip { resetCursor() }
+            resetCursor()
             throw CancellationError()
         } catch {
             resetCursor()
             indexed?.reset()
             entryCache.removeAll()
+            entryOrder.removeAll()
+            entryBytes = 0
             throw error
         }
+    }
+
+    private func remember(_ data: Data, named name: String) {
+        // A large requested entry can be returned without displacing the entire
+        // useful working set or remaining resident for the document's lifetime.
+        guard data.count <= Self.entryCacheLimit else { return }
+        if let previous = entryCache.removeValue(forKey: name) {
+            entryBytes -= previous.count
+            entryOrder.removeAll { $0 == name }
+        }
+        while entryBytes > Self.entryCacheLimit - data.count, let oldest = entryOrder.first {
+            entryOrder.removeFirst()
+            entryBytes -= entryCache.removeValue(forKey: oldest)!.count
+        }
+        entryCache[name] = data
+        entryOrder.append(name)
+        entryBytes += data.count
     }
 
     private func resetCursor() {

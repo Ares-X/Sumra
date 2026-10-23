@@ -156,6 +156,20 @@ final class NativePDFDisplayTests: XCTestCase {
         XCTAssertEqual(try accentFile.matches("é", page: 0, options: .init(caseSensitive: true)).map(\.index), [0])
     }
 
+    func testSearchExtractionUsesRequestCookieAndLeavesTheNextQueryUsable() throws {
+        let directory = try directory(), source = directory.appendingPathComponent("search-cookie.pdf")
+        try searchFixture(["original query", "fresh query"]).write(to: source)
+        let file = try NativeFile(source, engine: .mupdf)
+        let stopped = try NativeRenderCancellation()
+        stopped.cancel()
+        XCTAssertThrowsError(try file.matches("original", page: 0, maximum: 1, cancellation: stopped)) {
+            XCTAssertTrue($0 is CancellationError)
+        }
+        let fresh = try file.matches("fresh", page: 0, maximum: 1, cancellation: NativeRenderCancellation())
+        XCTAssertEqual(fresh.count, 1)
+        XCTAssertTrue(fresh.first?.context.contains("fresh query") == true)
+    }
+
     @MainActor func testNativeSearchCancellationDiscardsItsResultsAndAllowsANewQuery() async throws {
         let directory = try directory(), source = directory.appendingPathComponent("search-cancellation.pdf")
         let lines = Array(repeating: String(repeating: "needle ", count: 20), count: 50)

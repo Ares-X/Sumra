@@ -47,6 +47,9 @@ struct PDFAnnotationSnapshot: Decodable, Identifiable, Equatable, Sendable {
     let readOnly: Bool?
     let options: [Choice]?
     var isSigned: Bool? = nil
+    var selectedValues: [String]? = nil
+    var selectedIndices: [Int]? = nil
+    var isMultiSelectChoice: Bool { fieldType == 4 && (fieldFlags ?? 0) & (1 << 21) != 0 }
     var bounds: CGRect { CGRect(raster: rect) }
     var copyBounds: CGRect { designRect.map { CGRect(raster: $0) } ?? bounds }
     var isUnsignedSignature: Bool { type == "Widget" && fieldType == 6 && isSigned == false }
@@ -56,6 +59,7 @@ struct PDFAnnotationSnapshot: Decodable, Identifiable, Equatable, Sendable {
         switch fieldType {
         case 6: return isUnsignedSignature
         case 2, 5: return value == nil || value == "" || value == "Off"
+        case 4 where isMultiSelectChoice: return selectedValues?.isEmpty ?? true
         case 3, 4, 7: return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
         default: return false
         }
@@ -434,6 +438,24 @@ extension NativeFile {
     func pdfSetWidgetValue(page: Int, id: Int32, value: String) throws {
         defer { invalidatePDFCaches() }
         try pdfCall("lf_pdf_live_widget_value", AnnotationString.self) { $0(document, Int32(page), id, value, &$1) }
+    }
+
+    func pdfSetWidgetValues(page: Int, id: Int32, values: [String]) throws {
+        defer { invalidatePDFCaches() }
+        typealias Set = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, Int32, UnsafePointer<UnsafePointer<CChar>?>?, UnsafeMutablePointer<CChar>) -> Int32
+        let strings = values.map { strdup($0)! }
+        defer { strings.forEach { free($0) } }
+        let pointers = strings.map { Optional(UnsafePointer($0)) }
+        try pdfCall("lf_pdf_live_widget_values", Set.self) { $0(document, Int32(page), id, Int32(values.count), pointers, &$1) }
+    }
+
+    func pdfSetWidgetIndices(page: Int, id: Int32, indices: [Int]) throws {
+        defer { invalidatePDFCaches() }
+        typealias Set = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, Int32, UnsafePointer<Int32>?, UnsafeMutablePointer<CChar>) -> Int32
+        let selected = indices.map(Int32.init)
+        try pdfCall("lf_pdf_live_widget_indices", Set.self) { set, error in
+            selected.withUnsafeBufferPointer { set(document, Int32(page), id, Int32(selected.count), $0.baseAddress, &error) }
+        }
     }
 
     func pdfToggleWidget(page: Int, id: Int32) throws {

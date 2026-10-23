@@ -174,12 +174,29 @@ struct MarkdownPassage: Codable, Hashable {
     var end: Bool
 }
 
+struct PageLocalOffset: Codable, Hashable {
+    var x: Double
+    var y: Double
+
+    init(point: CGPoint, bounds: CGRect) {
+        x = Double(min(1, max(0, (point.x - bounds.minX) / bounds.width)))
+        y = Double(min(1, max(0, (point.y - bounds.minY) / bounds.height)))
+    }
+
+    func point(in bounds: CGRect) -> CGPoint {
+        CGPoint(x: bounds.minX + CGFloat(x) * bounds.width, y: bounds.minY + CGFloat(y) * bounds.height)
+    }
+}
+
 struct ReadingPosition: Codable, Hashable {
     var page = 0
     var pageCount: Int?
     var scrollFraction: Double?
     var x: Double?
     var y: Double?
+    // A page turn can retain the visible origin as fractions of the displayed
+    // page. Source x/y remain authoritative for saved positions and Back.
+    var pageLocalOffset: PageLocalOffset?
     var anchor: String?
     var markdownPassage: MarkdownPassage?
     var nativePassage: NativePassage?
@@ -232,6 +249,7 @@ struct ReaderBookmark: Codable, Identifiable {
     var title: String
     var path: String
     var position: ReadingPosition
+    var fileBookmark: Data?
 }
 
 @MainActor
@@ -248,9 +266,12 @@ private final class ReaderSpeechDelegate: NSObject, NSSpeechSynthesizerDelegate 
 final class ReaderState: ObservableObject {
     @Published var document: ReadingDocument? {
         didSet {
-            pdfEditingEnabled = false; nativePDFInfo = nil; nativePDFSelection = nil; nativePDFAnnotationTool = nil
-            nativePDFSignatureSelection = nil
-            nativePDFFormEditor?.cancel(); nativePDFFormPage = nil; fitPresetRestore = nil
+            if document != nil { restoredPayload = nil }
+            if document?.id != oldValue?.id {
+                pdfEditingEnabled = false; nativePDFInfo = nil; nativePDFSelection = nil; nativePDFAnnotationTool = nil
+                nativePDFSignatureSelection = nil
+                nativePDFFormEditor?.cancel(); nativePDFFormPage = nil; fitPresetRestore = nil
+            }
         }
     }
     @Published private(set) var pdfEditingEnabled = false
@@ -267,6 +288,8 @@ final class ReaderState: ObservableObject {
     @Published var busy = false
     @Published var error: String? { didSet { if let error, error != oldValue { ReaderHelp.recordError(error) } } }
     @Published var status = ""
+    @Published private(set) var linkDestinationHint: ReadingPosition?
+    private var linkHintTask: Task<Void, Never>?
     @Published var page = 0
     @Published var count = 0
     var chapterLayout: ChapterTable?
@@ -291,6 +314,7 @@ final class ReaderState: ObservableObject {
             selectedContents = nil
         }
     }
+    @Published var chmIndex: [CHMKeyword] = []
     private(set) var outlineRevision = 0
     @Published var collapsedContents = Set<Int>() {
         didSet { if collapsedContents != oldValue { contentsExpansionRevision &+= 1 } }
@@ -446,6 +470,12 @@ final class ReaderState: ObservableObject {
     private var wheelTurnedPage = false
     private var wheelPageTurnTime: TimeInterval?
     weak var window: NSWindow?
+    private(set) var fileBookmark: Data?
+    @Published private(set) var missingFile: URL?
+    private var missingPosition: ReadingPosition?
+    private var relocationOffered = false
+    @Published private(set) var restoredPayload: WindowPayload?
+    private var restoredLoadStarted = false
     @Published private(set) var isWindowClosed = false
     weak var findWindow: NSWindow?
     var createWindow: ((WindowPayload) -> Void)?
@@ -482,8 +512,9 @@ final class ReaderState: ObservableObject {
     private var watch: DispatchSourceFileSystemObject?
     private(set) var generation = 0
 
-    init(recordsHistory: Bool = true) {
-        self.recordsHistory = recordsHistory
+    init(recordsHistory: Bool = true, restoring payload: WindowPayload? = nil) {
+        self.recordsHistory = payload?.recordsHistory ?? recordsHistory
+        restoredPayload = payload
         speech.delegate = speechDelegate
         speechDelegate.word = { [weak self] range in
             guard let self, self.speechFollow, self.speechRequested, self.speechHighlightEnabled else { return }
@@ -509,6 +540,12 @@ final class ReaderState: ObservableObject {
 }
 
 extension ReaderState {
+    func retargetRestoredFile(from source: URL, to destination: URL) {
+        guard restoredPayload?.path == source.path else { return }
+        restoredPayload?.path = destination.path
+        restoredPayload?.fileBookmark = DocumentFileIdentity.bookmark(for: destination)
+    }
+
     var isText: Bool {
         if case .text = document?.content { return true }
         return false
@@ -919,6 +956,7 @@ extension ReaderState {
     // Translated from Sumatra DisplayModel::AddNavPoint/Navigate: bounded,
     // deduplicated history; a new jump discards the old forward branch.
     func recordNavigation() {
+        if isFixed { RasterReader.recordPosition(in: readerFocusView) }
         if historyIndex < history.count { history.removeSubrange(historyIndex..<history.count) }
         let position = currentPosition
         if history.last != position { history.append(position) }
@@ -931,6 +969,26 @@ extension ReaderState {
             selectedSearchTarget = target
         } else { recordNavigation() }
         send(action)
+    }
+
+    func linkPosition(_ destination: ReadingPosition) -> ReadingPosition {
+        var destination = destination
+        if UserDefaults.standard.bool(forKey: "keepZoomOnLinks") {
+            destination.zoom = zoom
+            destination.fit = fit
+        }
+        return destination
+    }
+
+    func showLinkDestination(_ position: ReadingPosition) {
+        linkHintTask?.cancel()
+        linkDestinationHint = position
+        linkHintTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 1_500_000_000) }
+            catch { return }
+            self?.linkDestinationHint = nil
+            self?.linkHintTask = nil
+        }
     }
 
     func navigateHistory(_ delta: Int) {
@@ -1301,7 +1359,9 @@ extension ReaderState {
             let next = PageRows.range(page: target, count: count, spread: spread && isFixed && !presentation, cover: cover, landscape: landscapeAsSpread ? landscapePages : [])
             if next == range { break }; range = next
         }
-        updatePosition(.init(page: range.lowerBound))
+        let offset = UserDefaults.standard.bool(forKey: "preservePageTurnPosition") && !reflowable && flow != "continuous"
+            ? RasterReader.pageLocalOffset(in: readerFocusView) : nil
+        updatePosition(.init(page: range.lowerBound, pageLocalOffset: offset))
         send(.page(page))
     }
 
@@ -1377,8 +1437,8 @@ extension ReaderState {
         Task {
             do {
                 let geometry = try await pages.pdfPageGeometry(page)
-                let sourceURL = pages.pdfSourceURL
-                guard documentID == document?.id else { return }
+                guard documentID == document?.id, let reading = document else { return }
+                let sourceURL = reading.hasSeparatePDFSource ? pages.pdfSourceURL : reading.url
                 let source = try await Synchronizer.inverse(pdf: sourceURL, page: page,
                     point: point.applying(geometry.transform.inverted()), bounds: geometry.mediaBox, pageCount: count)
                 guard documentID == document?.id else { return }
@@ -1534,6 +1594,14 @@ extension ReaderState {
 }
 
 extension ReaderState {
+    func activateRestoredDocument() {
+        guard !restoredLoadStarted, let payload = restoredPayload, let path = payload.path else { return }
+        restoredLoadStarted = true
+        requestedHistory = payload.recordsHistory != false && !UserDefaults.standard.bool(forKey: "disableHistory")
+        requestedPosition = payload.position
+        load(URL(fileURLWithPath: path).standardizedFileURL, reloading: false)
+    }
+
     private func persistedMarkdownPosition(_ renderer: MarkdownRenderer, for url: URL, recordsHistory: Bool) -> ReadingPosition? {
         guard recordsHistory, !UserDefaults.standard.bool(forKey: "disableReadingState") else { return nil }
         let key = "position:" + url.standardizedFileURL.path + ":markdown:" + renderer.rawValue
@@ -1587,6 +1655,7 @@ extension ReaderState {
 
     func open(_ url: URL) {
         afterDiscard {
+            self.restoredPayload = nil
             self.requestedHistory = !UserDefaults.standard.bool(forKey: "disableHistory")
             self.requestedPosition = nil
             self.load(url.standardizedFileURL, reloading: false)
@@ -1595,6 +1664,7 @@ extension ReaderState {
 
     func openWithoutHistory(_ url: URL, at position: ReadingPosition? = nil) {
         afterDiscard {
+            self.restoredPayload = nil
             self.requestedHistory = false
             self.requestedPosition = position
             self.load(url.standardizedFileURL, reloading: false)
@@ -1603,6 +1673,7 @@ extension ReaderState {
 
     func openTemporary(_ url: URL, keeping directory: TemporaryDirectory, at position: ReadingPosition? = nil) {
         afterDiscard {
+            self.restoredPayload = nil
             self.requestedHistory = false
             self.requestedPosition = position
             self.load(url.standardizedFileURL, reloading: false, temporary: directory)
@@ -1611,6 +1682,7 @@ extension ReaderState {
 
     func open(_ url: URL, at position: ReadingPosition) {
         afterDiscard {
+            self.restoredPayload = nil
             self.requestedHistory = !UserDefaults.standard.bool(forKey: "disableHistory")
             self.requestedPosition = position
             self.load(url.standardizedFileURL, reloading: false)
@@ -1621,6 +1693,7 @@ extension ReaderState {
 
     private func closeDocument() {
         ReaderWindows.rememberClosed(self)
+        restoredPayload = nil
         generation += 1
         requestedPosition = nil
         persist()
@@ -1646,6 +1719,14 @@ extension ReaderState {
     func reload() {
         guard !busy, let url = document?.url else { return }
         afterDiscard { self.load(url, reloading: true, password: self.password) }
+    }
+
+    func reload(at position: ReadingPosition) {
+        guard let url = document?.url else { return }
+        afterDiscard {
+            self.requestedPosition = position
+            self.load(url, reloading: true, password: self.password)
+        }
     }
 
     func rememberPassword(_ value: String) { password = value }
@@ -1737,21 +1818,9 @@ extension ReaderState {
         guard destination != reading.url else { return }
         afterDiscard { [self] in
         do {
-            let renamedPosition = filePosition
             stopWatch()
             try FileManager.default.moveItem(at: reading.url, to: destination)
-            if case .browser(let source) = reading.content, source is MarkupSource {
-                requestedPosition = renamedPosition
-            }
-            document?.url = destination
-            let defaults = UserDefaults.standard, oldKey = "position:" + reading.url.path
-            if let position = defaults.data(forKey: oldKey) { defaults.set(position, forKey: "position:" + destination.path); defaults.removeObject(forKey: oldKey) }
-            for index in bookmarks.indices where bookmarks[index].path == reading.url.path { bookmarks[index].path = destination.path }
-            saveBookmarks()
-            ReaderFiles.replaceHistory(reading.url, with: destination)
-            // Preserve the current position, but reload the engine's source URL
-            // so subsequent encrypted/signature operations use the renamed file.
-            load(destination, reloading: true, password: password)
+            followMovedFile(from: reading.url, to: destination)
         } catch { watchFile(reading.url); self.error = error.localizedDescription }
         }
     }
@@ -1829,7 +1898,7 @@ extension ReaderState {
         guard alert.runModal() == .alertFirstButtonReturn, document?.id == reading.id, document?.url == url else { return }
         let title = field.stringValue, theme = resolvedTheme, css = effectiveUserCSS
         guard isNativeReflow, case .pages(let pages) = reading.content else {
-            bookmarks.append(.init(title: title, path: url.path, position: position))
+            bookmarks.append(.init(title: title, path: url.path, position: position, fileBookmark: fileBookmark))
             saveBookmarks(); showBookmarks = true
             return
         }
@@ -1839,14 +1908,20 @@ extension ReaderState {
             do {
                 position.nativePassage = try await pages.capturePassage(position, theme: theme, userCSS: css, region: region)
                 guard document?.id == reading.id, document?.url == url else { return }
-                bookmarks.append(.init(title: title, path: url.path, position: position))
+                bookmarks.append(.init(title: title, path: url.path, position: position, fileBookmark: fileBookmark))
                 saveBookmarks(); showBookmarks = true
             } catch { if document?.id == reading.id { self.error = error.localizedDescription } }
         }
     }
 
     func openBookmark(_ bookmark: ReaderBookmark) {
-        if bookmark.path == document?.url.path {
+        let source = URL(fileURLWithPath: bookmark.path)
+        guard let target = ReaderFiles.resolve(source, bookmark: bookmark.fileBookmark) else {
+            afterDiscard { [self] in markFileMissing(source, position: bookmark.position) }
+            return
+        }
+        ReaderFiles.migrate(source, to: target, recordsHistory: recordsDocumentHistory)
+        if target == document?.url {
             if let target = bookmark.position.markdownRenderer
                 ?? (bookmark.position.markdownPassage == nil ? nil : .compatible),
                document?.markdownRenderer != nil, target != document?.markdownRenderer {
@@ -1866,7 +1941,7 @@ extension ReaderState {
             }
             var position = bookmark.position
             if case .browser(let source as MarkupSource) = document?.content {
-                let file = URL(fileURLWithPath: bookmark.path).standardizedFileURL.resolvingSymlinksInPath()
+                let file = target.standardizedFileURL.resolvingSymlinksInPath()
                 guard let page = source.pages.firstIndex(where: { (try? source.fileURL($0)) == file }) else { return }
                 position.page = page
                 position.anchor = source.pages[page].absoluteString
@@ -1874,7 +1949,7 @@ extension ReaderState {
             recordNavigation(); restore(position)
         }
         else {
-            open(URL(fileURLWithPath: bookmark.path), at: bookmark.position)
+            open(target, at: bookmark.position)
         }
     }
 
@@ -1883,8 +1958,16 @@ extension ReaderState {
     static func restoreSavedPDFPosition(_ saved: ReadingPosition, pages: Pages) async throws -> ReadingPosition {
         guard pages.isPDF, saved.pdfCoordinateSpace != "fitz", saved.x != nil || saved.y != nil else { return saved }
         let count = await pages.count
+        if saved.pdfCoordinateSpace == "synctex", !(0..<count).contains(saved.page) {
+            throw ReadError("The SyncTeX destination page is not in the reloaded PDF.")
+        }
         let geometry = try await pages.pdfPageGeometry(min(max(0, saved.page), max(0, count - 1)))
-        return saved.convertingPDFCoordinates(geometry.transform)
+        var position = saved
+        if saved.pdfCoordinateSpace == "synctex" {
+            position.x = geometry.mediaBox.minX + (saved.x ?? 0)
+            position.y = geometry.mediaBox.maxY - (saved.y ?? 0)
+        }
+        return position.convertingPDFCoordinates(geometry.transform)
     }
 
     func deleteBookmark(_ id: UUID) {
@@ -1930,6 +2013,9 @@ extension ReaderState {
         }
         if case .pages(let pages) = reading.content, pages.isPDF {
             try await pages.pdfSave(to: reading.url)
+            // Saving atomically replaces the file. Refresh persisted identities
+            // before bookmarks or dormant tabs can resolve the old inode.
+            ReaderFiles.migrate(reading.url, to: reading.url, recordsHistory: recordsDocumentHistory)
             guard document?.id == reading.id, generation == loadGeneration else { return false }
             try await nativePDFDidChange(pages)
             guard document?.id == reading.id, generation == loadGeneration else { return false }
@@ -2080,6 +2166,7 @@ extension ReaderState {
         // A retained SwiftUI scene must stop rendering before document teardown
         // publishes nil; returning Home is a separate, still-open-window action.
         isWindowClosed = true
+        restoredPayload = nil
         persist()
         generation += 1
         loading?.cancel()
@@ -2095,6 +2182,7 @@ private extension ReaderState {
     // Only state owned by the outgoing document. Reading preferences, position,
     // presentation and navigation history have different close/reload semantics.
     func resetDocumentTransientState() {
+        linkHintTask?.cancel(); linkHintTask = nil; linkDestinationHint = nil
         nativePassageTask?.cancel(); nativePassageTask = nil
         searchStartMarked = false
         pendingFind?.cancel(); pendingFind = nil
@@ -2122,6 +2210,7 @@ private extension ReaderState {
         contentsQuery = ""
         contentsSearchRequested = false
         outline = []
+        chmIndex = []
         landscapePages = []
         outlineBusy = false
         showFind = false
@@ -2140,6 +2229,16 @@ private extension ReaderState {
               markdownRenderer requestedRenderer: MarkdownRenderer? = nil,
               retainedMarkdownPreference: MarkdownRenderer? = nil,
               rememberMarkdownPreference: Bool = false) {
+        missingFile = nil; missingPosition = nil; relocationOffered = false
+        let requestedURL = url
+        let url: URL
+        let resolved = requestedHistory != false && (restoredPayload != nil || !FileManager.default.fileExists(atPath: requestedURL.path))
+            ? ReaderFiles.resolve(requestedURL, bookmark: restoredPayload?.fileBookmark) : nil
+        let missingRestoredIdentity = requestedHistory != false && restoredPayload?.fileBookmark != nil && resolved == nil
+        if let resolved {
+            ReaderFiles.migrate(requestedURL, to: resolved, recordsHistory: requestedHistory ?? recordsHistory)
+            url = resolved
+        } else { url = requestedURL }
         let loadStarted = DispatchTime.now().uptimeNanoseconds
         NativeReadingPerformance.mark("load-entry", persistent: true)
         defer { NativeReadingPerformance.mark("load-dispatched", revision: generation, started: loadStarted, persistent: true) }
@@ -2171,6 +2270,7 @@ private extension ReaderState {
                 let workerStarted = DispatchTime.now().uptimeNanoseconds
                 NativeReadingPerformance.mark("load-worker-entry", revision: currentGeneration, persistent: true)
                 defer { NativeReadingPerformance.mark("load-worker-return", revision: currentGeneration, started: workerStarted, persistent: true) }
+                if missingRestoredIdentity { throw ReadError("The saved file could not be located. Choose Relocate File to find it.") }
                 var opened = try ReadingDocument.open(url, password: requestPassword, deferReflowLayout: true,
                                                        markdownRenderer: openingRenderer)
                 if opened.markdownRenderer != nil, let retainedMarkdownPreference {
@@ -2267,7 +2367,10 @@ private extension ReaderState {
                         reloadedPosition = explicit ?? markdownPositions[renderer] ?? persistedMarkdownPosition(renderer, for: opened.url, recordsHistory: openingHistory) ?? ReadingPosition()
                     } else { reloadedPosition = ReadingPosition() }
                 } else if reloading, let openingPosition {
-                    reloadedPosition = openingPosition
+                    if case .pages(let pages) = opened.content, pages.isPDF {
+                        reloadedPosition = try await Self.restoreSavedPDFPosition(openingPosition, pages: pages)
+                        guard !Task.isCancelled, currentGeneration == generation else { return }
+                    } else { reloadedPosition = openingPosition }
                 } else if reloading, case .browser(let source) = document?.content, source is MarkupSource {
                     reloadedPosition = filePosition
                 } else { reloadedPosition = nil }
@@ -2323,6 +2426,7 @@ private extension ReaderState {
                 busy = false
                 status = ""
                 loading = nil
+                missingFile = nil; missingPosition = nil; relocationOffered = false
                 watchFile(opened.url)
                 if restorePDFEditing { setPDFEditingEnabled(true) }
                 NativeReadingPerformance.mark("load-publication-return", revision: currentGeneration, started: publicationStarted, persistent: true)
@@ -2339,6 +2443,7 @@ private extension ReaderState {
                     alert.messageText = L("Document Password")
                     alert.informativeText = required.localizedDescription
                     let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+                    field.setAccessibilityLabel(L("Document Password"))
                     alert.accessoryView = field
                     alert.addButton(withTitle: L("Open"))
                     alert.addButton(withTitle: L("Cancel"))
@@ -2351,9 +2456,12 @@ private extension ReaderState {
                              rememberMarkdownPreference: rememberMarkdownPreference)
                         return
                     }
+                } else if missingRestoredIdentity || !FileManager.default.fileExists(atPath: url.path) {
+                    self.error = error.localizedDescription
+                    markFileMissing(url, position: openingPosition)
                 } else { self.error = error.localizedDescription }
                 // Atomic replacement may have invalidated the previous file descriptor.
-                if let url = document?.url { watchFile(url) }
+                if missingFile == nil, let url = document?.url { watchFile(url) }
             }
         }
     }
@@ -2440,8 +2548,69 @@ private extension ReaderState {
         pageGridStyle = defaults.string(forKey: "pageGridStyle") ?? "dots"
     }
 
+    func followMovedFile(from source: URL, to destination: URL) {
+        let position = filePosition
+        persist()
+        ReaderFiles.migrate(source, to: destination, recordsHistory: recordsDocumentHistory)
+        document?.retargetSource(to: destination)
+        missingFile = nil; missingPosition = nil; relocationOffered = false
+        if modified || nativePDF != nil {
+            // The same PDF object moved; retain its native editor and pending
+            // input even before the first form value has been committed.
+            watchFile(destination)
+            status = modified ? L("File moved; unsaved edits remain open") : ""
+        } else {
+            requestedPosition = position
+            load(destination, reloading: true, password: password)
+        }
+    }
+
+    private func markFileMissing(_ url: URL, position: ReadingPosition? = nil) {
+        missingFile = url
+        missingPosition = position ?? filePosition ?? restoredPayload?.position
+        relocationOffered = false
+        status = L("File moved or deleted")
+        stopWatch()
+        offerFileRelocation()
+    }
+
+    internal func offerFileRelocation() {
+        guard let missingFile, !busy, !relocationOffered, window?.isKeyWindow == true else { return }
+        relocationOffered = true
+        let alert = NSAlert()
+        alert.messageText = L("Locate Missing File")
+        alert.informativeText = error.map { "\(missingFile.path)\n\n\($0)" } ?? missingFile.path
+        alert.addButton(withTitle: L("Relocate…")); alert.addButton(withTitle: L("Keep Open"))
+        if alert.runModal() == .alertFirstButtonReturn { relocateFile() }
+    }
+
+    internal func relocateFile() {
+        guard let source = missingFile ?? document?.url ?? restoredPayload?.path.map({ URL(fileURLWithPath: $0) }) else { return }
+        let panel = NSOpenPanel()
+        panel.message = L("Choose the new location of this document. Its reading position and saved associations will follow it.")
+        panel.directoryURL = source.deletingLastPathComponent()
+        panel.allowsMultipleSelection = false; panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        relocateFile(to: destination)
+    }
+
+    internal func relocateFile(to destination: URL) {
+        guard let source = missingFile ?? document?.url ?? restoredPayload?.path.map({ URL(fileURLWithPath: $0) }) else { return }
+        let position = missingPosition ?? filePosition ?? restoredPayload?.position
+        afterDiscard { [self] in
+            persist()
+            ReaderFiles.migrate(source, to: destination, recordsHistory: recordsDocumentHistory)
+            if document?.url == source { document?.retargetSource(to: destination) }
+            restoredPayload = nil
+            requestedPosition = position
+            requestedHistory = recordsHistory
+            load(destination, reloading: document != nil, password: password)
+        }
+    }
+
     func watchFile(_ url: URL) {
         stopWatch()
+        fileBookmark = DocumentFileIdentity.bookmark(for: url)
         guard !url.hasDirectoryPath else { return }
         let fileDescriptor = Darwin.open(url.path, O_EVTONLY)
         guard fileDescriptor >= 0 else { return }
@@ -2462,6 +2631,16 @@ private extension ReaderState {
             else { return }
 
             let event = source.data
+            if event.contains(.delete) || event.contains(.rename) {
+                if let bookmark = self.fileBookmark, let destination = DocumentFileIdentity.resolve(bookmark), destination != url {
+                    self.followMovedFile(from: url, to: destination)
+                    return
+                }
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    self.markFileMissing(url)
+                    return
+                }
+            }
             self.status = "File changed on disk"
             self.reloadTask?.cancel()
             self.reloadTask = nil
@@ -2477,8 +2656,7 @@ private extension ReaderState {
                 guard !Task.isCancelled, !self.busy, self.document?.url == url else { return }
                 if event.contains(.delete) || event.contains(.rename) {
                     guard FileManager.default.fileExists(atPath: url.path) else {
-                        self.status = "File moved or deleted"
-                        self.stopWatch()
+                        self.markFileMissing(url)
                         return
                     }
                 }

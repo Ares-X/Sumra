@@ -29,7 +29,12 @@ struct WindowPayload: Codable, Hashable {
     }
     var recordsHistory: Bool?
     var tabColor: UInt32?
-    enum CodingKeys: String, CodingKey { case id, path, position, tabWith, tabIdentifier, recordsHistory, tabColor }
+    var fileBookmark: Data?
+    var selected: Bool?
+    var active: Bool?
+    // Startup metadata only; the native tab group owns order after restoration.
+    var restoring = false
+    enum CodingKeys: String, CodingKey { case id, path, position, tabWith, tabIdentifier, recordsHistory, tabColor, fileBookmark, selected, active }
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -40,8 +45,11 @@ struct WindowPayload: Codable, Hashable {
         try values.encodeIfPresent(tabIdentifier, forKey: .tabIdentifier)
         try values.encodeIfPresent(recordsHistory, forKey: .recordsHistory)
         try values.encodeIfPresent(tabColor, forKey: .tabColor)
+        try values.encodeIfPresent(selected, forKey: .selected)
+        try values.encodeIfPresent(active, forKey: .active)
         // Scene restoration must not persist a private or temporary file path.
         if temporary == nil, recordsHistory != false {
+            try values.encodeIfPresent(fileBookmark, forKey: .fileBookmark)
             try values.encodeIfPresent(path, forKey: .path)
             try values.encodeIfPresent(position, forKey: .position)
             try values.encodeIfPresent(tabWith, forKey: .tabWith)
@@ -68,22 +76,27 @@ struct ReaderWindow: View {
 
     init(payload: Binding<WindowPayload>, application: ReaderApplicationDelegate) {
         _payload = payload
+        _state = StateObject(wrappedValue: ReaderState(restoring: payload.wrappedValue.restoring ? payload.wrappedValue : nil))
         self.application = application
     }
 
     private var windowTitle: String {
-        guard let document = state.document else { return "Sumra" }
-        return (fullPathTitle ? document.url.path : document.url.lastPathComponent) + (pageInTitle && state.count > 0 ? " — " + state.positionLabel : "")
+        guard let url = state.document?.url ?? state.restoredPayload?.path.map({ URL(fileURLWithPath: $0) }) else { return "Sumra" }
+        return (fullPathTitle ? url.path : url.lastPathComponent) + (pageInTitle && state.count > 0 ? " — " + state.positionLabel : "")
     }
 
     var body: some View {
         Group {
-            if !state.isWindowClosed { ReaderView(state: state) }
+            if !state.isWindowClosed {
+                if state.restoredPayload != nil, !state.busy, state.error == nil, state.missingFile == nil { Color.clear }
+                else { ReaderView(state: state) }
+            }
         }
             .frame(minWidth: 560, minHeight: state.hasDocument ? 400 : 500)
             .navigationTitle(windowTitle)
             .background(WindowTabs(state: state, tabWith: payload.tabWith, identifier: payload.tabIdentifier) {
                 application.connect(state, canReuse: payload.path == nil)
+                if payload.restoring, let window = state.window { ReaderWindows.restoredWindowReady(window, payload: payload) }
             })
             .focusedSceneObject(state)
             .onAppear {
@@ -104,6 +117,10 @@ struct ReaderWindow: View {
                 }
             }
             .task(id: payload.path) {
+                if payload.restoring {
+                    if payload.active == true { state.activateRestoredDocument() }
+                    return
+                }
                 guard !state.busy,
                       state.document == nil,
                       let path = payload.path
@@ -265,6 +282,8 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     private var keyMonitor: Any?
     private var terminationPending = false
     private var pendingFiles: [URL] = []
+    private var pendingSyncTeX: [SyncTeXForwardRequest] = []
+    private var syncTeXTasks: [String: Task<Void, Never>] = [:]
     private var createWindow: ((WindowPayload) -> Void)?
     private weak var emptyReader: ReaderState?
 
@@ -272,6 +291,10 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     // OpenWindowAction. Keep the request until that existing owner is ready.
     func application(_ application: NSApplication, open urls: [URL]) {
         pendingFiles.append(contentsOf: urls.filter(\.isFileURL))
+        for url in urls where url.scheme?.lowercased() == "sumra" {
+            do { pendingSyncTeX.append(try SyncTeXForwardRequest(url: url)) }
+            catch { presentSyncTeXError(error) }
+        }
         openPendingFiles()
     }
 
@@ -285,9 +308,8 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openPendingFiles() {
-        guard !pendingFiles.isEmpty else { return }
-        // Finder can send the open request before SwiftUI installs a window.
-        // Activate now so the initial scene does not wait for a Dock click.
+        guard !pendingFiles.isEmpty || !pendingSyncTeX.isEmpty else { return }
+        // Finder and editor requests can arrive before SwiftUI installs a window.
         NSApp.activate(ignoringOtherApps: true)
         guard let createWindow else { return }
         let urls = pendingFiles
@@ -301,6 +323,47 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
                 createWindow(WindowPayload(path: url.path))
             }
         }
+        let requests = pendingSyncTeX
+        pendingSyncTeX.removeAll()
+        for request in requests { openSyncTeX(request, createWindow: createWindow) }
+    }
+
+    private func openSyncTeX(_ request: SyncTeXForwardRequest, createWindow: @escaping (WindowPayload) -> Void) {
+        let identity = request.identity
+        syncTeXTasks[identity]?.cancel()
+        let initialReader = SyncTeXForward.reader(for: request, among: ReaderWindows.states, preferred: NSApp.keyWindow)
+        let pageHint = initialReader.map { $0.page + 1 } ?? 0
+        syncTeXTasks[identity] = Task { [weak self] in
+            do {
+                let position = try await SyncTeXForward.position(for: request, pageHint: pageHint)
+                guard let self else { return }
+                // Resolve again after the background query: a reader may have
+                // closed or switched documents while the index was parsed.
+                if let state = SyncTeXForward.reader(for: request, among: ReaderWindows.states, preferred: NSApp.keyWindow) {
+                    if state.document != nil { state.reload(at: position) }
+                    else { state.open(request.pdf, at: position) }
+                    state.window?.makeKeyAndOrderFront(nil)
+                } else if let state = self.emptyReader, state.window != nil, state.document == nil, !state.busy {
+                    self.emptyReader = nil
+                    state.open(request.pdf, at: position)
+                    state.window?.makeKeyAndOrderFront(nil)
+                } else { createWindow(WindowPayload(path: request.pdf.path, position: position)) }
+                self.syncTeXTasks.removeValue(forKey: identity)
+                NSApp.activate(ignoringOtherApps: true)
+            } catch {
+                guard !Task.isCancelled, let self else { return }
+                self.syncTeXTasks.removeValue(forKey: identity)
+                self.presentSyncTeXError(error)
+            }
+        }
+    }
+
+    private func presentSyncTeXError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "SyncTeX"
+        alert.informativeText = error.localizedDescription
+        if let window = NSApp.keyWindow { alert.beginSheetModal(for: window) }
+        else { alert.runModal() }
     }
     func applicationWillUpdate(_ notification: Notification) {
         undoCommands.update()
@@ -440,6 +503,8 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
 enum ReaderWindows {
     fileprivate static var mru: [Int] = []
     fileprivate static var smartOrder: [Int]?
+    private static var restorationPayloads: [WindowPayload] = []
+    private static var restorationWindows: [UUID: NSWindow] = [:]
     static var isTerminating = false
     static var states: [ReaderState] { NSApp.windows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state } }
 
@@ -466,6 +531,12 @@ enum ReaderWindows {
     }
 
     static func activated(_ window: NSWindow) {
+        if restorationPayloads.isEmpty {
+            if let state = states.first(where: { $0.window === window }) {
+                state.activateRestoredDocument()
+                state.offerFileRelocation()
+            }
+        }
         guard smartOrder == nil else { return }
         let valid = Set(states.compactMap { $0.window?.windowNumber })
         mru.removeAll { $0 == window.windowNumber || !valid.contains($0) }
@@ -476,10 +547,62 @@ enum ReaderWindows {
         if let window = NSApp.keyWindow { activated(window) }
     }
     static func payload(_ state: ReaderState) -> WindowPayload? {
-        guard let path = state.document?.url.path else { return nil }
-        var payload = WindowPayload(path: path, position: state.filePosition, temporary: state.document?.sourceTemporary, recordsHistory: state.recordsDocumentHistory)
+        guard let path = state.document?.url.path ?? state.restoredPayload?.path else { return nil }
+        var payload = WindowPayload(path: path, position: state.document == nil ? state.restoredPayload?.position : state.filePosition,
+                                    temporary: state.document?.sourceTemporary, recordsHistory: state.recordsDocumentHistory)
         payload.tabColor = state.tabColor
+        if state.recordsDocumentHistory, state.document?.sourceTemporary == nil {
+            payload.fileBookmark = state.document == nil ? state.restoredPayload?.fileBookmark : state.fileBookmark
+        }
         return payload
+    }
+
+    static func prepareRestoration(_ payloads: [WindowPayload]) -> [WindowPayload] {
+        restorationPayloads = payloads
+        restorationWindows = [:]
+        guard !payloads.isEmpty else { return [] }
+        let activeID = payloads.first(where: { $0.active == true })?.id
+            ?? payloads.first(where: { $0.selected == true })?.id ?? payloads[0].id
+        let windows = payloads.map { saved -> WindowPayload in
+            var payload = saved
+            payload.restoring = true
+            payload.active = payload.id == activeID
+            return payload
+        }
+        // Parse the current document first while AppKit assembles its other tabs.
+        return windows.filter { $0.id == activeID } + windows.filter { $0.id != activeID }
+    }
+
+    static func restoredWindowReady(_ window: NSWindow, payload: WindowPayload) {
+        guard restorationPayloads.contains(where: { $0.id == payload.id }) else { return }
+        restorationWindows[payload.id] = window
+        guard restorationWindows.count == restorationPayloads.count else { return }
+        let saved = restorationPayloads, windows = restorationWindows
+        // openWindow can focus each new tab. Restore native ordering and
+        // selection only after every host has attached; none of those incidental
+        // key-window changes should parse a background document.
+        var groupIndices: [String: Int] = [:]
+        for payload in saved {
+            guard let window = windows[payload.id], let group = window.tabGroup else { continue }
+            let identifier = payload.tabIdentifier ?? payload.id.uuidString
+            let index = groupIndices[identifier, default: 0]
+            if group.windows.firstIndex(of: window) != index {
+                group.removeWindow(window)
+                group.insertWindow(window, at: index)
+            }
+            groupIndices[identifier] = index + 1
+        }
+        for payload in saved where payload.selected == true {
+            if let window = windows[payload.id] { window.tabGroup?.selectedWindow = window }
+        }
+        restorationPayloads = []
+        restorationWindows = [:]
+        let active = saved.first(where: { $0.active == true })
+            ?? saved.first(where: { $0.selected == true }) ?? saved.first
+        if let active, let window = windows[active.id] {
+            window.makeKeyAndOrderFront(nil)
+            activated(window)
+        }
     }
     static func rememberClosed(_ state: ReaderState) {
         guard !isTerminating, state.recordsDocumentHistory, let payload = payload(state) else { return }
@@ -499,13 +622,17 @@ enum ReaderWindows {
             UserDefaults.standard.removeObject(forKey: "session"); return
         }
         var visited = Set<Int>(), windows: [WindowPayload] = []
+        let activeWindow = NSApp.keyWindow ?? states.compactMap(\.window).first { $0.windowNumber == mru.first }
         for state in states {
             guard let window = state.window, !visited.contains(window.windowNumber) else { continue }
             let identifier = "Sumra-" + UUID().uuidString
             for tab in window.tabbedWindows ?? [window] {
                 visited.insert(tab.windowNumber)
                 guard let reader = states.first(where: { $0.window === tab }), reader.recordsDocumentHistory, var payload = payload(reader) else { continue }
-                payload.tabIdentifier = identifier; windows.append(payload)
+                payload.tabIdentifier = identifier
+                payload.selected = tab === (window.tabGroup?.selectedWindow ?? window)
+                payload.active = tab === activeWindow
+                windows.append(payload)
             }
         }
         save(windows, key: "session")
@@ -524,6 +651,7 @@ enum ReaderFiles {
     private struct OpenRecord: Codable {
         var count: Int
         var lastOpened: Date
+        var fileBookmark: Data?
 
         func count(at date: Date) -> Int {
             let weeks = Int(date.timeIntervalSinceReferenceDate / 604_800) - Int(lastOpened.timeIntervalSinceReferenceDate / 604_800)
@@ -591,7 +719,7 @@ enum ReaderFiles {
         let key = identity(url.path), aliases = records.keys.filter { identity($0) == key }
         let count = aliases.reduce(1) { $0 + records[$1]!.count(at: date) }
         for path in aliases { records.removeValue(forKey: path) }
-        records[url.path] = OpenRecord(count: count, lastOpened: date)
+        records[url.path] = OpenRecord(count: count, lastOpened: date, fileBookmark: DocumentFileIdentity.bookmark(for: url))
         let pinned = Set(Self.pinned.map(identity))
         let unpinned = records.keys.filter { !pinned.contains(identity($0)) }.sorted { records[$0]!.lastOpened > records[$1]!.lastOpened }
         for path in unpinned.dropFirst(1000) { records.removeValue(forKey: path) }
@@ -635,21 +763,57 @@ enum ReaderFiles {
         UserDefaults.standard.set(pinned.filter { !matches($0) }, forKey: "pinnedDocuments")
         ReaderWindows.save(ReaderWindows.saved("closedDocuments").filter { !matches($0.path ?? "") }, key: "closedDocuments")
     }
-    static func replaceHistory(_ source: URL, with destination: URL) {
+    static func resolve(_ url: URL, bookmark: Data? = nil) -> URL? {
+        if let bookmark = bookmark ?? history[url.path]?.fileBookmark { return DocumentFileIdentity.resolve(bookmark) }
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    static func migrate(_ source: URL, to destination: URL, recordsHistory: Bool) {
+        guard recordsHistory, !UserDefaults.standard.bool(forKey: "disableHistory") else { return }
+        let defaults = UserDefaults.standard
         let key = identity(source.path)
+        let aliases = Set(history.keys).union(pinned).union(NSDocumentController.shared.recentDocumentURLs.map(\.path)).union([source.path])
+            .filter { identity($0) == key }
+        for state in ReaderWindows.states {
+            for alias in aliases { state.retargetRestoredFile(from: URL(fileURLWithPath: alias), to: destination) }
+        }
+        for key in defaults.dictionaryRepresentation().keys {
+            if let alias = aliases.first(where: { path in
+                key == "position:" + path || key.hasPrefix("position:" + path + ":markdown:") || key == "bookmark:" + path || key == "markdownRenderer:" + path
+            }) {
+                let replacement = key.replacingOccurrences(of: alias, with: destination.path)
+                guard replacement != key else { continue }
+                defaults.set(defaults.object(forKey: key), forKey: replacement)
+                defaults.removeObject(forKey: key)
+            }
+        }
+        if let data = defaults.data(forKey: "bookmarks"), var bookmarks = try? JSONDecoder().decode([ReaderBookmark].self, from: data) {
+            for index in bookmarks.indices where identity(bookmarks[index].path) == key {
+                bookmarks[index].path = destination.path
+                bookmarks[index].fileBookmark = DocumentFileIdentity.bookmark(for: destination)
+            }
+            if let data = try? JSONEncoder().encode(bookmarks) { defaults.set(data, forKey: "bookmarks") }
+            for state in ReaderWindows.states { state.bookmarks = bookmarks }
+        }
         setRecent(NSDocumentController.shared.recentDocumentURLs.map { identity($0.path) == key ? destination : $0 })
         var records = history
-        let aliases = records.keys.filter { identity($0) == key }
-        if let date = aliases.compactMap({ records[$0]?.lastOpened }).max() {
-            let count = aliases.reduce(0) { $0 + records[$1]!.count(at: date) }
-            for path in aliases { records.removeValue(forKey: path) }
-            records[destination.path] = OpenRecord(count: count, lastOpened: date)
+        let historyAliases = records.keys.filter { identity($0) == key }
+        if let date = historyAliases.compactMap({ records[$0]?.lastOpened }).max() {
+            let count = historyAliases.reduce(0) { $0 + records[$1]!.count(at: date) }
+            for path in historyAliases { records.removeValue(forKey: path) }
+            records[destination.path] = OpenRecord(count: count, lastOpened: date, fileBookmark: DocumentFileIdentity.bookmark(for: destination))
             saveHistory(records)
         }
         UserDefaults.standard.set(pinned.map { identity($0) == key ? destination.path : $0 }, forKey: "pinnedDocuments")
-        var closed = ReaderWindows.saved("closedDocuments")
-        for index in closed.indices where identity(closed[index].path ?? "") == key { closed[index].path = destination.path }
-        ReaderWindows.save(closed, key: "closedDocuments")
+        let savedKeys = ["closedDocuments", "session"] + defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix("tabGroup:") }
+        for savedKey in savedKeys {
+            var windows = ReaderWindows.saved(savedKey)
+            for index in windows.indices where identity(windows[index].path ?? "") == key {
+                windows[index].path = destination.path
+                windows[index].fileBookmark = DocumentFileIdentity.bookmark(for: destination)
+            }
+            ReaderWindows.save(windows, key: savedKey)
+        }
     }
     static func removeMissing() {
         forget(Set(recent.filter { !FileManager.default.fileExists(atPath: $0.path) }.map(\.path)))
@@ -1150,7 +1314,12 @@ extension ReaderState {
         name.placeholderString = L("Group name"); alert.accessoryView = name; alert.window.initialFirstResponder = name
         alert.addButton(withTitle: L("Save")); alert.addButton(withTitle: L("Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn, !name.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let group = (window.tabbedWindows ?? [window]).compactMap { ($0.delegate as? ReaderCloseGuard)?.state }.compactMap(ReaderWindows.payload)
+        let group = (window.tabbedWindows ?? [window]).compactMap { tab -> WindowPayload? in
+            guard let state = (tab.delegate as? ReaderCloseGuard)?.state, var payload = ReaderWindows.payload(state) else { return nil }
+            payload.selected = tab === (window.tabGroup?.selectedWindow ?? window)
+            payload.active = payload.selected
+            return payload
+        }
         ReaderWindows.save(group, key: "tabGroup:" + name.stringValue)
     }
     func restoreTabGroup() {
@@ -1163,7 +1332,13 @@ extension ReaderState {
         let response = alert.runModal(); let key = names[picker.indexOfSelectedItem]
         if response == .alertSecondButtonReturn { UserDefaults.standard.removeObject(forKey: key); return }
         guard response == .alertFirstButtonReturn else { return }
-        for var payload in ReaderWindows.saved(key) { payload.id = UUID(); payload.tabWith = window?.windowNumber; createWindow?(payload) }
+        let identifier = "Sumra-" + UUID().uuidString
+        let saved = ReaderWindows.saved(key).map { saved -> WindowPayload in
+            var payload = saved
+            payload.id = UUID(); payload.tabIdentifier = identifier; payload.tabWith = nil
+            return payload
+        }
+        for payload in ReaderWindows.prepareRestoration(saved) { createWindow?(payload) }
     }
     func setTabColor() {
         guard window != nil else { return }
@@ -1212,7 +1387,7 @@ struct SumraApp: App {
     init() {
         NSWindow.allowsAutomaticWindowTabbing = !UserDefaults.standard.bool(forKey: "disableTabs")
         AppIcon.apply(UserDefaults.standard.string(forKey: "appIcon") ?? "light")
-        if UserDefaults.standard.bool(forKey: "restoreSession") { Self.restoring = ReaderWindows.saved("session") }
+        if UserDefaults.standard.bool(forKey: "restoreSession") { Self.restoring = ReaderWindows.prepareRestoration(ReaderWindows.saved("session")) }
     }
 
     var body: some Scene {

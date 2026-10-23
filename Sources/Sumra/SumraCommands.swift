@@ -87,7 +87,7 @@ struct SumraCommands: Commands {
             }
         }
         CommandGroup(replacing: .saveItem) {
-            buttons([.save, .saveCopy, .exportPDF, .reload, .discard, .properties, .copyPath, .rename, .trash, .trashAndNext, .shareEmail, .openWith, .home, .close, .closeAndQuit])
+            buttons([.save, .saveCopy, .exportPDF, .reload, .discard, .properties, .copyPath, .rename, .relocate, .trash, .trashAndNext, .shareEmail, .openWith, .home, .close, .closeAndQuit])
         }
         CommandGroup(replacing: .printItem) {
             ReaderCommandButton(command: .print)

@@ -48,6 +48,7 @@ cp -R Sources/Sumra/Resources/Localizations "$APP/Resources/Localizations"
 mkdir -p "$APP/Resources/Tools"
 cp build/native-macos13/bin/clit "$APP/Resources/Tools/clit"
 chmod 755 "$APP/Resources/Tools/clit"
+./scripts/build-quicklook.sh "$BIN" "$APP"
 swift scripts/bundle.swift "$APP"
 codesign --verify --deep --strict "$APP/.."
 # Publish only a completely packaged and verified bundle. Keep the preceding

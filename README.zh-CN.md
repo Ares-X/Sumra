@@ -63,6 +63,8 @@
 
 ![Sumra 五种内置阅读主题预览](docs/images/themes.png)
 
+工具栏 **Aa** 打开即时生效的阅读设置，集中调整已安装字体、字号、行距、边距、配色与布局，也可输入补充字体名称。CHM 带有关键词索引时，侧栏会提供独立的 **索引** 页签。EPUB 和漫画支持 Finder 缩略图与 Quick Look 翻页预览。详见[阅读控件](docs/READER_CONTROLS.md)和 [SyncTeX 编辑器集成](docs/SYNCTEX.md)。
+
 ## 支持的格式
 
 | 类型 | 格式 |

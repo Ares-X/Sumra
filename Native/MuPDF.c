@@ -1955,23 +1955,92 @@ static size_t search_hit(fz_context *ctx, fz_search_match *match, const char *te
     }
     return end;
 }
+// A single necessary normalized rune can reject an owner page without
+// requiring the rest of a phrase to be present before its physical seam.
+// Broad case/mark folding also covers a leading base whose combining marks
+// compose later. Multi-rune compatibility expansions cannot prove absence.
+static fz_search *page_search_first_candidate(fz_context *ctx, const char *needle) {
+    if (!*needle) return NULL;
+    int rune, bytes = fz_chartorune(&rune, needle);
+    char first[8] = {0}; memcpy(first, needle, bytes);
+    fz_search *candidate = fz_new_search(ctx, first, FZ_SEARCH_IGNORE_CASE | FZ_SEARCH_IGNORE_DIACRITICS);
+    int *characters = NULL; size_t count = 0;
+    fz_var(characters); fz_var(count);
+    fz_try(ctx) { characters = fz_search_candidate_characters(ctx, candidate, &count); }
+    fz_always(ctx) { fz_free(ctx, characters); }
+    fz_catch(ctx) { fz_drop_search(ctx, candidate); fz_rethrow(ctx); }
+    if (count == 1) return candidate;
+    fz_drop_search(ctx, candidate);
+    return NULL;
+}
+
 API int lf_search_chapter_candidate(void *document, int chapter, const char *needle, int flags,
-                                    int (*cancelled)(void), char *error) {
+                                    int (*cancelled)(void), void *cookie_opaque, char *error) {
     SumraMuPDFDocument *d = document;
+    fz_cookie *cookie = cookie_opaque;
     fz_search *search = NULL;
     int possible = 0;
     fz_var(search); fz_var(possible);
     fz_try(d->ctx) {
+        if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
         fz_search_options options = flags & 1 ? FZ_SEARCH_EXACT : FZ_SEARCH_IGNORE_CASE | FZ_SEARCH_IGNORE_DIACRITICS;
-        search = fz_new_search(d->ctx, needle, options);
-        if (fz_search_needle_bytes(search))
-            possible = fz_epub_chapter_has_search_candidate(d->ctx, d->doc, chapter, search, cancelled);
+        search = d->doc->layout_h != 0 ? page_search_first_candidate(d->ctx, needle)
+            : fz_new_search(d->ctx, needle, options);
+        if (!search) possible = 1;
+        else if (fz_search_needle_bytes(search))
+            possible = fz_epub_chapter_has_search_candidate(d->ctx, d->doc, chapter, search, cancelled, cookie);
     }
     fz_always(d->ctx) { fz_drop_search(d->ctx, search); }
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); return -1; }
     return possible;
 }
-API char *lf_search_options_at(void *document, int chapter, int index, const char *needle, int flags, int64_t after, int64_t maximum, int (*cancelled)(void), char *error) {
+// A search window has one logical line but retains every real glyph's physical
+// location. Query-sized lookahead lets a phrase cross any number of short pages;
+// native normalization, not a fixed page count, determines its extent.
+enum { PAGE_SEARCH_LINE_HYPHEN = 1u << 13 };
+typedef struct {
+    fz_stext_char ch;
+    size_t index;
+    int chapter, page, line;
+} PageSearchChar;
+
+static size_t page_search_end_offset(fz_stext_char *ch, int chapter, int page) {
+    PageSearchChar *item = (PageSearchChar *)ch;
+    return item->chapter == chapter && item->page == page
+        ? item->index + (ch->c > 0xffff ? 2 : 1) : SIZE_MAX;
+}
+
+static void page_search_fragments(SumraJSON *json, const fz_search_match *match) {
+    PageSearchChar *first = (PageSearchChar *)match->begin.ch;
+    if (first->ch.source_node) {
+        lf_json(json, ",\"source\":["); lf_json_u32(json, first->ch.source_node);
+        lf_json(json, ","); lf_json_u32(json, first->ch.source_offset);
+        lf_json(json, ","); lf_json_u32(json, first->ch.source_part);
+        lf_json(json, ","); lf_json_number(json, first->chapter); lf_json(json, "]");
+    }
+    lf_json(json, ",\"fragments\":[");
+    int chapter = -1, page = -1, rectangles = 0, fragments = 0;
+    for (fz_stext_char *ch = match->begin.ch; ch; ch = ch->next) {
+        PageSearchChar *item = (PageSearchChar *)ch;
+        fz_rect rect = fz_rect_from_quad(ch->quad);
+        if (!fz_is_empty_rect(rect)) {
+            if (item->chapter != chapter || item->page != page) {
+                if (fragments++) lf_json(json, "]},");
+                chapter = item->chapter; page = item->page; rectangles = 0;
+                lf_json(json, "{\"chapter\":"); lf_json_number(json, chapter);
+                lf_json(json, ",\"page\":"); lf_json_number(json, page);
+                lf_json(json, ",\"rects\":[");
+            }
+            if (rectangles++) lf_json(json, ",");
+            lf_json_rect(json, rect.x0, rect.y0, rect.x1 - rect.x0, rect.y1 - rect.y0);
+        }
+        if (ch == match->end.ch) break;
+    }
+    if (fragments) lf_json(json, "]}");
+    lf_json(json, "]");
+}
+
+static char *search_options_on_text(void *document, int chapter, int index, const char *needle, int flags, int64_t after, int64_t maximum, int (*cancelled)(void), char *error, fz_stext_page *window, fz_cookie *cookie) {
     SumraMuPDFDocument *d = document;
     fz_search *search = NULL, *anchor_search = NULL; char *anchor = NULL;
     fz_buffer *buffer = NULL; fz_stext_position *map = NULL;
@@ -1986,14 +2055,14 @@ API char *lf_search_options_at(void *document, int chapter, int index, const cha
         search = fz_new_search(d->ctx, needle, options);
         // MuPDF owns normalization and match quads. Its iterative API exposes
         // real characters for Sumatra's word-boundary check and cancellation.
-        fz_page *page = load_render_page(d, chapter, index, NULL);
+        fz_page *page = load_render_page(d, chapter, index, cookie);
         // A negative flow candidate avoids extracting every glyph of an unseen
         // continuous chapter. Existing cached glyph text is already cheaper.
         if (!fz_search_needle_bytes(search) ||
-            (!d->text_page && !fz_html_page_has_search_candidate(d->ctx, page, search, cancelled))) {
+            (!window && !d->text_page && !fz_html_page_has_search_candidate(d->ctx, page, search, cancelled, cookie))) {
             lf_json(&j, "{\"text\":\"\",\"matches\":[]}");
         } else {
-        fz_feed_search(d->ctx, search, stext_at(d, chapter, index, NULL, NULL), 0);
+        fz_feed_search(d->ctx, search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, cookie)), 0);
         const char *text = NULL, *cursor = NULL; fz_stext_position *position = NULL; size_t offset = 0;
         int backwards = (flags & 4) != 0, locating = !backwards && after >= 0;
         int64_t emitted = 0, boundary = after, last_start = -1;
@@ -2013,7 +2082,7 @@ API char *lf_search_options_at(void *document, int chapter, int index, const cha
             anchor_length = (size_t)(p - needle);
         }
         while (maximum < 0 || emitted < maximum) {
-            if (cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+            if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
             fz_search_result result = backwards || locating ? fz_search_backwards(d->ctx, search) : fz_search_forwards(d->ctx, search);
             int restart = 0;
             if (result.reason == FZ_SEARCH_COMPLETE) {
@@ -2037,10 +2106,13 @@ API char *lf_search_options_at(void *document, int chapter, int index, const cha
                 }
                 size_t end = search_hit(d->ctx, result.u.match, text, backwards || locating, &cursor, &position, &offset);
                 size_t start = offset;
+                size_t hit_start = window ? ((PageSearchChar *)result.u.match->begin.ch)->index : start;
+                if (window && (((PageSearchChar *)result.u.match->begin.ch)->chapter != chapter ||
+                    ((PageSearchChar *)result.u.match->begin.ch)->page != index)) continue;
                 if (locating) {
-                    if (start > (uint64_t)after) continue;
+                    if (hit_start > (uint64_t)after) continue;
                     locating = 0;
-                    if (start == (uint64_t)after) {
+                    if (hit_start == (uint64_t)after) {
                         // Resume the previous hit through MuPDF's direction
                         // switch, which advances past its real normalized end.
                         last_start = after;
@@ -2048,11 +2120,11 @@ API char *lf_search_options_at(void *document, int chapter, int index, const cha
                     }
                     restart = 1;
                 } else {
-                    if (boundary >= 0 && (backwards ? start >= (uint64_t)boundary : start <= (uint64_t)boundary)) continue;
+                    if (boundary >= 0 && (backwards ? hit_start >= (uint64_t)boundary : hit_start <= (uint64_t)boundary)) continue;
                     // Normalization can expand one source glyph into several
                     // hits. Its UTF-16 start identifies one selectable result.
-                    if (last_start >= 0 && start == (uint64_t)last_start) continue;
-                    if (backwards && boundary >= 0 && anchor_length && end > (uint64_t)boundary) {
+                    if (last_start >= 0 && hit_start == (uint64_t)last_start) continue;
+                    if (backwards && boundary >= 0 && anchor_length && (window ? page_search_end_offset(result.u.match->end.ch, chapter, index) : end) > (uint64_t)boundary) {
                         if (!needle[anchor_length]) continue; // The whole query is the anchor.
                         // StrRStr bounds only the anchor, not MatchEnd's full
                         // phrase. Ask MuPDF for its real normalized prefix end;
@@ -2061,10 +2133,10 @@ API char *lf_search_options_at(void *document, int chapter, int index, const cha
                             anchor = fz_malloc(d->ctx, anchor_length + 1);
                             memcpy(anchor, needle, anchor_length); anchor[anchor_length] = 0;
                             anchor_search = fz_new_search(d->ctx, anchor, options);
-                            fz_feed_search(d->ctx, anchor_search, stext_at(d, chapter, index, NULL, NULL), 0);
+                            fz_feed_search(d->ctx, anchor_search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, cookie)), 0);
                         }
                         while (!anchor_match || anchor_match->begin.ch != result.u.match->begin.ch) {
-                            if (cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+                            if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
                             fz_search_result prefix = fz_search_backwards(d->ctx, anchor_search);
                             if (prefix.reason == FZ_SEARCH_COMPLETE) { anchor_match = NULL; break; }
                             if (prefix.reason == FZ_SEARCH_MORE_INPUT) fz_feed_search(d->ctx, anchor_search, NULL, prefix.u.seq_needed);
@@ -2073,21 +2145,24 @@ API char *lf_search_options_at(void *document, int chapter, int index, const cha
                         if (!anchor_match) continue;
                         const char *p = cursor; fz_stext_position *at = position; size_t anchor_start = start;
                         size_t anchor_end = search_hit(d->ctx, anchor_match, text, 0, &p, &at, &anchor_start);
-                        if (anchor_end > (uint64_t)boundary) continue;
+                        if ((window ? page_search_end_offset(anchor_match->end.ch, chapter, index) : anchor_end) > (uint64_t)boundary) continue;
                     }
                     if (!j.len) {
                         lf_json(&j, "{\"text\":"); lf_json_string(&j, text); lf_json(&j, ",\"matches\":[");
                     } else lf_json(&j, ",");
-                    lf_json(&j, "{\"start\":"); lf_json_number(&j, start);
+                    lf_json(&j, "{\"start\":"); lf_json_number(&j, hit_start);
+                    lf_json(&j, ",\"contextStart\":"); lf_json_number(&j, start);
                     lf_json(&j, ",\"length\":"); lf_json_number(&j, end - start);
                     lf_json(&j, ",\"rects\":[");
                     for (int i = 0; i < result.u.match->num_quads; ++i) {
                         if (i) lf_json(&j, ","); fz_rect r = fz_rect_from_quad(result.u.match->quads[i].quad);
                         lf_json_rect(&j, r.x0, r.y0, r.x1-r.x0, r.y1-r.y0);
                     }
-                    lf_json(&j, "]}");
-                    last_start = (int64_t)start;
-                    if (backwards) boundary = (int64_t)start;
+                    lf_json(&j, "]");
+                    if (window) page_search_fragments(&j, result.u.match);
+                    lf_json(&j, "}");
+                    last_start = (int64_t)hit_start;
+                    if (backwards) boundary = (int64_t)hit_start;
                     ++emitted;
                 }
             }
@@ -2097,7 +2172,7 @@ API char *lf_search_options_at(void *document, int chapter, int index, const cha
                 locating = 0;
                 fz_drop_search(d->ctx, search); search = NULL;
                 search = fz_new_search(d->ctx, needle, options);
-                fz_feed_search(d->ctx, search, stext_at(d, chapter, index, NULL, NULL), 0);
+                fz_feed_search(d->ctx, search, (window ? fz_keep_stext_page(d->ctx, window) : stext_at(d, chapter, index, NULL, cookie)), 0);
                 cursor = text; position = map; offset = 0;
             }
             if (j.failed) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate search results");
@@ -2112,6 +2187,142 @@ API char *lf_search_options_at(void *document, int chapter, int index, const cha
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(j.data); return NULL; }
     return lf_json_finish(&j, error);
 }
+API char *lf_search_options_at(void *document, int chapter, int index, const char *needle, int flags,
+    int64_t after, int64_t maximum, int (*cancelled)(void), char *error) {
+    return search_options_on_text(document, chapter, index, needle, flags, after, maximum, cancelled, error, NULL, NULL);
+}
+
+API char *lf_search_pages_at(void *document, int chapter, int index, const char *needle, int flags,
+    int64_t after, int64_t maximum, int64_t last_page, int (*cancelled)(void), void *cookie_opaque, char *error) {
+    SumraMuPDFDocument *d = document;
+    fz_cookie *cookie = cookie_opaque;
+    // Continuous chapter search already has a source-stream owner and a cheap
+    // necessary candidate. The window is for physical paginated documents.
+    if (fz_is_document_reflowable(d->ctx, d->doc) && d->doc->layout_h == 0)
+        return search_options_on_text(document, chapter, index, needle, flags, after, maximum, cancelled, error, NULL, cookie);
+    fz_stext_page *window = NULL, *text_page = NULL;
+    fz_buffer *buffer = NULL;
+    fz_stext_position *map = NULL;
+    fz_search *normalizer = NULL, *candidate = NULL;
+    fz_search_chunker *chunker = NULL;
+    char *result = NULL;
+    fz_var(window); fz_var(text_page); fz_var(buffer); fz_var(map);
+    fz_var(normalizer); fz_var(candidate); fz_var(chunker); fz_var(result);
+    fz_try(d->ctx) { do {
+        fz_page *owner_page = load_render_page(d, chapter, index, cookie);
+        if (!d->text_page && fz_is_document_reflowable(d->ctx, d->doc)) {
+            candidate = page_search_first_candidate(d->ctx, needle);
+            if (candidate && !fz_html_page_has_search_candidate(d->ctx, owner_page, candidate, cancelled, cookie)) {
+                result = strdup("{\"text\":\"\",\"matches\":[]}");
+                if (!result) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate search results");
+                break;
+            }
+        }
+        normalizer = fz_new_search(d->ctx, needle, flags & 1 ? FZ_SEARCH_EXACT : FZ_SEARCH_IGNORE_CASE | FZ_SEARCH_IGNORE_DIACRITICS);
+        size_t goal = fz_search_needle_bytes(normalizer), lookahead = 0;
+        chunker = fz_new_search_chunker(d->ctx, normalizer);
+        window = fz_new_stext_page(d->ctx, fz_empty_rect);
+        fz_stext_block *block = fz_pool_alloc(d->ctx, window->pool, sizeof(*block));
+        fz_stext_line *line = fz_pool_alloc(d->ctx, window->pool, sizeof(*line));
+        memset(block, 0, sizeof(*block)); memset(line, 0, sizeof(*line));
+        window->first_block = window->last_block = block; block->type = FZ_STEXT_BLOCK_TEXT;
+        block->u.t.first_line = block->u.t.last_line = line;
+        line->dir.x = 1; line->flags = FZ_STEXT_LINE_FLAGS_NO_TRAILING_SEPARATOR;
+        fz_location location = fz_make_location(chapter, index);
+        int owner = 1;
+        for (;;) {
+            if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+            text_page = stext_at(d, location.chapter, location.page, NULL, cookie);
+            fz_try(d->ctx) {
+                buffer = fz_new_buffer_from_flattened_stext_page(d->ctx, text_page, FZ_TEXT_FLATTEN_KEEP_PARAGRAPHS, &map);
+            } fz_catch(d->ctx) { map = NULL; fz_rethrow(d->ctx); }
+            const char *text = fz_string_from_buffer(d->ctx, buffer);
+            size_t offset = 0, serial = 0;
+            fz_stext_line *source_line = NULL;
+            int line_number = 0;
+            for (const char *p = text; *p; ++serial) {
+                if ((serial & 1023) == 0 && ((cookie && cookie->abort) || (cancelled && cancelled()))) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+                int rune; p += fz_chartorune(&rune, p);
+                fz_stext_char *source = map[serial].ch;
+                PageSearchChar *item = fz_pool_alloc(d->ctx, window->pool, sizeof(*item));
+                memset(item, 0, sizeof(*item));
+                item->index = offset; item->chapter = location.chapter; item->page = location.page;
+                if (source && source_line != map[serial].line) {
+                    source_line = map[serial].line;
+                    ++line_number;
+                }
+                item->line = line_number;
+                if (source) {
+                    item->ch = *source; item->ch.font = NULL;
+                    item->ch.quad = fz_search_source_quad(map[serial].line, source);
+                    if (!source->next && (rune == '-' || rune == 0x2010)) item->ch.flags |= PAGE_SEARCH_LINE_HYPHEN;
+                }
+                item->ch.c = rune; item->ch.next = NULL;
+                // An authored HTML word can wrap across a physical page without
+                // a separator. Source adjacency proves this is a visual seam.
+                if (!owner && source && source->source_no_separator_before && offset == 0) {
+                    fz_stext_char *previous = NULL, *last_ink = NULL;
+                    for (fz_stext_char *ch = line->first_char; ch; ch = ch->next) {
+                        if (!fz_is_unicode_whitespace(ch->c)) last_ink = ch;
+                        previous = ch;
+                    }
+                    if (last_ink && previous != last_ink && last_ink->source_node) {
+                        last_ink->next = NULL; line->last_char = last_ink;
+                    }
+                }
+                if (line->last_char) line->last_char->next = &item->ch;
+                else line->first_char = &item->ch;
+                line->last_char = &item->ch;
+                offset += rune > 0xffff ? 2 : 1;
+                if (!owner && !fz_is_unicode_whitespace(rune) && rune != '-' && rune != 0x2010) {
+                    fz_search_chunk_step step = fz_feed_search_chunker(d->ctx, chunker, rune);
+                    lookahead += step.normalized_before + step.normalized_current;
+                    if (lookahead > goal) break;
+                }
+            }
+            fz_free(d->ctx, map); map = NULL;
+            fz_drop_buffer(d->ctx, buffer); buffer = NULL;
+            fz_drop_stext_page(d->ctx, text_page); text_page = NULL;
+            if (!goal || (!owner && lookahead > goal)) break;
+            fz_location next = fz_next_page(d->ctx, d->doc, location);
+            if ((next.chapter == location.chapter && next.page == location.page) || next.chapter < 0 || next.page < 0) break;
+            if (last_page >= 0 && fz_page_number_from_location(d->ctx, d->doc, next) > last_page) break;
+            location = next; owner = 0;
+        }
+        // Match Sumatra's whitespace tolerance between CJK characters at
+        // visual line/page seams, including a spine-chapter boundary.
+        for (fz_stext_char *before = line->first_char; before && before->next; before = before->next) {
+            if (before->c < 0x2e80 || !fz_is_unicode_whitespace(before->next->c)) continue;
+            fz_stext_char *next = before->next;
+            while (next && fz_is_unicode_whitespace(next->c)) next = next->next;
+            if (next && next->c >= 0x2e80 &&
+                ((!before->source_node && !next->source_node) || next->source_no_separator_before)) {
+                PageSearchChar *left = (PageSearchChar *)before, *right = (PageSearchChar *)next;
+                // Authored spaces on one physical line remain word boundaries.
+                if (left->chapter != right->chapter || left->page != right->page || left->line != right->line)
+                    before->next = next;
+            }
+        }
+        // Remove a printed line/page hyphen only at an extracted line ending
+        // between word characters. Authored in-line hyphens remain searchable.
+        for (fz_stext_char *before = line->first_char; before && before->next;) {
+            fz_stext_char *hyphen = before->next, *next = hyphen->next;
+            if ((hyphen->flags & PAGE_SEARCH_LINE_HYPHEN) && next && search_word_char(before->c)) {
+                while (next && fz_is_unicode_whitespace(next->c)) next = next->next;
+                if (next && search_word_char(next->c)) { before->next = next; continue; }
+            }
+            before = before->next;
+        }
+        result = search_options_on_text(document, chapter, index, needle, flags, after, maximum, cancelled, error, window, cookie);
+    } while (0); }
+    fz_always(d->ctx) {
+        fz_free(d->ctx, map); fz_drop_buffer(d->ctx, buffer); fz_drop_stext_page(d->ctx, text_page);
+        fz_drop_stext_page(d->ctx, window); fz_drop_search_chunker(d->ctx, chunker); fz_drop_search(d->ctx, normalizer); fz_drop_search(d->ctx, candidate);
+    }
+    fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(result); return NULL; }
+    return result;
+}
+
 typedef struct { uint32_t node, offset, part; int chapter; } SumraSource;
 typedef struct { SumraJSON *json; SumraSource first, last; int source_enabled; } SumraSelectionWriter;
 static SumraSource source_of(fz_stext_char *ch) { return (SumraSource){ch->source_node, ch->source_offset, ch->source_part}; }

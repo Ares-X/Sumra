@@ -79,6 +79,35 @@ const hhcContents = (doc, relativeTo) => {
     return result
 }
 
+// HHK repeats Name/Local pairs for keywords with several topic destinations.
+// Keep every destination; Object.fromEntries would silently keep only the last.
+const hhkKeywords = (doc, relativeTo) => {
+    const keywords = new Map()
+    for (const object of doc.querySelectorAll('object')) {
+        const params = [...object.children].filter(el => el.localName === 'param')
+        const keyword = params.find(el => el.getAttribute('name')?.toLowerCase() === 'name')?.getAttribute('value')
+        if (!keyword) continue
+        const key = keyword.toLocaleLowerCase()
+        const entry = keywords.get(key) || { keyword, topics: [] }
+        let title = keyword, firstName = true
+        for (const param of params) {
+            const name = param.getAttribute('name')?.toLowerCase(), value = param.getAttribute('value')
+            if (name === 'name') {
+                if (firstName) firstName = false
+                else title = value || keyword
+            } else if (name === 'local' && value) {
+                try {
+                    const target = resourceURL(value, relativeTo)
+                    if (!entry.topics.some(topic => topic.target === target)) entry.topics.push({ title, target, depth: 0 })
+                } catch { /* an invalid destination is not a topic link */ }
+                title = keyword
+            }
+        }
+        keywords.set(key, entry)
+    }
+    return [...keywords.values()].filter(entry => entry.topics.length)
+}
+
 // ChmHtmlCollector: default topic, then HHC-linked entries, then unlisted HTML.
 // The browser displays original topic bytes; no DOM-to-blob publication copy.
 const indexCHM = async meta => {
@@ -91,6 +120,9 @@ const indexCHM = async meta => {
     }
     const tocBytes = Uint8Array.from(atob(meta.tocData || ''), char => char.charCodeAt(0))
     let toc = meta.toc && tocBytes.length ? hhcContents(parse(decodeHTML(tocBytes, meta.charset)), entryURL(meta.toc)) : []
+    const indexBytes = Uint8Array.from(atob(meta.indexData || ''), char => char.charCodeAt(0))
+    const keywords = meta.index && indexBytes.length
+        ? hhkKeywords(parse(decodeHTML(indexBytes, meta.charset)), entryURL(meta.index)) : []
     const paths = [], seen = new Set()
     const add = href => {
         let path
@@ -101,16 +133,21 @@ const indexCHM = async meta => {
     const available = entries.filter(path => /\.(?:html?|xhtml|xht|txt)$/i.test(path))
     if (!paths.length && available.length) add(entryURL(available.find(path => /(^|\/)(index|default|welcome)\.html?$/i.test(path)) || available[0]))
     for (const item of flatten(toc)) if (item.target) add(item.target)
+    for (const entry of keywords) for (const topic of entry.topics) add(topic.target)
     for (const path of available) add(entryURL(path))
     if (!paths.length) throw Error('This CHM contains no readable topics')
     const pages = paths.map(entryURL)
     const pageByPath = new Map(paths.map((path, index) => [path, index]))
     if (!toc.length) toc = paths.map(path => ({ label: path, href: entryURL(path) }))
-    const items = flatten(toc).map(item => {
+    const canonicalItem = item => {
         const path = item.target && pathFor(item.target)
         if (!path) return item
         const url = new URL(entryURL(path)); url.hash = new URL(item.target).hash
         return { ...item, target: url.href, page: pageByPath.get(path) }
-    })
-    return { pages, toc: items }
+    }
+    const keywordIndex = keywords.map(entry => ({ ...entry, topics: entry.topics
+        .filter(topic => pathFor(topic.target)).map(canonicalItem)
+        .filter((topic, i, topics) => topics.findIndex(other => other.target === topic.target) === i) }))
+        .filter(entry => entry.topics.length)
+    return { pages, toc: flatten(toc).map(canonicalItem), keywords: keywordIndex }
 }

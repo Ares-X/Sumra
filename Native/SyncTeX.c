@@ -39,3 +39,23 @@ API char *lf_synctex_inverse(const char *pdf, int page, double x, double y, int 
     sync_close(scanner, error, result != NULL, scanner ? "No SyncTeX source near this PDF location" : "No readable .synctex or .synctex.gz index beside the PDF");
     return result;
 }
+
+// SyncTeX exposes top-left PDF points. The reader converts them through the
+// page's MediaBox and then its MuPDF page transform, just like inverse search.
+API int lf_synctex_forward(const char *pdf, const char *source, int line, int column,
+    int page_hint, int *page, double *point, char *error) {
+    synctex_scanner_p scanner = sync_open(pdf, error);
+    int ok = 0;
+    if (scanner && line > 0 && column >= 0
+        && synctex_display_query(scanner, source, line, column, page_hint) > 0) {
+        synctex_node_p node = synctex_scanner_next_result(scanner);
+        if (node) {
+            *page = synctex_node_page(node);
+            point[0] = synctex_node_box_visible_h(node);
+            point[1] = synctex_node_box_visible_v(node) - synctex_node_box_visible_height(node);
+            ok = *page > 0 && isfinite(point[0]) && isfinite(point[1]);
+        }
+    }
+    sync_close(scanner, error, ok, scanner ? "No SyncTeX PDF location for this source line" : "No readable .synctex or .synctex.gz index beside the PDF");
+    return ok;
+}
