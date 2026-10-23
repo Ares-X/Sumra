@@ -207,6 +207,7 @@ struct ReadingPosition: Codable, Hashable {
     var engineeringEnhance: String?
     var customTextColor: UInt32?
     var customBackgroundColor: UInt32?
+    var customLinkColor: UInt32?
     var pageMargins: PageMargins?
     var scrollbarMode: String?
     // Only persisted PDF locations need this migration marker. In-memory
@@ -339,6 +340,7 @@ final class ReaderState: ObservableObject {
     @Published var engineeringEnhance = "off"
     @Published var customTextColor: UInt32?
     @Published var customBackgroundColor: UInt32?
+    @Published var customLinkColor: UInt32?
     @Published var userCSS = ""
     @Published var useDocumentCSS = true
     @Published var typographyForAll = false
@@ -615,6 +617,7 @@ extension ReaderState {
         position.engineeringEnhance = engineeringEnhance
         position.customTextColor = customTextColor
         position.customBackgroundColor = customBackgroundColor
+        position.customLinkColor = customLinkColor
         position.pageMargins = pageMargins
         position.scrollbarMode = scrollbarMode
         if nativePDF != nil { position.pdfCoordinateSpace = "fitz" }
@@ -666,8 +669,8 @@ extension ReaderState {
     var palette: ReaderTheme {
         let id = theme == "system" ? (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light") : theme
         let base = ReaderTheme.resolve(id) ?? ReaderTheme.builtins[0]
-        guard customTextColor != nil || customBackgroundColor != nil else { return base }
-        return ReaderTheme(id: "custom", name: "Custom", text: customTextColor ?? base.text, background: customBackgroundColor ?? base.background, link: base.link)
+        guard customTextColor != nil || customBackgroundColor != nil || customLinkColor != nil else { return base }
+        return ReaderTheme(id: "custom", name: "Custom", text: customTextColor ?? base.text, background: customBackgroundColor ?? base.background, link: customLinkColor ?? base.link)
     }
 
     var effectiveUserCSS: String { palette.css + "\n" + userCSS }
@@ -1512,7 +1515,7 @@ extension ReaderState {
     }
 
     func setTheme(_ value: String) {
-        customTextColor = nil; customBackgroundColor = nil
+        customTextColor = nil; customBackgroundColor = nil; customLinkColor = nil
         theme = value
         UserDefaults.standard.set(value, forKey: "theme")
         if value != "system" { UserDefaults.standard.set(value, forKey: palette.dark ? "lastDarkTheme" : "lastLightTheme") }
@@ -2374,8 +2377,9 @@ private extension ReaderState {
         if let value = position.enhanceScannedPages { enhanceScannedPages = value }
         if let value = position.preservePDFImages { preservePDFImages = value }
         if let value = position.engineeringEnhance { engineeringEnhance = value }
-        if position.documentColors != nil || position.customTextColor != nil || position.customBackgroundColor != nil {
+        if position.documentColors != nil || position.customTextColor != nil || position.customBackgroundColor != nil || position.customLinkColor != nil {
             customTextColor = position.customTextColor; customBackgroundColor = position.customBackgroundColor
+            customLinkColor = position.customLinkColor
         }
         if position.margin != nil || position.pageMargins != nil { pageMargins = position.pageMargins }
         if let value = position.rtl { rtl = value }
@@ -2413,7 +2417,7 @@ private extension ReaderState {
         enhanceScannedPages = defaults.object(forKey: "enhanceScannedPages") as? Bool ?? true
         preservePDFImages = defaults.object(forKey: "preservePDFImages") as? Bool ?? true
         engineeringEnhance = defaults.string(forKey: "engineeringEnhance") ?? "off"
-        customTextColor = nil; customBackgroundColor = nil
+        customTextColor = nil; customBackgroundColor = nil; customLinkColor = nil
         pageMargins = defaults.data(forKey: "pageMargins").flatMap { try? JSONDecoder().decode(PageMargins.self, from: $0) }
         inverseSearchEnabled = defaults.object(forKey: "inverseSearchEnabled") as? Bool ?? true
         landscapeAsSpread = defaults.object(forKey: "landscapeAsSpread") as? Bool ?? true
