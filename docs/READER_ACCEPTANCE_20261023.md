@@ -3,11 +3,13 @@
 This record distinguishes source implementation, observed behavior, and scenarios
 that remain unavailable or unexercised. It describes the isolated reader branch,
 not publication or acceptance of every possible document variant.
+The [2026-10-24 follow-up](READER_FOLLOWUP_20261024.md) supersedes the MOBI,
+SyncTeX delivery/authentication, form-calculation and patch-count rows below.
 
 | Area | Implemented and checked | Remaining boundary |
 |---|---|---|
 | Cross-page search | PDF/finite EPUB/DjVu phrase continuation, logical result count, direction/cursor behavior and per-page highlight fragments. Native and Swift fixtures cover CJK, printed/soft hyphens, UTF-16, ligatures, marks and EPUB repagination/source anchors. | DjVu uses representative word-zone fixtures; the user's exact original documents remain separate acceptance inputs. |
-| Forward SyncTeX | Local URL request parsing, plain/gzip index lookup, matching/symlink/dormant window reuse and reload using replacement MuPDF geometry. | Configured editor → Launch Services → installed shipping app is unexercised. Legacy pdfsync forward search and password-protected forward geometry are unsupported. |
+| Forward SyncTeX | Local URL request parsing, plain/gzip index lookup, matching/symlink/dormant window reuse and reload using replacement MuPDF geometry. | Configured editor → Launch Services → installed shipping app is unexercised. Legacy pdfsync forward search is unsupported. Authenticated-password reload and local editor delivery were subsequently verified; see the follow-up. |
 | CHM Index | HHK keyword sidebar/filter, multiple destinations and source encoding. | CHM variants beyond the maintained fixture set remain format-specific. |
 | PDF capture | Capture first; one private-input hash on APFS, hash during streaming copy elsewhere. Opening/save mutation and retained-source tests pass. | B08 warm-filesystem stages were measured; GB-scale NAS/SMB and external-disk first-frame latency were not. |
 | PDF editing and saved interoperability | Native multi-select lists, shared field ownership, undo/clear/save/reopen, permissions; four public samples saved/closed/reopened with PDFKit/CoreGraphics and MuPDF. Chinese form value and independent-reader appearance verified. | MuPDF's array setter bypasses scalar form events; complete AcroForm is not claimed. Real complex encrypted, scan, mixed-paper and third-party-reader coverage remains limited; generated fixtures exercise these native boundaries. See [sample protocol](PDF_INTEROPERABILITY.md). |

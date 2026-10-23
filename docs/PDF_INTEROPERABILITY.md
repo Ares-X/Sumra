@@ -30,4 +30,8 @@ multi-select field parent/sibling ownership. They do not replace real complex
 samples. These four public documents are a limited addition to the historical
 [book corpus](BOOK_CORPUS_ACCEPTANCE.md), not proof of fidelity for every PDF,
 form script, external reader or printer. MuPDF's multi-value choice setter does
-not dispatch the scalar keystroke/validation/calculation events.
+not dispatch scalar keystroke/validation events. Dependent calculations now run
+on page update, and scripts reading `Field.value` receive multiple selected
+exports as an array of strings. The [follow-up](READER_FOLLOWUP_20261024.md)
+records calculation/undo/save/reopen coverage; array assignment from scripts and
+complete multi-select event APIs are not claimed.

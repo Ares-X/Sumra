@@ -53,9 +53,9 @@ LegacyBook behavior. No app was loaded or GUI workflow accepted by this probe.
 The local B13 MOBI compatibility path produced 373,065 HTML bytes in approximately
 65 ms and returned that HTML for native rendering, so it did not reproduce the
 ordinary-MOBI second decode. Its route, DRM checks and format handling remain
-unchanged. Ordinary books that return nil from compatibility inspection still
-have the previously documented potential repeated decode; no general format
-fidelity claim or unmeasured optimization is made here.
+unchanged in this measurement. The ordinary-book repeated-decode boundary was
+subsequently removed in the [2026-10-24 follow-up](READER_FOLLOWUP_20261024.md);
+this older B13 measurement did not establish that change or its performance.
 
 Both isolated probe/build packages and the temporary source test were retired
 after preserving logs and probe sources. Their test/build processes had exited;

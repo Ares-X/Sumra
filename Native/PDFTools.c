@@ -2330,8 +2330,8 @@ API int lf_pdf_live_widget_value(void *opaque, int page_number, int object_numbe
     pdf_update_page(ctx, page); pdf_update_open_pages(ctx, doc);
     LIVE_ANNOT_END
 }
-// Unlike the scalar setter, MuPDF's array setter does not dispatch field
-// keystroke/validation/calculation events. Preserve that upstream behavior.
+// Unlike the scalar setter, MuPDF's array setter does not dispatch scalar field
+// keystroke/validation events. Its normal calculation owner runs on page update.
 API int lf_pdf_live_widget_values(void *opaque, int page_number, int object_number, int count, const char **values, char *error) {
     LIVE_ANNOT_BEGIN(FZ_PERMISSION_FORM, "Fill form field")
     if (pdf_widget_is_readonly(ctx, annot)) fz_throw(ctx, FZ_ERROR_ARGUMENT, "This form field is read-only");

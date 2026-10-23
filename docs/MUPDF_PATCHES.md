@@ -1,6 +1,6 @@
 # Local MuPDF patch map
 
-`scripts/build-engines.sh` passes 58 `Native/mupdf*.patch` files to `scripts/apply-mupdf-patches.swift` in the order below. Purpose is summarized from the patch names and changed code. The test column points to the closest existing coverage found by inspection; **indirect** means the test exercises a related reader path, not necessarily the patched C branch. **No direct fixture found** means this inspection did not identify one. These links identify evidence to consult; they do not claim tests were run or pass. Upstream status is **unknown** here; no upstream comparison was made.
+`scripts/build-engines.sh` passes 59 `Native/mupdf*.patch` files to `scripts/apply-mupdf-patches.swift` in the order below. Purpose is summarized from the patch names and changed code. The test column points to the closest existing coverage found by inspection; **indirect** means the test exercises a related reader path, not necessarily the patched C branch. **No direct fixture found** means this inspection did not identify one. These links identify evidence to consult; they do not claim tests were run or pass. Upstream status is **unknown** here; no upstream comparison was made.
 
 | # | Patch (application order) | Behavior changed | Closest existing evidence |
 |---:|---|---|---|
@@ -61,9 +61,16 @@
 | 55 | [mupdf-html-natural-search-candidate.patch](../Native/mupdf-html-natural-search-candidate.patch) | Build conservative per-flow text candidates for natural HTML search. | [NativeMarkdownFindTests.swift](../Tests/SumraAppTests/NativeMarkdownFindTests.swift) (indirect) |
 | 56 | [mupdf-svg-image-aspect.patch](../Native/mupdf-svg-image-aspect.patch) | Apply SVG preserve-aspect-ratio behavior to standalone and inline SVG images. | [EPUBCoverAspectTests.swift](../Tests/SumraAppTests/EPUBCoverAspectTests.swift) (SVG aspect modes / cover geometry; representative fixtures). |
 | 57 | [mupdf-scalable-image-subarea.patch](../Native/mupdf-scalable-image-subarea.patch) | Pass and account for a requested subarea when decoding scalable images. | [EPUBCoverAspectTests.swift](../Tests/SumraAppTests/EPUBCoverAspectTests.swift) (indirect rendered cover coverage; no isolated subarea assertion identified). |
-
 | 58 | [mupdf-html-cancellation.patch](../Native/mupdf-html-cancellation.patch) | Forward the existing per-request abort cookie through HTML/EPUB drawing to its flow loop. | [NativePDFDisplayTests.swift](../Tests/SumraAppTests/NativePDFDisplayTests.swift) request-cookie recovery; [actual large-chapter cancellation observations](READER_PERFORMANCE_FOLLOWUP_20261023.md). |
+| 59 | [mupdf-choice-values.patch](../Native/mupdf-choice-values.patch) | Schedule dependent calculations after a choice-array mutation and expose inherited PDF value arrays as JavaScript string arrays; retain scalar conversion. | `NativePDFToolsTests.testMultiSelectChoiceCalculatesFromExportArrayAcrossUndoAndReopen` covers exported values, numeric strings, dependent calculation, clear, undo/redo and saved/reopened state. |
 
 ## Maintenance
 
 When adding or removing an upstream patch, update this ordered inventory and record the motivating issue plus a focused sample or test when one exists. Keep purpose separate from evidence, label missing direct fixtures plainly, and do not turn this map into a release gate.
+
+The choice-values patch adds `source/pdf/pdf-js.c` to the touched-file manifest.
+The pinned-base digest is `18835fe4e09ad920cfacfce8c3ab26a8b6ded8ac9217f6f8f9b2f6d58a1c225e`.
+It was reconstructed by reversing the complete patch sequence in a temporary
+tree: the previous touched-file set retained its prior digest, and the added
+file matched upstream revision `f030eda1e472268667805f438e38cee8f1da61f8` byte for
+byte. The source tree itself is never reversed by the setup probe.

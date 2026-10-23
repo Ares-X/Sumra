@@ -18,7 +18,7 @@ local test evidence, and external workflow acceptance remain separate; see the
 | Navigation and reading controls | Named tab groups restore lazily; page-turn offset preservation, keep-zoom-on-links, and destination hints are implemented. Reading settings expose installed fonts and editable CSS. | `NavigationPositionTests`, `ReaderUsabilityTests`, and the existing lifecycle/appearance suites. Local test receipts are summarized in the acceptance matrix; hosted and physical-device use remains separate. |
 | Toolbar and selection | Custom extra-button list/icon editing and a contextual selection toolstrip are implemented. | `ReaderUsabilityTests` covers selection actions, placement, and panel behavior. Custom-editor and end-to-end interaction acceptance are subject to the current test receipt, not inferred from source presence. |
 | Quick Look | Two Quick Look app extensions use shared reader core and bundled MuPDF for EPUB and comic previews. | `QuickLookBookTests` exercises comic navigation and a constructed SVG EPUB using the bundled engine. Real Finder verification passed for comic navigation from 1/2 through 2/2; Finder EPUB preview also passed after prelinking the shared engine for the extension sandbox and fixing Retina bitmap fitting; the complete portrait cover was visually inspected. |
-| MuPDF patch tracking | The ordered local patch inventory now contains 58 patches. | [Patch-to-behavior map](MUPDF_PATCHES.md) records closest evidence, indirect coverage, missing fixtures, and unknown upstream status. It is a maintenance aid, not a release gate. |
+| MuPDF patch tracking | The ordered local patch inventory now contains 59 patches. | [Patch-to-behavior map](MUPDF_PATCHES.md) records closest evidence, indirect coverage, missing fixtures, and unknown upstream status. It is a maintenance aid, not a release gate. |
 
 The search implementation keeps printed end-of-line hyphens distinct from
 soft-hyphen and authored inline-hyphen semantics. Do not join unrelated authored
@@ -42,11 +42,14 @@ likewise separates patch purpose from what a test exercises.
   unexercised. Automatic mixed-paper selection is deferred pending actual driver
   requirements.
 - PDF list fields currently use MuPDF's array setter, which bypasses scalar
-  field events. Do not claim complete multi-select AcroForm behavior. The
+  keystroke/validation events. Dependent calculation and array-valued script reads
+  were completed in the [2026-10-24 follow-up](READER_FOLLOWUP_20261024.md).
+  Do not claim complete multi-select AcroForm behavior. The
   four-sample save/reopen corpus does not cover all external readers, permissions,
   mixed page sizes, or form scripts.
 - Physical macOS 13/15, printer, reporter's original EPUB, and installed-app
-  editor-to-Sumra delivery remain unavailable or unexercised. OCR and
+  editor-to-shipping-Sumra delivery remain unavailable or unexercised. Local
+  VS Code delivery to the private development bundle was verified in the follow-up. OCR and
   object-level intelligent dark rendering remain optional future directions.
 
 Sumra remains a graphical macOS reader. CLI argument parity, Windows DDE/registry

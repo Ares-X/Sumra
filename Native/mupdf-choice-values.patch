@@ -1,0 +1,67 @@
+--- a/source/pdf/pdf-form.c
++++ b/source/pdf/pdf-form.c
+@@ -1401,6 +1401,7 @@
+ 		pdf_dict_del(ctx, annot->obj, PDF_NAME(I));
+ 
+ 		pdf_field_mark_dirty(ctx, annot->obj);
++		annot->page->doc->recalculate = 1;
+ 		end_annot_op(ctx, annot);
+ 	}
+ 	fz_catch(ctx)
+--- a/source/pdf/pdf-js.c
++++ b/source/pdf/pdf-js.c
+@@ -342,20 +342,46 @@
+ {
+ 	pdf_js *js = js_getcontext(J);
+ 	pdf_obj *field = js_touserdata(J, 0, "Field");
++	pdf_obj *value = NULL;
+ 	const char *str = NULL;
++	int array = 0, n = 0;
+ 	char *end;
+ 	double num;
+ 
+ 	fz_try(js->ctx)
+-		str = pdf_field_value(js->ctx, field);
+-	fz_catch(js->ctx)
+-		rethrow(js);
+-
+-	num = strtod(str, &end);
+-	if (*str && *end == 0)
+-		js_pushnumber(J, num);
++	{
++		value = pdf_dict_get_inheritable(js->ctx, field, PDF_NAME(V));
++		array = pdf_is_array(js->ctx, value);
++		if (array)
++			n = pdf_array_len(js->ctx, value);
++		else
++			str = pdf_field_value(js->ctx, field);
++	}
++	fz_catch(js->ctx)
++		rethrow(js);
++
++	/* MuJS allocation failures must not longjmp across an active Fitz try. */
++	if (array)
++	{
++		js_newarray(J);
++		for (int i = 0; i < n; ++i)
++		{
++			fz_try(js->ctx)
++				str = pdf_array_get_text_string(js->ctx, value, i);
++			fz_catch(js->ctx)
++				rethrow(js);
++			js_pushstring(J, str);
++			js_setindex(J, -2, i);
++		}
++	}
+ 	else
+-		js_pushstring(J, str);
++	{
++		num = strtod(str, &end);
++		if (*str && *end == 0)
++			js_pushnumber(J, num);
++		else
++			js_pushstring(J, str);
++	}
+ }
+ 
+ static void field_setValue(js_State *J)

@@ -114,7 +114,7 @@ final class LegacyBookTests: XCTestCase {
         var shortHeader = book(text: [Data("Hello".utf8)], length: 5, compression: 1, headerLength: 116, headerStorage: 244)
         let first = integer(shortHeader, 78, 4)
         put(0x5678, first + 242, 2, in: &shortHeader)
-        XCTAssertNil(try LegacyText.mobiContent(shortHeader), "Bytes outside the declared header must not become trailer flags")
+        XCTAssertEqual(try XCTUnwrap(LegacyText.mobiContent(shortHeader)).html, Data("Hello".utf8), "Bytes outside the declared header must not become trailer flags")
         XCTAssertThrowsError(try LegacyText.mobiContent(book(text: [Data([0, 0, 0, 0xff])], length: 1, compression: 1, flags: 2)))
     }
 
@@ -134,12 +134,12 @@ final class LegacyBookTests: XCTestCase {
         }
     }
 
-    func testPassthroughAndRealDRMErrors() throws {
+    func testDecodedOrdinaryMobiAndRealDRMErrors() throws {
         let ordinary = book(text: [Data("AB".utf8)], compression: 1)
-        XCTAssertNil(try LegacyText.mobiContent(ordinary))
+        XCTAssertEqual(try XCTUnwrap(LegacyText.mobiContent(ordinary)).html, Data("AB".utf8))
         var zeroDRM = ordinary
         put(0, integer(zeroDRM, 78, 4) + 16 + 152, 4, in: &zeroDRM)
-        XCTAssertNil(try LegacyText.mobiContent(zeroDRM))
+        XCTAssertEqual(try XCTUnwrap(LegacyText.mobiContent(zeroDRM)).html, Data("AB".utf8))
         for field in [12, 16 + 152] {
             var encrypted = ordinary
             put(2, integer(encrypted, 78, 4) + field, field == 12 ? 2 : 4, in: &encrypted)
@@ -275,9 +275,14 @@ final class LegacyBookTests: XCTestCase {
         XCTAssertEqual(Set(content.resources.keys), ["00001", "00002", "00003", "00004"])
     }
 
-    func testClassicMobiStaysOnNativePathAndRecindexPrecedesKindleSrc() throws {
+    func testClassicMobiReusesDecodedHTMLAndRecindexPrecedesKindleSrc() throws {
         let classic = "<html><body>text<img recindex='1'></body></html>"
-        XCTAssertNil(try LegacyText.mobiContent(book(text: [Data(classic.utf8)], length: classic.utf8.count, compression: 1, resources: [image()])))
+        let decoded = try XCTUnwrap(LegacyText.mobiContent(book(text: [Data(classic.utf8)], length: classic.utf8.count, compression: 1, resources: [image()])))
+        let classicHTML = String(decoding: decoded.html, as: UTF8.self)
+        XCTAssertTrue(classicHTML.contains("src=\"00001\""))
+        XCTAssertFalse(classicHTML.contains("recindex="))
+        XCTAssertTrue(classicHTML.contains("<body>text<img"))
+        XCTAssertEqual(decoded.resources["00001"], image())
         let ambiguous = "<html><body><img src='kindle:embed:01' recindex='3' alt='page'></body></html>"
         let content = try XCTUnwrap(LegacyText.mobiContent(book(text: [Data(ambiguous.utf8)], length: ambiguous.utf8.count, compression: 1,
             resources: [image(), Data("FDST metadata".utf8), image(marker: 66)])))

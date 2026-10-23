@@ -127,6 +127,38 @@ final class SyncTeXForwardTests: XCTestCase {
     }
 
     @MainActor
+    func testForwardReloadRetainsAuthenticatedPDFPasswordAndGeometry() async throws {
+        try requireSyncTeX()
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let (plain, source) = try fixture(directory.url)
+        let protected = directory.url.appendingPathComponent("protected.pdf")
+        try NativePDFTools.encrypt(source: plain, destination: protected, ownerPassword: "owner", userPassword: "reader", permissions: 1)
+        try Data(Self.index.utf8).write(to: protected.deletingPathExtension().appendingPathExtension("synctex"))
+        XCTAssertThrowsError(try NativeFile(protected, engine: .mupdf)) { XCTAssertTrue($0 is PasswordRequired) }
+        let state = ReaderState(recordsHistory: false)
+        defer { state.windowClosed() }
+        // Model the existing reader after its normal password dialog succeeds.
+        state.document = try ReadingDocument.open(protected, password: "reader")
+        state.rememberPassword("reader")
+        let before = try XCTUnwrap(state.document?.id)
+        let position = try await SyncTeXForward.position(for: request(pdf: protected, source: source))
+        state.reload(at: position)
+        try await waitForLoad(state)
+        XCTAssertNotEqual(state.document?.id, before)
+        XCTAssertEqual(state.documentPassword, "reader")
+        XCTAssertEqual(state.currentPosition.pdfCoordinateSpace, "fitz")
+        XCTAssertEqual(try XCTUnwrap(state.currentPosition.x), 100, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(state.currentPosition.y), 290, accuracy: 0.01)
+        let pages = try XCTUnwrap(state.nativePDF)
+        do {
+            try await pages.pdfSetEditing(true)
+            XCTFail("Reader permissions must remain enforced after forward search")
+        } catch { XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("does not permit editing")) }
+    }
+
+    @MainActor
     private func waitForLoad(_ state: ReaderState) async throws {
         let deadline = Date().addingTimeInterval(5)
         while state.busy, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }

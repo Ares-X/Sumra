@@ -1722,6 +1722,63 @@ final class NativePDFToolsTests: XCTestCase {
         }
     }
 
+    @MainActor func testMultiSelectChoiceCalculatesFromExportArrayAcrossUndoAndReopen() throws {
+        let directory = try fixtureDirectory(), source = directory.appendingPathComponent("multi-calculation.pdf")
+        let calculation = "var v = this.getField('multi').value; event.value = Array.isArray(v) ? 'array:' + v.map(function(s) { return typeof s + ':' + s; }).join('|') : typeof v + ':' + v;"
+        let original = rawPDF([
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [5 0 R 6 0 R] >>",
+            "<< /FT /Ch /Ff 2097152 /T (multi) /V [(001) (three)] /Opt [[(001) (First label)] [(two) (Second label)] [(three) (Third label)]] /Kids [5 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [20 220 180 330] /F 4 /P 3 0 R /DA (/Helv 12 Tf 0 g) >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /Ff 1 /T (summary) /V (array:string:001|string:three) /Rect [20 100 380 130] /F 4 /P 3 0 R /DA (/Helv 12 Tf 0 g) /AA << /C << /S /JavaScript /JS 9 0 R >> >> >>",
+            "<< /Fields [4 0 R 6 0 R] /CO [6 0 R] /DA (/Helv 12 Tf 0 g) /DR << /Font << /Helv 8 0 R >> >> >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            "<< /Length \(calculation.utf8.count) >>\nstream\n\(calculation)\nendstream"
+        ])
+        try original.write(to: source)
+        func state(_ file: NativeFile) throws -> ([String], String) {
+            let fields = try file.pdfAnnotations(0)
+            return (try XCTUnwrap(fields.first { $0.fieldName == "multi" }?.selectedValues),
+                    try XCTUnwrap(fields.first { $0.fieldName == "summary" }?.value))
+        }
+        func assertState(_ document: NativeFile, _ selections: [String], _ summary: String,
+                         file: StaticString = #filePath, line: UInt = #line) throws {
+            let actual = try state(document)
+            XCTAssertEqual(actual.0, selections, file: file, line: line)
+            XCTAssertEqual(actual.1, summary, file: file, line: line)
+        }
+        var live: NativeFile? = try NativeFile(source, engine: .mupdf)
+        try live?.pdfSetEditing(true)
+        try live?.pdfSetWidgetValues(page: 0, id: 5, values: ["001", "two"])
+        try assertState(XCTUnwrap(live), ["001", "two"], "array:string:001|string:two")
+        try live?.pdfUndo(redo: false)
+        try assertState(XCTUnwrap(live), ["001", "three"], "array:string:001|string:three")
+        try live?.pdfUndo(redo: true)
+        try assertState(XCTUnwrap(live), ["001", "two"], "array:string:001|string:two")
+        try live?.pdfSetWidgetValues(page: 0, id: 5, values: [])
+        try assertState(XCTUnwrap(live), [], "array:")
+        let cleared = directory.appendingPathComponent("multi-calculation-cleared.pdf")
+        try live?.pdfWrite(to: cleared)
+        try live?.pdfSetWidgetValues(page: 0, id: 5, values: ["three"])
+        try assertState(XCTUnwrap(live), ["three"], "string:three")
+        let single = directory.appendingPathComponent("multi-calculation-single.pdf")
+        try live?.pdfWrite(to: single)
+        try live?.pdfSetWidgetValues(page: 0, id: 5, values: ["001"])
+        try assertState(XCTUnwrap(live), ["001"], "number:1")
+        try live?.pdfUndo(redo: false)
+        try assertState(XCTUnwrap(live), ["three"], "string:three")
+        try live?.pdfSetWidgetValues(page: 0, id: 5, values: ["001", "three"])
+        let saved = directory.appendingPathComponent("multi-calculation-saved.pdf")
+        try live?.pdfWrite(to: saved)
+        live = nil
+        let reopened = try NativeFile(saved, engine: .mupdf)
+        try assertState(reopened, ["001", "three"], "array:string:001|string:three")
+        try assertState(NativeFile(cleared, engine: .mupdf), [], "array:")
+        try assertState(NativeFile(single, engine: .mupdf), ["three"], "string:three")
+        XCTAssertEqual(try Data(contentsOf: source), original)
+    }
+
     @MainActor func testChoiceExportValueKeepsItsDisplayAppearanceAcrossSaveAndUndo() throws {
         let directory = try fixtureDirectory(), source = directory.appendingPathComponent("choice.pdf")
         // The /Opt arrays live on parent fields, not their page widgets. The
