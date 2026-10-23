@@ -83,6 +83,7 @@ final class ReaderNavigationTests: XCTestCase {
         let scroll = try XCTUnwrap(state.readerScrollView), initialY = scroll.contentView.bounds.minY
         var downY = initialY
         for (key, characters) in [(UInt16(125), "\u{f701}"), (126, "\u{f700}")] {
+            try await waitFor { state.readerFocusView?.window === window }
             XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(state.readerFocusView)))
             for index in 0..<4 {
                 NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
@@ -90,8 +91,11 @@ final class ReaderNavigationTests: XCTestCase {
                     windowNumber: window.windowNumber, context: nil, characters: characters,
                     charactersIgnoringModifiers: characters, isARepeat: index > 0, keyCode: key)))
             }
+            // A previous drain marker can remain published until its deferred
+            // acknowledgement dispatches this burst. Wait for the new marker.
+            let revision = state.command.revision
             state.send(.none)
-            try await waitFor { state.command.action == .none }
+            try await waitFor { state.command.revision > revision && state.command.action == .none }
             if key == 125 {
                 downY = scroll.contentView.bounds.minY
                 XCTAssertGreaterThan(downY, initialY)
