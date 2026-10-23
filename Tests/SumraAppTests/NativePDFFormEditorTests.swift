@@ -226,6 +226,67 @@ final class NativePDFFormEditorTests: XCTestCase {
         XCTAssertTrue(host.subviews.isEmpty)
     }
 
+    func testLocalReaderMonitorPreservesChoiceFieldArrowInput() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, keys = ["shortcuts", "customCommands", "externalCommands"]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        for (key, value) in zip(keys, ["{}", "[]", "[]"]) { defaults.set(value, forKey: key) }
+        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
+        for type in [3, 4] {
+            let state = ReaderState(recordsHistory: false)
+            state.document = try nativePDFReadingFixture(pageCount: 2)
+            state.count = 2; state.flow = "paged"
+            let host = FormHostView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
+            let scroll = NSScrollView(frame: host.bounds)
+            scroll.documentView = host
+            let window = NSWindow(contentRect: host.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = scroll
+            state.window = window; state.readerScrollView = scroll
+            let closeGuard = ReaderCloseGuard(state: state, previous: nil)
+            window.delegate = closeGuard
+            let options: [PDFAnnotationSnapshot.Choice] = [.init(label: "First choice", value: "one"),
+                .init(label: "Second choice", value: "two"), .init(label: "Third choice", value: "three")]
+            var values = [String]()
+            let editor = NativePDFFormEditor(widget: widget(type: type, value: "one", options: options),
+                host: host, frame: fieldFrame, commitValue: { values.append($0) },
+                didClose: { state.nativePDFFormEditor = nil }, advance: { _ in }, failure: { XCTFail("\($0)") })
+            state.nativePDFFormEditor = editor
+            let table = try XCTUnwrap((host.subviews.first as? NSScrollView)?.documentView as? NSTableView)
+            XCTAssertTrue(window.firstResponder === table)
+            XCTAssertTrue(editor.ownsInput(table))
+            XCTAssertFalse(editor.ownsInput(host), "The page itself must retain reading navigation")
+            let application = ReaderApplicationDelegate()
+            var passed = 0
+            var forwarded: NSEvent?
+            let monitor = try XCTUnwrap(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                let result = application.handleReaderEvent(event)
+                guard event.window === window else { return result }
+                if result != nil { passed += 1 }
+                forwarded = result
+                // XCTest has no active key window. Keep the real monitor's
+                // result and dispatch it through this window's responder chain.
+                return nil
+            })
+            defer {
+                NSEvent.removeMonitor(monitor)
+                editor.cancel(); state.windowClosed(); window.contentView = nil; window.close()
+                withExtendedLifetime(closeGuard) {}
+            }
+            for (code, characters, selection) in [(UInt16(125), "\u{f701}", 1), (125, "\u{f701}", 2), (126, "\u{f700}", 1)] {
+                NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: [.function, .numericPad], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters, isARepeat: true, keyCode: code)))
+                if let forwarded { window.sendEvent(forwarded) }
+                XCTAssertEqual(table.selectedRow, selection)
+                XCTAssertEqual(state.command.action, .none, "Choice input must not enqueue a page command")
+                XCTAssertEqual(state.page, 0)
+            }
+            XCTAssertEqual(passed, 3, "The actual local reader monitor must preserve each arrow for AppKit")
+            XCTAssertTrue(values.isEmpty, "Arrow selection must remain a form draft")
+        }
+    }
+
     func testEditableComboPreservesTypedValuesAndChosenExports() async throws {
         _ = NSApplication.shared
         let host = FormHostView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))

@@ -989,12 +989,7 @@ struct TypographyMenu: View {
                     set: { state.useDocumentCSS = $0; state.applyTypography() }))
             }
             Group {
-                Picker(L("Font"), selection: $state.font) {
-                    Text(L("System")).tag("system")
-                    Text(L("Serif")).tag("serif")
-                    Text(L("Sans Serif")).tag("sans-serif")
-                    Text(L("Monospace")).tag("monospace")
-                }
+                ReaderFontPicker(selection: $state.font)
                 .onChange(of: state.font) { _ in state.applyTypography(overrideDocumentStyles: true) }
 
                 Stepper(String(format: L("Font %d pt"), Int(state.fontSize)), value: $state.fontSize, in: 10...36, step: 1)
@@ -1011,6 +1006,32 @@ struct TypographyMenu: View {
                     state.pageMargins = PageMargins(cssValues: [value])
                     state.applyTypography()
                 }), in: 0...96, step: 8)
+        }
+    }
+}
+
+struct ReaderFontPicker: View {
+    @Binding var selection: String
+    static var families: [String] {
+        NSFontManager.shared.availableFontFamilies.sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
+
+    var body: some View {
+        let families = Self.families
+        Picker(L("Font"), selection: $selection) {
+            Text(L("System")).tag("system")
+            Text(L("Serif")).tag("serif")
+            Text(L("Sans Serif")).tag("sans-serif")
+            Text(L("Monospace")).tag("monospace")
+            Divider()
+            if !["system", "serif", "sans-serif", "monospace"].contains(selection), !families.contains(selection) {
+                Text(selection).tag(selection)
+            }
+            ForEach(families, id: \.self) { family in
+                Text(family).tag(family)
+            }
         }
     }
 }

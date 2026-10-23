@@ -103,6 +103,11 @@ final class NativePDFFormEditor: NSObject, NSComboBoxDelegate, NSTextViewDelegat
         if let textView { textView.setSelectedRange(NSRange(location: 0, length: textView.string.utf16.count)) }
     }
 
+    func ownsInput(_ responder: NSResponder?) -> Bool {
+        guard let view = responder as? NSView else { return false }
+        return view === container || view.isDescendant(of: container)
+    }
+
     func updateFrame(_ frame: CGRect) {
         guard completed == nil else { return }
         let height = widget.bounds.height

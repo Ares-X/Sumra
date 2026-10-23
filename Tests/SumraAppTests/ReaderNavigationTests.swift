@@ -9,6 +9,160 @@ import SumraCore
 
 final class ReaderNavigationTests: XCTestCase {
     @MainActor
+    func testLocalReaderMonitorQueuesRepeatedArrowsAcrossPagedFocusReplacement() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, keys = ["shortcuts", "customCommands", "externalCommands"]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        for (key, value) in zip(keys, ["{}", "[]", "[]"]) { defaults.set(value, forKey: key) }
+        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
+        let state = ReaderState(recordsHistory: false)
+        state.document = try nativePDFReadingFixture(pageCount: 12)
+        let pages = try XCTUnwrap(state.nativePDF)
+        state.count = 12; state.flow = "paged"; state.fit = "page"
+        state.spread = false; state.cover = false; state.freePan = false; state.automaticLayout = false
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: 500),
+            styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; state.window = window
+        let closeGuard = ReaderCloseGuard(state: state, previous: nil)
+        window.delegate = closeGuard
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        let application = ReaderApplicationDelegate()
+        var consumed = 0
+        let monitor = try XCTUnwrap(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let result = application.handleReaderEvent(event)
+            if event.window === window, result == nil { consumed += 1 }
+            return result
+        })
+        defer {
+            NSEvent.removeMonitor(monitor)
+            state.windowClosed(); window.contentView = nil; window.close()
+            withExtendedLifetime(closeGuard) {}
+        }
+        func waitFor(_ condition: () -> Bool, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(5)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            _ = try XCTUnwrap(condition() ? true : nil, state.error ?? "Repeated arrow navigation did not settle: page=\(state.page), command=\(state.command), consumed=\(consumed), registered=\(ReaderWindows.states.contains { $0 === state }), first=\(String(describing: window.firstResponder)), focus=\(String(describing: state.readerFocusView)), clip=\(String(describing: state.readerScrollView?.contentView.bounds))", line: line)
+        }
+        try await waitFor { state.readerFocusView?.window === window }
+        XCTAssertTrue(ReaderWindows.states.contains { $0 === state }, "The reader must be registered through its window delegate")
+        for (key, characters, destination) in [(UInt16(124), "\u{f703}", 4), (123, "\u{f702}", 0),
+                                               (125, "\u{f701}", 4), (126, "\u{f700}", 0)] {
+            XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(state.readerFocusView)))
+            for index in 0..<4 {
+                let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: [.function, .numericPad], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters, isARepeat: index > 0, keyCode: key))
+                NSApp.sendEvent(event)
+                // Removing the old page can temporarily leave only the window
+                // in the responder chain while the replacement is rendering.
+                if index == 0 { window.makeFirstResponder(nil) }
+            }
+            try await waitFor { state.page == destination && state.readerFocusView?.window === window }
+            // Each scroll can enqueue a derived page command behind the burst.
+            // Drain after reaching the destination so those commands finish too.
+            state.send(.none)
+            try await waitFor {
+                state.command.action == .none && state.page == destination &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: destination))
+            }
+        }
+        XCTAssertEqual(consumed, 16, "Every arrow, including repeat input between canvases, must be consumed once")
+
+        state.flow = "continuous"
+        try await waitFor {
+            guard let scroll = state.readerScrollView else { return false }
+            return (scroll.documentView?.frame.height ?? 0) > scroll.contentView.bounds.height * 2
+        }
+        let scroll = try XCTUnwrap(state.readerScrollView), initialY = scroll.contentView.bounds.minY
+        var downY = initialY
+        for (key, characters) in [(UInt16(125), "\u{f701}"), (126, "\u{f700}")] {
+            XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(state.readerFocusView)))
+            for index in 0..<4 {
+                NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: [.function, .numericPad], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters, isARepeat: index > 0, keyCode: key)))
+            }
+            state.send(.none)
+            try await waitFor { state.command.action == .none }
+            if key == 125 {
+                downY = scroll.contentView.bounds.minY
+                XCTAssertGreaterThan(downY, initialY)
+            } else { XCTAssertLessThan(scroll.contentView.bounds.minY, downY) }
+        }
+        XCTAssertEqual(consumed, 24)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testLocalReaderMonitorLeavesTypingSidebarAndSelectionArrowsToTheirResponders() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, keys = ["shortcuts", "customCommands", "externalCommands"]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        for (key, value) in zip(keys, ["{}", "[]", "[]"]) { defaults.set(value, forKey: key) }
+        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
+        let state = ReaderState(recordsHistory: false)
+        state.document = try nativePDFReadingFixture()
+        state.count = 1
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: 500),
+            styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; state.window = window
+        let closeGuard = ReaderCloseGuard(state: state, previous: nil)
+        window.delegate = closeGuard
+        let content = NSView(frame: window.contentLayoutRect), scroll = NSScrollView(frame: content.bounds)
+        let reader = NSTextView(frame: content.bounds), editor = NSTextView(frame: CGRect(x: 0, y: 0, width: 200, height: 80))
+        reader.isEditable = false; reader.isSelectable = true
+        scroll.documentView = reader; content.addSubview(scroll); content.addSubview(editor)
+        window.contentView = content; state.readerScrollView = scroll
+        window.makeKeyAndOrderFront(nil)
+        let application = ReaderApplicationDelegate()
+        var consumed = 0, passed = 0
+        let monitor = try XCTUnwrap(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let result = application.handleReaderEvent(event)
+            if event.window === window {
+                if result == nil { consumed += 1 }
+                else { passed += 1 }
+                // Observe pass-through without sending an intentionally
+                // unsupported sidebar key to AppKit's beep path.
+                return nil
+            }
+            return result
+        })
+        defer {
+            NSEvent.removeMonitor(monitor)
+            state.windowClosed(); window.contentView = nil; window.close()
+            withExtendedLifetime(closeGuard) {}
+        }
+        func arrow(_ modifiers: NSEvent.ModifierFlags = []) throws {
+            NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: modifiers, timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                characters: "\u{f703}", charactersIgnoringModifiers: "\u{f703}", isARepeat: true, keyCode: 124)))
+        }
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        try arrow()
+        editor.isEditable = false // A non-reader selectable sidebar view.
+        try arrow()
+        XCTAssertTrue(window.makeFirstResponder(reader))
+        try arrow(.shift)
+        state.keyboardTextSelection = true
+        try arrow()
+        state.keyboardTextSelection = false; state.keyboardLinkFollowing = true
+        try arrow()
+        state.keyboardLinkFollowing = false; state.nativePDFAnnotationTool = NativePDFAnnotationTool("ink")
+        try arrow()
+        XCTAssertEqual(consumed, 0)
+        XCTAssertEqual(passed, 6)
+        XCTAssertEqual(state.command.action, .none)
+    }
+
+    @MainActor
     func testFixedMarkupLinksKeepTheirFileAndFragmentDestinations() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard, previous = defaults.object(forKey: "useFixedPageUI")

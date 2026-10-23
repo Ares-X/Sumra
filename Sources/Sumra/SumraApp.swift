@@ -305,81 +305,104 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         ScreenshotHotkey.restore()
         ReaderHelp.checkForUpdatesOnLaunch()
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown, .otherMouseDown, .scrollWheel]) { event in
-            if event.type == .scrollWheel {
-                guard NSApp.modalWindow == nil, let window = event.window,
-                      let state = ReaderWindows.states.first(where: { $0.window === window }) else { return event }
-                return state.handleScrollWheel(event) ? nil : event
-            }
-            if event.type == .flagsChanged {
-                if !event.modifierFlags.contains(.control) { ReaderWindows.finishSmartSwitch() }
-                return event
-            }
-            guard let window = NSApp.keyWindow, NSApp.modalWindow == nil,
-                  let state = ReaderWindows.states.first(where: { $0.window === (window.parent ?? window) }) else { return event }
-            let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
-            let typing = ReaderWindows.isTyping(in: window, state: state)
-            if event.type == .keyDown, !typing || !modifiers.intersection([.command, .control]).isEmpty,
-               let overrides = (try? JSONDecoder().decode([String: String].self, from: Data((UserDefaults.standard.string(forKey: "shortcuts") ?? "{}").utf8))) {
-                var flags: EventModifiers = []
-                if modifiers.contains(.command) { flags.insert(.command) }
-                if modifiers.contains(.control) { flags.insert(.control) }
-                if modifiers.contains(.option) { flags.insert(.option) }
-                if modifiers.contains(.shift) { flags.insert(.shift) }
-                func matches(_ binding: String) -> Bool {
-                    guard let shortcut = readerShortcut(binding) else { return false }
-                    return shortcut.modifiers == flags && String(shortcut.key.character).lowercased() == event.characters(byApplyingModifiers: [])?.lowercased()
-                }
-                for command in ReaderMenuCommand.allCases where command.enabled(state) {
-                    let extra = readerShortcutBindings(overrides[command.id] ?? command.defaultShortcut).dropFirst()
-                    if extra.contains(where: matches) {
-                        if command == .open {
-                            chooseDocuments { urls in
-                                ReaderWindows.open(urls, in: state) { state.createWindow?($0) }
-                            }
-                        } else if command == .close { window.performClose(nil) }
-                        else { command.run(state) }
-                        return nil
-                    }
-                }
-                for command in (try? ReaderConfiguredCommand.read(UserDefaults.standard.string(forKey: "customCommands") ?? "[]")) ?? [] where command.enabled(state) {
-                    if readerShortcutBindings(command.shortcut ?? "").contains(where: matches) { command.run(state); return nil }
-                }
-                for command in (try? ExternalReaderCommand.read(UserDefaults.standard.string(forKey: "externalCommands") ?? "[]")) ?? [] where command.enabled(state) {
-                    if readerShortcutBindings(command.shortcut ?? "").contains(where: matches) { command.run(state); return nil }
-                }
-            }
-            guard state.hasDocument, !typing else { return event }
-            if event.type == .keyDown, state.nativePDFAnnotationTool != nil, [36, 49, 53, 76].contains(event.keyCode) { return event }
-            if event.type == .keyDown, event.keyCode == 53 {
-                if state.presentationBlank != nil { state.presentationBlank = nil; return nil }
-                if state.autoScroll { state.setAutoScroll(false); return nil }
-                if state.presentation { ReaderMenuCommand.presentation.run(state); return nil }
-            }
-            if state.presentation, event.type == .keyDown, modifiers.isEmpty {
-                switch event.charactersIgnoringModifiers?.lowercased() {
-                case "b", ".": ReaderMenuCommand.blankBlack.run(state); return nil
-                case "w", ",": ReaderMenuCommand.blankWhite.run(state); return nil
-                case "l": state.laserPointer.toggle(); return nil
-                case " ": state.presentationBlank = nil; state.turn(1); return nil
-                default: break
-                }
-            }
-            let readers: [NSView?] = [state.browserView, state.readerScrollView]
-            guard let responder = window.firstResponder as? NSView,
-                  readers.compactMap({ $0 }).contains(where: { responder === $0 || responder.isDescendant(of: $0) }) else { return event }
-            if event.type == .otherMouseDown, event.buttonNumber == 2 { state.setAutoScroll(!state.autoScroll); return nil }
-            guard event.type == .keyDown, modifiers.isEmpty,
-                  !state.keyboardLinkFollowing, !state.keyboardTextSelection else { return event }
-            switch event.charactersIgnoringModifiers?.lowercased() {
-            case "h": state.scroll(.left); return nil
-            case "j": state.scroll(.down); return nil
-            case "k": state.scroll(.up); return nil
-            case "l": state.scroll(.right); return nil
-            default: break
-            }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown, .otherMouseDown, .scrollWheel]) { [self] event in
+            handleReaderEvent(event)
+        }
+    }
+
+    func handleReaderEvent(_ event: NSEvent) -> NSEvent? {
+        if event.type == .scrollWheel {
+            guard NSApp.modalWindow == nil, let window = event.window,
+                  let state = ReaderWindows.states.first(where: { $0.window === window }) else { return event }
+            return state.handleScrollWheel(event) ? nil : event
+        }
+        if event.type == .flagsChanged {
+            if !event.modifierFlags.contains(.control) { ReaderWindows.finishSmartSwitch() }
             return event
         }
+        guard let window = event.window, NSApp.modalWindow == nil,
+              let state = ReaderWindows.states.first(where: { $0.window === (window.parent ?? window) }) else { return event }
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        let typing = ReaderWindows.isTyping(in: window, state: state)
+        if event.type == .keyDown, !typing || !modifiers.intersection([.command, .control]).isEmpty,
+           let overrides = (try? JSONDecoder().decode([String: String].self, from: Data((UserDefaults.standard.string(forKey: "shortcuts") ?? "{}").utf8))) {
+            var flags: EventModifiers = []
+            if modifiers.contains(.command) { flags.insert(.command) }
+            if modifiers.contains(.control) { flags.insert(.control) }
+            if modifiers.contains(.option) { flags.insert(.option) }
+            if modifiers.contains(.shift) { flags.insert(.shift) }
+            func matches(_ binding: String) -> Bool {
+                guard let shortcut = readerShortcut(binding) else { return false }
+                return shortcut.modifiers == flags && String(shortcut.key.character).lowercased() == event.characters(byApplyingModifiers: [])?.lowercased()
+            }
+            for command in ReaderMenuCommand.allCases where command.enabled(state) {
+                let extra = readerShortcutBindings(overrides[command.id] ?? command.defaultShortcut).dropFirst()
+                if extra.contains(where: matches) {
+                    if command == .open {
+                        chooseDocuments { urls in
+                            ReaderWindows.open(urls, in: state) { state.createWindow?($0) }
+                        }
+                    } else if command == .close { window.performClose(nil) }
+                    else { command.run(state) }
+                    return nil
+                }
+            }
+            for command in (try? ReaderConfiguredCommand.read(UserDefaults.standard.string(forKey: "customCommands") ?? "[]")) ?? [] where command.enabled(state) {
+                if readerShortcutBindings(command.shortcut ?? "").contains(where: matches) { command.run(state); return nil }
+            }
+            for command in (try? ExternalReaderCommand.read(UserDefaults.standard.string(forKey: "externalCommands") ?? "[]")) ?? [] where command.enabled(state) {
+                if readerShortcutBindings(command.shortcut ?? "").contains(where: matches) { command.run(state); return nil }
+            }
+        }
+        guard state.hasDocument, !typing else { return event }
+        if event.type == .keyDown, state.nativePDFAnnotationTool != nil, [36, 49, 53, 76].contains(event.keyCode) { return event }
+        if event.type == .keyDown, event.keyCode == 53 {
+            if state.presentationBlank != nil { state.presentationBlank = nil; return nil }
+            if state.autoScroll { state.setAutoScroll(false); return nil }
+            if state.presentation { ReaderMenuCommand.presentation.run(state); return nil }
+        }
+        if state.presentation, event.type == .keyDown, modifiers.isEmpty {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "b", ".": ReaderMenuCommand.blankBlack.run(state); return nil
+            case "w", ",": ReaderMenuCommand.blankWhite.run(state); return nil
+            case "l": state.laserPointer.toggle(); return nil
+            case " ": state.presentationBlank = nil; state.turn(1); return nil
+            default: break
+            }
+        }
+        let readers: [NSView?] = [state.browserView, state.readerScrollView]
+        let responder = window.firstResponder
+        let readerFocused = (responder as? NSView).map { responder in
+            readers.compactMap({ $0 }).contains { responder === $0 || responder.isDescendant(of: $0) }
+        } ?? false
+        // Paged canvases are replaced during navigation. Their SwiftUI move
+        // handler can lose focus before the next canvas is ready, so consume
+        // native arrows here and keep repeated input in the reader command queue.
+        if event.type == .keyDown, modifiers.isEmpty,
+           !state.keyboardLinkFollowing, !state.keyboardTextSelection,
+           state.nativePDFAnnotationTool?.isPlacement != true,
+           case .pages = state.document?.content,
+           readerFocused || (window === state.window && (responder == nil || responder === window)) {
+            switch event.keyCode {
+            case 123: state.scroll(.left); return nil
+            case 124: state.scroll(.right); return nil
+            case 125: state.scroll(.down); return nil
+            case 126: state.scroll(.up); return nil
+            default: break
+            }
+        }
+        guard readerFocused else { return event }
+        if event.type == .otherMouseDown, event.buttonNumber == 2 { state.setAutoScroll(!state.autoScroll); return nil }
+        guard event.type == .keyDown, modifiers.isEmpty,
+              !state.keyboardLinkFollowing, !state.keyboardTextSelection else { return event }
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "h": state.scroll(.left); return nil
+        case "j": state.scroll(.down); return nil
+        case "k": state.scroll(.up); return nil
+        case "l": state.scroll(.right); return nil
+        default: break
+        }
+        return event
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !terminationPending else { return .terminateLater }
@@ -431,6 +454,7 @@ enum ReaderWindows {
     }
 
     static func isTyping(in window: NSWindow, state: ReaderState) -> Bool {
+        if state.nativePDFFormEditor?.ownsInput(window.firstResponder) == true { return true }
         if (window.firstResponder as? NSTextView)?.isEditable == true { return true }
         guard let web = state.browserView, let responder = window.firstResponder as? NSView,
               responder === web || responder.isDescendant(of: web),

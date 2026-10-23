@@ -101,7 +101,7 @@ struct SettingsView:View{
                 .font(.caption).foregroundStyle(.secondary)
         }
         Section(L("Default typography")){
-            Picker(L("Font"),selection:$font){Text(L("System")).tag("system");Text(L("Serif")).tag("serif");Text(L("Sans Serif")).tag("sans-serif");Text(L("Monospace")).tag("monospace")}
+            ReaderFontPicker(selection: $font)
             LabeledContent(L("Font size")){Slider(value:$fontSize,in:10...36,step:1).frame(width:190);Text("\(Int(fontSize)) pt").monospacedDigit().frame(width:45)}
             LabeledContent(L("Line height")){Slider(value:$lineHeight,in:1...2.4,step:0.1).frame(width:190);Text(lineHeight,format:.number.precision(.fractionLength(1))).frame(width:30)}
             LabeledContent(L("Margin")) {

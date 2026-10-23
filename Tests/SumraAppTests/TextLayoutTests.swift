@@ -7,6 +7,23 @@ import SumraCore
 
 final class TextLayoutTests: XCTestCase {
     @MainActor
+    func testNamedInstalledFontAppliesToTextAndKeepsSourcePosition() async throws {
+        let text = (0..<300).map { "Line \($0): Reading with an installed font." }.joined(separator: "\n")
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        try await navigate(.page(150), state: state, host: host)
+        let anchor = state.location.anchor
+        state.font = "Iowan Old Style"
+        try await navigate(.style, state: state, host: host)
+        let expected = try XCTUnwrap(NSFont(name: state.font, size: state.fontSize))
+        let storage = try XCTUnwrap(view.textContentStorage?.textStorage)
+        let actual = try XCTUnwrap(storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(actual.fontName, expected.fontName)
+        XCTAssertEqual(state.location.anchor, anchor)
+        XCTAssertEqual(view.string, text)
+    }
+
+    @MainActor
     func testThemeChangeRetainsDistantContinuousSourcePosition() async throws {
         let text = (0..<40_000).map { index in
             index % 2 == 0 ? "Paragraph \(index): " + String(repeating: "中文 English neutral text. ", count: 1 + index % 11) + "\n" : "\n"

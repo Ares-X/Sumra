@@ -1,0 +1,14 @@
+--- a/source/fitz/image.c
++++ b/source/fitz/image.c
+@@ -1052,7 +1052,10 @@
+ 		l2factor_remaining = 0;
+ 		if (dw) *dw = w;
+ 		if (dh) *dh = h;
+-		return image->get_pixmap(ctx, image, subarea ? &subarea_copy : NULL, image->w, image->h, &l2factor_remaining);
++		tile = image->get_pixmap(ctx, image, subarea ? &subarea_copy : NULL, image->w, image->h, &l2factor_remaining);
++		if (subarea)
++			update_ctm_for_subarea(ctm, &subarea_copy, image->w, image->h);
++		return tile;
+ 	}
+ 
+ 	/* Clamp requested image size, since we never want to magnify images here. */

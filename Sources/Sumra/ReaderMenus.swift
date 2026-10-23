@@ -509,6 +509,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
             let alert = NSAlert(); alert.messageText = L("Choose Theme…")
             let picker = NSPopUpButton(); picker.addItems(withTitles: ReaderTheme.all.map { L($0.name) })
             picker.selectItem(at: ReaderTheme.all.firstIndex { $0.id == state.theme } ?? 0)
+            picker.sizeToFit(); picker.setFrameSize(NSSize(width: max(240, picker.frame.width), height: picker.frame.height))
             alert.accessoryView = picker; alert.addButton(withTitle: L("Apply")); alert.addButton(withTitle: L("Cancel"))
             if alert.runModal() == .alertFirstButtonReturn { state.setTheme(ReaderTheme.all[picker.indexOfSelectedItem].id) }
         case .print: state.printDocument()
