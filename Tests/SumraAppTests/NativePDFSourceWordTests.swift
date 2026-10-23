@@ -7,6 +7,32 @@ import XCTest
 @testable import Sumra
 
 final class NativePDFSourceWordTests: XCTestCase {
+    func testExportedJapanesePhraseSearchKeepsPhysicalLineHighlights() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let phrase = "読書で世界を知る。ひらがな、カタカナ、漢字。"
+        let source = directory.url.appendingPathComponent("japanese.html")
+        try "<html lang='ja'><meta charset='utf-8'><body><p>\(phrase)</p></body></html>"
+            .write(to: source, atomically: true, encoding: .utf8)
+        for width in [260.0, 360.0] {
+            let file = try NativeFile(source, engine: .mupdf)
+            _ = try file.relayout(fontSize: 22, lineHeight: 1.6, font: "system", theme: "light",
+                                  pageSize: CGSize(width: width, height: 500))
+            let output = directory.url.appendingPathComponent("japanese-\(width).pdf")
+            XCTAssertTrue(try file.exportPDF(to: output))
+            let pdf = try NativeFile(output, engine: .mupdf)
+            XCTAssertEqual(pdf.count, 1)
+            let text = try XCTUnwrap(pdf.text(0))
+            XCTAssertGreaterThan(text.split(separator: "\n").count, 1, "Exercise a physical line wrap")
+            XCTAssertEqual(text.filter { !$0.isWhitespace }, phrase)
+            let hit = try XCTUnwrap(pdf.matches(phrase, page: 0).first)
+            XCTAssertEqual(try pdf.matches(phrase, page: 0).count, 1)
+            XCTAssertEqual(try pdf.matches(phrase, page: 0, backwards: true).first, hit)
+            XCTAssertGreaterThan(hit.rects.reduce(CGRect.null) { $0.union($1) }.height, 22,
+                                 "The phrase highlight must cover both physical lines")
+        }
+    }
+
     func testShapedWordsKeepCopyAndSearchAfterExport() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }

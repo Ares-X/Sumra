@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import SwiftUI
 import XCTest
 @testable import Sumra
 
@@ -100,24 +101,49 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertNil(restored.customLinkColor)
     }
 
-    func testTypographyDialogCanSelectInstalledIowanFamily() {
+    func testTypographyPanelSelectsInstalledAndSupplementalFontsLive() async throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/font-controls.txt"), content: .text("First paragraph\n\nSecond paragraph"))
         state.typographyForAll = false
-        inspectModal { content in
-            let fonts = try XCTUnwrap(self.descendants(content, of: NSComboBox.self).first)
-            self.assertClickable(fonts, in: content)
-            XCTAssertTrue(fonts.objectValues.contains { ($0 as? String) == "Georgia" },
-                          "Available installed families must appear in the list")
-            // macOS may hide a supplemental family from its available-font list
-            // while still resolving it by name. The editable field supports it.
-            fonts.stringValue = "Iowan Old Style"
-        }
+        state.font = "serif"; state.page = 1; state.count = 3
+        state.location.anchor = "paragraph-17"
+        state.reflowable = true
+        let before = state.currentPosition
+        let parent = appearanceWindow(state: state)
+        defer { parent.close(); state.windowClosed() }
         state.editTypography()
-        XCTAssertEqual(state.font, "Iowan Old Style")
+        XCTAssertNil(NSApp.modalWindow, "Live typography must not start a modal session")
+        let panel = try XCTUnwrap(parent.childWindows?.compactMap { $0 as? ReaderReadingSettingsPanel }.first)
+        let content = try XCTUnwrap(panel.contentView)
+        var fonts: NSComboBox?
+        for _ in 0..<100 {
+            content.layoutSubtreeIfNeeded()
+            fonts = descendants(content, of: NSComboBox.self).first
+            if let fonts, fonts.bounds.width >= 100, fonts.bounds.height >= 22 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let combo = try XCTUnwrap(fonts)
+        assertClickable(combo, in: content)
+        XCTAssertTrue(combo.isEditable)
+        XCTAssertTrue(combo.objectValues.contains { ($0 as? String) == "Georgia" })
+        let delegate = try XCTUnwrap(combo.delegate as? ReaderFontNamePicker.Coordinator)
+        combo.selectItem(withObjectValue: "Georgia")
+        delegate.comboBoxSelectionDidChange(Notification(name: NSComboBox.selectionDidChangeNotification, object: combo))
+        XCTAssertEqual(state.font, "Georgia")
+        XCTAssertEqual(state.pendingReflowPosition?.anchor, before.anchor)
+        XCTAssertEqual(state.pendingReflowPosition?.font, "serif", "Capture the original paragraph before applying the font")
+        state.pendingReflowPosition = nil
+        combo.stringValue = "Iowan Old Style"
+        delegate.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: combo))
+        XCTAssertEqual(state.font, "Iowan Old Style", "Supplemental family names remain editable even when omitted from the installed-family menu")
+        XCTAssertEqual(state.pendingReflowPosition?.anchor, before.anchor)
+        XCTAssertEqual(state.pendingReflowPosition?.font, "Georgia")
+        panel.close()
+        XCTAssertEqual(state.font, "Iowan Old Style", "Closing the live panel retains its applied changes")
     }
 
-    func testCancelKeepsThemeColorsAndFont() {
+    func testCancelKeepsThemeColorsAndClosingUntouchedTypographyPanelKeepsFont() throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
         state.theme = "light"; state.font = "serif"
@@ -134,10 +160,14 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertEqual(state.customTextColor, 0x123456)
         XCTAssertEqual(state.customBackgroundColor, 0xffffff)
         XCTAssertEqual(state.customLinkColor, 0xabcdef)
-        inspectModal(response: .alertSecondButtonReturn) { content in
-            self.descendants(content, of: NSComboBox.self).first?.stringValue = "Iowan Old Style"
-        }
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/unchanged-font.txt"), content: .text("Unchanged paragraph"))
+        let parent = appearanceWindow(state: state)
+        defer { parent.close(); state.windowClosed() }
+
         state.editTypography()
+        XCTAssertNil(NSApp.modalWindow)
+        let panel = try XCTUnwrap(parent.childWindows?.compactMap { $0 as? ReaderReadingSettingsPanel }.first)
+        panel.close()
         XCTAssertEqual(state.font, "serif")
     }
 
@@ -219,6 +249,15 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "lastLightTheme"), "light")
     }
 
+    private func appearanceWindow(state: ReaderState) -> NSWindow {
+        let parent = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 700),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        parent.contentView = NSHostingView(rootView: Text("Typography preview").frame(width: 800, height: 700))
+        state.window = parent
+        return parent
+    }
+
     private func inspectModal(response: NSApplication.ModalResponse = .alertFirstButtonReturn,
                               _ inspect: @escaping (NSView) throws -> Void) {
         RunLoop.main.perform(inModes: [.modalPanel]) {
@@ -240,10 +279,12 @@ final class ReaderAppearanceControlsTests: XCTestCase {
     private func assertClickable(_ view: NSView, in content: NSView, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertGreaterThanOrEqual(view.bounds.width, 100, file: file, line: line)
         XCTAssertGreaterThanOrEqual(view.bounds.height, 22, file: file, line: line)
-        let center = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: content)
+        // AppKit hitTest receives a point in the receiver's superview coordinates.
+        // A hosted SwiftUI root is flipped even when its window frame is not.
+        let center = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: content.superview)
         let hit = content.hitTest(center)
         XCTAssertTrue(hit === view || hit?.isDescendant(of: view) == true,
-                      "The control must receive clicks inside the alert", file: file, line: line)
+                      "The control must receive clicks: frame=\(view.frame) visible=\(view.visibleRect) window=\(String(describing: view.window?.frame)) content=\(content.frame) contentFlipped=\(content.isFlipped) superFlipped=\(String(describing: content.superview?.isFlipped)) point=\(center) hit=\(String(describing: hit))", file: file, line: line)
     }
 }
 #endif

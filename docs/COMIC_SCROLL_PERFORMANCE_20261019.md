@@ -1,5 +1,9 @@
 # Solid comic scrolling (2026-10-19)
 
+The [2026-10-23 archive memory follow-up](ARCHIVE_MEMORY_20261023.md) replaces
+unbounded entry retention and whole-entry cancellation with a byte budget and
+chunk cancellation. Measurements below describe the earlier implementation.
+
 This records the 0.2.5 implementation and measurements. The subsequent
 [0.2.6 section index](COMIC_SEEK_INDEX_20261020.md) uses independent LZMA2
 reset points within a 7z folder, so a distant first access need not traverse

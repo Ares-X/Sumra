@@ -285,7 +285,9 @@ final class NativeFile {
             let file = try FileHandle(forReadingFrom: url)
             defer { try? file.close() }
             guard let version = FileVersion(descriptor: file.fileDescriptor), FileVersion(url) == version else { return nil }
+            let started = DispatchTime.now().uptimeNanoseconds
             let digest = try Self.digest(file)
+            NativeReadingPerformance.mark("pdf-source-digest", started: started, persistent: true)
             guard FileVersion(url) == version else { return nil }
             self.version = version; self.digest = digest
         }
@@ -323,11 +325,12 @@ final class NativeFile {
         let temporary: TemporaryDirectory
         let url: URL
         let checkpoint: FileCheckpoint
+        let sourceCheckpoint: FileCheckpoint
 
-        init(_ source: URL, expected: FileCheckpoint) throws {
+        init(_ source: URL) throws {
             let file = try FileHandle(forReadingFrom: source)
             defer { try? file.close() }
-            guard let opened = FileVersion(descriptor: file.fileDescriptor), expected.version.matchesContentMetadata(opened) else {
+            guard let opened = FileVersion(descriptor: file.fileDescriptor), FileVersion(source) == opened else {
                 throw ReadError("The PDF file changed while opening. Open it again.")
             }
             var attributes = stat()
@@ -341,6 +344,8 @@ final class NativeFile {
             }
             let snapshot = temporary.url.appendingPathComponent("input.pdf")
             var needsCopy = attributes.st_flags & lockingFlags != 0
+            let snapshotStarted = DispatchTime.now().uptimeNanoseconds
+            var streamedDigest: SHA256.Digest?
             if !needsCopy {
                 let cloned = snapshot.path.withCString {
                     fclonefileat(file.fileDescriptor, AT_FDCWD, $0, UInt32(CLONE_NOOWNERCOPY))
@@ -372,26 +377,38 @@ final class NativeFile {
                 let output = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
                 defer { try? output.close() }
                 try file.seek(toOffset: 0)
+                var hash = SHA256()
                 while let block = try file.read(upToCount: 1_048_576), !block.isEmpty {
                     try Task.checkCancellation()
                     try output.write(contentsOf: block)
+                    hash.update(data: block)
                 }
                 try output.close()
+                streamedDigest = hash.finalize()
             }
+            NativeReadingPerformance.mark(needsCopy ? "pdf-source-copy" : "pdf-source-clone",
+                                          started: snapshotStarted, persistent: true)
             try Task.checkCancellation()
-            // A streaming copy can span concurrent source writes. Digest equality
-            // with the pre-open checkpoint is required even when metadata agrees.
-            // Source metadata can change while AppKit opens a file. The snapshot
-            // digest below remains authoritative for the PDF bytes.
-            guard let copied = FileVersion(descriptor: file.fileDescriptor), expected.version.matchesContentMetadata(copied),
-                  let captured = try FileCheckpoint(snapshot), captured.digest == expected.digest else {
+            // Capture owns this boundary. A clone is immutable as soon as the
+            // syscall returns; a copy must keep the same source version through
+            // its final write. Include ctime so equal-size writes restoring mtime
+            // cannot pass. Later source edits do not affect captured bytes.
+            guard FileVersion(descriptor: file.fileDescriptor) == opened, FileVersion(source) == opened else {
                 throw ReadError("The PDF file changed while opening. Open it again.")
+            }
+            let captured: FileCheckpoint?
+            if let streamedDigest, let version = FileVersion(snapshot) {
+                captured = FileCheckpoint(version: version, digest: streamedDigest)
+            } else { captured = try FileCheckpoint(snapshot) }
+            guard let captured else {
+                throw ReadError("The PDF snapshot changed while opening. Open it again.")
             }
             guard chmod(snapshot.path, 0o400) == 0, let version = FileVersion(snapshot) else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
             self.temporary = temporary; url = snapshot
             checkpoint = FileCheckpoint(version: version, digest: captured.digest)
+            sourceCheckpoint = FileCheckpoint(version: opened, digest: captured.digest)
         }
     }
 
@@ -402,19 +419,16 @@ final class NativeFile {
         guard let directory else { throw ReadError("Missing native engine directory") }
         return directory.appendingPathComponent(engine.rawValue + ".dylib")
     }
-    convenience init(_ url: URL, engine: NativeEngine, password: String? = nil, deferReflowLayout: Bool = false, sourceCheckpoint: FileCheckpoint? = nil, deferMarkdownMetadata: Bool = false) throws {
+    convenience init(_ url: URL, engine: NativeEngine, password: String? = nil, deferReflowLayout: Bool = false, deferMarkdownMetadata: Bool = false) throws {
         try self.init(url, engine: engine, password: password, deferReflowLayout: deferReflowLayout,
-                      sourceCheckpoint: sourceCheckpoint, retainedPDFSource: nil, deferMarkdownMetadata: deferMarkdownMetadata)
+                      retainedPDFSource: nil, deferMarkdownMetadata: deferMarkdownMetadata)
     }
 
     private init(_ url: URL, engine: NativeEngine, password: String?, deferReflowLayout: Bool,
-                 sourceCheckpoint: FileCheckpoint?, retainedPDFSource: PDFSource?, deferMarkdownMetadata: Bool = false) throws {
+                 retainedPDFSource: PDFSource?, deferMarkdownMetadata: Bool = false) throws {
         authenticationPassword = password ?? ""
-        let version = sourceCheckpoint?.version ?? (engine == .mupdf ? FileVersion(url) : nil)
+        let version = engine == .mupdf ? FileVersion(url) : nil
         var pdfSource = retainedPDFSource
-        if engine == .mupdf, pdfSource == nil, let sourceCheckpoint {
-            pdfSource = try PDFSource(url, expected: sourceCheckpoint)
-        }
         let path = try Self.libraryURL(for: engine)
         let loaderStarted = DispatchTime.now().uptimeNanoseconds
         NativeReadingPerformance.mark("native-loader-entry", persistent: true)
@@ -436,10 +450,7 @@ final class NativeFile {
                 let result = recognize(url.path, &error)
                 guard result >= 0 else { throw Self.failure(error, "Cannot recognize this file") }
                 if result == 1 {
-                    guard let captured = try FileCheckpoint(url), captured.version == version else {
-                        throw ReadError("The PDF file changed while opening. Open it again.")
-                    }
-                    pdfSource = try PDFSource(url, expected: captured)
+                    pdfSource = try PDFSource(url)
                 }
             }
             var opened: UnsafeMutableRawPointer?
@@ -508,7 +519,7 @@ final class NativeFile {
             // on every open. Its source nodes belong to the bytes, not that inode.
             if engine == .mupdf, pdfSource == nil, ["document.mobihtml", "document.mobi", "document.fb2", "document.html"].contains(url.lastPathComponent) {
                 sourceRevision = SHA256.hash(data: try Data(contentsOf: url, options: .mappedIfSafe)).map { String(format: "%02x", $0) }.joined()
-            } else { sourceRevision = version?.signature ?? "" }
+            } else { sourceRevision = pdfSource?.sourceCheckpoint.version.signature ?? version?.signature ?? "" }
             self.library = library; self.document = document; initialCount = count; self.engine = engine; closeDocument = close
             self.fixedLayoutEPUB = fixedLayoutEPUB
             lazyChapters = deferred; chapterTable = table
@@ -518,6 +529,8 @@ final class NativeFile {
         } catch { dlclose(library); throw error }
     }
     deinit { closeDocument(document); dlclose(library) }
+
+    var pdfOpeningCheckpoint: FileCheckpoint? { pdfSource?.sourceCheckpoint }
 
     func validatePDFSource() throws {
         guard let pdfSource else { throw ReadError("The PDF source cannot be verified. Reload it before saving, exporting or printing.") }
@@ -551,7 +564,7 @@ final class NativeFile {
         guard !info.dirty, info.undoPosition == 0, engine == .mupdf, let pdfSource else { return nil }
         try validatePDFSource()
         return try NativeFile(pdfSource.url, engine: .mupdf, password: password, deferReflowLayout: false,
-                              sourceCheckpoint: nil, retainedPDFSource: pdfSource)
+                              retainedPDFSource: pdfSource)
     }
 
     var hasChapters: Bool { (chapterTable?.chapterCount ?? 1) > 1 }
@@ -1087,75 +1100,155 @@ final class NativeFile {
     func selection(_ page: Int, range: NSRange) throws -> RasterSelection {
         try RasterSelection.select(words(page), range: range)
     }
-    func chapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions) throws -> Bool {
+    func chapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions,
+                         cancellation: NativeRenderCancellation? = nil) throws -> Bool {
         try Task.checkCancellation()
+        if cancellation?.isCancelled == true { throw CancellationError() }
         typealias Cancelled = @convention(c) () -> Int32
-        typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, UnsafePointer<CChar>, Int32, Cancelled, UnsafeMutablePointer<CChar>) -> Int32
+        typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, UnsafePointer<CChar>, Int32, Cancelled?, UnsafeMutableRawPointer?, UnsafeMutablePointer<CChar>) -> Int32
         guard let fn = symbol("lf_search_chapter_candidate", Search.self) else { throw ReadError("Incompatible MuPDF engine: lf_search_chapter_candidate") }
         var error = [CChar](repeating: 0, count: 512)
         let flags: Int32 = (options.caseSensitive ? 1 : 0) | (options.wholeWord ? 2 : 0)
-        let cancelled: Cancelled = { Task<Never, Never>.isCancelled ? 1 : 0 }
-        let value = query.withCString { fn(document, Int32(chapter), $0, flags, cancelled, &error) }
+        let cancelled: Cancelled? = cancellation == nil ? { Task<Never, Never>.isCancelled ? 1 : 0 } : nil
+        let value = query.withCString { fn(document, Int32(chapter), $0, flags, cancelled, cancellation?.handle, &error) }
         try Task.checkCancellation()
+        if cancellation?.isCancelled == true { throw CancellationError() }
         guard value >= 0 else { throw Self.failure(error, "Cannot search chapter text") }
         return value != 0
     }
     func matches(_ query: String, page: Int, options: TextSearchOptions = .init(), after: Int? = nil,
-                 backwards: Bool = false, maximum: Int? = nil) throws -> [RasterMatch] {
+                 backwards: Bool = false, maximum: Int? = nil, cancellation: NativeRenderCancellation? = nil) throws -> [RasterMatch] {
         try Task.checkCancellation()
         guard !query.isEmpty else { return [] }
         if let maximum, maximum <= 0 { return [] }
         if backwards, let after, after <= 0 { return [] }
         if engine == .mupdf {
             typealias Cancelled = @convention(c) () -> Int32
-            typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, UnsafePointer<CChar>, Int32, Int64, Int64, Cancelled, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
-            guard let fn = symbol("lf_search_options_at", Search.self) else { throw ReadError("Incompatible MuPDF engine: lf_search_options") }
+            typealias Search = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, UnsafePointer<CChar>, Int32, Int64, Int64, Int64, Cancelled?, UnsafeMutableRawPointer?, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+            guard let fn = symbol("lf_search_pages_at", Search.self) else { throw ReadError("Incompatible MuPDF engine: lf_search_pages_at") }
             let location = try preparedLocation(page)
+            if options.allowedPages?.contains(page) == false { return [] }
+            let lastPage = options.allowedPages?.rangeView.first(where: { $0.contains(page) }).map { $0.upperBound - 1 } ?? -1
             var error = [CChar](repeating: 0, count: 512)
             let flags: Int32 = (options.caseSensitive ? 1 : 0) | (options.wholeWord ? 2 : 0) | (backwards ? 4 : 0)
-            let cancelled: Cancelled = { Task<Never, Never>.isCancelled ? 1 : 0 }
+            let cancelled: Cancelled? = cancellation == nil ? { Task<Never, Never>.isCancelled ? 1 : 0 } : nil
             let pointer = query.withCString {
                 fn(document, Int32(location.chapter), Int32(location.page), $0, flags,
-                   after.map { Int64(max(-1, $0)) } ?? -1, maximum.map { Int64($0) } ?? -1, cancelled, &error)
+                   after.map { Int64(max(-1, $0)) } ?? -1, maximum.map { Int64($0) } ?? -1, Int64(lastPage), cancelled, cancellation?.handle, &error)
             }
-            if Task.isCancelled { if let pointer { free(pointer) }; throw CancellationError() }
-            struct Hit: Decodable { let start: Int; let length: Int; let rects: [[Double]] }
+            if Task.isCancelled || cancellation?.isCancelled == true { if let pointer { free(pointer) }; throw CancellationError() }
+            struct Fragment: Decodable { let chapter, page: Int; let rects: [[Double]] }
+            struct Hit: Decodable {
+                let start, length: Int
+                let contextStart: Int?
+                let rects: [[Double]]
+                let fragments: [Fragment]?
+                let source: NativeSourceAnchor?
+            }
             struct Results: Decodable { let text: String; let matches: [Hit] }
             let result = try decode(pointer, error: error, as: Results.self), text = result.text as NSString
             return try result.matches.map { hit in
                 try Task.checkCancellation()
-                return RasterMatch(page: page, index: hit.start, rects: hit.rects.map { CGRect(raster: $0) },
-                    context: TextSearchOptions.snippet(in: text, range: NSRange(location: hit.start, length: hit.length)))
+                let fragments = try hit.fragments?.map { fragment in
+                    let location = PageLocation(chapter: fragment.chapter, page: fragment.page)
+                    return RasterMatchFragment(page: try self.page(location), rects: fragment.rects.map { CGRect(raster: $0) }, location: location)
+                }
+                return RasterMatch(page: try self.page(location), index: hit.start,
+                    rects: fragments?.first?.rects ?? hit.rects.map { CGRect(raster: $0) },
+                    context: TextSearchOptions.snippet(in: text, range: NSRange(location: hit.contextStart ?? hit.start, length: hit.length)),
+                    source: hit.source, fragments: fragments, location: location)
             }
         }
-        let words = try words(page)
-        let string = words.map(\.text).joined(), text = string as NSString
-        let hits = try options.ranges(in: string, query: query, after: after, backwards: backwards, maximum: maximum)
-        var offsets = [(NSRange, CGRect)](), offset = 0
-        for word in words {
-            let length = (word.text as NSString).length
-            offsets.append((NSRange(location: offset, length: length), word.bounds)); offset += length
-        }
-        var cursor = backwards ? offsets.count : 0
-        return try hits.map { hit in
+        if options.allowedPages?.contains(page) == false { return [] }
+        let upper = options.allowedPages?.rangeView.first(where: { $0.contains(page) })?.upperBound ?? count
+        var pageWords = [[RasterWord]](), lookahead = 0
+        for next in page..<min(count, upper) {
             try Task.checkCancellation()
-            if backwards {
-                while cursor > 0, NSMaxRange(offsets[cursor - 1].0) > hit.location { cursor -= 1 }
-            } else {
-                while cursor < offsets.count, NSMaxRange(offsets[cursor].0) <= hit.location { cursor += 1 }
+            let words = try words(next)
+            pageWords.append(words)
+            if next > page {
+                lookahead += words.reduce(0) { $0 + $1.text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) && $0.value != 0xad && $0.value != 45 }.count }
+                if lookahead > query.utf8.count { break }
             }
-            var end = cursor
-            while end < offsets.count, offsets[end].0.location < NSMaxRange(hit) { end += 1 }
-            let rects: [CGRect] = offsets[cursor..<end].compactMap { range, box in
-                let intersection = NSIntersectionRange(range, hit)
-                guard intersection.length > 0, range.length > 0, !box.isEmpty else { return nil }
-                // Port Sumatra CollectZonesUtf8's approximate per-glyph boxes.
-                let start = CGFloat(intersection.location-range.location)/CGFloat(range.length)
-                let length = CGFloat(intersection.length)/CGFloat(range.length)
-                return CGRect(x: box.minX+box.width*start, y: box.minY, width: box.width*length, height: box.height)
-            }
-            return RasterMatch(page: page, index: hit.location, rects: rects, context: TextSearchOptions.snippet(in: text, range: hit))
         }
+        return try Self.zoneMatches(query, page: page, pageWords: pageWords, options: options,
+                                    after: after, backwards: backwards, maximum: maximum)
+    }
+
+    /// DjVu's word zones retain their existing approximate per-glyph geometry.
+    /// Joining physical pages here preserves the same matching policy and cursor
+    /// used for a single page, while one span supplies all highlight fragments.
+    static func zoneMatches(_ query: String, page: Int, pageWords: [[RasterWord]], options: TextSearchOptions,
+                            after: Int? = nil, backwards: Bool = false, maximum: Int? = nil) throws -> [RasterMatch] {
+        if let maximum, maximum <= 0 { return [] }
+        struct Glyph { let scalar: Unicode.Scalar; let page, index: Int; let rect: CGRect }
+        var glyphs = [Glyph]()
+        for (relative, words) in pageWords.enumerated() {
+            var offset = 0
+            for word in words {
+                let length = word.text.utf16.count
+                var wordOffset = 0
+                for scalar in word.text.unicodeScalars {
+                    let units = scalar.utf16.count
+                    let rect = length > 0 && !word.bounds.isEmpty
+                        ? CGRect(x: word.bounds.minX + word.bounds.width * CGFloat(wordOffset) / CGFloat(length),
+                                 y: word.bounds.minY, width: word.bounds.width * CGFloat(units) / CGFloat(length), height: word.bounds.height) : .zero
+                    glyphs.append(Glyph(scalar: scalar, page: page + relative, index: offset, rect: rect))
+                    offset += units; wordOffset += units
+                }
+            }
+            glyphs.append(Glyph(scalar: "\n", page: page + relative, index: offset, rect: .zero))
+        }
+        func whitespace(_ scalar: Unicode.Scalar) -> Bool { CharacterSet.whitespacesAndNewlines.contains(scalar) }
+        var normalized = [Glyph](), cursor = 0
+        while cursor < glyphs.count {
+            let glyph = glyphs[cursor]
+            if glyph.scalar.value == 0xad || glyph.scalar == "-" || glyph.scalar.value == 0x2010 {
+                var end = cursor + 1, lineBreak = false
+                while end < glyphs.count && whitespace(glyphs[end].scalar) {
+                    lineBreak = lineBreak || glyphs[end].scalar == "\n" || glyphs[end].scalar == "\r"
+                    end += 1
+                }
+                if lineBreak, let previous = normalized.last, end < glyphs.count,
+                   CharacterSet.letters.contains(previous.scalar), CharacterSet.letters.contains(glyphs[end].scalar) {
+                    cursor = end; continue
+                }
+                if glyph.scalar.value == 0xad { cursor += 1; continue }
+            }
+            normalized.append(glyph); cursor += 1
+        }
+        var string = "", offsets = [Int](), units = 0
+        for glyph in normalized { offsets.append(units); string.unicodeScalars.append(glyph.scalar); units += glyph.scalar.utf16.count }
+        let boundary = after.flatMap { after in
+            normalized.indices.first { normalized[$0].page == page && normalized[$0].index >= after }.map { offsets[$0] }
+        }
+        if after != nil && boundary == nil && !backwards { return [] }
+        let hits = try options.ranges(in: string, query: query, after: boundary, backwards: backwards)
+        let text = string as NSString
+        func glyphIndex(_ offset: Int) -> Int {
+            var lower = 0, upper = offsets.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if offsets[middle] < offset { lower = middle + 1 } else { upper = middle }
+            }
+            return lower
+        }
+        var result = [RasterMatch]()
+        for hit in hits {
+            try Task.checkCancellation()
+            let first = glyphIndex(hit.location), end = glyphIndex(NSMaxRange(hit))
+            guard first < normalized.count, normalized[first].page == page else { continue }
+            var rectangles = [Int: [CGRect]](), fragmentPages = [Int]()
+            for glyph in normalized[first..<end] where !glyph.rect.isEmpty {
+                if rectangles[glyph.page] == nil { fragmentPages.append(glyph.page) }
+                rectangles[glyph.page, default: []].append(glyph.rect)
+            }
+            let fragments = fragmentPages.map { RasterMatchFragment(page: $0, rects: rectangles[$0]!) }
+            result.append(RasterMatch(page: page, index: normalized[first].index, rects: fragments.first?.rects ?? [],
+                context: TextSearchOptions.snippet(in: text, range: hit), fragments: fragments))
+            if let maximum, result.count >= maximum { break }
+        }
+        return result
     }
     func markdownDocumentMatches(_ query: String, options: TextSearchOptions, startPage: Int,
                                  after: NativeSourceAnchor? = nil, backwards: Bool = false,

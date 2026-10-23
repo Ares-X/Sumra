@@ -5,7 +5,6 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
-API int lf_search_chapter_candidate(void *, int, const char *, int, int (*)(void), char *);
 API char *lf_text_at(SumraMuPDFDocument *, int, int, char *);
 API int lf_relayout_css(SumraMuPDFDocument *, float, float, float, const char *, int, char *);
 API void lf_close(SumraMuPDFDocument *);
@@ -28,6 +27,12 @@ static char *search(SumraMuPDFDocument *d, const char *query, int flags, int64_t
 }
 
 static int cancelled(void) { return 1; }
+static void *walking_cookie;
+static int visited_boundaries;
+static int abort_while_walking(void) {
+    if (++visited_boundaries == 10) lf_render_cookie_abort(walking_cookie);
+    return 0;
+}
 static void write_file(const char *directory, const char *name, const char *text) {
     char path[PATH_MAX]; snprintf(path, sizeof path, "%s/%s", directory, name);
     FILE *f = fopen(path, "w"); if (!f) abort(); fputs(text, f); fclose(f);
@@ -89,12 +94,13 @@ int main(int argc, char **argv) {
     fz_drop_search(ctx, empty); fz_drop_context(ctx);
     SumraMuPDFDocument *d = open_book(path); if (!d) return 1;
     char chapter_error[512] = {0};
-    check(lf_search_chapter_candidate(d, 0, "不存在的目标", 0, NULL, chapter_error) == 0, "negative parsed chapter candidate");
+    check(lf_search_chapter_candidate(d, 0, "不存在的目标", 0, NULL, NULL, chapter_error) == 0, "negative parsed chapter candidate");
     check(d->render_page == NULL, "negative candidate must not load/layout a page");
     char *json = search(d, "不存在的目标", 0, -1);
     check(json && strstr(json, "\"matches\":[]"), "negative result");
     check(d->text_page == NULL, "negative chapter must skip full glyph extraction");
     free(json); lf_close(d);
+    void *cookie = lf_render_cookie_new(); check(cookie != NULL, "search request cookie");
     const char *queries[] = {"马尾拂尘", "马尾 拂尘", "马尾", "before", "CONTENT", "cafe", "CAFÉ", "ss", "fi", "1.", "•", "甲", "inline", "wrap", "exact", "e\xCC\x81", " ", "-", "\xCC\x81", "customCSS中", "1. list", "不存在的目标"};
     for (size_t i = 0; i < sizeof(queries)/sizeof(*queries); ++i) {
         for (int flags = 0; flags < 8; ++flags) {
@@ -102,7 +108,7 @@ int main(int argc, char **argv) {
             if (!fast || !reference) return 1;
             char error[512] = {0}; char *text = lf_text_at(reference, 0, 0, error);
             check(text != NULL, error); free(text);
-            int candidate = lf_search_chapter_candidate(fast, 0, queries[i], flags, NULL, error);
+            int candidate = lf_search_chapter_candidate(fast, 0, queries[i], flags, NULL, cookie, error);
             check(candidate >= 0, error);
             check(fast->render_page == NULL, "candidate proof must precede page loading");
             char *b = search(reference, queries[i], flags, -1);
@@ -116,18 +122,40 @@ int main(int argc, char **argv) {
     }
     d = open_book(path);
     char error[512] = {0};
-    check(lf_search_chapter_candidate(d, 0, "newCSS生成", 0, NULL, error) == 0, "initial CSS candidate absence");
+    check(lf_search_chapter_candidate(d, 0, "newCSS生成", 0, NULL, NULL, error) == 0, "initial CSS candidate absence");
     check(lf_relayout_css(d, 480, 0, 19, "p.generated:after{content:'newCSS生成'}", 1, error) == 1, error);
-    check(lf_search_chapter_candidate(d, 0, "newCSS生成", 0, NULL, error) == 1, "CSS change must purge and regenerate parsed candidates");
+    check(lf_search_chapter_candidate(d, 0, "newCSS生成", 0, NULL, NULL, error) == 1, "CSS change must purge and regenerate parsed candidates");
     json = search(d, "newCSS生成", 0, -1);
     check(json && !strstr(json, "\"matches\":[]"), "generated candidate must retain rendered hit after CSS change");
     free(json);
     check(lf_relayout_css(d, 320, 0, 17, NULL, 1, error) == 1, error);
-    check(lf_search_chapter_candidate(d, 0, "newCSS生成", 0, NULL, error) == 0, "removed generated CSS text must not survive in the parsed cache");
-    check(lf_search_chapter_candidate(d, 0, "不存在的目标", 0, cancelled, error) == -1 && strstr(error, "Search cancelled"), "prelayout candidate cancellation");
+    check(lf_search_chapter_candidate(d, 0, "newCSS生成", 0, NULL, NULL, error) == 0, "removed generated CSS text must not survive in the parsed cache");
+    check(lf_search_chapter_candidate(d, 0, "不存在的目标", 0, cancelled, NULL, error) == -1 && strstr(error, "Search cancelled"), "prelayout candidate cancellation");
     json = lf_search_options_at(d, 0, 0, "不存在的目标", 0, -1, 1, cancelled, error);
     check(!json && strstr(error, "Search cancelled"), "candidate walk must honor cancellation");
     free(json); lf_close(d);
+    d = open_book(path);
+    walking_cookie = cookie; visited_boundaries = 0;
+    check(lf_search_chapter_candidate(d, 0, "不存在的目标", 0, abort_while_walking, cookie, error) == -1 && strstr(error, "Search cancelled"), "parsed traversal must observe a cookie aborted after entry");
+    check(visited_boundaries == 10 && d->render_page == NULL, "parsed traversal must stop at its next cancellation boundary before layout");
+    lf_render_cookie_drop(cookie); cookie = lf_render_cookie_new();
+    walking_cookie = cookie; visited_boundaries = 0;
+    json = lf_search_pages_at(d, 0, 0, "不存在的目标", 0, -1, 1, -1, abort_while_walking, cookie, error);
+    check(!json && strstr(error, "Search cancelled"), "natural candidate traversal must observe a cookie aborted after entry"); free(json);
+    check(visited_boundaries == 10 && d->text_page == NULL, "natural candidate must stop at its next cancellation boundary without caching glyph text");
+    lf_render_cookie_drop(cookie); cookie = lf_render_cookie_new();
+    lf_close(d); d = open_book(path);
+    lf_render_cookie_abort(cookie);
+    check(lf_search_chapter_candidate(d, 0, "不存在的目标", 0, NULL, cookie, error) == -1 && strstr(error, "Search cancelled"), "parsed candidate must read its request cookie");
+    check(d->render_page == NULL && d->text_page == NULL, "cancelled candidate must not load or cache glyph text");
+    json = lf_search_pages_at(d, 0, 0, "马尾", 0, -1, 1, -1, NULL, cookie, error);
+    check(!json, "aborted page-search cookie must return no partial result"); free(json);
+    lf_render_cookie_drop(cookie); cookie = lf_render_cookie_new();
+    check(lf_search_chapter_candidate(d, 0, "马尾", 0, NULL, cookie, error) == 1, "fresh candidate cookie must recover after cancellation");
+    json = lf_search_pages_at(d, 0, 0, "马尾", 0, -1, 1, -1, NULL, cookie, error);
+    check(json && !strstr(json, "\"matches\":[]"), "fresh page-search cookie must recover a real match"); free(json);
+    check(lf_search_chapter_candidate(d, 0, "马尾", 0, cancelled, cookie, error) == -1, "an explicit callback must still cancel when a cookie is supplied");
+    lf_render_cookie_drop(cookie); lf_close(d);
     if (argc != 2) finite_page_parity(path);
     printf("candidate parity: %zu queries x 8 option/direction combinations; failures=%d\n", sizeof(queries)/sizeof(*queries), failures);
     if (argc != 2) cleanup_fixture(directory, path);

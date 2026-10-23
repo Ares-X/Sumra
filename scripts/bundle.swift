@@ -12,8 +12,8 @@ let environment = ProcessInfo.processInfo.environment
 let identity = environment["SUMRA_CODE_SIGN_IDENTITY"] ?? "-"
 let keychain = environment["SUMRA_CODE_SIGN_KEYCHAIN"] ?? ""
 let timestamp = environment["SUMRA_CODE_SIGN_TIMESTAMP"] ?? ""
-let version = environment["SUMRA_VERSION"] ?? "0.2.12"
-let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "14"
+let version = environment["SUMRA_VERSION"] ?? "0.2.13"
+let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "15"
 
 func fail(_ message: String) throws -> Never {
     throw NSError(domain: "Sumra.Bundle", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
@@ -40,8 +40,8 @@ func sign(_ path: URL, entitlements: String? = nil) throws {
     if identity != "-" {
         arguments += ["--options", "runtime", timestamp.isEmpty ? "--timestamp" : "--timestamp=\(timestamp)"]
         if !keychain.isEmpty { arguments += ["--keychain", keychain] }
-        if let entitlements { arguments += ["--entitlements", entitlements] }
     }
+    if let entitlements { arguments += ["--entitlements", entitlements] }
     try run(arguments + [path.path])
 }
 
@@ -67,9 +67,12 @@ func macho(_ source: URL, arch: String? = nil) throws -> (rpaths: [String], depe
 }
 
 func resolve(_ source: URL, dependency: String, rpaths: [String]) -> URL? {
+    let executableDirectory = source.path.hasPrefix(contents.appendingPathComponent("PlugIns").path + "/")
+        && source.deletingLastPathComponent().lastPathComponent == "MacOS"
+        ? source.deletingLastPathComponent() : contents.appendingPathComponent("MacOS")
     func expand(_ value: String) -> URL {
         URL(fileURLWithPath: value.replacingOccurrences(of: "@loader_path", with: source.deletingLastPathComponent().path)
-            .replacingOccurrences(of: "@executable_path", with: contents.appendingPathComponent("MacOS").path))
+            .replacingOccurrences(of: "@executable_path", with: executableDirectory.path))
     }
     let candidates = dependency.hasPrefix("@rpath/")
         ? rpaths.map { expand($0).appendingPathComponent(String(dependency.dropFirst("@rpath/".count))) }
@@ -227,15 +230,50 @@ func package() throws {
             "CFBundleTypeName": "Readable documents", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
             "CFBundleTypeExtensions": Set(suffixes).sorted()
         ]],
+        "CFBundleURLTypes": [[
+            "CFBundleURLName": "dev.aresx.leaf.synctex", "CFBundleTypeRole": "Viewer",
+            "CFBundleURLSchemes": ["sumra"]
+        ]],
         "LSSupportsOpeningDocumentsInPlace": true, "LSMultipleInstancesProhibited": true,
         "CFBundleIconFile": "Sumra-Light.icns"
     ]
+    // Public EPUB plus dedicated comic UTIs: do not claim ordinary ZIP/RAR/7z
+    // archives as comic books in Finder.
+    let comicTypes = [
+        ("dev.aresx.leaf.cbz", "Comic ZIP", "cbz", "public.zip-archive"),
+        ("dev.aresx.leaf.cbr", "Comic RAR", "cbr", "public.archive"),
+        ("dev.aresx.leaf.cbt", "Comic TAR", "cbt", "public.archive"),
+        ("dev.aresx.leaf.cb7", "Comic 7-Zip", "cb7", "public.archive")
+    ]
+    info["UTExportedTypeDeclarations"] = comicTypes.map { id, title, suffix, parent in [
+        "UTTypeIdentifier": id, "UTTypeDescription": title,
+        "UTTypeConformsTo": [parent], "UTTypeTagSpecification": ["public.filename-extension": [suffix]]
+    ] as [String: Any] }
     if !updateFeed.isEmpty {
         info["SUFeedURL"] = updateFeed
         info["SUPublicEDKey"] = updateKey
         info["SUEnableAutomaticChecks"] = true
     }
     try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
+
+    let contentTypes = ["org.idpf.epub-container"] + comicTypes.map { $0.0 }
+    var extensions = [URL]()
+    for (kind, point, principal) in [("Thumbnail", "thumbnail", "ThumbnailProvider"), ("Preview", "preview", "PreviewViewController")] {
+        let bundle = contents.appendingPathComponent("PlugIns/Sumra\(kind).appex")
+        let extensionInfo: [String: Any] = [
+            "CFBundleName": "Sumra \(kind)", "CFBundleExecutable": "SumraQuickLook",
+            "CFBundleIdentifier": "dev.aresx.leaf.\(point)", "CFBundlePackageType": "XPC!",
+            "CFBundleShortVersionString": version, "CFBundleVersion": buildVersion,
+            "LSMinimumSystemVersion": "13.0",
+            "NSExtension": ["NSExtensionPointIdentifier": "com.apple.quicklook.\(point)",
+                "NSExtensionPrincipalClass": principal,
+                "NSExtensionAttributes": ["QLSupportedContentTypes": contentTypes,
+                    "QLThumbnailMinimumDimension": 0, "QLSupportsSearchableItems": false, "QLIsDataBasedPreview": false]]
+        ]
+        try PropertyListSerialization.data(fromPropertyList: extensionInfo, format: .xml, options: 0)
+            .write(to: bundle.appendingPathComponent("Contents/Info.plist"))
+        extensions.append(bundle)
+    }
 
     // Check the finished payload, including SwiftPM's executable and Sparkle's
     // nested updater binaries. Decoder checks cannot cover those inputs.
@@ -274,6 +312,9 @@ func package() throws {
     for target in copied.values {
         try run(["strip", "-x", target.path])
         try sign(target)
+    }
+    for path in extensions {
+        try sign(path, entitlements: root.appendingPathComponent("Assets/QuickLook.entitlements").path)
     }
     try sign(contents.deletingLastPathComponent(), entitlements: environment["SUMRA_CODE_SIGN_ENTITLEMENTS"])
     print("\(copied.count) decoder dylibs bundled.")

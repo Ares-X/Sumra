@@ -40,6 +40,10 @@ literal Unicode, including combining marks and emoji. Automated tests use
 the native `NSTextInputClient` composition/commit APIs. This is distinct from
 physically choosing an input method and its candidates.
 
+The 0.2.13 integration also makes Japanese phrases searchable across physical
+line wraps in exported PDFs, retaining highlights on each line. Cross-page
+PDF/DjVu/finite-EPUB searches retain their per-page fragments and navigation.
+
 The 0.2.12 PDF-export correction addresses the audit's 20 missed queries:
 new exports find all 179 sampled words across the 39 representative groups.
 Regressions also cover exact copy, adjacent-word phrases, real wrapping,

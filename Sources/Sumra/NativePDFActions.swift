@@ -53,12 +53,13 @@ enum NativePDFActions {
                 }
                 withExtendedLifetime(target) { _ = menu.popUp(positioning: nil, at: point, in: view) }
             } else if let destination = action.destination {
-                let position = position(for: destination, current: state.currentPosition)
+                if !newWindow || state.createWindow == nil { state.recordNavigation() }
+                let position = state.linkPosition(position(for: destination, current: state.currentPosition))
                 if newWindow, let create = state.createWindow {
                     create(WindowPayload(path: document.url.path, position: position, temporary: document.sourceTemporary, recordsHistory: state.recordsDocumentHistory))
                 } else {
-                    state.recordNavigation()
                     state.restore(position)
+                    state.showLinkDestination(position)
                 }
             } else if let uri = action.uri {
                 if let url = externalURL(uri) {

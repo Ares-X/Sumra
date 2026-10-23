@@ -43,6 +43,12 @@ the app identity into a temporary Keychain on the disposable runner's search
 list, verifies a small signing operation before compilation, and removes all signing material
 when the job ends. Distribution remains self-signed and nonnotarized.
 
+The main app and Quick Look extensions use the existing community library-validation
+entitlement to load the bundled MuPDF engine without an Apple Team ID. The extensions
+also retain their app sandbox and user-selected read-only file access. A successful
+deep signature check alone does not exercise this runtime loading boundary; validate
+the signed extensions through Finder before promoting a candidate.
+
 ## Candidate and publication
 
 1. Set the next default version/build in `scripts/bundle.swift`. Complete the

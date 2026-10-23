@@ -92,7 +92,7 @@ fileprivate final class RasterDocument {
         return estimate
     }
 
-    init(_ url: URL, format: Format, archive existing: Archive? = nil, password: String? = nil, deferReflowLayout: Bool = false, sourceCheckpoint: NativeFile.FileCheckpoint? = nil) throws {
+    init(_ url: URL, format: Format, archive existing: Archive? = nil, password: String? = nil, deferReflowLayout: Bool = false) throws {
         self.url = url; self.format = format
         if format == .comic {
             native = nil; source = nil
@@ -126,7 +126,7 @@ fileprivate final class RasterDocument {
             }
         } else {
             archive = nil; names = []; source = nil
-            native = try NativeFile(url, engine: format == .djvu ? .djvu : .mupdf, password: password, deferReflowLayout: deferReflowLayout, sourceCheckpoint: sourceCheckpoint, deferMarkdownMetadata: format == .markdown); storedCount = native!.count
+            native = try NativeFile(url, engine: format == .djvu ? .djvu : .mupdf, password: password, deferReflowLayout: deferReflowLayout, deferMarkdownMetadata: format == .markdown); storedCount = native!.count
         }
         guard count > 0 || deferReflowLayout && native?.reflowable == true else { throw ReadError("No readable pages found") }
     }
@@ -634,8 +634,8 @@ actor Pages {
                                         ? ProcessInfo.processInfo.activeProcessorCount : 1)
         isMarkdown = format == .markdown
         markdownOpenedSourceSignature = format == .markdown ? NativeFile.FileVersion(url)?.signature : nil
-        let checkpoint = format == .pdf ? try NativeFile.FileCheckpoint(url) : nil
-        document = try RasterDocument(url, format: format, archive: archive, password: password, deferReflowLayout: deferReflowLayout, sourceCheckpoint: checkpoint); externalOutline = outline
+        document = try RasterDocument(url, format: format, archive: archive, password: password, deferReflowLayout: deferReflowLayout); externalOutline = outline
+        let checkpoint = document.native?.pdfOpeningCheckpoint
         pdfSavedSourceCheckpoint = try checkpoint?.matches(url) == true ? checkpoint : nil
         isImageCollection = document.isImageCollection
         var continuation: AsyncStream<ChapterTable>.Continuation!
@@ -1059,6 +1059,12 @@ actor Pages {
     func pdfSetWidgetValue(page: Int, id: Int32, value: String) throws {
         try mutatePDF { try $0.pdfSetWidgetValue(page: page, id: id, value: value) }
     }
+    func pdfSetWidgetValues(page: Int, id: Int32, values: [String]) throws {
+        try mutatePDF { try $0.pdfSetWidgetValues(page: page, id: id, values: values) }
+    }
+    func pdfSetWidgetIndices(page: Int, id: Int32, indices: [Int]) throws {
+        try mutatePDF { try $0.pdfSetWidgetIndices(page: page, id: id, indices: indices) }
+    }
     func pdfToggleWidget(page: Int, id: Int32) throws { try mutatePDF { try $0.pdfToggleWidget(page: page, id: id) } }
     func pdfSave(to destination: URL) throws {
         // Ordinary Save updates the opened file through its alias, keeping the
@@ -1455,14 +1461,19 @@ actor Pages {
         return (text.substring(from: start), start)
     }
     func matches(_ query: String, page: Int, options: TextSearchOptions = .init(), after: Int? = nil,
-                 backwards: Bool = false, maximum: Int? = nil) throws -> [RasterMatch] {
-        try document.native?.matches(query, page: page, options: options, after: after, backwards: backwards, maximum: maximum) ?? []
+                 backwards: Bool = false, maximum: Int? = nil) async throws -> [RasterMatch] {
+        try Task.checkCancellation()
+        let cancellation = document.native?.engine == .mupdf ? try NativeRenderCancellation() : nil
+        return try await withTaskCancellationHandler {
+            try document.native?.matches(query, page: page, options: options, after: after,
+                                         backwards: backwards, maximum: maximum, cancellation: cancellation) ?? []
+        } onCancel: { cancellation?.cancel() }
     }
-    func match(_ query: String, at passage: NativePassage, options: TextSearchOptions) throws -> RasterMatch? {
+    func match(_ query: String, at passage: NativePassage, options: TextSearchOptions) async throws -> RasterMatch? {
         guard let position = try document.native?.position(for: passage),
               let x = position.x, let y = position.y else { return nil }
         let point = CGPoint(x: x, y: y)
-        return try matches(query, page: position.page, options: options).first {
+        return try await matches(query, page: position.page, options: options).first {
             $0.rects.contains { $0.contains(point) }
         }
     }
@@ -1470,20 +1481,24 @@ actor Pages {
         try document.native?.ensureChapter(chapter)
         return chapterLayout.pageCount(chapter)
     }
-    func searchChapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions) throws -> Bool {
-        try document.native?.chapterMayMatch(query, chapter: chapter, options: options) ?? false
+    func searchChapterMayMatch(_ query: String, chapter: Int, options: TextSearchOptions) async throws -> Bool {
+        try Task.checkCancellation()
+        let cancellation = document.native?.engine == .mupdf ? try NativeRenderCancellation() : nil
+        return try await withTaskCancellationHandler {
+            try document.native?.chapterMayMatch(query, chapter: chapter, options: options, cancellation: cancellation) ?? false
+        } onCancel: { cancellation?.cancel() }
     }
     func matches(_ query: String, location: PageLocation, options: TextSearchOptions = .init(), after: Int? = nil,
-                 backwards: Bool = false, maximum: Int? = nil) throws -> [RasterMatch] {
+                 backwards: Bool = false, maximum: Int? = nil) async throws -> [RasterMatch] {
         let page = try index(location)
-        return try matches(query, page: page, options: options, after: after, backwards: backwards, maximum: maximum)
+        return try await matches(query, page: page, options: options, after: after, backwards: backwards, maximum: maximum)
             .map { match in var match = match; match.location = location; return match }
     }
     func nextChapterMatches(_ query: String, chapter: Int, pageRange: Range<Int>,
                             options: TextSearchOptions, maximum: Int) async throws -> (matches: [RasterMatch], nextPage: Int, layout: ChapterTable) {
         for page in pageRange {
             try Task.checkCancellation()
-            let found = try matches(query, location: .init(chapter: chapter, page: page),
+            let found = try await matches(query, location: .init(chapter: chapter, page: page),
                                     options: options, maximum: maximum)
             if !found.isEmpty { return (found, page + 1, chapterLayout) }
             // Empty pages need no UI publication. Yield inside the decoder
@@ -1556,6 +1571,7 @@ actor Pages {
             page = try native.page(native.locationFromFlatPage(position.page))
         } else { page = position.page }
         var restored = try self.position(page: page, x: position.x, y: position.y, viewport: viewport)
+        restored.pageLocalOffset = position.pageLocalOffset
         if isPDF { restored.fit = position.fit; restored.zoom = position.zoom }
         return restored
     }
@@ -2078,6 +2094,12 @@ private struct RasterScrollRequest: Equatable {
 }
 
 @MainActor struct RasterReader: View {
+    static func pageLocalOffset(in view: NSView?) -> PageLocalOffset? {
+        guard let canvas = view as? RasterCanvas.Canvas, let clip = canvas.enclosingScrollView?.contentView,
+              canvas.bounds.width > 0, canvas.bounds.height > 0 else { return nil }
+        let point = canvas.convert(clip.safeAreaRect.origin, from: clip)
+        return PageLocalOffset(point: point, bounds: canvas.bounds)
+    }
     static func visiblePageBounds(in view: NSView?, pages: Pages, location: PageLocation) -> CGRect? {
         guard let canvas = view as? RasterCanvas.Canvas, canvas.pages === pages, canvas.location == location else { return nil }
         let region = canvas.visibleRect.applying(canvas.pageTransform.inverted())
@@ -3024,6 +3046,8 @@ private struct RasterScrollRequest: Equatable {
         case .find(let query, let backwards, let options, let selection, let inResults): find(query, backwards: backwards, options: options ?? .init(), fromSelection: selection, inResults: inResults)
         case .turnPages(let distance, let toBottom):
             acknowledge = false
+            let pageOffset = UserDefaults.standard.bool(forKey: "preservePageTurnPosition") && !state.reflowable && state.flow != "continuous"
+                ? Self.pageLocalOffset(in: state.readerFocusView) : nil
             let forward = distance > 0
             let location = state.pageLocation(forward ? max(state.visiblePages.lowerBound, state.visiblePages.upperBound - 1) : state.visiblePages.lowerBound)
             navigationTask?.cancel()
@@ -3045,7 +3069,9 @@ private struct RasterScrollRequest: Equatable {
                     selections.clear(state); state.selectedText = ""
                     if pages.isPDF { state.apply(restored); state.persist() }
                     else { state.updatePosition(restored) }
-                    scrollRequest = .init(state.currentPosition, toBottom: toBottom)
+                    var position = state.currentPosition
+                    position.pageLocalOffset = pageOffset
+                    scrollRequest = .init(position, toBottom: pageOffset == nil && toBottom)
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
             }
         case .location(let input):
@@ -3082,7 +3108,10 @@ private struct RasterScrollRequest: Equatable {
             scrollRequest = .init(.init(page: state.page))
         case .page(let page):
             navigationTask?.cancel(); selections.clear(state); state.selectedText = ""
-            scrollRequest = .init(.init(page: page)); savePosition(location: state.pageLocation(page))
+            var position = ReadingPosition(page: page)
+            if state.page == page { position.pageLocalOffset = state.currentPosition.pageLocalOffset }
+            scrollRequest = .init(position)
+            state.updatePosition(position)
         case .restore(let saved), .preservePosition(let saved):
             acknowledge = false
             navigationTask?.cancel()
@@ -3149,9 +3178,11 @@ private struct RasterScrollRequest: Equatable {
                         state.recordNavigation()
                         state.cacheContentsPosition(position, target: href)
                         selections.clear(state); state.selectedText = ""
+                        position = state.linkPosition(position)
                         if pages.isPDF { state.apply(position); state.persist() }
                         else { state.updatePosition(position) }
                         scrollRequest = .init(state.currentPosition)
+                        state.showLinkDestination(position)
                     } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
                 }
             }
@@ -4384,8 +4415,9 @@ struct NativeReadingAccessibilitySnapshot {
                 // An unanchored page starts at its displayed top-left,
                 // which differs from the source top-left after rotation.
                 let origin = view.bounds.origin.applying(view.pageTransform.inverted())
-                let point = CGPoint(x: requested.x ?? Double(origin.x), y: requested.y ?? Double(origin.y))
-                let target = view.convert(point.applying(view.pageTransform), to: document)
+                let point = requested.pageLocalOffset?.point(in: view.bounds)
+                    ?? CGPoint(x: requested.x ?? Double(origin.x), y: requested.y ?? Double(origin.y)).applying(view.pageTransform)
+                let target = view.convert(point, to: document)
                 let targetInClip = clip.convert(target, from: document)
                 // SwiftUI may extend the clip beneath the window toolbar.
                 // Place the requested point at the unobscured origin.
@@ -4555,11 +4587,40 @@ struct NativeReadingAccessibilitySnapshot {
         private var embeddedData: (data: Data, documentID: UUID)?
         var readingReady = false
         private let readingAccessibility = NativeReadingAccessibilityPage()
+        private var formAccessibility = [NativePDFFormAccessibilityElement]()
+        private var formAccessibilityDocument: UUID?
+        private var formAccessibilityPage = 0
         override func isAccessibilityElement() -> Bool { true }
         override func accessibilityRole() -> NSAccessibility.Role? { .group }
         override func accessibilityChildren() -> [Any]? {
+            updateFormAccessibility()
             let controls = super.accessibilityChildren() ?? []
-            return readingAccessibility.isAccessibilityElement() ? [readingAccessibility] + controls : controls
+            let fields = formAccessibility.filter { $0.widget.id != formWidget?.id && $0.isAccessibilityElement() }
+            var children: [Any] = readingAccessibility.isAccessibilityElement() ? [readingAccessibility] : []
+            children.append(contentsOf: fields); children.append(contentsOf: controls)
+            return children
+        }
+        private func updateFormAccessibility() {
+            guard pages?.isPDF == true, let state, let documentID = state.document?.id,
+                  state.annotationsVisible, state.nativePDFInfo?.permissions.accessibility == true else {
+                formAccessibility.removeAll(); formAccessibilityDocument = nil; return
+            }
+            if formAccessibilityDocument != documentID || formAccessibilityPage != page {
+                formAccessibility.removeAll(); formAccessibilityDocument = documentID; formAccessibilityPage = page
+            }
+            let previous = formAccessibility, elementPage = page
+            formAccessibility = pdfAnnotations.filter {
+                $0.type == "Widget" && $0.flags & 35 == 0 &&
+                    ($0.fieldType.map { [2, 3, 4, 5, 7].contains($0) } == true || $0.isUnsignedSignature)
+            }.map { field in
+                let element = previous.first { $0.widget.id == field.id } ??
+                    NativePDFFormAccessibilityElement(widget: field, host: self) { [weak self] field in
+                        guard let self, self.state?.document?.id == documentID, self.page == elementPage else { return false }
+                        return self.activateWidget(field)
+                    }
+                element.widget = field; element.transform = pageTransform; element.enabled = canActivateWidget(field)
+                return element
+            }
         }
         func updateReadingAccessibility() {
             readingAccessibility.view = self
@@ -5042,6 +5103,13 @@ struct NativeReadingAccessibilitySnapshot {
                 ReaderPageGrid.draw(in: context, bounds: pageBounds, visible: visibleRect.applying(pageTransform.inverted()).intersection(visibleBounds), transform: pageTransform, state: state)
             }
             context.saveGState(); context.concatenate(pageTransform)
+            if let hint = state?.linkDestinationHint, hint.page == page {
+                let point = CGPoint(x: hint.x ?? Double(pageBounds.minX), y: hint.y ?? Double(pageBounds.minY))
+                let scale = hypot(pageTransform.a, pageTransform.b)
+                context.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.85).cgColor)
+                context.setLineWidth(2 / scale)
+                context.strokeEllipse(in: CGRect(x: point.x - 12 / scale, y: point.y - 12 / scale, width: 24 / scale, height: 24 / scale))
+            }
             context.setFillColor(NSColor.systemYellow.withAlphaComponent(0.35).cgColor)
             for rect in selections?.searchRects[page] ?? [] { context.fill(rect) }
             context.setFillColor(NSColor.systemOrange.withAlphaComponent(0.5).cgColor)
@@ -5174,10 +5242,13 @@ struct NativeReadingAccessibilitySnapshot {
             if let start { selections?.cursor = start }
             if selectionMode == 0, event.clickCount >= 2, let start { select(from: start, to: start, mode: event.clickCount == 2 ? 1 : 2) }
         }
+        private func canActivateWidget(_ field: PDFAnnotationSnapshot) -> Bool {
+            pages?.isPDF == true && state?.canEditPDF == true && state?.annotationsVisible == true &&
+                state?.nativePDFInfo?.permissions.form == true && field.readOnly == false && field.flags & 35 == 0 &&
+                (field.fieldType.map { [2, 3, 4, 5, 7].contains($0) } == true || field.isUnsignedSignature)
+        }
         @discardableResult private func activateWidget(_ field: PDFAnnotationSnapshot) -> Bool {
-            guard let state, let pages, pages.isPDF, state.canEditPDF,
-                  state.nativePDFInfo?.permissions.form == true, field.readOnly == false,
-                  let kind = field.fieldType, [2, 3, 4, 5, 7].contains(kind) || field.isUnsignedSignature else { return false }
+            guard let state, let pages, canActivateWidget(field) else { return false }
             // Pushbuttons keep their link action path. Unsigned signature
             // widgets use the existing signing dialog (FormFields.cpp).
             // Like FormFields.cpp, only the active text/choice widget has a view.
@@ -5208,10 +5279,15 @@ struct NativeReadingAccessibilitySnapshot {
                     }
                     formWidget = current
                     let editor = NativePDFFormEditor(widget: current, host: self, frame: current.bounds.applying(pageTransform),
-                        commitValue: { [weak state] value in
+                        commitValue: { [weak state] input in
                             guard let state, state.document?.id == documentID, state.nativePDF === pages,
                                   state.pdfEditingEnabled else { throw CancellationError() }
-                            try await pages.pdfSetWidgetValue(page: page, id: current.id, value: value)
+                            switch input {
+                            case .text(let value):
+                                try await pages.pdfSetWidgetValue(page: page, id: current.id, value: value)
+                            case .optionIndices(let indices):
+                                try await pages.pdfSetWidgetIndices(page: page, id: current.id, indices: indices)
+                            }
                             try await state.nativePDFDidChange(pages)
                         }, didClose: { [weak self, weak state] in
                             guard let self else { return }
@@ -5219,26 +5295,32 @@ struct NativeReadingAccessibilitySnapshot {
                                 state?.nativePDFFormEditor = nil; state?.nativePDFFormPage = nil
                             }
                             formEditor = nil; formWidget = nil; needsDisplay = true
-                        }, advance: { [weak self] backwards in self?.advanceWidget(from: current.id, backwards: backwards) },
+                            NSAccessibility.post(element: self, notification: .layoutChanged)
+                        }, advance: { [weak self] backwards in _ = self?.advanceWidget(from: current.id, backwards: backwards) },
                         failure: { [weak state] error in
                             if state?.document?.id == documentID { state?.error = error.localizedDescription }
                         })
                     formEditor = editor; state.nativePDFFormEditor = editor; state.nativePDFFormPage = page
                     needsDisplay = true
+                    NSAccessibility.post(element: self, notification: .layoutChanged)
                 } catch { if state.document?.id == documentID { state.error = error.localizedDescription } }
             }
             return true
         }
-        private func advanceWidget(from id: Int32, backwards: Bool) {
+        @discardableResult private func advanceWidget(from id: Int32?, backwards: Bool) -> Bool {
             // Upstream's adjacent-widget walk remains on the same page.
             let fields = pdfAnnotations.filter {
-                $0.type == "Widget" && $0.readOnly == false && $0.flags & 35 == 0 &&
+                canActivateWidget($0) &&
                     $0.fieldType.map { [3, 4, 7].contains($0) } == true
             }
-            guard let index = fields.firstIndex(where: { $0.id == id }), fields.count > 1 else { return }
-            let next = fields[(index + (backwards ? -1 : 1) + fields.count) % fields.count]
+            guard !fields.isEmpty else { return false }
+            let next: PDFAnnotationSnapshot
+            if let id, let index = fields.firstIndex(where: { $0.id == id }) {
+                guard fields.count > 1 else { return false }
+                next = fields[(index + (backwards ? -1 : 1) + fields.count) % fields.count]
+            } else { next = backwards ? fields[fields.count - 1] : fields[0] }
             scrollToVisible(next.bounds.applying(pageTransform))
-            activateWidget(next)
+            return activateWidget(next)
         }
         override func mouseDragged(with event: NSEvent) {
             if let panStart, let scroll = enclosingScrollView ?? selectionScroll {
@@ -5485,6 +5567,11 @@ struct NativeReadingAccessibilitySnapshot {
             }
         }
         override func keyDown(with event: NSEvent) {
+            if event.keyCode == 48, pages?.isPDF == true, state?.canEditPDF == true,
+               event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.shift).isEmpty,
+               advanceWidget(from: nil, backwards: event.modifierFlags.contains(.shift)) {
+                return
+            }
             if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
                 switch event.charactersIgnoringModifiers?.lowercased() {
                 case "c": copy(nil); return

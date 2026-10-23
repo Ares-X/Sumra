@@ -191,14 +191,17 @@ enum ReaderToolbarSVGRenderer {
     @State private var draft = ""
     @State private var error = ""
     @State private var saving = false
+    @State private var advanced = false
+    @State private var query = ""
 
     var body: some View {
         let _ = language
         VStack(alignment: .leading) {
             Text(L("Custom Toolbar Buttons")).font(.headline)
-            Text(L("Buttons use existing command IDs or a named custom or external command. Optional text, symbol and svg customize their appearance. Drag the Custom Buttons group in Customize Toolbar to move or hide it.")).font(.caption).foregroundStyle(.secondary)
+            Text(L("Add commands, choose their icons and arrange them below. Drag the Custom Buttons group in Customize Toolbar to move or hide it.")).font(.caption).foregroundStyle(.secondary)
+            TextField(L("Find a command to add"), text: $query)
             Menu(L("Add Command")) {
-                ForEach(ReaderMenuCommand.allCases) { command in Button(command.title) { add(.init(command: command.rawValue)) } }
+                ForEach(ReaderMenuCommand.allCases.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.id.localizedCaseInsensitiveContains(query) }) { command in Button(command.title) { add(.init(command: command.rawValue)) } }
                 if let custom = try? ReaderConfiguredCommand.read(customCommands), !custom.isEmpty {
                     Divider()
                     ForEach(custom) { command in Button(command.name) { add(.init(custom: command.name)) } }
@@ -208,17 +211,57 @@ enum ReaderToolbarSVGRenderer {
                     ForEach(external) { command in Button(command.name) { add(.init(external: command.name)) } }
                 }
             }
-            TextEditor(text: $draft).font(.system(.body, design: .monospaced)).frame(minHeight: 200)
-            Text("[{\"command\":\"print\",\"symbol\":\"printer\"},{\"external\":\"Preview\",\"text\":\"Preview\"}]").font(.caption).textSelection(.enabled)
+            Toggle(L("Edit advanced JSON"), isOn: $advanced)
+            if advanced {
+                TextEditor(text: $draft).font(.system(.body, design: .monospaced)).frame(minHeight: 200)
+                Text("[{\"command\":\"print\",\"symbol\":\"printer\"},{\"external\":\"Preview\",\"text\":\"Preview\"}]").font(.caption).textSelection(.enabled)
+            } else if let entries = try? ReaderToolbarButton.read(draft) {
+                List(Array(entries.enumerated()), id: \.offset) { index, entry in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Text(entry.command.flatMap(ReaderMenuCommand.init(rawValue:))?.title ?? entry.external ?? entry.custom ?? "")
+                            Spacer()
+                            Button { edit { $0.swapAt(index, index - 1) } } label: { Image(systemName: "arrow.up") }
+                                .disabled(index == 0).help(L("Move Up"))
+                            Button { edit { $0.swapAt(index, index + 1) } } label: { Image(systemName: "arrow.down") }
+                                .disabled(index == entries.count - 1).help(L("Move Down"))
+                            Button { edit { $0.remove(at: index) } } label: { Image(systemName: "minus.circle") }
+                                .help(L("Remove"))
+                        }
+                        HStack {
+                            TextField(L("Button label (optional)"), text: Binding(
+                                get: { entry.text ?? "" },
+                                set: { value in edit { $0[index].text = value.isEmpty ? nil : value } }))
+                            Menu {
+                                Button(L("Text label")) { edit { $0[index].symbol = nil; $0[index].svg = nil } }
+                                ForEach(Self.symbols, id: \.self) { symbol in
+                                    Button { edit { $0[index].symbol = symbol; $0[index].svg = nil } } label: { Label(symbol, systemImage: symbol) }
+                                }
+                            } label: {
+                                if let symbol = entry.symbol, !symbol.isEmpty { Label(L("Icon"), systemImage: symbol) }
+                                else { Text(L(entry.svg?.isEmpty == false ? "SVG icon" : "Choose Icon")) }
+                            }.frame(width: 135)
+                        }
+                    }.padding(.vertical, 3)
+                }
+                .buttonStyle(.borderless)
+                if entries.isEmpty { Text(L("No extra buttons. Choose Add Command to begin.")).font(.caption).foregroundStyle(.secondary) }
+            } else {
+                Text(L("The toolbar JSON could not be read. Open the advanced editor to correct it.")).font(.caption).foregroundStyle(.red)
+            }
             if !error.isEmpty { Text(error).foregroundStyle(.red).font(.caption) }
             Button(L("Save")) { save() }.disabled(saving)
         }.padding().onAppear { draft = configuration }
     }
 
-    private func add(_ button: ReaderToolbarButton) {
+    private static let symbols = ["doc", "folder", "printer", "magnifyingglass", "bookmark", "book", "list.bullet", "textformat", "sun.max", "moon", "arrow.left", "arrow.right", "arrow.up", "arrow.down", "arrow.clockwise", "square.and.arrow.up", "speaker.wave.2", "highlighter", "pencil", "gearshape"]
+
+    private func add(_ button: ReaderToolbarButton) { edit { $0.append(button) } }
+
+    private func edit(_ action: (inout [ReaderToolbarButton]) -> Void) {
         do {
             var entries = try ReaderToolbarButton.read(draft)
-            entries.append(button)
+            action(&entries)
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             draft = String(decoding: try encoder.encode(entries), as: UTF8.self); error = ""
         } catch { self.error = error.localizedDescription }

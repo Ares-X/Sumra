@@ -340,39 +340,7 @@ extension ReaderState {
         setFit(fit == "actual" ? "page" : fit == "page" ? "width" : "actual")
     }
 
-    func editTypography() {
-        let alert = NSAlert(); alert.messageText = L("Typography and CSS")
-        let fonts = NSComboBox(); fonts.addItems(withObjectValues: ["system", "serif", "sans-serif", "monospace"] + ReaderFontPicker.families)
-        fonts.stringValue = font; fonts.frame.size = NSSize(width: 420, height: 26)
-        let documentCSS = NSButton(checkboxWithTitle: L("Use document styles"), target: nil, action: nil); documentCSS.state = useDocumentCSS ? .on : .off
-        let margins = NSTextField(string: pageMargins.map { "\($0.top) \($0.right) \($0.bottom) \($0.left)" } ?? "")
-        margins.placeholderString = L("Margins: top right bottom left (blank uses document default)")
-        let defaults = NSButton(checkboxWithTitle: L("Use these typography settings as defaults"), target: nil, action: nil); defaults.state = typographyForAll ? .on : .off
-        let scroll = NSTextView.scrollableTextView(); scroll.frame.size = NSSize(width: 420, height: 230)
-        let editor = scroll.documentView as! NSTextView
-        editor.isRichText = false; editor.font = .monospacedSystemFont(ofSize: 12, weight: .regular); editor.string = userCSS
-        let fontHelp = NSTextField(wrappingLabelWithString: L("Choose an installed font, such as Iowan Old Style. To use a font file, install it with Font Book first."))
-        fontHelp.font = .systemFont(ofSize: NSFont.smallSystemFontSize); fontHelp.textColor = .secondaryLabelColor
-        let stack = NSStackView(views: [NSTextField(labelWithString: L("Font")), fonts, fontHelp, margins, documentCSS, NSTextField(labelWithString: L("Custom CSS (books and CHM)")), scroll, defaults])
-        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 8; stack.frame.size = NSSize(width: 420, height: 384)
-        margins.widthAnchor.constraint(equalToConstant: 420).isActive = true
-        fonts.widthAnchor.constraint(equalToConstant: 420).isActive = true
-        fonts.heightAnchor.constraint(equalToConstant: 26).isActive = true
-        fontHelp.widthAnchor.constraint(equalToConstant: 420).isActive = true
-        scroll.widthAnchor.constraint(equalToConstant: 420).isActive = true
-        scroll.heightAnchor.constraint(equalToConstant: 230).isActive = true
-        stack.setFrameSize(stack.fittingSize)
-        alert.accessoryView = stack; alert.addButton(withTitle: L("Apply")); alert.addButton(withTitle: L("Cancel"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let value = margins.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !value.isEmpty, PageMargins(cssValues: value) == nil { error = L("Margins must contain 1, 2 or 4 values between 0 and 200."); return }
-        pageMargins = value.isEmpty ? nil : PageMargins(cssValues: value)
-        let selectedFont = fonts.stringValue.isEmpty ? "system" : fonts.stringValue
-        let changedFont = selectedFont != font
-        font = selectedFont
-        userCSS = editor.string; useDocumentCSS = documentCSS.state == .on; typographyForAll = defaults.state == .on
-        applyTypography(overrideDocumentStyles: changedFont)
-    }
+    func editTypography() { ReaderReadingSettingsPanel.show(for: self) }
 }
 
 struct ContentsTree: View {

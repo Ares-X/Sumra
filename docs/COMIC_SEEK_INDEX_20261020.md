@@ -1,5 +1,9 @@
 # Solid comic section seeking (2026-10-20)
 
+The [2026-10-23 archive memory follow-up](ARCHIVE_MEMORY_20261023.md) bounds
+completed-entry retention and observes cancellation within entries. The 0.2.6
+measurements and initial retention policy below are historical evidence.
+
 ## Scope
 
 0.2.6 adds in-memory section indexing to the existing Archive owner. Original
