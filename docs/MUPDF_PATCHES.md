@@ -1,6 +1,6 @@
 # Local MuPDF patch map
 
-`scripts/build-engines.sh` passes 66 `Native/mupdf*.patch` files to `scripts/apply-mupdf-patches.swift` in the order below. Purpose is summarized from the patch names and changed code. The test column points to the closest existing coverage found by inspection; **indirect** means the test exercises a related reader path, not necessarily the patched C branch. **No direct fixture found** means this inspection did not identify one. These links identify evidence to consult; they do not claim tests were run or pass. Upstream status is **unknown** here; no upstream comparison was made.
+`scripts/build-engines.sh` passes 67 `Native/mupdf*.patch` files to `scripts/apply-mupdf-patches.swift` in the order below. Purpose is summarized from the patch names and changed code. The test column points to the closest existing coverage found by inspection; **indirect** means the test exercises a related reader path, not necessarily the patched C branch. **No direct fixture found** means this inspection did not identify one. These links identify evidence to consult; they do not claim tests were run or pass. Upstream status is **unknown** here; no upstream comparison was made.
 
 | # | Patch (application order) | Behavior changed | Closest existing evidence |
 |---:|---|---|---|
@@ -70,6 +70,8 @@
 | 64 | [mupdf-choice-values.patch](../Native/mupdf-choice-values.patch) | One shared field owner for array/option-index writes, commit validation, calculations, `/V`/`/I`, JavaScript array/index access, and saved list/combo appearance. | `NativePDFToolsTests` covers shared widgets, rejected commits, exception cleanup, duplicate exports, calculations, undo/save/reopen and independent saved-index/appearance observation. |
 | 65 | [mupdf-html-search-cookie.patch](../Native/mupdf-html-search-cookie.patch) | Carry the existing request cookie through parsed and laid-out HTML candidate walks; avoid language callbacks per flow character. | `EPUBSearchCandidate.c` / `EPUBSearchNaturalPhrase.c` cover abort, no partial candidate and recovery; [native/Swift observations](READER_GOAL_20261024.md). |
 | 66 | [mupdf-html-search-han-barriers.patch](../Native/mupdf-html-search-han-barriers.patch) | Preserve unrelated Han as barriers in the existing laid-out natural-page candidate for pure basic-Han queries. | 39×8 natural fixtures, zero-matrix Han, existing candidate/cross-page harnesses, and exact B10/B22 result parity; [receipt](READER_GOAL_20261024.md). |
+
+| 67 | [mupdf-password-appearance.patch](../Native/mupdf-password-appearance.patch) | Mask password field appearances; replace existing display appearances locally without dirtying the source. | `NativePDFToolsTests.testPasswordWidgetsMaskExistingAndSavedAppearances` compares painted pixels, undo/reopen and independently parsed saved mask streams. |
 
 ## Maintenance
 

@@ -44,3 +44,11 @@ saved Form XObjects are inspected and rendered independently with CoreGraphics,
 including their original font resources. This verifies Sumra's saved appearance;
 PDFKit's custom Widget UI is not accepted as visually identical. See the
 [goal receipt](READER_GOAL_20261024.md).
+
+Password-field display is separately covered with missing and pre-existing
+clear-text appearances. MuPDF synthesizes a masked local appearance when viewing,
+without changing the source or journal. Editing regenerates a masked saved
+appearance through the same writer; undo and reopen retain masking. Tests compare
+painted pixels and CoreGraphics-decoded appearance streams against literal mask
+characters, including a Unicode value. The field value remains editable PDF data;
+visual masking is not file encryption or removal of an original stored value.

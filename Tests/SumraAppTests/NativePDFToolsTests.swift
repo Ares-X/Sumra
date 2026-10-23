@@ -8,6 +8,71 @@ import XCTest
 @testable import Sumra
 
 final class NativePDFToolsTests: XCTestCase {
+    @MainActor func testPasswordWidgetsMaskExistingAndSavedAppearances() throws {
+        let directory = try fixtureDirectory()
+        func fixture(value: String, password: Bool, appearance: Bool) -> Data {
+            let content = "BT /Helv 12 Tf 1 0 0 1 0 10 Tm (topsecret) Tj ET\n"
+            var objects = [
+                "<< /Type /Catalog /Pages 2 0 R /AcroForm 6 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 100] /Annots [4 0 R] >>",
+                "<< /Type /Annot /Subtype /Widget /FT /Tx /T (password) /Ff \(password ? 8192 : 0) /V (\(value)) /Rect [20 20 220 60] /F 4 /P 3 0 R /DA (/Helv 12 Tf 0 g) \(appearance ? "/AP << /N 7 0 R >>" : "") >>",
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                "<< /Fields [4 0 R] /DA (/Helv 12 Tf 0 g) /DR << /Font << /Helv 5 0 R >> >> >>"
+            ]
+            if appearance {
+                objects.append("<< /Type /XObject /Subtype /Form /BBox [0 0 200 40] /Resources << /Font << /Helv 5 0 R >> >> /Length \(content.utf8.count) >>\nstream\n\(content)endstream")
+            }
+            return rawPDF(objects)
+        }
+        func reference(_ count: Int) throws -> (appearance: Data, pixels: Data) {
+            let source = directory.appendingPathComponent("reference-\(count).pdf")
+            try fixture(value: "initial", password: false, appearance: false).write(to: source)
+            let output = directory.appendingPathComponent("mask-\(count).pdf")
+            do {
+                let file = try NativeFile(source, engine: .mupdf)
+                try file.pdfSetEditing(true)
+                try file.pdfSetWidgetValue(page: 0, id: 4, value: String(repeating: "*", count: count))
+                try file.pdfWrite(to: output)
+            }
+            let image = try NativeFile(output, engine: .mupdf).image(0, width: 480)
+            return (try widgetAppearance(XCTUnwrap(PDFDocument(url: output)), page: 0),
+                    try XCTUnwrap(image.dataProvider?.data) as Data)
+        }
+        let initial = try reference(9), edited = try reference("pāss😀密碼".unicodeScalars.count)
+        func pixels(_ file: NativeFile) throws -> Data {
+            try XCTUnwrap(file.image(0, width: 480).dataProvider?.data) as Data
+        }
+        for appearance in [false, true] {
+            let source = directory.appendingPathComponent("password-\(appearance).pdf")
+            let original = fixture(value: "topsecret", password: true, appearance: appearance)
+            try original.write(to: source)
+            let output = directory.appendingPathComponent("saved-\(appearance).pdf")
+            do {
+                let file = try NativeFile(source, engine: .mupdf)
+                XCTAssertFalse(try XCTUnwrap(file.text(0)).contains("topsecret"))
+                XCTAssertEqual(try pixels(file), initial.pixels, "The painted password must be masked")
+                XCTAssertEqual(try file.pdfInfo()?.dirty, false, "Masking an existing appearance must not edit the source")
+                try file.pdfSetEditing(true)
+                try file.pdfSetWidgetValue(page: 0, id: 4, value: "pāss😀密碼")
+                XCTAssertEqual(try file.pdfAnnotations(0).first?.value, "pāss😀密碼")
+                XCTAssertEqual(try pixels(file), edited.pixels)
+                XCTAssertTrue(try file.matches("pāss", page: 0).isEmpty)
+                try file.pdfUndo(redo: false)
+                XCTAssertEqual(try pixels(file), initial.pixels, "The painted password must be masked")
+                try file.pdfUndo(redo: true)
+                try file.pdfWrite(to: output)
+            }
+            let saved = try XCTUnwrap(PDFDocument(url: output))
+            XCTAssertEqual(try widgetAppearance(saved, page: 0), edited.appearance,
+                           "CoreGraphics must read a saved appearance equivalent to literal mask characters")
+            let reopened = try NativeFile(output, engine: .mupdf)
+            XCTAssertEqual(try reopened.pdfAnnotations(0).first?.value, "pāss😀密碼")
+            XCTAssertEqual(try pixels(reopened), edited.pixels)
+            XCTAssertEqual(try Data(contentsOf: source), original)
+        }
+    }
+
     func testLivePDFDestinationExportPreservesUnspecifiedCoordinatesAndRemotePages() throws {
         let directory = try fixtureDirectory(), source = directory.appendingPathComponent("destination-coordinates.pdf")
         try rawPDF([
