@@ -1007,7 +1007,7 @@ final class NativeFile {
         let elements = "body,p,div,span,a,em,strong,b,i,u,s,small,big,sub,sup,li,ol,ul,dl,dt,dd,td,th,caption,table,h1,h2,h3,h4,h5,h6,blockquote,q,cite,section,article,aside,header,footer,nav,main,figure,figcaption,label,center,font"
         let familyName = ["serif", "monospace", "sans-serif"].contains(font) ? font : "\"" + font.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
         let family = font == "system" ? "" : "\(elements){font-family:\(familyName) !important;}\n"
-        let palette = ReaderTheme.all.first { $0.id == theme } ?? ReaderTheme.all[0]
+        let palette = ReaderTheme.resolve(theme) ?? ReaderTheme.builtins[0]
         let colors = palette.css
         let margins = pageMargins.map { "@page{margin:\($0.css) !important;}\n" } ?? ""
         // Compact empty prose rows during reader reflow while retaining source

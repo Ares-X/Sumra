@@ -6,6 +6,7 @@ import SumraCore
 struct ReaderView: View {
     @ObservedObject var state: ReaderState
     @AppStorage("language") private var language = "system"
+    @AppStorage("customThemes") private var customThemes = "[]"
     @AppStorage("findFloating") private var findFloating = false
     @AppStorage("sidebarRight") private var sidebarRight = false
     @FocusState private var sidebarFocused: Bool
@@ -17,6 +18,7 @@ struct ReaderView: View {
 
     var body: some View {
         let _ = language
+        let _ = customThemes
         VStack(spacing: 0) {
             if state.showFind && !findFloating && !state.presentation {
                 ReaderFindControls(state: state, floating: $findFloating, close: closeFind)
@@ -233,7 +235,9 @@ struct ReaderView: View {
             }
             Menu(L("Theme")) {
                 Button(L("System Theme")) { state.setTheme("system") }
-                ForEach(ReaderTheme.all) { theme in Button(L(theme.name)) { state.setTheme(theme.id) } }
+                ForEach(ReaderTheme.all) { theme in Button(theme.displayName) { state.setTheme(theme.id) } }
+                Divider()
+                Button(L("Choose Theme…")) { state.chooseTheme() }
             }
         } label: { Label(L("Reading Options"), systemImage: "rectangle.split.2x1") }
         .labelStyle(.iconOnly).menuStyle(.borderlessButton).fixedSize().help(L("Reading Options"))

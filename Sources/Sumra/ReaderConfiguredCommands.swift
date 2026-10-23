@@ -14,13 +14,13 @@ struct ReaderCommandArguments: Codable, Equatable {
     var mode: String?
     var annotation: PDFAnnotationPreset?
 
-    func validate(for command: ReaderMenuCommand) throws {
+    func validate(for command: ReaderMenuCommand, customThemes: [ReaderTheme]? = nil) throws {
         if let n, n < 0 || ![.next, .previous, .scrollUp, .scrollDown].contains(command) { throw ReadError("n requires a page or vertical scroll command and a nonnegative count") }
         if let level {
             guard command == .customZoom else { throw ReadError("level requires customZoom") }
             if ReadingZoom.fitTitles[level] == nil { _ = try ReadingZoom.parsePercent(level, limit: ReadingZoom.absoluteMaximum) }
         }
-        if let theme, command != .setTheme || (theme != "system" && !ReaderTheme.all.contains { $0.id == theme }) { throw ReadError("Unknown theme or command") }
+        if let theme, command != .setTheme || (theme != "system" && ReaderTheme.resolve(theme, customThemes: customThemes ?? ReaderTheme.custom()) == nil) { throw ReadError("Unknown theme or command") }
         if state != nil, ![.continuous, .toolbar, .fullscreen, .presentation, .bookmarks, .contents].contains(command) { throw ReadError("state requires a supported toggle command") }
         if file != nil || page != nil {
             guard [.open, .openNoHistory].contains(command), let file, !file.isEmpty, !file.contains("\0"), page.map({ $0 >= 1 }) ?? true else { throw ReadError("file and one-based page require an open command") }
@@ -80,12 +80,12 @@ struct ReaderConfiguredCommand: Codable, Identifiable {
     var shortcut: String?
     var id: String { name }
 
-    static func read(_ json: String) throws -> [Self] {
+    static func read(_ json: String, customThemes: [ReaderTheme]? = nil) throws -> [Self] {
         let commands = try JSONDecoder().decode([Self].self, from: Data(json.utf8))
         var names = Set<String>()
         for entry in commands {
             guard !entry.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, names.insert(entry.name).inserted else { throw ReadError("Custom commands need unique names") }
-            try entry.arguments?.validate(for: entry.command)
+            try entry.arguments?.validate(for: entry.command, customThemes: customThemes)
             if let shortcut = entry.shortcut, !readerShortcutBindings(shortcut).allSatisfy({ readerShortcut($0) != nil }) { throw ReadError("Invalid shortcut for \(entry.name)") }
         }
         return commands

@@ -3,10 +3,55 @@ import SwiftUI
 import SumraCore
 
 extension ReaderState {
+    func chooseTheme() {
+        let chooser = ReaderThemeSelectionView(themes: ReaderTheme.all, selected: theme)
+        let alert = NSAlert(); alert.messageText = L("Choose Theme…")
+        alert.accessoryView = chooser
+        alert.addButton(withTitle: L("Apply")); alert.addButton(withTitle: L("Cancel"))
+        alert.addButton(withTitle: L("Customize…"))
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: setTheme(chooser.selected.id)
+        case .alertThirdButtonReturn: editTheme(chooser.selected)
+        default: break
+        }
+    }
+
+    func editTheme(_ base: ReaderTheme) {
+        let editor = ReaderThemeEditorView(theme: base)
+        let alert = NSAlert(); alert.messageText = L("Customize Theme…")
+        alert.accessoryView = editor
+        let save = alert.addButton(withTitle: L("Save and Apply"))
+        alert.addButton(withTitle: L("Cancel"))
+        if base.isCustom { alert.addButton(withTitle: L("Delete Theme")) }
+        editor.onChange = { [weak editor] in save.isEnabled = editor?.isValid == true }
+        save.isEnabled = editor.isValid
+        let response = alert.runModal()
+        do {
+            if response == .alertFirstButtonReturn {
+                let saved = ReaderTheme(id: base.isCustom ? base.id : "custom-" + UUID().uuidString,
+                    name: editor.name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
+                    text: editor.text.value!, background: editor.paper.value!, link: editor.link.value!)
+                try ReaderTheme.saveCustom(saved)
+                for reader in ReaderWindows.states where reader !== self && reader.theme == saved.id { reader.setTheme(saved.id) }
+                setTheme(saved.id)
+            } else if response == .alertThirdButtonReturn, base.isCustom {
+                try ReaderTheme.deleteCustom(id: base.id)
+                let replacement = base.dark ? "dark" : "light"
+                for reader in ReaderWindows.states where reader !== self && reader.theme == base.id { reader.setTheme(replacement) }
+                if theme == base.id { setTheme(replacement) }
+                if UserDefaults.standard.string(forKey: "theme") == base.id { UserDefaults.standard.set(replacement, forKey: "theme") }
+                for key in ["lastLightTheme", "lastDarkTheme"] where UserDefaults.standard.string(forKey: key) == base.id {
+                    UserDefaults.standard.removeObject(forKey: key)
+                }
+            }
+        } catch { self.error = error.localizedDescription }
+    }
+
     func configureDocumentColors() {
         let alert = NSAlert(); alert.messageText = L("Custom Document Colors…")
         let text = NSColorWell(), background = NSColorWell()
         for well in [text, background] {
+            well.colorWellStyle = .expanded
             well.widthAnchor.constraint(equalToConstant: 160).isActive = true
             well.heightAnchor.constraint(equalToConstant: 28).isActive = true
         }
@@ -798,6 +843,115 @@ struct ReaderGuides: NSViewRepresentable {
                 (text as NSString).draw(at: NSPoint(x: 8, y: 8), withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.labelColor, .backgroundColor: NSColor.windowBackgroundColor])
             }
         }
+    }
+}
+// AppKit owns the color panel and editable fields; previews share the render palette.
+final class ReaderThemePreview: NSView {
+    var theme: ReaderTheme { didSet { needsDisplay = true } }
+    init(_ theme: ReaderTheme) {
+        self.theme = theme
+        super.init(frame: NSRect(x: 0, y: 0, width: 340, height: 96))
+        widthAnchor.constraint(equalToConstant: 340).isActive = true
+        heightAnchor.constraint(equalToConstant: 96).isActive = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func draw(_ dirtyRect: NSRect) {
+        ReaderTheme.color(theme.background).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
+        (L("Sample text") as NSString).draw(at: NSPoint(x: 16, y: 54), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 20), .foregroundColor: ReaderTheme.color(theme.text)])
+        (L("Link") as NSString).draw(at: NSPoint(x: 16, y: 20), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 14), .foregroundColor: ReaderTheme.color(theme.link), .underlineStyle: 1])
+    }
+}
+
+final class ReaderThemeSelectionView: NSStackView {
+    let picker = NSPopUpButton()
+    let themes: [ReaderTheme]
+    let preview: ReaderThemePreview
+    var selected: ReaderTheme { themes[picker.indexOfSelectedItem] }
+    init(themes: [ReaderTheme], selected id: String) {
+        self.themes = themes
+        let selected = themes.firstIndex { $0.id == id } ?? 0
+        preview = ReaderThemePreview(themes[selected])
+        super.init(frame: .zero)
+        orientation = .vertical; alignment = .leading; spacing = 12
+        picker.addItems(withTitles: themes.map(\.displayName)); picker.selectItem(at: selected)
+        picker.widthAnchor.constraint(equalToConstant: 340).isActive = true
+        picker.target = self; picker.action = #selector(changed)
+        addArrangedSubview(picker); addArrangedSubview(preview)
+        setFrameSize(fittingSize)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func changed() { preview.theme = selected }
+}
+
+final class ReaderThemeColorInput: NSStackView, NSTextFieldDelegate {
+    let well = NSColorWell(), hex = NSTextField()
+    var onChange: (() -> Void)?
+    var value: UInt32? {
+        let input = hex.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = input.hasPrefix("#") ? String(input.dropFirst()) : input
+        return digits.count == 6 ? UInt32(digits, radix: 16) : nil
+    }
+    init(_ value: UInt32, label: String) {
+        super.init(frame: .zero)
+        orientation = .horizontal; spacing = 10
+        well.colorWellStyle = .expanded; well.color = ReaderTheme.color(value)
+        well.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        well.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        well.setAccessibilityLabel(label)
+        hex.stringValue = String(format: "#%06X", value); hex.placeholderString = "#FFFFFF"
+        hex.widthAnchor.constraint(equalToConstant: 100).isActive = true
+        hex.setAccessibilityLabel(label + " (RGB)")
+        hex.delegate = self; well.target = self; well.action = #selector(colorChanged)
+        addArrangedSubview(well); addArrangedSubview(hex)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func colorChanged() {
+        if let value = ReaderTheme.rgb(well.color) { hex.stringValue = String(format: "#%06X", value) }
+        onChange?()
+    }
+    func controlTextDidChange(_ obj: Notification) {
+        if let value { well.color = ReaderTheme.color(value) }
+        hex.textColor = value == nil ? .systemRed : .labelColor
+        onChange?()
+    }
+}
+
+final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
+    let name = NSTextField(), text: ReaderThemeColorInput, paper: ReaderThemeColorInput, link: ReaderThemeColorInput
+    let preview: ReaderThemePreview
+    var onChange: (() -> Void)?
+    var isValid: Bool { !name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.value != nil && paper.value != nil && link.value != nil }
+    init(theme: ReaderTheme) {
+        text = ReaderThemeColorInput(theme.text, label: L("Text"))
+        paper = ReaderThemeColorInput(theme.background, label: L("Background"))
+        link = ReaderThemeColorInput(theme.link, label: L("Link"))
+        preview = ReaderThemePreview(theme)
+        super.init(frame: .zero)
+        orientation = .vertical; alignment = .leading; spacing = 12
+        name.stringValue = theme.isCustom ? theme.name : theme.displayName + " " + L("Custom")
+        name.setAccessibilityLabel(L("Name")); name.delegate = self
+        name.widthAnchor.constraint(equalToConstant: 230).isActive = true
+        let grid = NSGridView(views: [[NSTextField(labelWithString: L("Name")), name],
+            [NSTextField(labelWithString: L("Text")), text], [NSTextField(labelWithString: L("Background")), paper],
+            [NSTextField(labelWithString: L("Link")), link]])
+        grid.rowSpacing = 8; grid.columnSpacing = 12
+        addArrangedSubview(grid)
+        let hint = NSTextField(labelWithString: L("Choose colors or enter six-digit RGB values."))
+        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        addArrangedSubview(hint); addArrangedSubview(preview)
+        for input in [text, paper, link] { input.onChange = { [weak self] in self?.changed() } }
+        setFrameSize(fittingSize)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func controlTextDidChange(_ obj: Notification) { changed() }
+    private func changed() {
+        if let text = text.value, let background = paper.value, let link = link.value {
+            preview.theme = ReaderTheme(id: "preview", name: name.stringValue, text: text, background: background, link: link)
+        }
+        onChange?()
     }
 }
 #endif

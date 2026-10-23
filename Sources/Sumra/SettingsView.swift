@@ -7,6 +7,7 @@ struct SettingsView:View{
     @AppStorage("appIcon") private var appIcon = "light"
     @AppStorage("language") private var language = "system"
     @AppStorage("theme") private var theme = ReaderTheme.all[0].id
+    @AppStorage("customThemes") private var customThemes = "[]"
     @AppStorage("flow") private var flow="paged"
     @AppStorage("scrollbarMode") private var scrollbarMode = "smart"
     @AppStorage("fit") private var fit="page"
@@ -36,6 +37,7 @@ struct SettingsView:View{
     @AppStorage("updateChannel") private var updateChannel = "stable"
     var body:some View{
         let _ = checkForUpdates
+        let _ = customThemes
         TabView{Form{
         Section(L("Appearance")){
             Picker(L("App icon"), selection: $appIcon) {
@@ -47,7 +49,7 @@ struct SettingsView:View{
                 ForEach(ReaderLocalization.languages, id: \.self) { Text(ReaderLocalization.name($0)).tag($0) }
             }
             Text(L("Untranslated Sumra-specific text uses English.")).font(.caption).foregroundStyle(.secondary)
-            Picker(L("Default theme"),selection:$theme){Text(L("System")).tag("system");ForEach(ReaderTheme.all) { Text(L($0.name)).tag($0.id) }}
+            Picker(L("Default theme"),selection:$theme){Text(L("System")).tag("system");ForEach(ReaderTheme.all) { Text($0.displayName).tag($0.id) }}
             Picker(L("Default fit"),selection:$fit) { ForEach(ReadingZoom.fitTitles.keys.sorted(), id: \.self) { Text(L(ReadingZoom.fitTitles[$0]!)).tag($0) } }
             TextField(L("Zoom levels (%)"), text: $zoomLevels)
                 .foregroundStyle((try? ReadingZoom.parseLevels(zoomLevels)) != nil ? Color.primary : .red)
@@ -173,7 +175,7 @@ private struct ShortcutSettings: View {
 // are separate user data and do not belong to an editable configuration.
 @MainActor
 enum ReaderPreferences {
-    static let strings: Set<String> = Set(["appIcon", "theme", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
+    static let strings: Set<String> = Set(["appIcon", "theme", "customThemes", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
     static func applyScrollbarDefaults() {
         let mode = UserDefaults.standard.string(forKey: "scrollbarMode") ?? "smart"
         for reader in ReaderWindows.states { reader.scrollbarMode = mode; if reader.isBrowser { reader.send(.style) } }
@@ -205,6 +207,12 @@ enum ReaderPreferences {
     }
     static func apply(_ data: Data) throws {
         guard let values = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ReadError("Settings must be a JSON object") }
+        let customThemes = try (values["customThemes"] as? String).map(ReaderTheme.decodeCustom) ?? ReaderTheme.custom()
+        let previousCustomThemes = ReaderTheme.custom()
+        if values["customThemes"] != nil, values["customCommands"] == nil,
+           let commands = UserDefaults.standard.string(forKey: "customCommands") {
+            _ = try ReaderConfiguredCommand.read(commands, customThemes: customThemes)
+        }
         for (key, value) in values {
             guard keys.contains(key) else { throw ReadError("Unknown setting: \(key)") }
             if strings.contains(key), !(value is String) { throw ReadError("\(key) must be text") }
@@ -216,7 +224,8 @@ enum ReaderPreferences {
             if booleans.contains(key), CFGetTypeID(value as CFTypeRef) != CFBooleanGetTypeID() { throw ReadError("\(key) must be true or false") }
             if key == "fit", let fit = value as? String, ReadingZoom.fitTitles[fit] == nil { throw ReadError("Unknown fit mode: \(fit)") }
             if key == "language", let language = value as? String, !ReaderLocalization.languages.contains(language) { throw ReadError("Unknown language: \(language)") }
-            if key == "theme", let theme = value as? String, theme != "system", !ReaderTheme.all.contains(where: { $0.id == theme }) { throw ReadError("Unknown theme: \(theme)") }
+            if key == "theme", let theme = value as? String, theme != "system",
+               !customThemes.contains(where: { $0.id == theme }), ReaderTheme.resolve(theme)?.isCustom != false { throw ReadError("Unknown theme: \(theme)") }
             if key == "flow", let flow = value as? String, !["paged", "continuous"].contains(flow) { throw ReadError("Unknown layout: \(flow)") }
             let choices = ["appIcon": AppIconStyle.allCases.map(\.rawValue), "pageGridStyle": ["dots", "dotted", "solid"], "documentColors": ["off", "smart", "legacy"], "engineeringEnhance": ["off", "auto", "on"], "scrollbarMode": ["smart", "shown", "hidden"], "updateChannel": ["stable", "prerelease"], "homePageViewMode": ["list", "thumbnails"]]
             if let allowed = choices[key], let choice = value as? String, !allowed.contains(choice) { throw ReadError("Invalid value for \(key)") }
@@ -224,7 +233,7 @@ enum ReaderPreferences {
             if key == "sourceEditor", let string = value as? String { _ = try JSONDecoder().decode([String].self, from: Data(string.utf8)) }
             if key == "externalCommands", let string = value as? String { _ = try ExternalReaderCommand.read(string) }
             if key == "toolbarButtons", let string = value as? String { _ = try ReaderToolbarButton.read(string) }
-            if key == "customCommands", let string = value as? String { _ = try ReaderConfiguredCommand.read(string) }
+            if key == "customCommands", let string = value as? String { _ = try ReaderConfiguredCommand.read(string, customThemes: customThemes) }
             if key == "formatDefaults", let string = value as? String { _ = try JSONDecoder().decode([String: ReadingPosition].self, from: Data(string.utf8)) }
             if key == "shortcuts", let string = value as? String {
                 let shortcuts = try JSONDecoder().decode([String: String].self, from: Data(string.utf8))
@@ -240,6 +249,19 @@ enum ReaderPreferences {
         if values["updateChannel"] != nil { ReaderHelp.updateChannelChanged() }
         if values["zoomLevels"] != nil || values["zoomIncrement"] != nil { applyZoomDefaults() }
         if values["scrollbarMode"] != nil { applyScrollbarDefaults() }
+        if values["customThemes"] != nil {
+            func replacement(_ id: String) -> String { previousCustomThemes.first { $0.id == id }?.dark == true ? "dark" : "light" }
+            for key in ["theme", "lastLightTheme", "lastDarkTheme"] {
+                if let id = UserDefaults.standard.string(forKey: key), id.hasPrefix("custom-"), !customThemes.contains(where: { $0.id == id }) {
+                    UserDefaults.standard.set(replacement(id), forKey: key)
+                }
+            }
+            for state in ReaderWindows.states where state.theme.hasPrefix("custom-") {
+                if !customThemes.contains(where: { $0.id == state.theme }) { state.theme = replacement(state.theme) }
+                state.objectWillChange.send()
+                if state.isText || state.isBrowser || state.reflowable { state.send(.style) }
+            }
+        }
         if let icon = values["appIcon"] as? String { AppIcon.apply(icon) }
         NSWindow.allowsAutomaticWindowTabbing = !UserDefaults.standard.bool(forKey: "disableTabs")
         for state in ReaderWindows.states { state.window?.tabbingMode = UserDefaults.standard.bool(forKey: "disableTabs") ? .disallowed : .preferred }

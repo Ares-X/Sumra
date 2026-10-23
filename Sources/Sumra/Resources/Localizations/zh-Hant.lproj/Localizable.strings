@@ -256,3 +256,17 @@
 
 "Enhance Scanned Pages" = "增強掃描頁面";
 "Choose an installed font, such as Iowan Old Style. To use a font file, install it with Font Book first." = "可選擇已安裝的字體，例如 Iowan Old Style。如需使用字體檔案，請先用「字體簿」安裝。";
+
+"Customize…" = "自訂…";
+
+"Customize Theme…" = "自訂主題…";
+
+"Save and Apply" = "儲存並套用";
+
+"Delete Theme" = "刪除主題";
+
+"Choose colors or enter six-digit RGB values." = "選擇顏色，或輸入六位 RGB 色碼。";
+
+"Sample text" = "範例文字";
+
+"Link" = "連結";
