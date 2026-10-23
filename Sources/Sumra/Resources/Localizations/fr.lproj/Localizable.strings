@@ -250,3 +250,52 @@
 "Copy Comment" = "Copier le commentaire";
 "Copy Link Address" = "Copier l'adresse du lien";
 "Show Comment" = "Afficher le commentaire";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "Ajouter";
+"Chapter:" = "Chapitre :";
+"Choose Theme…" = "Changer de thème…";
+"Custom" = "Personnalisé";
+"Default fit" = "Zoom par défaut";
+"Default theme" = "Thème";
+"Expand Contents to Level 2" = "Développer au niveau 2";
+"Expand Contents to Level 3" = "Développer au niveau 3";
+"Filter setting names" = "Paramètres de filtre";
+"Fit Visible Content" = "Ajuster au visible";
+"Font size" = "Taille du texte";
+"Line height" = "Espacement des lignes";
+"Link" = "Lien";
+"Original Document Colors" = "Les couleurs du document suivent le thème : Désactivé";
+"Page:" = "Page :";
+"Remember recent documents" = "Mémoriser les fichiers ouverts";
+"Restore Defaults" = "Réinitialiser aux valeurs par défaut";
+"Right-to-left by default" = "De droite à gauche";
+"Show Transparency Grid" = "Grille de transparence";
+"Show contents when opening" = "Afficher la barre latérale des signets lorsqu'elle est disponible";
+"Theme Colors (Legacy)" = "Les couleurs du document suivent le thème : Hérité (recolorer le texte, l'arrière-plan et les images)";
+"Theme Colors (Smart)" = "Les couleurs du document suivent le thème : Intelligent (recolorer le texte et l'arrière-plan, pas les images)";
+"Toggle Light and Dark Theme" = "Basculer le thème clair/sombre";
+"Use window tabs" = "Utiliser les onglets";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "Personnaliser…";
+"Customize Theme…" = "Personnaliser le thème…";
+"Save and Apply" = "Enregistrer et appliquer";
+"Delete Theme" = "Supprimer le thème";
+"Choose colors or enter six-digit RGB values." = "Choisissez des couleurs ou saisissez des valeurs RVB à six chiffres.";
+"Sample text" = "Exemple de texte";
+"Language" = "Langue";
+"System" = "Système";
+"Serif" = "Avec empattements";
+"Sans Serif" = "Sans empattement";
+"Monospace" = "À chasse fixe";
+"Reading" = "Lecture";
+"Default typography" = "Typographie par défaut";
+"Scrollbars" = "Barres de défilement";
+"Shortcuts" = "Raccourcis";
+"Toolbar" = "Barre d’outils";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "Nom";
+"Paged" = "Page par page";
+"Partial translation" = "Traduction partielle";
+"Untranslated interface text is shown in English." = "Les textes non traduits de l’interface s’affichent en anglais.";

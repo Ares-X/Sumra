@@ -861,3 +861,19 @@
 "Sample text" = "示例文本";
 
 "Link" = "链接";
+"Theme name" = "主题名称";
+"Custom" = "自定义";
+"Partial translation" = "部分翻译";
+"Untranslated interface text is shown in English." = "尚未翻译的界面文字将显示为英语。";
+"Crop (drag edges or draw a rectangle; arrow keys move, Shift resizes)" = "裁剪（拖动边缘或绘制矩形；方向键移动，Shift 调整大小）";
+"First page" = "第一页";
+"Last page" = "最后一页";
+"Image" = "图像";
+"Image crop area" = "图像裁剪区域";
+"Keep proportions" = "保持比例";
+"Markdown Renderer" = "Markdown 渲染器";
+"Output height in pixels" = "输出高度（像素）";
+"Output width in pixels" = "输出宽度（像素）";
+"Pixels" = "像素";
+"to" = "至";
+"x %d, y %d, width %d, height %d" = "x %d，y %d，宽度 %d，高度 %d";

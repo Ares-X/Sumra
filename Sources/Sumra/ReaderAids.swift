@@ -415,7 +415,9 @@ struct ContentsSearchInput: NSViewRepresentable {
         state.contentsSearchField = field
         field.placeholderString = L("Search Contents")
         field.setAccessibilityLabel(L("Search Contents"))
-        if field.stringValue != state.contentsQuery { field.stringValue = state.contentsQuery }
+        if (field.currentEditor() as? NSTextView)?.hasMarkedText() != true, field.stringValue != state.contentsQuery {
+            field.stringValue = state.contentsQuery
+        }
         context.coordinator.updateFocus(field)
     }
     static func dismantleNSView(_ field: Field, coordinator: Coordinator) {
@@ -932,9 +934,9 @@ final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
         super.init(frame: .zero)
         orientation = .vertical; alignment = .leading; spacing = 12
         name.stringValue = theme.isCustom ? theme.name : theme.displayName + " " + L("Custom")
-        name.setAccessibilityLabel(L("Name")); name.delegate = self
+        name.setAccessibilityLabel(L("Theme name")); name.delegate = self
         name.widthAnchor.constraint(equalToConstant: 230).isActive = true
-        let grid = NSGridView(views: [[NSTextField(labelWithString: L("Name")), name],
+        let grid = NSGridView(views: [[NSTextField(labelWithString: L("Theme name")), name],
             [NSTextField(labelWithString: L("Text")), text], [NSTextField(labelWithString: L("Background")), paper],
             [NSTextField(labelWithString: L("Link")), link]])
         grid.rowSpacing = 8; grid.columnSpacing = 12

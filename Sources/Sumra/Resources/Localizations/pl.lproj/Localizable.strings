@@ -250,3 +250,52 @@
 "Copy Comment" = "Kopiuj komentarz";
 "Copy Link Address" = "Kopiuj adres z odnośnika";
 "Show Comment" = "Pokaż komentarz";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "Dodaj";
+"Chapter:" = "Rozdział:";
+"Choose Theme…" = "Zmień motyw…";
+"Custom" = "Niestandardowy";
+"Default fit" = "Domyślne powiększenie";
+"Default theme" = "Motyw";
+"Expand Contents to Level 2" = "Rozwiń do poziomu 2";
+"Expand Contents to Level 3" = "Rozwiń do poziomu 3";
+"Filter setting names" = "Ustawienia filtrów";
+"Fit Visible Content" = "Dopasuj widoczne";
+"Font size" = "Rozmiar tekstu";
+"Line height" = "Odstęp między wierszami";
+"Link" = "Łącze";
+"Original Document Colors" = "Kolory dokumentu zgodne z motywem: Wyłączone";
+"Page:" = "Strona:";
+"Remember recent documents" = "Pamiętaj otwierane pliki";
+"Restore Defaults" = "Przywróć domyślne";
+"Right-to-left by default" = "Od prawej do lewej";
+"Show Transparency Grid" = "Siatka przezroczystości";
+"Show contents when opening" = "Pokaż panel zakładek, gdy są dostępne";
+"Theme Colors (Legacy)" = "Kolory dokumentu zgodne z motywem: Starszy (przebarwianie tekstu, tła i obrazów)";
+"Theme Colors (Smart)" = "Kolory dokumentu zgodne z motywem: Inteligentne (przebarwianie tekstu i tła, nie obrazów)";
+"Toggle Light and Dark Theme" = "Przełącz motyw jasny/ciemny";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "Dostosuj…";
+"Customize Theme…" = "Dostosuj motyw…";
+"Save and Apply" = "Zapisz i zastosuj";
+"Delete Theme" = "Usuń motyw";
+"Choose colors or enter six-digit RGB values." = "Wybierz kolory lub wprowadź sześciocyfrowe wartości RGB.";
+"Sample text" = "Przykładowy tekst";
+"Language" = "Język";
+"System" = "System";
+"Serif" = "Szeryfowa";
+"Sans Serif" = "Bezszeryfowa";
+"Monospace" = "O stałej szerokości";
+"Reading" = "Czytanie";
+"Default typography" = "Domyślna typografia";
+"Scrollbars" = "Paski przewijania";
+"Shortcuts" = "Skróty";
+"Toolbar" = "Pasek narzędzi";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "Nazwa";
+"Paged" = "Strona po stronie";
+"Use window tabs" = "Włącz wyświetlanie kart";
+"Partial translation" = "Tłumaczenie częściowe";
+"Untranslated interface text is shown in English." = "Nieprzetłumaczone teksty interfejsu są wyświetlane po angielsku.";

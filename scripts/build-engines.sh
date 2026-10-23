@@ -93,7 +93,7 @@ FEATURES='-DFZ_ENABLE_PDF=1 -DFZ_ENABLE_OCR_OUTPUT=0 -DFZ_ENABLE_ODT_OUTPUT=0 -D
 make -C "$MU" -j"$(sysctl -n hw.logicalcpu)" libs build=small OUT="$ROOT/build/mupdf" \
     mujs=yes extract=no tesseract=no barcode=no HAVE_LIBCRYPTO=no HAVE_JPEGXR=yes \
     XCFLAGS="${FLAGS[*]} $FEATURES"
-cc "${FLAGS[@]}" -I"$MU/include" -I"$MU/thirdparty/freetype/include" -c Native/MuPDF.c -o "$OUT/MuPDF.o"
+cc "${FLAGS[@]}" -I"$MU/include" -I"$MU/thirdparty/freetype/include" -I"$MU/thirdparty/harfbuzz/src" -c Native/MuPDF.c -o "$OUT/MuPDF.o"
 cc "${FLAGS[@]}" -DCMARK_GFM_STATIC_DEFINE -I"$MU/include" -I"$MU/thirdparty/cmark-gfm/src" -I"$MU/thirdparty/cmark-gfm/extensions" -I"$MU/scripts/cmark-gfm" -c Native/Markdown.c -o "$OUT/Markdown.o"
 cc "${FLAGS[@]}" -I"$MU/include" -I"$MU/source" -I"$CRYPTO_BUILD/include" -I"$CRYPTO/include" -c Native/PDFTools.c -o "$OUT/PDFTools.o"
 cc "${FLAGS[@]}" -I"$MU/include" -I"$MU/source" -c Native/PDFInfo.c -o "$OUT/PDFInfo.o"

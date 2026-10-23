@@ -250,3 +250,52 @@
 "Copy Comment" = "टिप्पणी नक़ल करें";
 "Copy Link Address" = "लिंक पता नक़ल करें";
 "Show Comment" = "टिप्पणी दिखाएं";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "जोड़ें";
+"Chapter:" = "अध्याय:";
+"Choose Theme…" = "थीम बदलें…";
+"Custom" = "कस्टम";
+"Default fit" = "डिफ़ॉल्ट पृष्ठ आकार";
+"Default theme" = "थीम";
+"Expand Contents to Level 2" = "स्तर 2 तक विस्तारित करें";
+"Expand Contents to Level 3" = "स्तर 3 तक विस्तारित करें";
+"Filter setting names" = "फ़िल्टर सेटिंग्स";
+"Fit Visible Content" = "दृश्यमान फ़िट करें";
+"Font size" = "पाठ आकार";
+"Line height" = "पंक्ति रिक्ति";
+"Link" = "लिंक";
+"Original Document Colors" = "दस्तावेज़ के रंग थीम का अनुसरण करते हैं: बंद";
+"Page:" = "पृष्ठ संख्या:";
+"Remember recent documents" = "खोले गये फाइल याद रखें";
+"Restore Defaults" = "डिफ़ॉल्ट पर रीसेट करें";
+"Right-to-left by default" = "दाएं से बाएं";
+"Show Transparency Grid" = "पारदर्शिता ग्रिड";
+"Show contents when opening" = "जब बुकमार्क साइडबार उपलब्ध हो उसे दिखाएँ";
+"Theme Colors (Legacy)" = "दस्तावेज़ के रंग थीम का अनुसरण करते हैं: लीगेसी (टेक्स्ट, पृष्ठभूमि और छवियों को पुनः रंगना)";
+"Theme Colors (Smart)" = "दस्तावेज़ के रंग थीम का अनुसरण करते हैं: स्मार्ट (टेक्स्ट और पृष्ठभूमि को पुनः रंगना, छवियों को नहीं)";
+"Toggle Light and Dark Theme" = "लाइट/डार्क थीम टॉगल करें";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "अनुकूलित करें…";
+"Customize Theme…" = "थीम अनुकूलित करें…";
+"Save and Apply" = "सहेजें और लागू करें";
+"Delete Theme" = "थीम हटाएँ";
+"Choose colors or enter six-digit RGB values." = "रंग चुनें या छह अंकों वाले RGB मान दर्ज करें।";
+"Sample text" = "नमूना पाठ";
+"Language" = "भाषा";
+"System" = "सिस्टम";
+"Serif" = "सेरिफ़";
+"Sans Serif" = "सैन्स सेरिफ़";
+"Monospace" = "एकसमान चौड़ाई";
+"Reading" = "पढ़ना";
+"Default typography" = "डिफ़ॉल्ट टाइपोग्राफ़ी";
+"Scrollbars" = "स्क्रॉल बार";
+"Shortcuts" = "शॉर्टकट";
+"Toolbar" = "टूलबार";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "नाम";
+"Paged" = "पृष्ठवार";
+"Use window tabs" = "उपयोग Tabs";
+"Partial translation" = "आंशिक अनुवाद";
+"Untranslated interface text is shown in English." = "इंटरफ़ेस का अनूदित न हुआ पाठ अंग्रेज़ी में दिखाया जाता है।";

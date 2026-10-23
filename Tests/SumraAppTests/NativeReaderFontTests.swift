@@ -1,11 +1,84 @@
 #if os(macOS)
 import AppKit
+import CoreText
 import Foundation
 import SumraCore
 import XCTest
 @testable import Sumra
 
 final class NativeReaderFontTests: XCTestCase {
+    func testInstalledVariableWeightSurvivesReadingAndPDFExport() throws {
+        let selected = CTFontCreateWithNameAndOptions("KefaIII-Bold" as CFString, 12, nil,
+            [.preventAutoActivation, .preventAutoDownload])
+        guard CTFontCopyPostScriptName(selected) as String == "KefaIII-Bold",
+              let variations = CTFontCopyVariation(selected), CFDictionaryGetCount(variations) > 0 else {
+            throw XCTSkip("This host does not have the variable Kefa III font")
+        }
+        let family = CTFontCopyFamilyName(selected) as String
+        let temporary = try TemporaryDirectory()
+        defer { withExtendedLifetime(temporary) {} }
+        let phrase = "ሀለሐመሠረሰ"
+        func ink(_ image: CGImage) -> Int {
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            var count = 0
+            for y in 0..<bitmap.pixelsHigh { for x in 0..<bitmap.pixelsWide {
+                if let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), color.redComponent < 0.5 { count += 1 }
+            } }
+            return count
+        }
+        var painted = [Int](), systemPainted = [Int]()
+        for bold in [false, true] {
+            let input = temporary.url.appendingPathComponent(bold ? "bold.html" : "regular.html")
+            let body = bold ? "<strong>\(phrase)</strong>" : phrase
+            try "<html lang='am'><meta charset='utf-8'><body style=\"font-family:'\(family)'\"><p>\(body)</p></body></html>"
+                .write(to: input, atomically: true, encoding: .utf8)
+            let file = try NativeFile(input, engine: .mupdf)
+            _ = try file.relayout(fontSize: 28, lineHeight: 1.4, font: "system", theme: "light")
+            let readingInk = ink(try file.image(0, width: 840))
+            painted.append(readingInk)
+            let output = input.deletingPathExtension().appendingPathExtension("pdf")
+            XCTAssertTrue(try file.exportPDF(to: output))
+            let reopened = try NativeFile(output, engine: .mupdf)
+            XCTAssertEqual(try XCTUnwrap(reopened.text(0)).filter { !$0.isWhitespace }, phrase)
+            XCTAssertEqual(Double(ink(try reopened.image(0, width: 840))), Double(readingInk), accuracy: Double(readingInk) * 0.05,
+                           "Saved static outlines must retain the selected variable weight")
+            let systemPDF = try XCTUnwrap(CGPDFDocument(output as CFURL))
+            let page = try XCTUnwrap(systemPDF.page(at: 1)), box = page.getBoxRect(.mediaBox)
+            let scale = 840 / box.width, height = Int(ceil(box.height * scale))
+            let context = try XCTUnwrap(CGContext(data: nil, width: 840, height: height, bitsPerComponent: 8,
+                bytesPerRow: 840 * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 840, height: height))
+            context.scaleBy(x: scale, y: scale); context.drawPDFPage(page)
+            systemPainted.append(ink(try XCTUnwrap(context.makeImage())))
+        }
+        XCTAssertGreaterThan(painted[1], Int(Double(painted[0]) * 1.1), "Bold must paint the selected weight, not the default regular instance")
+        XCTAssertGreaterThan(systemPainted[1], systemPainted[0], "An independent PDF renderer must retain the heavier selected instance")
+        print("SUMRA_VARIABLE_FONT reading_ink=\(painted) coregraphics_ink=\(systemPainted)")
+    }
+
+    func testDefaultSerifHebrewUsesAnInstalledFontInReadingAndPDF() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let source = directory.url.appendingPathComponent("hebrew.html")
+        let phrase = "קריאה פותחת אופקים חדשים"
+        try "<html lang='he'><meta charset='utf-8'><body dir='rtl'><p>\(phrase)</p><p><b>\(phrase)</b></p><p><i>\(phrase)</i></p></body></html>"
+            .write(to: source, atomically: true, encoding: .utf8)
+        let file = try NativeFile(source, engine: .mupdf)
+        _ = try file.relayout(fontSize: 20, lineHeight: 1.4, font: "system", theme: "light")
+        let output = directory.url.appendingPathComponent("hebrew.pdf")
+        XCTAssertTrue(try file.exportPDF(to: output))
+        let pdf = try NativeFile(output, engine: .mupdf)
+        let base = CTFontCreateWithNameAndOptions("Times" as CFString, 12, nil,
+            [.preventAutoActivation, .preventAutoDownload])
+        let fallback = CTFontCreateForStringWithLanguage(base, "א" as CFString, CFRange(location: 0, length: 1), nil)
+        let family = CTFontCopyFamilyName(fallback) as String
+        let report = try pdf.pdfResourceReport()
+        XCTAssertTrue(report.contains(family), "Default Hebrew text must use real installed glyphs, not Charis missing-glyph boxes: \(report)")
+        let extracted = try (0..<pdf.count).map { try pdf.text($0) ?? "" }.joined()
+        XCTAssertEqual(extracted.filter { !$0.isWhitespace }, String(repeating: phrase, count: 3).filter { !$0.isWhitespace })
+        _ = try file.image(0, width: 840)
+    }
+
     func testInstalledIowanFamilyIsUsedInReflowAndVectorExport() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }

@@ -711,7 +711,9 @@ struct ReaderFindInput: NSViewRepresentable {
         state.findInputField = field
         field.placeholderString = L("Find in document")
         field.setAccessibilityLabel(L("Find in document"))
-        if field.stringValue != state.findQuery { field.stringValue = state.findQuery }
+        if (field.currentEditor() as? NSTextView)?.hasMarkedText() != true, field.stringValue != state.findQuery {
+            field.stringValue = state.findQuery
+        }
         context.coordinator.updateFocus(field)
     }
     static func dismantleNSView(_ field: Field, coordinator: Coordinator) {

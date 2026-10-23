@@ -250,3 +250,52 @@
 "Copy Comment" = "Copiar comentario";
 "Copy Link Address" = "Copiar la dirección del enlace";
 "Show Comment" = "Mostrar comentario";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "Agregar";
+"Chapter:" = "Capítulo:";
+"Choose Theme…" = "Cambiar tema…";
+"Custom" = "Personalizado";
+"Default fit" = "Ampliación predeterminada";
+"Default theme" = "Tema";
+"Expand Contents to Level 2" = "Expandir al nivel 2";
+"Expand Contents to Level 3" = "Expandir al nivel 3";
+"Filter setting names" = "Configuración de filtros";
+"Fit Visible Content" = "Ajustar Visible";
+"Font size" = "Tamaño del texto";
+"Line height" = "Espaciado de línea";
+"Link" = "Enlace";
+"Original Document Colors" = "Los colores del documento siguen el tema: Desactivado";
+"Page:" = "Página:";
+"Remember recent documents" = "Recordar archivos abiertos";
+"Restore Defaults" = "Restablecer valores predeterminados";
+"Right-to-left by default" = "De derecha a izquierda";
+"Show Transparency Grid" = "Cuadrícula de transparencia";
+"Show contents when opening" = "Mostrar la barra de marcadores cuando esté disponible";
+"Theme Colors (Legacy)" = "Los colores del documento siguen el tema: Heredado (recolorear texto, fondo e imágenes)";
+"Theme Colors (Smart)" = "Los colores del documento siguen el tema: Inteligente (recolorear texto y fondo, no imágenes)";
+"Toggle Light and Dark Theme" = "Alternar tema claro/oscuro";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "Personalizar…";
+"Customize Theme…" = "Personalizar tema…";
+"Save and Apply" = "Guardar y aplicar";
+"Delete Theme" = "Eliminar tema";
+"Choose colors or enter six-digit RGB values." = "Elige colores o introduce valores RGB de seis dígitos.";
+"Sample text" = "Texto de ejemplo";
+"Language" = "Idioma";
+"System" = "Sistema";
+"Serif" = "Con serifa";
+"Sans Serif" = "Sin serifa";
+"Monospace" = "Monoespaciada";
+"Reading" = "Lectura";
+"Default typography" = "Tipografía predeterminada";
+"Scrollbars" = "Barras de desplazamiento";
+"Shortcuts" = "Atajos";
+"Toolbar" = "Barra de herramientas";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "Nombre";
+"Paged" = "Por páginas";
+"Use window tabs" = "Usar pestañas";
+"Partial translation" = "Traducción parcial";
+"Untranslated interface text is shown in English." = "El texto de la interfaz sin traducir se muestra en inglés.";

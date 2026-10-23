@@ -250,3 +250,52 @@
 "Copy Comment" = "Скопировать комментарий";
 "Copy Link Address" = "Скопировать адрес ссылки";
 "Show Comment" = "Показать комментарий";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "Добавить";
+"Chapter:" = "Глава:";
+"Choose Theme…" = "Изменить тему…";
+"Custom" = "Настраиваемый";
+"Default fit" = "Масштаб по умолчанию";
+"Default theme" = "Тема";
+"Expand Contents to Level 2" = "Развернуть до уровня 2";
+"Expand Contents to Level 3" = "Развернуть до уровня 3";
+"Filter setting names" = "Настройки фильтра";
+"Fit Visible Content" = "По размеру видимого";
+"Font size" = "Размер текста";
+"Line height" = "Межстрочный интервал";
+"Link" = "Ссылка";
+"Original Document Colors" = "Цвета документа следуют теме: Выкл";
+"Page:" = "Страница:";
+"Remember recent documents" = "Запоминать открытые файлы";
+"Restore Defaults" = "Сбросить к настройкам по умолчанию";
+"Right-to-left by default" = "Справа налево";
+"Show Transparency Grid" = "Сетка прозрачности";
+"Show contents when opening" = "Показывать панель закладок (по возможности)";
+"Theme Colors (Legacy)" = "Цвета документа следуют теме: Устаревший (перекрасить текст, фон и изображения)";
+"Theme Colors (Smart)" = "Цвета документа следуют теме: Умный (перекрасить текст и фон, но не изображения)";
+"Toggle Light and Dark Theme" = "Переключить светлую/тёмную тему";
+"Use window tabs" = "Использовать вкладки";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "Настроить…";
+"Customize Theme…" = "Настроить тему…";
+"Save and Apply" = "Сохранить и применить";
+"Delete Theme" = "Удалить тему";
+"Choose colors or enter six-digit RGB values." = "Выберите цвета или введите шестизначные значения RGB.";
+"Sample text" = "Пример текста";
+"Language" = "Язык";
+"System" = "Система";
+"Serif" = "С засечками";
+"Sans Serif" = "Без засечек";
+"Monospace" = "Моноширинный";
+"Reading" = "Чтение";
+"Default typography" = "Типографика по умолчанию";
+"Scrollbars" = "Полосы прокрутки";
+"Shortcuts" = "Сочетания клавиш";
+"Toolbar" = "Панель инструментов";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "Название";
+"Paged" = "Постранично";
+"Partial translation" = "Частичный перевод";
+"Untranslated interface text is shown in English." = "Непереведённый текст интерфейса отображается на английском языке.";

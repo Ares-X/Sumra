@@ -250,3 +250,52 @@
 "Copy Comment" = "העתק הערה";
 "Copy Link Address" = "העתק כתובת קישור";
 "Show Comment" = "הצג הערה";
+/* Additional reviewed SumatraPDF equivalents, 2026-10-24. See THIRD_PARTY.md. */
+"Add" = "הוסף";
+"Chapter:" = "פרק:";
+"Choose Theme…" = "שנה ערכת נושא…";
+"Custom" = "מותאם אישית";
+"Default fit" = "זום ברירת מחדל";
+"Default theme" = "ערכת נושא";
+"Expand Contents to Level 2" = "הרחב לרמה 2";
+"Expand Contents to Level 3" = "הרחב לרמה 3";
+"Filter setting names" = "הגדרות סינון";
+"Fit Visible Content" = "התאם לנראה";
+"Font size" = "גודל טקסט";
+"Line height" = "ריווח שורות";
+"Link" = "קישור";
+"Original Document Colors" = "צבעי המסמך עוקבים אחר ערכת הנושא: כבוי";
+"Page:" = "עמוד:";
+"Remember recent documents" = "שמור רשימת והגדרת קבצים שנפתחו";
+"Restore Defaults" = "אפס לברירות מחדל";
+"Right-to-left by default" = "מימין לשמאל";
+"Show Transparency Grid" = "רשת שקיפות";
+"Show contents when opening" = "הצג סרגל-צד סימניות (כאשר זמין)";
+"Theme Colors (Legacy)" = "צבעי המסמך עוקבים אחר ערכת הנושא: מדור קודם (צבע מחדש של טקסט, רקע ותמונות)";
+"Theme Colors (Smart)" = "צבעי המסמך עוקבים אחר ערכת הנושא: חכם (צבע מחדש של טקסט ורקע, לא תמונות)";
+"Toggle Light and Dark Theme" = "החלף ערכת נושא בהיר/כהה";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Customize…" = "התאמה אישית…";
+"Customize Theme…" = "התאמה אישית של ערכת הנושא…";
+"Save and Apply" = "שמירה והחלה";
+"Delete Theme" = "מחיקת ערכת הנושא";
+"Choose colors or enter six-digit RGB values." = "יש לבחור צבעים או להזין ערכי RGB בני שש ספרות.";
+"Sample text" = "טקסט לדוגמה";
+"Language" = "שפה";
+"System" = "מערכת";
+"Serif" = "עם תגים";
+"Sans Serif" = "ללא תגים";
+"Monospace" = "רוחב אחיד";
+"Reading" = "קריאה";
+"Default typography" = "הגדרות גופן כברירת מחדל";
+"Scrollbars" = "פסי גלילה";
+"Shortcuts" = "קיצורי מקשים";
+"Toolbar" = "סרגל כלים";
+
+/* Sumra-specific theme and reading controls, translated 2026-10-24. */
+"Theme name" = "שם";
+"Paged" = "לפי עמודים";
+"Use window tabs" = "השתמש בלשוניות";
+"Partial translation" = "תרגום חלקי";
+"Untranslated interface text is shown in English." = "טקסט בממשק שטרם תורגם מוצג באנגלית.";
