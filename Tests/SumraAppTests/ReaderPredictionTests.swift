@@ -505,6 +505,7 @@ final class ReaderPredictionTests: XCTestCase {
         let input = try twoChapterEPUB(in: directory.url)
         let pages = try Pages(input, format: .book), state = ReaderState(recordsHistory: false)
         state.fontSize = 17; state.lineHeight = 1.4; state.margin = 24; state.font = "serif"; state.theme = "light"
+        state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
         state.flow = "continuous"; state.fit = "width"; state.spread = false; state.automaticLayout = false
         state.freePan = false; state.trimEmptyMargins = false; state.uniformPageWidth = false
         state.landscapeAsSpread = false; state.scrollbarMode = "hidden"

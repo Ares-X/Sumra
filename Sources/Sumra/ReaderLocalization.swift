@@ -5,11 +5,27 @@ import Foundation
 enum ReaderLocalization {
     static var languages: [String] { ["system"] + bundles.keys.sorted() }
 
-    static var language: String {
-        let selected = UserDefaults.standard.string(forKey: "language") ?? "system"
-        if bundles[selected] != nil { return selected }
-        return preferredLanguage(Locale.preferredLanguages)
+    // These IDs shipped before interface support was limited to common languages.
+    // Keep saved preferences and exported settings readable without bundling the catalogs.
+    static let retiredLanguages: Set<String> = [
+        "af", "az", "be", "bg", "bs", "ca", "ca-ES-valencia", "ckb", "co", "cs", "cy", "da",
+        "el", "et", "eu", "fi", "fo", "fy", "ga", "gl", "hr", "hu", "hy", "jv", "ka", "kw",
+        "lt", "lv", "mk", "ml", "my", "nb", "ne", "nn", "pa", "ro", "sat", "si", "sk",
+        "sl", "sn", "sq", "sr-Cyrl", "sr-Latn", "sv", "ta", "tl", "uz"
+    ]
+
+    static func selection(_ selected: String) -> String {
+        bundles[selected] != nil ? selected : "system"
     }
+
+    static var language: String {
+        let selected = selection(UserDefaults.standard.string(forKey: "language") ?? "system")
+        if selected != "system" { return selected }
+        return systemLanguage
+    }
+
+    // Resolve the system fallback once per app session; app language choices stay live.
+    private static let systemLanguage = preferredLanguage(Locale.preferredLanguages)
 
     static func preferredLanguage(_ preferences: [String]) -> String {
         // Foundation may choose any available language if none match. Always

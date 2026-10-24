@@ -289,19 +289,25 @@ final class BrowserReadingModesTests: XCTestCase {
 
     @MainActor
     func testPagedEndStillNavigatesToTheNextChapter() async throws {
-        let (view, _, _) = try await reader()
-        let result = try await evaluate("""
-            await window.leafCommand({name:'style',flow:'paged',spread:true,rtl:true});
-            const next = new URL('chapter2.html',location.href).href;
-            window.sumraDocument.pages.push(next);
-            // Move to this topic's end without navigating, then use the normal
-            // next-page command shared by Markdown and CHM chapters.
-            await window.leafCommand({name:'restore',position:{page:0,anchor:location.href+'#sumra-end'}});
-            const navigation = await window.leafCommand({name:'turnPages',count:1});
-            return {next,navigation:navigation.navigation,y:scrollY};
-            """, view: view)
-        XCTAssertEqual(result["navigation"] as? String, result["next"] as? String)
-        XCTAssertEqual(try XCTUnwrap(result["y"] as? Double), 0, accuracy: 1)
+        for rtl in [false, true] {
+            let (view, _, _) = try await reader()
+            let result = try await evaluate("""
+                await window.leafCommand({name:'style',flow:'paged',spread:true,rtl,
+                    pageMargins:[10,20,30,40]});
+                const next = new URL('chapter2.html',location.href).href;
+                window.sumraDocument.pages.push(next);
+                // Asymmetric margins produce a partial final spread. Restoring
+                // its end must survive position reporting and reach the next topic.
+                await window.leafCommand({name:'restore',position:{page:0,anchor:location.href+'#sumra-end'}});
+                const extent = document.documentElement.scrollWidth - innerWidth;
+                const end = Math.abs(scrollX);
+                const navigation = await window.leafCommand({name:'turnPages',count:1});
+                return {next,navigation:navigation?.navigation ?? null,y:scrollY,end,extent};
+                """, view: view, arguments: ["rtl": rtl])
+            XCTAssertEqual(try XCTUnwrap(result["end"] as? Double), try XCTUnwrap(result["extent"] as? Double), accuracy: 1, "rtl=\(rtl)")
+            XCTAssertEqual(result["navigation"] as? String, result["next"] as? String, "rtl=\(rtl): \(result)")
+            XCTAssertEqual(try XCTUnwrap(result["y"] as? Double), 0, accuracy: 1)
+        }
     }
 
     @MainActor

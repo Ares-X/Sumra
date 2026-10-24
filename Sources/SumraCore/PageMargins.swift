@@ -2,10 +2,11 @@ import Foundation
 
 /// EBookUI.Margin in EngineMupdf.cpp: CSS order, one, two or four point values.
 public struct PageMargins: Codable, Hashable, Sendable {
+    public static let supportedRange = 0.0...200.0
     public let top: Double, right: Double, bottom: Double, left: Double
     private enum CodingKeys: String, CodingKey { case top, right, bottom, left }
     public init?(cssValues values: [Double]) {
-        guard [1, 2, 4].contains(values.count), values.allSatisfy({ $0.isFinite && (0...200).contains($0) }) else { return nil }
+        guard [1, 2, 4].contains(values.count), values.allSatisfy({ $0.isFinite && Self.supportedRange.contains($0) }) else { return nil }
         top = values[0]; right = values.count == 1 ? values[0] : values[1]
         bottom = values.count == 4 ? values[2] : top
         left = values.count == 4 ? values[3] : right
@@ -25,5 +26,6 @@ public struct PageMargins: Codable, Hashable, Sendable {
         self = margins
     }
     public var values: [Double] { [top, right, bottom, left] }
+    public var shorthand: String { values.map { String($0) }.joined(separator: " ") }
     public var css: String { values.map { "\($0)pt" }.joined(separator: " ") }
 }

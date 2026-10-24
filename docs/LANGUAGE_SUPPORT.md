@@ -67,15 +67,19 @@ depend on macOS and have not received a full language-by-language review.
 
 ## Interface translations
 
-There are 73 locale catalogs, including regional/script variants. Settings
-marks incomplete translations; missing labels use the original English.
-Simplified Chinese covers the current inventoried translatable UI keys. This
-is key coverage, not proof of translation or typography quality.
+Settings offers 25 common language/region options: English, Simplified and
+Traditional Chinese, Arabic, Bengali, Dutch, French, German, Hebrew, Hindi,
+Indonesian, Italian, Japanese, Korean, Malay, Persian, Polish, Brazilian and
+European Portuguese, Russian, Spanish, Thai, Turkish, Ukrainian and Vietnamese.
+All retained catalogs cover the 676 inventoried translatable UI keys. English
+uses source text. The other 48 interface catalogs were removed; saved choices
+and old exported settings resolve to System. Document reading remains independent
+of the interface language list.
 
-The October 24 update adds interface entries using explicit reviewed upstream
-equivalences and new Sumra-specific translations for core theme/font/status
-flows in 21 locales. New prose has not been reviewed by native speakers.
-The remaining untranslated key sets are reported precisely by:
+This is source-key coverage, not proof of translation or typography quality.
+Native-speaker review remains welcome. [The October 24 follow-up](LOCALIZATION_UX_20261024.md)
+describes settings compatibility, translation provenance and actual checks.
+Exact source keys and coverage are reported by:
 
 ```sh
 python3 scripts/audit-localizations.py --check --json build/localization-audit.json

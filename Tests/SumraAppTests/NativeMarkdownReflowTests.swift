@@ -180,6 +180,7 @@ final class NativeMarkdownReflowTests: XCTestCase {
         let state = ReaderState()
         state.document = ReadingDocument(url: input, content: .pages(pages), markdownPreference: .paged, markdownRenderer: .paged)
         state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32; state.font = "system"; state.theme = "light"; state.zoom = 1
+        state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
         _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light", userCSS: state.effectiveUserCSS)
         state.reflowable = true; state.count = await pages.count; state.chapterLayout = await pages.chapterLayout
         let key = "position:" + input.standardizedFileURL.path, modeKey = key + ":markdown:paged"

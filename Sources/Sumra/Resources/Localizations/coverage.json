@@ -1,67 +1,15 @@
 {
-  "af": {
-    "total": 676,
-    "translated": 242
-  },
   "ar": {
     "total": 676,
-    "translated": 259
-  },
-  "az": {
-    "total": 676,
-    "translated": 242
-  },
-  "be": {
-    "total": 676,
-    "translated": 242
-  },
-  "bg": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "bn": {
     "total": 676,
-    "translated": 259
-  },
-  "bs": {
-    "total": 676,
-    "translated": 242
-  },
-  "ca": {
-    "total": 676,
-    "translated": 242
-  },
-  "ca-ES-valencia": {
-    "total": 676,
-    "translated": 242
-  },
-  "ckb": {
-    "total": 676,
-    "translated": 242
-  },
-  "co": {
-    "total": 676,
-    "translated": 242
-  },
-  "cs": {
-    "total": 676,
-    "translated": 242
-  },
-  "cy": {
-    "total": 676,
-    "translated": 242
-  },
-  "da": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "de": {
     "total": 676,
-    "translated": 259
-  },
-  "el": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "en": {
     "total": 676,
@@ -69,219 +17,79 @@
   },
   "es": {
     "total": 676,
-    "translated": 259
-  },
-  "et": {
-    "total": 676,
-    "translated": 242
-  },
-  "eu": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "fa": {
     "total": 676,
-    "translated": 242
-  },
-  "fi": {
-    "total": 676,
-    "translated": 242
-  },
-  "fo": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "fr": {
     "total": 676,
-    "translated": 259
-  },
-  "fy": {
-    "total": 676,
-    "translated": 242
-  },
-  "ga": {
-    "total": 676,
-    "translated": 242
-  },
-  "gl": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "he": {
     "total": 676,
-    "translated": 259
+    "translated": 676
   },
   "hi": {
     "total": 676,
-    "translated": 259
-  },
-  "hr": {
-    "total": 676,
-    "translated": 242
-  },
-  "hu": {
-    "total": 676,
-    "translated": 242
-  },
-  "hy": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "id": {
     "total": 676,
-    "translated": 259
+    "translated": 676
   },
   "it": {
     "total": 676,
-    "translated": 259
+    "translated": 676
   },
   "ja": {
     "total": 676,
-    "translated": 259
-  },
-  "jv": {
-    "total": 676,
-    "translated": 242
-  },
-  "ka": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "ko": {
     "total": 676,
-    "translated": 259
-  },
-  "kw": {
-    "total": 676,
-    "translated": 242
-  },
-  "lt": {
-    "total": 676,
-    "translated": 242
-  },
-  "lv": {
-    "total": 676,
-    "translated": 242
-  },
-  "mk": {
-    "total": 676,
-    "translated": 242
-  },
-  "ml": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "ms": {
     "total": 676,
-    "translated": 242
-  },
-  "my": {
-    "total": 676,
-    "translated": 242
-  },
-  "nb": {
-    "total": 676,
-    "translated": 242
-  },
-  "ne": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "nl": {
     "total": 676,
-    "translated": 259
-  },
-  "nn": {
-    "total": 676,
-    "translated": 242
-  },
-  "pa": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "pl": {
     "total": 676,
-    "translated": 259
+    "translated": 676
   },
   "pt-BR": {
     "total": 676,
-    "translated": 259
+    "translated": 676
   },
   "pt-PT": {
     "total": 676,
-    "translated": 259
-  },
-  "ro": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "ru": {
     "total": 676,
-    "translated": 259
-  },
-  "sat": {
-    "total": 676,
-    "translated": 242
-  },
-  "si": {
-    "total": 676,
-    "translated": 242
-  },
-  "sk": {
-    "total": 676,
-    "translated": 242
-  },
-  "sl": {
-    "total": 676,
-    "translated": 242
-  },
-  "sn": {
-    "total": 676,
-    "translated": 242
-  },
-  "sq": {
-    "total": 676,
-    "translated": 242
-  },
-  "sr-Cyrl": {
-    "total": 676,
-    "translated": 242
-  },
-  "sr-Latn": {
-    "total": 676,
-    "translated": 242
-  },
-  "sv": {
-    "total": 676,
-    "translated": 242
-  },
-  "ta": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "th": {
     "total": 676,
-    "translated": 259
-  },
-  "tl": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "tr": {
     "total": 676,
-    "translated": 259
+    "translated": 676
   },
   "uk": {
     "total": 676,
-    "translated": 242
-  },
-  "uz": {
-    "total": 676,
-    "translated": 242
+    "translated": 676
   },
   "vi": {
     "total": 676,
-    "translated": 259
+    "translated": 676
   },
   "zh-Hans": {
     "total": 676,
@@ -289,6 +97,6 @@
   },
   "zh-Hant": {
     "total": 676,
-    "translated": 309
+    "translated": 676
   }
 }
