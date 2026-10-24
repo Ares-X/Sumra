@@ -722,3 +722,6 @@
 "x %d, y %d, width %d, height %d" = "x %d、y %d、幅 %d、高さ %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,width,height。空欄の場合は既存のフィールドを再利用するか非表示になります";
 "Export Outline…" = "アウトラインを書き出す…";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "%@を開けません。";

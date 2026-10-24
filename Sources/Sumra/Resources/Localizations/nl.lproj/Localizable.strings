@@ -716,3 +716,6 @@
 "to" = "tot";
 "x %d, y %d, width %d, height %d" = "x %d, y %d, breedte %d, hoogte %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,breedte,hoogte; leeg hergebruikt het veld of is onzichtbaar";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "Kan %@ niet openen.";

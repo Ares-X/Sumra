@@ -763,3 +763,6 @@
 "to" = "至";
 "x %d, y %d, width %d, height %d" = "x %d，y %d，寬度 %d，高度 %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,width,height；留白則重複使用欄位或保持隱藏";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "無法開啟「%@」。";

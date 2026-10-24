@@ -718,3 +718,6 @@
 "to" = "إلى";
 "x %d, y %d, width %d, height %d" = "x %d، y %d، العرض %d، الارتفاع %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,width,height؛ يُعاد استخدام الحقل أو يكون غير مرئي إن تُرك فارغًا";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "تعذّر فتح %@.";

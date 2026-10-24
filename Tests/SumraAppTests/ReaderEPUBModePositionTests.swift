@@ -200,6 +200,135 @@ final class ReaderEPUBModePositionTests: XCTestCase {
         XCTAssertEqual(chapter(finalPosition), 0)
     }
 
+    func testImagePassagesStayOnTheirIllustrationAcrossReadingModesAndPageEdges() async throws {
+        let engine = try NativeFile.libraryURL(for: .mupdf)
+        guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine is required") }
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let input = try EPUBImagePositionFixture.make(in: directory.url)
+        let pages = try Pages(input, format: .mupdf, deferReflowLayout: true)
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.reflowable = false; state.searchable = false; state.automaticLayout = false
+        state.flow = "paged"; state.spread = false; state.fit = "page"; state.zoom = 1
+        state.fontSize = 17; state.lineHeight = 1.2; state.font = "system"; state.theme = "light"
+        state.margin = 0; state.pageMargins = nil; state.userCSS = ""; state.useDocumentCSS = true
+        state.freePan = false; state.trimEmptyMargins = false; state.uniformPageWidth = false
+        state.landscapeAsSpread = false; state.scrollbarMode = "smart"
+        let defaults = UserDefaults.standard
+        let oldPreferences = ["flow", "spread"].map { ($0, defaults.object(forKey: $0)) }
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 926, height: 770),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer {
+            for (key, value) in oldPreferences { defaults.set(value, forKey: key) }
+            state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+            withExtendedLifetime(directory) {}
+        }
+        var paintDiagnostic = "No illustration bitmap inspected"
+        func paintedIllustration(_ image: Int, location: PageLocation) -> Bool {
+            var diagnostics = [String]()
+            func visit(_ view: NSView) -> Bool {
+                let rendered = RasterReader.pageIsRendered(in: view, pages: pages, location: location)
+                let name = String(reflecting: type(of: view))
+                if name.contains("Canvas") {
+                    diagnostics.append("\(name): targetReady=\(rendered), window=\(view.window != nil), hidden=\(view.isHiddenOrHasHiddenAncestor), bounds=\(view.bounds), visible=\(view.visibleRect), pageVisible=\(String(describing: RasterReader.visiblePageBounds(in: view, pages: pages, location: location)))")
+                }
+                if view.window != nil, !view.visibleRect.isEmpty, !view.isHiddenOrHasHiddenAncestor, rendered,
+                   let bitmap = view.bitmapImageRepForCachingDisplay(in: view.visibleRect) {
+                    view.cacheDisplay(in: view.visibleRect, to: bitmap)
+                    var identities = [Int](repeating: 0, count: 4)
+                    var coloredSamples = [String]()
+                    for y in stride(from: 0, to: bitmap.pixelsHigh, by: 16) {
+                        for x in stride(from: 0, to: bitmap.pixelsWide, by: 16) {
+                            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                            let r = color.redComponent, g = color.greenComponent, b = color.blueComponent
+                            if let identity = illustrationIdentity(red: r, green: g, blue: b) { identities[identity] += 1 }
+                            if coloredSamples.count < 4, max(r, g, b) - min(r, g, b) > 0.2 {
+                                coloredSamples.append(String(format: "%.3f/%.3f/%.3f", Double(r), Double(g), Double(b)))
+                            }
+                        }
+                    }
+                    if identities[image] > 5 { return true }
+                    diagnostics.append("bitmap=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh), identities=\(identities), coloredSamples=\(coloredSamples)")
+                }
+                return view.subviews.contains(where: visit)
+            }
+            guard let document = state.readerScrollView?.documentView else {
+                paintDiagnostic = "No reader scroll document; focus=\(String(describing: state.readerFocusView))"
+                return false
+            }
+            let painted = visit(document)
+            paintDiagnostic = "target=\(image) location=\(location), document=\(type(of: document)), scrollBounds=\(String(describing: state.readerScrollView?.contentView.bounds)); " + diagnostics.joined(separator: "; ")
+            return painted
+        }
+        var transition = "initial image layout"
+        func waitFor(line: UInt = #line, _ condition: () async throws -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(15)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                }
+                if try await condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            let native = await pages.layoutPosition
+            XCTFail("\(state.error ?? "The image reader did not settle"); transition=\(transition), UI=\(state.currentPosition), native=\(native), pending=\(String(describing: state.pendingReflowPosition)); paint=\(paintDiagnostic)", line: line)
+            throw CancellationError()
+        }
+        try await waitFor {
+            let table = await pages.chapterLayout
+            return state.reflowable && state.chapterLayout == table && table.pageCount(1) == 4 && state.pendingReflowPosition == nil
+        }
+        var sources = Set<NativeSourceAnchor>()
+        for image in [0, 2, 3] {
+            transition = "Go to illustration \(image + 1)"
+            state.go("2:\(image + 1)")
+            let single = PageLocation(chapter: 1, page: image)
+            try await waitFor {
+                state.pendingReflowPosition == nil && state.currentPosition.anchor.flatMap(ChapterTable.bookmarkLocation)?.location == single &&
+                    state.currentPosition.nativePassage != nil && paintedIllustration(image, location: single)
+            }
+            let source = try XCTUnwrap(state.currentPosition.nativePassage).source
+            sources.insert(source)
+            for mode in [ReaderMenuCommand.continuous, .paged, .twoPages, .continuous, .paged] {
+                RasterReader.recordPosition(in: state.readerScrollView?.documentView)
+                state.captureReflowPosition()
+                let revision = await pages.layoutRevision
+                transition = "illustration \(image + 1) to \(mode)"
+                mode.run(state)
+                let expected = PageLocation(chapter: 1, page: mode == .continuous ? 0 : image)
+                try await waitFor {
+                    let newRevision = await pages.layoutRevision, table = await pages.chapterLayout
+                    let position = await pages.layoutPosition
+                    let expectedMode = mode == .continuous ? state.flow == "continuous" && !state.spread
+                        : state.flow == "paged" && state.spread == (mode == .twoPages)
+                    return expectedMode && newRevision > revision && state.pendingReflowPosition == nil &&
+                        state.chapterLayout == table && table.pageCount(1) == (mode == .continuous ? 1 : 4) &&
+                        position.anchor.flatMap(ChapterTable.bookmarkLocation)?.location == expected &&
+                        state.currentPosition.anchor.flatMap(ChapterTable.bookmarkLocation)?.location == expected &&
+                        position.nativePassage?.source == source && state.currentPosition.nativePassage?.source == source &&
+                        paintedIllustration(image, location: expected)
+                }
+                XCTAssertNil(state.error)
+            }
+        }
+        XCTAssertEqual(sources.count, 3, "The first, third and last illustration must retain their own source across the complete mode cycle")
+    }
+
+    private func illustrationIdentity(red: CGFloat, green: CGFloat, blue: CGFloat) -> Int? {
+        // Identify the fixture, not its color accuracy. AppKit's observed red
+        // retained a minimum channel gap of 0.651 after profile conversion.
+        // A 0.4 gap separates these four saturated colors from neutral pixels.
+        if red - max(green, blue) > 0.4 { return 0 }
+        if green - max(red, blue) > 0.4 { return 1 }
+        if blue - max(red, green) > 0.4 { return 2 }
+        if min(red, blue) - green > 0.4 { return 3 }
+        return nil
+    }
+
     private func epub(in directory: URL, token: String) throws -> URL {
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
         var files = [

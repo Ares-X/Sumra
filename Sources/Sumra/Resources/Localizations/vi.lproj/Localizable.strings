@@ -716,3 +716,6 @@
 "to" = "đến";
 "x %d, y %d, width %d, height %d" = "x %d, y %d, rộng %d, cao %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,rộng,cao; để trống dùng lại trường hoặc không hiển thị";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "Không thể mở %@.";

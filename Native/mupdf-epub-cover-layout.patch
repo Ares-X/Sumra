@@ -1,20 +1,28 @@
 --- a/include/mupdf/fitz/html.h
 +++ b/include/mupdf/fitz/html.h
-@@ -81,7 +81,8 @@
+@@ -81,7 +81,9 @@
  	FZ_HTML_FLAVOR_MOBI = 1,
  	FZ_HTML_FLAVOR_MARKDOWN = 2,
  	FZ_HTML_FLAVOR_FICTIONBOOK2 = 3,
 -	FZ_HTML_FLAVOR_EPUB_FIXED = 4
 +	FZ_HTML_FLAVOR_EPUB_FIXED = 4,
-+	FZ_HTML_FLAVOR_EPUB_COVER = 5
++	FZ_HTML_FLAVOR_EPUB_COVER = 5,
++	FZ_HTML_FLAVOR_EPUB_REFLOW = 6
  } fz_html_flavor;
  
  typedef struct fz_htdoc_format
 --- a/source/html/css-apply.c
 +++ b/source/html/css-apply.c
-@@ -1863,6 +1863,7 @@
+@@ -1862,7 +1862,14 @@
+ 	style->white_space = white_space_from_property(match);
  	value = value_from_property(match, PRO_SUMRA_PROSE_SPACING);
  	style->compact_prose_spacing = value && !strcmp(value->data, "compact");
++	/* Retain authored maxima for page-art classification; general max-size
++	 * layout remains unsupported. */
++	value = value_from_property(match, PRO_MAX_WIDTH);
++	style->image_size_limited = value && strcmp(value->data, "none");
++	value = value_from_property(match, PRO_MAX_HEIGHT);
++	style->image_size_limited |= value && strcmp(value->data, "none");
  	style->text_decoration = text_decoration_from_property(match);
 +	style->page_break_inside = page_break_from_property(match, PRO_PAGE_BREAK_INSIDE);
  	style->page_break_before = page_break_from_property(match, PRO_PAGE_BREAK_BEFORE);
@@ -22,7 +30,16 @@
  
 --- a/source/html/css-properties.gperf
 +++ b/source/html/css-properties.gperf
-@@ -71,6 +71,7 @@
+@@ -62,6 +62,8 @@
+ margin-left,PRO_MARGIN_LEFT
+ margin-right,PRO_MARGIN_RIGHT
+ margin-top,PRO_MARGIN_TOP
++max-width,PRO_MAX_WIDTH
++max-height,PRO_MAX_HEIGHT
+ orphans,PRO_ORPHANS
+ overflow-wrap,PRO_OVERFLOW_WRAP
+ padding,PRO_PADDING
+@@ -71,6 +73,7 @@
  padding-top,PRO_PADDING_TOP
  page-break-after,PRO_PAGE_BREAK_AFTER
  page-break-before,PRO_PAGE_BREAK_BEFORE
@@ -54,19 +71,19 @@
  struct css_property_info { const char *name; int key; };
  
 -#define TOTAL_KEYWORDS 81
-+#define TOTAL_KEYWORDS 82
++#define TOTAL_KEYWORDS 84
  #define MIN_WORD_LENGTH 3
  #define MAX_WORD_LENGTH 25
 -#define MIN_HASH_VALUE 8
 -#define MAX_HASH_VALUE 155
 -/* maximum key range = 148, duplicates = 0 */
-+#define MIN_HASH_VALUE 3
-+#define MAX_HASH_VALUE 209
-+/* maximum key range = 207, duplicates = 0 */
++#define MIN_HASH_VALUE 13
++#define MAX_HASH_VALUE 228
++/* maximum key range = 216, duplicates = 0 */
  
  #ifdef __GNUC__
  __inline
-@@ -47,56 +47,81 @@
+@@ -47,208 +47,224 @@
  #endif
  #endif
  static unsigned int
@@ -101,32 +118,32 @@
 -      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
 -      156, 156, 156, 156, 156, 156, 156, 156, 156, 156,
 -      156, 156, 156, 156, 156, 156
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210,  15, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210,  25,  10,  70,
-+       45,   5,   0,  40,  40,  20, 210, 210,  65,  25,
-+       95,   0,   0,   5,  10,  70,   0,   5,  75,  15,
-+      210,  20, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210, 210, 210, 210, 210,
-+      210, 210, 210, 210, 210, 210
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229,  25, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229,  20,  15,  80,
++       75,   5, 115,  55,  25,  20, 229, 229,  60,   0,
++       90,   0,  10,   0,  40, 105,   0,   0,   5,   0,
++      229,  10, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229, 229, 229, 229, 229,
++      229, 229, 229, 229, 229, 229
      };
 -  return len + asso_values[(unsigned char)str[1]] + asso_values[(unsigned char)str[0]] + asso_values[(unsigned char)str[len - 1]];
 +  register unsigned int hval = len;
@@ -163,8 +180,9 @@
    {
 -    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
 -#line 82 "source/html/css-properties.gperf"
-+    {""}, {""}, {""},
-+#line 83 "source/html/css-properties.gperf"
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++    {""}, {""}, {""}, {""},
++#line 85 "source/html/css-properties.gperf"
      {"top",PRO_INSET_TOP},
 -#line 53 "source/html/css-properties.gperf"
 -    {"left",PRO_INSET_LEFT},
@@ -173,32 +191,40 @@
 -    {"content",PRO_CONTENT},
 -    {""}, {""}, {""},
 -#line 80 "source/html/css-properties.gperf"
-+#line 44 "source/html/css-properties.gperf"
-+    {"font",PRO_FONT},
-+    {""}, {""}, {""}, {""}, {""}, {""},
-+#line 49 "source/html/css-properties.gperf"
-+    {"font-weight",PRO_FONT_WEIGHT},
-+#line 48 "source/html/css-properties.gperf"
-+    {"font-variant",PRO_FONT_VARIANT},
-+    {""},
-+#line 46 "source/html/css-properties.gperf"
-+    {"font-size",PRO_FONT_SIZE},
-+#line 47 "source/html/css-properties.gperf"
-+    {"font-style",PRO_FONT_STYLE},
-+#line 81 "source/html/css-properties.gperf"
++    {""}, {""},
++#line 83 "source/html/css-properties.gperf"
      {"text-indent",PRO_TEXT_INDENT},
-     {""}, {""}, {""},
- #line 31 "source/html/css-properties.gperf"
-@@ -105,189 +130,194 @@
+-    {""}, {""}, {""},
+-#line 31 "source/html/css-properties.gperf"
+-    {"border-top",PRO_BORDER_TOP},
++    {""}, {""},
++#line 84 "source/html/css-properties.gperf"
++    {"text-transform",PRO_TEXT_TRANSFORM},
++    {""},
++#line 36 "source/html/css-properties.gperf"
++    {"bottom",PRO_INSET_BOTTOM},
++    {""}, {""}, {""}, {""},
+ #line 21 "source/html/css-properties.gperf"
      {"border-left",PRO_BORDER_LEFT},
  #line 25 "source/html/css-properties.gperf"
      {"border-right",PRO_BORDER_RIGHT},
-+    {""}, {""}, {""},
-+#line 14 "source/html/css-properties.gperf"
-+    {"border",PRO_BORDER},
-     {""}, {""}, {""}, {""},
-+#line 45 "source/html/css-properties.gperf"
-+    {"font-family",PRO_FONT_FAMILY},
+-    {""}, {""}, {""}, {""},
++#line 15 "source/html/css-properties.gperf"
++    {"border-bottom",PRO_BORDER_BOTTOM},
++    {""},
++#line 66 "source/html/css-properties.gperf"
++    {"max-height",PRO_MAX_HEIGHT},
++#line 62 "source/html/css-properties.gperf"
++    {"margin-left",PRO_MARGIN_LEFT},
++#line 63 "source/html/css-properties.gperf"
++    {"margin-right",PRO_MARGIN_RIGHT},
++#line 61 "source/html/css-properties.gperf"
++    {"margin-bottom",PRO_MARGIN_BOTTOM},
++    {""},
++#line 31 "source/html/css-properties.gperf"
++    {"border-top",PRO_BORDER_TOP},
++#line 50 "source/html/css-properties.gperf"
++    {"height",PRO_HEIGHT},
  #line 30 "source/html/css-properties.gperf"
      {"border-style",PRO_BORDER_STYLE},
 -    {""}, {""},
@@ -214,12 +240,27 @@
      {"border-bottom-style",PRO_BORDER_BOTTOM_STYLE},
 -#line 37 "source/html/css-properties.gperf"
 -    {"clear",PRO_CLEAR},
-+#line 77 "source/html/css-properties.gperf"
-+    {"right",PRO_INSET_RIGHT},
++#line 64 "source/html/css-properties.gperf"
++    {"margin-top",PRO_MARGIN_TOP},
++#line 88 "source/html/css-properties.gperf"
++    {"white-space",PRO_WHITE_SPACE},
  #line 71 "source/html/css-properties.gperf"
++    {"padding-left",PRO_PADDING_LEFT},
++    {""},
++#line 70 "source/html/css-properties.gperf"
++    {"padding-bottom",PRO_PADDING_BOTTOM},
++#line 87 "source/html/css-properties.gperf"
++    {"visibility",PRO_VISIBILITY},
++    {""}, {""},
++#line 68 "source/html/css-properties.gperf"
++    {"overflow-wrap",PRO_OVERFLOW_WRAP},
++    {""},
++#line 90 "source/html/css-properties.gperf"
++    {"width",PRO_WIDTH},
++#line 73 "source/html/css-properties.gperf"
      {"padding-top",PRO_PADDING_TOP},
- #line 69 "source/html/css-properties.gperf"
-     {"padding-left",PRO_PADDING_LEFT},
+-#line 69 "source/html/css-properties.gperf"
+-    {"padding-left",PRO_PADDING_LEFT},
 -#line 70 "source/html/css-properties.gperf"
 -    {"padding-right",PRO_PADDING_RIGHT},
 -    {""},
@@ -234,10 +275,30 @@
 -    {"text-transform",PRO_TEXT_TRANSFORM},
 -#line 12 "source/html/css-properties.gperf"
 -    {"background",PRO_BACKGROUND},
--#line 14 "source/html/css-properties.gperf"
--    {"border",PRO_BORDER},
++    {""}, {""},
++#line 65 "source/html/css-properties.gperf"
++    {"max-width",PRO_MAX_WIDTH},
++#line 20 "source/html/css-properties.gperf"
++    {"border-collapse",PRO_BORDER_COLLAPSE},
++#line 34 "source/html/css-properties.gperf"
++    {"border-top-width",PRO_BORDER_TOP_WIDTH},
++    {""},
++#line 28 "source/html/css-properties.gperf"
++    {"border-right-width",PRO_BORDER_RIGHT_WIDTH},
++#line 18 "source/html/css-properties.gperf"
++    {"border-bottom-width",PRO_BORDER_BOTTOM_WIDTH},
++    {""},
+ #line 14 "source/html/css-properties.gperf"
+     {"border",PRO_BORDER},
 -#line 73 "source/html/css-properties.gperf"
--    {"page-break-before",PRO_PAGE_BREAK_BEFORE},
++#line 23 "source/html/css-properties.gperf"
++    {"border-left-style",PRO_BORDER_LEFT_STYLE},
++    {""}, {""},
++#line 79 "source/html/css-properties.gperf"
++    {"right",PRO_INSET_RIGHT},
++    {""},
++#line 75 "source/html/css-properties.gperf"
+     {"page-break-before",PRO_PAGE_BREAK_BEFORE},
 -#line 15 "source/html/css-properties.gperf"
 -    {"border-bottom",PRO_BORDER_BOTTOM},
 -    {""}, {""}, {""},
@@ -248,85 +309,70 @@
 -    {"border-top-color",PRO_BORDER_TOP_COLOR},
 -#line 22 "source/html/css-properties.gperf"
 -    {"border-left-color",PRO_BORDER_LEFT_COLOR},
++#line 72 "source/html/css-properties.gperf"
++    {"padding-right",PRO_PADDING_RIGHT},
++#line 53 "source/html/css-properties.gperf"
++    {"left",PRO_INSET_LEFT},
++    {""}, {""},
++#line 76 "source/html/css-properties.gperf"
++    {"page-break-inside",PRO_PAGE_BREAK_INSIDE},
  #line 26 "source/html/css-properties.gperf"
      {"border-right-color",PRO_BORDER_RIGHT_COLOR},
  #line 16 "source/html/css-properties.gperf"
      {"border-bottom-color",PRO_BORDER_BOTTOM_COLOR},
+-#line 64 "source/html/css-properties.gperf"
+-    {"margin-top",PRO_MARGIN_TOP},
+-#line 62 "source/html/css-properties.gperf"
+-    {"margin-left",PRO_MARGIN_LEFT},
+-#line 63 "source/html/css-properties.gperf"
+-    {"margin-right",PRO_MARGIN_RIGHT},
+-#line 74 "source/html/css-properties.gperf"
+-    {"position",PRO_POSITION},
+-#line 68 "source/html/css-properties.gperf"
+-    {"padding-bottom",PRO_PADDING_BOTTOM},
+-#line 78 "source/html/css-properties.gperf"
+-    {"text-align",PRO_TEXT_ALIGN},
++#line 11 "source/html/css-properties.gperf"
++    {"-webkit-text-stroke-width",PRO_TEXT_STROKE_WIDTH},
 +    {""},
-+#line 36 "source/html/css-properties.gperf"
-+    {"bottom",PRO_INSET_BOTTOM},
-+#line 19 "source/html/css-properties.gperf"
-+    {"border-color",PRO_BORDER_COLOR},
++#line 35 "source/html/css-properties.gperf"
++    {"border-width",PRO_BORDER_WIDTH},
++    {""}, {""}, {""}, {""},
++#line 24 "source/html/css-properties.gperf"
++    {"border-left-width",PRO_BORDER_LEFT_WIDTH},
++    {""}, {""}, {""}, {""},
++#line 40 "source/html/css-properties.gperf"
++    {"content",PRO_CONTENT},
++#line 9 "source/html/css-properties.gperf"
++    {"-webkit-text-fill-color",PRO_TEXT_FILL_COLOR},
 +    {""},
-+#line 82 "source/html/css-properties.gperf"
-+    {"text-transform",PRO_TEXT_TRANSFORM},
++#line 10 "source/html/css-properties.gperf"
++    {"-webkit-text-stroke-color",PRO_TEXT_STROKE_COLOR},
++#line 55 "source/html/css-properties.gperf"
++    {"line-height",PRO_LINE_HEIGHT},
++#line 69 "source/html/css-properties.gperf"
++    {"padding",PRO_PADDING},
 +    {""}, {""},
-+#line 23 "source/html/css-properties.gperf"
-+    {"border-left-style",PRO_BORDER_LEFT_STYLE},
-+#line 15 "source/html/css-properties.gperf"
-+    {"border-bottom",PRO_BORDER_BOTTOM},
-+    {""}, {""},
-+#line 50 "source/html/css-properties.gperf"
-+    {"height",PRO_HEIGHT},
++#line 56 "source/html/css-properties.gperf"
++    {"list-style",PRO_LIST_STYLE},
++    {""},
 +#line 22 "source/html/css-properties.gperf"
 +    {"border-left-color",PRO_BORDER_LEFT_COLOR},
 +    {""}, {""},
-+#line 20 "source/html/css-properties.gperf"
-+    {"border-collapse",PRO_BORDER_COLLAPSE},
-+    {""},
-+#line 73 "source/html/css-properties.gperf"
-+    {"page-break-before",PRO_PAGE_BREAK_BEFORE},
-+    {""}, {""},
- #line 64 "source/html/css-properties.gperf"
-     {"margin-top",PRO_MARGIN_TOP},
- #line 62 "source/html/css-properties.gperf"
-     {"margin-left",PRO_MARGIN_LEFT},
- #line 63 "source/html/css-properties.gperf"
-     {"margin-right",PRO_MARGIN_RIGHT},
--#line 74 "source/html/css-properties.gperf"
--    {"position",PRO_POSITION},
-+#line 9 "source/html/css-properties.gperf"
-+    {"-webkit-text-fill-color",PRO_TEXT_FILL_COLOR},
- #line 68 "source/html/css-properties.gperf"
-     {"padding-bottom",PRO_PADDING_BOTTOM},
--#line 78 "source/html/css-properties.gperf"
--    {"text-align",PRO_TEXT_ALIGN},
--    {""}, {""}, {""},
++#line 59 "source/html/css-properties.gperf"
++    {"list-style-type",PRO_LIST_STYLE_TYPE},
+     {""}, {""}, {""},
 -#line 54 "source/html/css-properties.gperf"
 -    {"letter-spacing",PRO_LETTER_SPACING},
 -#line 79 "source/html/css-properties.gperf"
 -    {"text-decoration",PRO_TEXT_DECORATION},
-+#line 10 "source/html/css-properties.gperf"
-+    {"-webkit-text-stroke-color",PRO_TEXT_STROKE_COLOR},
-+    {""},
-+#line 74 "source/html/css-properties.gperf"
-+    {"page-break-inside",PRO_PAGE_BREAK_INSIDE},
-+#line 28 "source/html/css-properties.gperf"
-+    {"border-right-width",PRO_BORDER_RIGHT_WIDTH},
-+#line 18 "source/html/css-properties.gperf"
-+    {"border-bottom-width",PRO_BORDER_BOTTOM_WIDTH},
-+#line 43 "source/html/css-properties.gperf"
-+    {"float",PRO_FLOAT},
-+#line 86 "source/html/css-properties.gperf"
-+    {"white-space",PRO_WHITE_SPACE},
-+#line 67 "source/html/css-properties.gperf"
-+    {"padding",PRO_PADDING},
-+    {""},
-+#line 53 "source/html/css-properties.gperf"
-+    {"left",PRO_INSET_LEFT},
-+    {""},
- #line 72 "source/html/css-properties.gperf"
-     {"page-break-after",PRO_PAGE_BREAK_AFTER},
-+#line 40 "source/html/css-properties.gperf"
-+    {"content",PRO_CONTENT},
-+#line 70 "source/html/css-properties.gperf"
-+    {"padding-right",PRO_PADDING_RIGHT},
-+    {""},
- #line 88 "source/html/css-properties.gperf"
+-#line 72 "source/html/css-properties.gperf"
+-    {"page-break-after",PRO_PAGE_BREAK_AFTER},
+-#line 88 "source/html/css-properties.gperf"
 -    {"word-spacing",PRO_WORD_SPACING},
 -    {""},
--#line 29 "source/html/css-properties.gperf"
--    {"border-spacing",PRO_BORDER_SPACING},
+ #line 29 "source/html/css-properties.gperf"
+     {"border-spacing",PRO_BORDER_SPACING},
 -    {""},
 -#line 13 "source/html/css-properties.gperf"
 -    {"background-color",PRO_BACKGROUND_COLOR},
@@ -342,8 +388,21 @@
 -    {"list-style",PRO_LIST_STYLE},
 -#line 50 "source/html/css-properties.gperf"
 -    {"height",PRO_HEIGHT},
--#line 42 "source/html/css-properties.gperf"
--    {"display",PRO_DISPLAY},
++#line 81 "source/html/css-properties.gperf"
++    {"text-align",PRO_TEXT_ALIGN},
++#line 74 "source/html/css-properties.gperf"
++    {"page-break-after",PRO_PAGE_BREAK_AFTER},
++#line 19 "source/html/css-properties.gperf"
++    {"border-color",PRO_BORDER_COLOR},
++#line 77 "source/html/css-properties.gperf"
++    {"position",PRO_POSITION},
++    {""},
++#line 82 "source/html/css-properties.gperf"
++    {"text-decoration",PRO_TEXT_DECORATION},
++#line 78 "source/html/css-properties.gperf"
++    {"quotes",PRO_QUOTES},
+ #line 42 "source/html/css-properties.gperf"
+     {"display",PRO_DISPLAY},
 -#line 61 "source/html/css-properties.gperf"
 -    {"margin-bottom",PRO_MARGIN_BOTTOM},
 -    {""},
@@ -365,51 +424,24 @@
 -#line 77 "source/html/css-properties.gperf"
 -    {"src",PRO_SRC},
 -    {""}, {""},
-+    {"width",PRO_WIDTH},
- #line 34 "source/html/css-properties.gperf"
-     {"border-top-width",PRO_BORDER_TOP_WIDTH},
- #line 24 "source/html/css-properties.gperf"
-     {"border-left-width",PRO_BORDER_LEFT_WIDTH},
+-#line 34 "source/html/css-properties.gperf"
+-    {"border-top-width",PRO_BORDER_TOP_WIDTH},
+-#line 24 "source/html/css-properties.gperf"
+-    {"border-left-width",PRO_BORDER_LEFT_WIDTH},
 -#line 28 "source/html/css-properties.gperf"
 -    {"border-right-width",PRO_BORDER_RIGHT_WIDTH},
 -#line 18 "source/html/css-properties.gperf"
 -    {"border-bottom-width",PRO_BORDER_BOTTOM_WIDTH},
-+    {""},
-+#line 29 "source/html/css-properties.gperf"
-+    {"border-spacing",PRO_BORDER_SPACING},
-+#line 38 "source/html/css-properties.gperf"
-+    {"color",PRO_COLOR},
- #line 76 "source/html/css-properties.gperf"
+-#line 76 "source/html/css-properties.gperf"
 -    {"right",PRO_INSET_RIGHT},
 -#line 60 "source/html/css-properties.gperf"
 -    {"margin",PRO_MARGIN},
-+    {"quotes",PRO_QUOTES},
- #line 65 "source/html/css-properties.gperf"
-     {"orphans",PRO_ORPHANS},
+-#line 65 "source/html/css-properties.gperf"
+-    {"orphans",PRO_ORPHANS},
 -    {""}, {""},
 -#line 84 "source/html/css-properties.gperf"
 -    {"visibility",PRO_VISIBILITY},
-+#line 61 "source/html/css-properties.gperf"
-+    {"margin-bottom",PRO_MARGIN_BOTTOM},
-+    {""},
-+#line 12 "source/html/css-properties.gperf"
-+    {"background",PRO_BACKGROUND},
-+    {""},
-+#line 42 "source/html/css-properties.gperf"
-+    {"display",PRO_DISPLAY},
-+    {""}, {""},
-+#line 11 "source/html/css-properties.gperf"
-+    {"-webkit-text-stroke-width",PRO_TEXT_STROKE_WIDTH},
-+#line 55 "source/html/css-properties.gperf"
-+    {"line-height",PRO_LINE_HEIGHT},
-+    {""}, {""}, {""},
-+#line 56 "source/html/css-properties.gperf"
-+    {"list-style",PRO_LIST_STYLE},
-+#line 33 "source/html/css-properties.gperf"
-+    {"border-top-style",PRO_BORDER_TOP_STYLE},
-+#line 35 "source/html/css-properties.gperf"
-+    {"border-width",PRO_BORDER_WIDTH},
- #line 75 "source/html/css-properties.gperf"
+-#line 75 "source/html/css-properties.gperf"
 -    {"quotes",PRO_QUOTES},
 -    {""}, {""}, {""},
 -#line 43 "source/html/css-properties.gperf"
@@ -418,44 +450,44 @@
 -#line 44 "source/html/css-properties.gperf"
 -    {"font",PRO_FONT},
 -    {""}, {""}, {""}, {""},
-+    {"position",PRO_POSITION},
 +    {""},
-+#line 59 "source/html/css-properties.gperf"
-+    {"list-style-type",PRO_LIST_STYLE_TYPE},
-+#line 32 "source/html/css-properties.gperf"
-+    {"border-top-color",PRO_BORDER_TOP_COLOR},
-+#line 89 "source/html/css-properties.gperf"
-+    {"word-spacing",PRO_WORD_SPACING},
-+    {""}, {""},
-+#line 79 "source/html/css-properties.gperf"
-+    {"text-align",PRO_TEXT_ALIGN},
-+#line 87 "source/html/css-properties.gperf"
-+    {"widows",PRO_WIDOWS},
-+    {""},
-+#line 66 "source/html/css-properties.gperf"
-+    {"overflow-wrap",PRO_OVERFLOW_WRAP},
  #line 8 "source/html/css-properties.gperf"
      {"-mupdf-leading",PRO_LEADING},
-+#line 80 "source/html/css-properties.gperf"
-+    {"text-decoration",PRO_TEXT_DECORATION},
-+    {""}, {""}, {""}, {""},
  #line 52 "source/html/css-properties.gperf"
      {"inset",PRO_INSET},
--#line 49 "source/html/css-properties.gperf"
--    {"font-weight",PRO_FONT_WEIGHT},
--#line 48 "source/html/css-properties.gperf"
--    {"font-variant",PRO_FONT_VARIANT},
--    {""},
--#line 46 "source/html/css-properties.gperf"
--    {"font-size",PRO_FONT_SIZE},
--#line 47 "source/html/css-properties.gperf"
--    {"font-style",PRO_FONT_STYLE},
--#line 45 "source/html/css-properties.gperf"
--    {"font-family",PRO_FONT_FAMILY},
++#line 60 "source/html/css-properties.gperf"
++    {"margin",PRO_MARGIN},
++    {""}, {""},
++#line 44 "source/html/css-properties.gperf"
++    {"font",PRO_FONT},
++#line 12 "source/html/css-properties.gperf"
++    {"background",PRO_BACKGROUND},
++#line 57 "source/html/css-properties.gperf"
++    {"list-style-image",PRO_LIST_STYLE_IMAGE},
++#line 91 "source/html/css-properties.gperf"
++    {"word-spacing",PRO_WORD_SPACING},
++    {""}, {""},
++#line 38 "source/html/css-properties.gperf"
++    {"color",PRO_COLOR},
+ #line 49 "source/html/css-properties.gperf"
+     {"font-weight",PRO_FONT_WEIGHT},
+ #line 48 "source/html/css-properties.gperf"
+@@ -258,36 +274,61 @@
+     {"font-size",PRO_FONT_SIZE},
+ #line 47 "source/html/css-properties.gperf"
+     {"font-style",PRO_FONT_STYLE},
++#line 89 "source/html/css-properties.gperf"
++    {"widows",PRO_WIDOWS},
++    {""}, {""},
++#line 86 "source/html/css-properties.gperf"
++    {"vertical-align",PRO_VERTICAL_ALIGN},
++    {""},
+ #line 45 "source/html/css-properties.gperf"
+     {"font-family",PRO_FONT_FAMILY},
 -    {""}, {""},
 -#line 41 "source/html/css-properties.gperf"
 -    {"direction",PRO_DIRECTION},
-     {""}, {""}, {""}, {""},
+-    {""}, {""}, {""}, {""},
 -#line 58 "source/html/css-properties.gperf"
 -    {"list-style-position",PRO_LIST_STYLE_POSITION},
 -#line 11 "source/html/css-properties.gperf"
@@ -463,46 +495,48 @@
 -    {""}, {""}, {""}, {""}, {""},
 -#line 86 "source/html/css-properties.gperf"
 -    {"widows",PRO_WIDOWS},
-+#line 85 "source/html/css-properties.gperf"
-+    {"visibility",PRO_VISIBILITY},
-+#line 57 "source/html/css-properties.gperf"
-+    {"list-style-image",PRO_LIST_STYLE_IMAGE},
 +    {""}, {""}, {""}, {""},
-+#line 13 "source/html/css-properties.gperf"
-+    {"background-color",PRO_BACKGROUND_COLOR},
++#line 33 "source/html/css-properties.gperf"
++    {"border-top-style",PRO_BORDER_TOP_STYLE},
      {""}, {""}, {""}, {""}, {""},
  #line 51 "source/html/css-properties.gperf"
      {"hyphens",PRO_HYPHENS},
 -    {""}, {""},
 -#line 87 "source/html/css-properties.gperf"
 -    {"width",PRO_WIDTH}
-+    {""}, {""}, {""}, {""}, {""}, {""},
++    {""}, {""}, {""},
++#line 32 "source/html/css-properties.gperf"
++    {"border-top-color",PRO_BORDER_TOP_COLOR},
++#line 67 "source/html/css-properties.gperf"
++    {"orphans",PRO_ORPHANS},
++    {""},
 +#line 54 "source/html/css-properties.gperf"
 +    {"letter-spacing",PRO_LETTER_SPACING},
-+    {""}, {""},
-+#line 39 "source/html/css-properties.gperf"
-+    {"columns",PRO_COLUMNS},
-+    {""}, {""},
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++    {""}, {""}, {""}, {""}, {""}, {""}, {""},
++#line 13 "source/html/css-properties.gperf"
++    {"background-color",PRO_BACKGROUND_COLOR},
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++#line 43 "source/html/css-properties.gperf"
++    {"float",PRO_FLOAT},
++    {""}, {""}, {""}, {""},
 +#line 37 "source/html/css-properties.gperf"
 +    {"clear",PRO_CLEAR},
-+#line 60 "source/html/css-properties.gperf"
-+    {"margin",PRO_MARGIN},
-+    {""},
-+#line 78 "source/html/css-properties.gperf"
-+    {"src",PRO_SRC},
-+    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
 +    {""}, {""}, {""}, {""}, {""}, {""},
++#line 39 "source/html/css-properties.gperf"
++    {"columns",PRO_COLUMNS},
++    {""},
 +#line 41 "source/html/css-properties.gperf"
 +    {"direction",PRO_DIRECTION},
-+    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
-+    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
-+    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
-+    {""}, {""},
++    {""}, {""}, {""}, {""},
 +#line 58 "source/html/css-properties.gperf"
 +    {"list-style-position",PRO_LIST_STYLE_POSITION},
 +    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
-+#line 84 "source/html/css-properties.gperf"
-+    {"vertical-align",PRO_VERTICAL_ALIGN}
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++    {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
++    {""},
++#line 80 "source/html/css-properties.gperf"
++    {"src",PRO_SRC}
    };
 -#if (defined __GNUC__ && __GNUC__ + (__GNUC_MINOR__ >= 6) > 4) || (defined __clang__ && __clang_major__ >= 3)
 -#pragma GCC diagnostic pop
@@ -519,7 +553,7 @@
  
        if (key <= MAX_HASH_VALUE)
          {
-@@ -297,5 +327,5 @@
+@@ -297,5 +338,5 @@
              return &css_property_list[key];
          }
      }
@@ -599,13 +633,13 @@
 +			dom = fz_parse_html_dom(ctx, buf, 1, 1);
 +			int cover = ch->cover || epub_uses_cover_image(fz_dom_body(ctx, dom), base_uri, doc->cover_image);
 +			html = fz_parse_html_dom_chapter(ctx, doc->set, zip, base_uri, dom, doc->super.user_css,
-+				cover ? FZ_HTML_FLAVOR_EPUB_COVER : FZ_HTML_FLAVOR_DEFAULT, doc->super.publisher_css,
++				cover ? FZ_HTML_FLAVOR_EPUB_COVER : FZ_HTML_FLAVOR_EPUB_REFLOW, doc->super.publisher_css,
 +				NULL, NULL, NULL);
 +		}
 +		else
 +			html = fz_parse_html(ctx, doc->set, zip, base_uri, buf,
 +				ch->fixed_layout ? NULL : doc->super.user_css, 1, 1,
-+				ch->fixed_layout ? FZ_HTML_FLAVOR_EPUB_FIXED : ch->cover ? FZ_HTML_FLAVOR_EPUB_COVER : FZ_HTML_FLAVOR_DEFAULT,
++				ch->fixed_layout ? FZ_HTML_FLAVOR_EPUB_FIXED : ch->cover ? FZ_HTML_FLAVOR_EPUB_COVER : FZ_HTML_FLAVOR_EPUB_REFLOW,
 +				ch->fixed_layout ? 1 : doc->super.publisher_css);
 +	}
  	fz_always(ctx)
@@ -730,14 +764,23 @@
  				{
  					doc->spine[i] = epub_load_chapter(ctx, doc, s, i);
 +					const char *idref = fz_xml_att(itemref, "idref");
-+					doc->spine[i]->cover = itemref == first_linear || !strcmp(s, cover) ||
++					doc->spine[i]->cover = ((!cover[0] && !cover_image[0]) && itemref == first_linear) || !strcmp(s, cover) ||
 +						(i == 0 && idref && !fz_strcasecmp(idref, "cover"));
  					doc->spine[i]->fixed_layout = fixed || (!reflow && fixed_layout);
  					if (doc->spine[i]->fixed_layout)
  						++doc->fixed_chapters;
 --- a/source/html/html-imp.h
 +++ b/source/html/html-imp.h
-@@ -183,6 +183,7 @@
+@@ -175,6 +175,8 @@
+ 	PRO_MARGIN_LEFT,
+ 	PRO_MARGIN_RIGHT,
+ 	PRO_MARGIN_TOP,
++	PRO_MAX_WIDTH,
++	PRO_MAX_HEIGHT,
+ 	PRO_ORPHANS,
+ 	PRO_OVERFLOW_WRAP,
+ 	PRO_PADDING_BOTTOM,
+@@ -183,6 +185,7 @@
  	PRO_PADDING_TOP,
  	PRO_PAGE_BREAK_AFTER,
  	PRO_PAGE_BREAK_BEFORE,
@@ -745,24 +788,44 @@
  	PRO_POSITION,
  	PRO_QUOTES,
  	PRO_SRC,
-@@ -312,6 +313,7 @@
+@@ -311,7 +314,9 @@
+ 	unsigned int colspan : 10; /* Needs to be able to represent 1-1000 */
  	unsigned int white_space : 3;
  	unsigned int compact_prose_spacing : 1;
++	unsigned int image_size_limited : 1;
  	unsigned int vertical_align : 4;
 +	unsigned int page_break_inside : 3;
  	unsigned int page_break_before : 3;
  	unsigned int page_break_after : 3;
  	unsigned int visibility : 2;
-@@ -353,6 +355,7 @@
+@@ -353,6 +358,8 @@
  	fz_storable storable;
  	fz_pool *pool; /* pool allocator for this html tree */
  	fz_html_box *root;
 +	float image_cover_aspect; /* Set only by successful single-image cover normalization. */
++	int image_page_sequence; /* Independent unsized images, with no accompanying prose. */
  	/* Nodes stay in the original tree pool; only these O(1) directories move. */
  	void **flow_blocks, **flow_escape, **box_directory;
  	size_t flow_block_count, flow_block_capacity, flow_block_offset;
+@@ -537,6 +544,7 @@
+ 	unsigned int suppress_border: 4;
+ 	unsigned int collapsed_cell : 1;
+ 	unsigned int compact_empty_prose : 1;
++	unsigned int inline_block : 1;
+ 
+ 	// to indicate when an inline formatting context has been finished (when interrupted by a block level block)
+ 	unsigned int stop : 1;
 --- a/source/html/html-layout.c
 +++ b/source/html/html-layout.c
+@@ -517,7 +517,7 @@
+ 			{
+ 			default:
+ 			case VA_BASELINE:
+-				node->y = y + baseline - node->h;
++				node->y = y + (baseline - node->h);
+ 				break;
+ 			case VA_SUB:
+ 				node->y = y + baseline - node->h + fz_html_flow_box(tree, node)->s.layout.em / 5;
 @@ -605,6 +605,7 @@
  	float page[4];
  	/* Keep the containing canvas for positioning without inserting page breaks. */
@@ -771,35 +834,220 @@
  	/* The ancestor trbl is the trbl for the last positioned
  	 * node we have walked though. Boxes with "absolute" positioning
  	 * will be positioned relative to this. Initially this will be the
-@@ -1077,6 +1078,18 @@
+@@ -635,13 +636,60 @@
+ #define TRBLCPY(DST,SRC) \
+ do { DST[T] = SRC[T] ; DST[R] = SRC[R]; DST[B] = SRC[B]; DST[L] = SRC[L]; } while (0)
+ 
++/* A percentage image height needs a definite containing-block height.
++ * Resolve the existing computed CSS chain once for both an img block and
++ * its image flow, rather than overriding publisher heights in reader CSS. */
++static int definite_block_height(layout_data *ld, fz_html_box *box, float *height)
++{
++	float scale = 1;
++	while (box->up && box->style->height.unit == N_PERCENT)
++	{
++		scale *= box->style->height.value / 100;
++		box = box->up;
++	}
++	if (!box->up)
++	{
++		*height = (ld->page[B] - ld->page[T]) * scale;
++		return ld->page[B] > ld->page[T];
++	}
++	if (box->style->height.unit == N_AUTO)
++		return 0;
++	*height = fz_from_css_number(box->style->height, box->s.layout.em, 0, 0) * scale;
++	return 1;
++}
++
++/* Enclosing margins and insets are part of an image's page budget. */
++static float image_page_height(layout_data *ld, fz_html_box *top)
++{
++	float height = ld->page[B] - ld->page[T];
++	for (fz_html_box *ancestor = top; ancestor; ancestor = ancestor->up)
++		if (fz_html_box_has_boxes(ancestor) && ancestor->up)
++			height -= ancestor->u.block.margin[T] + ancestor->u.block.margin[B] +
++				ancestor->u.block.padding[T] + ancestor->u.block.padding[B] +
++				ancestor->u.block.border[T] + ancestor->u.block.border[B];
++	return height;
++}
++
+ static int flush_line(fz_html_tree *tree, fz_context *ctx, fz_html_box *box, layout_data *ld, float line_w, int align, float indent, fz_html_flow *a, fz_html_flow *b, fz_html_restarter *restart)
+ {
+ 	float avail, line_h, baseline;
++	fz_html_flow *page_image = NULL;
+ 	float page_w = ld->bounds[R] - ld->bounds[L];
+ 	float page_h = ld->page[B] - ld->page[T];
+ 	float page_top = ld->page[T];
+ 	line_h = measure_line(tree, a, b, &baseline);
++	if (tree->image_page_sequence && !ld->no_pagination && page_h > 0)
++		for (fz_html_flow *image = a; image != b; image = fz_html_flow_next(tree, image))
++			if (image->type == FLOW_IMAGE)
++			{
++				line_h = image_page_height(ld, box->up);
++				page_image = image;
++				align = TA_CENTER;
++				indent = 0;
++				line_w = image->w;
++				break;
++			}
++
+ 	if (!ld->no_pagination && page_h > 0)
+ 	{
+ 		avail = page_h - fmodf(box->s.layout.b - page_top, page_h);
+@@ -666,6 +714,8 @@
+ 			box->s.layout.b += avail;
+ 		}
+ 	}
++	if (page_image)
++		baseline = (page_h + page_image->h) / 2 - fmodf(box->s.layout.b - page_top, page_h);
+ 	layout_line(tree, ctx, indent, page_w, line_w, align, a, b, box, baseline, line_h);
+ 	box->s.layout.b += line_h;
+ 	if (box->s.layout.b > ld->used[B])
+@@ -1054,28 +1104,48 @@
+ 		{
+ 			float xs = 1, ys = 1, s;
+ 			float aspect = 1;
+-			fz_css_number width = fz_html_flow_box(tree, node)->style->width;
+-			fz_css_number height = fz_html_flow_box(tree, node)->style->height;
++			fz_html_box *image_box = fz_html_flow_box(tree, node);
++			fz_css_number width = image_box->style->width;
++			fz_css_number height = image_box->style->height;
+ 			float image_em = ld->no_pagination ? fz_html_flow_box(tree, node)->s.layout.em : top->s.layout.em;
+ 			float max_w = ld->bounds[R] - ld->bounds[L]; // current block content box width
+ 			float max_h = ld->no_pagination ? ld->bounds[B] - ld->bounds[T] : ld->page[B] - ld->page[T];
++			float height_reference = max_h;
+ 
+ 			/* NOTE: We ignore the image DPI here, since most images in EPUB files have bogus values. */
+ 			node->w = node->content.image->w * (ld->no_pagination ? 1 : 72.0f / 96.0f);
+ 			node->h = node->content.image->h * (ld->no_pagination ? 1 : 72.0f / 96.0f);
+ 			aspect = node->h ? node->w / node->h : 0;
+ 
+-			/* Percentage heights have no reference in continuous layout. */
+-			if (height.unit == N_PERCENT && max_h <= 0)
+-				height.unit = N_AUTO;
++			if (height.unit == N_PERCENT)
++			{
++				if ((!strcmp(image_box->tag, "img") || !strcmp(top->tag, "img")) &&
++					(image_box->style->position == POS_STATIC || image_box->style->position == POS_RELATIVE))
++				{
++					fz_html_box *containing = !strcmp(top->tag, "img") ? top->up : top;
++					if (!definite_block_height(ld, containing, &height_reference))
++						height.unit = N_AUTO;
++				}
++				/* SVG retains its explicit viewport fitting semantics. */
++				else if (max_h <= 0)
++					height.unit = N_AUTO;
++			}
+ 			if (width.unit != N_AUTO)
+ 				node->w = fz_from_css_number(width, image_em, max_w, node->w);
+ 			if (height.unit != N_AUTO)
+-				node->h = fz_from_css_number(height, image_em, max_h, node->h);
++				node->h = fz_from_css_number(height, image_em, height_reference, node->h);
+ 			if (width.unit == N_AUTO && height.unit != N_AUTO)
+ 				node->w = node->h * aspect;
  			if (width.unit != N_AUTO && height.unit == N_AUTO)
  				node->h = (aspect == 0) ? 0 : (node->w / aspect);
- 
++
 +			/* Reserve enclosing block insets, rather than earlier paragraphs:
 +			 * an oversized image must fit one page without consuming a blank
 +			 * page just to accommodate its own top/bottom margins. */
 +			if (!ld->no_pagination)
-+				for (fz_html_box *ancestor = top; ancestor; ancestor = ancestor->up)
-+					if (fz_html_box_has_boxes(ancestor) && ancestor->up)
-+						max_h -= ancestor->u.block.margin[T] + ancestor->u.block.margin[B] +
-+							ancestor->u.block.padding[T] + ancestor->u.block.padding[B] +
-+							ancestor->u.block.border[T] + ancestor->u.block.border[B];
++				max_h = image_page_height(ld, top);
 +			if (ld->figure_image_height > 0)
 +				max_h = fz_min(max_h, ld->figure_image_height);
-+
+ 
  			/* Shrink image to fit on one page if needed */
  			if (!ld->no_pagination && max_w > 0 && node->w > max_w)
- 				xs = max_w / node->w;
-@@ -1445,7 +1458,7 @@
+@@ -1083,8 +1153,26 @@
+ 			if (!ld->no_pagination && max_h > 0 && node->h > max_h)
+ 				ys = max_h / node->h;
+ 			s = fz_min(xs, ys);
+-			node->w = node->w * s;
+-			node->h = node->h * s;
++			if (tree->image_page_sequence && !ld->no_pagination && max_h > 0)
++			{
++				/* Keep the limiting edge exact, so multiplication rounding
++				 * cannot wrap the image away from its preceding anchor. */
++				if (max_w / node->w <= max_h / node->h)
++				{
++					node->w = max_w;
++					node->h = max_w / aspect;
++				}
++				else
++				{
++					node->h = max_h;
++					node->w = max_h * aspect;
++				}
++			}
++			else
++			{
++				node->w = node->w * s;
++				node->h = node->h * s;
++			}
+ 
+ 		}
+ 		else if (node->type == FLOW_ANCHOR)
+@@ -1400,6 +1488,9 @@
+ 	const float *padding = box->u.block.padding;
+ 	float auto_w, auto_h;
+ 	float reference_w, reference_h;
++	fz_css_number height = box->style->height;
++	int image_percent_height = !strcmp(box->tag, "img") && height.unit == N_PERCENT &&
++		(box->style->position == POS_STATIC || box->style->position == POS_RELATIVE);
+ 	fz_html_restarter *restart = ld->restart;
+ 	int eop = 0;
+ 
+@@ -1436,8 +1527,10 @@
+ 	}
+ 	pd->has_width = fz_css_number_defined_not_auto(box->style->width);
+ 	pd->width = fz_from_css_number(box->style->width, em, reference_w, 0);
+-	pd->has_height = fz_css_number_defined_not_auto(box->style->height);
+-	pd->height = fz_from_css_number(box->style->height, em, reference_h, 0);
++	if (image_percent_height && !definite_block_height(ld, box->up, &reference_h))
++		height.unit = N_AUTO;
++	pd->has_height = fz_css_number_defined_not_auto(height);
++	pd->height = fz_from_css_number(height, em, reference_h, 0);
+ 
+ 	/* Adjust horizontally for Width and spacings */
+ 	auto_w = ld->bounds[R] - ld->bounds[L] - (margin[L] + margin[R] + border[L] + border[R] + padding[L] + padding[R]);
+@@ -1445,11 +1538,33 @@
  	if (ignore_width)
  		ld->bounds[R] = ld->bounds[L] + auto_w;
  	else
 -		ld->bounds[R] = ld->bounds[L] + fz_from_css_number(box->style->width, em, auto_w, auto_w);
 +		ld->bounds[R] = ld->bounds[L] + fz_from_css_number(box->style->width, em, reference_w, auto_w);
++
++	/* Auto margins belong to the containing block, not the image flow.
++	 * The block representation of an explicitly sized inline-block also
++	 * follows its parent's horizontal text alignment. */
++	if (!ignore_width && pd->has_width && box->style->position == POS_STATIC)
++	{
++		float remaining = auto_w - (ld->bounds[R] - ld->bounds[L]);
++		float shift = 0;
++		int auto_left = box->style->margin[L].unit == N_AUTO;
++		int auto_right = box->style->margin[R].unit == N_AUTO;
++		if (remaining > 0)
++		{
++			if (auto_left) shift = auto_right ? remaining / 2 : remaining;
++			else if (!auto_right && box->inline_block && box->up)
++			{
++				if (box->up->style->text_align == TA_CENTER) shift = remaining / 2;
++				else if (box->up->style->text_align == TA_RIGHT) shift = remaining;
++			}
++			ld->bounds[L] += shift;
++			ld->bounds[R] += shift;
++		}
++	}
  
  	/* Adjust vertically for Height and spacings (noting that we have already done the top ones above!) */
  	auto_h = ld->bounds[B] - ld->bounds[T] - (margin[B] + border[B] + padding[B]);
-@@ -2941,6 +2954,25 @@
+-	ld->bounds[B] = ld->bounds[T] + fz_from_css_number(box->style->height, em, auto_h, auto_h);
++	ld->bounds[B] = ld->bounds[T] + fz_from_css_number(height, em, image_percent_height ? reference_h : auto_h, auto_h);
+ 
+ 	/* So bounds and fixed are calculated as they should be for positioned: static */
+ 	ld->used[T] = ld->bounds[T];
+@@ -2941,6 +3056,25 @@
  
  	Return 1 if we should restart at the next block, 0 otherwise.
  */
@@ -825,7 +1073,7 @@
  static int layout_block(fz_html_tree *tree, fz_context *ctx, layout_data *ld, fz_html_box *box)
  {
  	fz_html_box *child;
-@@ -2950,8 +2982,25 @@
+@@ -2950,8 +3084,25 @@
  	float em = box->s.layout.em;
  	int eop = 0;
  	position_data position;
@@ -851,7 +1099,7 @@
  
  	/* If restart is non-NULL, we are running in restartable mode. */
  	if (restart)
-@@ -3097,6 +3146,8 @@
+@@ -3097,6 +3248,8 @@
  			return 1;
  	}
  
@@ -860,7 +1108,7 @@
  	return 0;
  }
  
-@@ -3150,7 +3201,7 @@
+@@ -3150,7 +3303,7 @@
  			{
  				/* Compute preliminary width (will be adjusted if block is nested in table cell later) */
  				float auto_w = top_w - (margin[L] + margin[R] + border[L] + border[R] + padding[L] + padding[R]);
@@ -869,7 +1117,7 @@
  			}
  		}
  
-@@ -3622,8 +3673,12 @@
+@@ -3622,8 +3775,12 @@
  void
  fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em)
  {
@@ -883,7 +1131,7 @@
  	{
  		if (!isfinite(html->meta_w) || !isfinite(html->meta_h) || html->meta_w <= 0 || html->meta_h <= 0)
  			fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB requires positive viewport width and height");
-@@ -3652,12 +3707,12 @@
+@@ -3652,12 +3809,12 @@
  		html->page_margin[T] = html->page_margin[B] = 0;
  
  	html->page_w = w - html->page_margin[L] - html->page_margin[R];
@@ -931,7 +1179,15 @@
  		img = load_html_image(ctx, g->zip, g->base_uri, src);
  		gen2_image_common(ctx, g, root_box, node, img, display, &local_style);
  	}
-@@ -2348,6 +2358,69 @@
+@@ -1578,6 +1588,7 @@
+ 	case DIS_INLINE_BLOCK:
+ 		// TODO handle inline block as a flow node
+ 		this_box = gen2_block(ctx, g, root_box, node, style);
++		this_box->inline_block = 1;
+ 		break;
+ 
+ 	case DIS_BLOCK:
+@@ -2348,6 +2359,99 @@
  	return s;
  }
  
@@ -975,6 +1231,36 @@
 +	}
 +}
 +
++/* Only independent, unsized image paragraphs can become full-page art.
++ * Explicit image or wrapper dimensions retain their publisher-defined size. */
++static int image_page_sequence(fz_html_tree *tree, fz_html_box *box, int *images)
++{
++	for (; box; box = box->next)
++	{
++		if (box->style->width.unit != N_AUTO || box->style->height.unit != N_AUTO ||
++			box->style->position != POS_STATIC || box->style->image_size_limited)
++			return 0;
++		if (box->type == BOX_FLOW)
++		{
++			int count = 0;
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
++			{
++				if (flow->type == FLOW_IMAGE) ++count;
++				else if (flow->type != FLOW_ANCHOR && flow->type != FLOW_SPACE &&
++					flow->type != FLOW_BREAK && flow->type != FLOW_SBREAK)
++					return 0;
++			}
++			if (count > 1) return 0;
++			*images += count;
++		}
++		else if (box->type != BOX_BLOCK && box->type != BOX_INLINE)
++			return 0;
++		if (box->down && !image_page_sequence(tree, box->down, images))
++			return 0;
++	}
++	return 1;
++}
++
 +static int normalize_epub_cover(fz_context *ctx, fz_xml *root)
 +{
 +	fz_xml *body = fz_dom_body(ctx, root), *image = NULL, *node;
@@ -1001,7 +1287,7 @@
  static void
  xml_to_boxes(fz_context *ctx,
  	fz_html_font_set *set,
-@@ -2397,6 +2470,11 @@
+@@ -2397,6 +2501,11 @@
  		memset(metadata, 0, sizeof(*metadata));
  
  	root = fz_xml_root(g.xml);
@@ -1013,7 +1299,7 @@
  	g.css = fz_new_css(ctx);
  
  #ifndef NDEBUG
-@@ -2438,6 +2516,9 @@
+@@ -2438,6 +2547,9 @@
  			fz_parse_css(ctx, g.css, user_css, "<user>");
  			fz_add_css_font_faces(ctx, g.set, g.zip, ".", g.css, 0);
  		}
@@ -1023,3 +1309,16 @@
  	}
  	fz_catch(ctx)
  	{
+@@ -2489,6 +2601,12 @@
+ 		gen2_tag(ctx, &g, tree->root, root, &match, display, &style);
+ 
+ 		detect_directionality(tree, ctx, g.pool, tree->root);
++		if (!g.is_epub_cover && (flavor == FZ_HTML_FLAVOR_EPUB_REFLOW || flavor == FZ_HTML_FLAVOR_EPUB_COVER))
++		{
++			int images = 0;
++			tree->image_page_sequence = image_page_sequence(tree, tree->root, &images) && images > 1;
++		}
++
+ 
+ 		if (g.is_fb2)
+ 		{

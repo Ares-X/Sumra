@@ -924,7 +924,15 @@
                 // Window.scrollY loses the fractional scroll at native page zoom.
                 const viewport = window.visualViewport
                 if (target) {
-                    if (paged()) { const range = document.createRange(); range.selectNodeContents(target); alignReadingRange(range, 0) }
+                    if (paged()) {
+                        // Generated Markdown anchors are empty siblings before
+                        // headings; their empty content Range has no geometry.
+                        const heading = target.matches('a:empty') && target.nextElementSibling?.matches('h1,h2,h3,h4,h5,h6')
+                            ? target.nextElementSibling : target
+                        const range = document.createRange()
+                        range.selectNodeContents(heading)
+                        alignReadingRange(range, 0)
+                    }
                     else scrollTo(window.scrollX, viewport.pageTop - viewport.offsetTop + target.getBoundingClientRect().top)
                 }
             }

@@ -718,3 +718,6 @@
 "x %d, y %d, width %d, height %d" = "x %d, y %d, רוחב %d, גובה %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,width,height; שדה ריק משתמש בשדה קיים או נשאר בלתי נראה";
 "Export Outline…" = "ייצוא מתאר…";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "לא ניתן לפתוח את %@.";

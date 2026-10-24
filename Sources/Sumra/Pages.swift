@@ -3712,6 +3712,11 @@ private struct WindowScale: NSViewRepresentable {
             let point = CGPoint(x: position.x ?? Double(fallback.x), y: position.y ?? Double(fallback.y)).applying(transform)
             var bounds = contentView.bounds
             bounds.origin = CGPoint(x: frame.minX + point.x, y: frame.minY + point.y)
+            // Reflow can move a source closer to the chapter start than its
+            // saved margin offset. Keep that restoration in its source chapter.
+            if key.continuousReflow, position.nativePassage != nil {
+                bounds.origin.y = max(frame.minY, bounds.origin.y)
+            }
             // DocumentLayout centers a narrow canvas in the usable clip width,
             // after the native scrollers have taken their space.
             if geometry.canvas.width <= bounds.width { bounds.origin.x = 0 }

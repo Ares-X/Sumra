@@ -718,3 +718,6 @@
 "x %d, y %d, width %d, height %d" = "x %d, y %d, กว้าง %d, สูง %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,width,height; เว้นว่างเพื่อใช้ช่องเดิมหรือให้มองไม่เห็น";
 "Export Outline…" = "ส่งออกโครงร่าง…";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "ไม่สามารถเปิด %@ ได้";

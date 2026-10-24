@@ -1589,6 +1589,49 @@ final class MarkupReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testFragmentsReachLaterColumnsForGeneratedMarkdownAnchorsAndContentIDs() async throws {
+        let paragraphs = (0..<80).map { "Paragraph \($0) of the surrounding text.\n\n" }.joined()
+        let fixtures = [
+            ("Book.md", "# Title\n\n[Jump to final section](#final-section)\n\n" + paragraphs + "## Final section\n\n" + paragraphs),
+            ("Book.html", "<!doctype html><a href='#final-section'>Jump to final section</a>" +
+                String(repeating: "<p>Surrounding paragraph for a later column.</p>", count: 80) +
+                "<h2 id='final-section'>Final section</h2>" + String(repeating: "<p>Following paragraph.</p>", count: 80))
+        ]
+        for (name, contents) in fixtures {
+            let (_, _, view) = try await reader([name: contents], opened: name)
+            let result = try await evaluate("""
+                const target = document.getElementById('final-section');
+                const heading = target.matches('a:empty') ? target.nextElementSibling : target;
+                const generatedAnchor = target.matches('a:empty') && heading.matches('h2');
+                const positions = [];
+                for (const flow of ['paged', 'continuous']) {
+                    await window.leafCommand({name:'style',flow,spread:false,rtl:false});
+                    await window.leafCommand({name:'location',text:'first'});
+                    const before = heading.getBoundingClientRect();
+                    await window.leafCommand({name:'href',text:new URL('#final-section',location.href).href});
+                    const rect = (flow === 'paged' ? heading : target).getBoundingClientRect();
+                    positions.push({flow,offset:flow === 'paged' ? scrollX : scrollY,
+                        later:flow === 'paged' ? before.left >= innerWidth : before.top >= innerHeight,
+                        visible:rect.left >= -1 && rect.right <= innerWidth + 1 && rect.bottom > 0 && rect.top < innerHeight,
+                        top:rect.top});
+                }
+                return {generatedAnchor,positions};
+                """, view) as? [String: Any]
+            XCTAssertEqual(result?["generatedAnchor"] as? Bool, name.hasSuffix(".md"))
+            let positions = try XCTUnwrap(result?["positions"] as? [[String: Any]])
+            XCTAssertEqual(positions.count, 2)
+            for position in positions {
+                XCTAssertEqual(position["later"] as? Bool, true, "\(name): \(position)")
+                XCTAssertGreaterThan(try XCTUnwrap(position["offset"] as? Double), 0, "\(name): \(position)")
+                XCTAssertEqual(position["visible"] as? Bool, true, "\(name): \(position)")
+                if position["flow"] as? String == "continuous" {
+                    XCTAssertEqual(try XCTUnwrap(position["top"] as? Double), 0, accuracy: 2)
+                }
+            }
+        }
+    }
+
+    @MainActor
     func testFragmentRestoreWaitsForFontsBeforeAcknowledgingTheNextCommand() async throws {
         let paragraphs = (0..<80).map { "Paragraph \($0) of the surrounding text.\n\n" }.joined()
         let (state, coordinator, view) = try await reader([
