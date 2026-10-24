@@ -2,6 +2,7 @@
 import AppKit
 import SwiftUI
 import XCTest
+import SumraCore
 @testable import Sumra
 
 @MainActor
@@ -54,11 +55,31 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         inspectModal { content in
             let picker = try XCTUnwrap(self.descendants(content, of: NSPopUpButton.self).first)
             self.assertClickable(picker, in: content)
-            XCTAssertEqual(picker.numberOfItems, ReaderTheme.all.count)
-            picker.selectItem(at: try XCTUnwrap(ReaderTheme.all.firstIndex { $0.id == "light-warm" }))
+            let choices = ReaderTheme.choices(selected: state.theme)
+            XCTAssertEqual(picker.numberOfItems, choices.count)
+            picker.selectItem(at: try XCTUnwrap(choices.firstIndex { $0.id == "light-warm" }))
         }
         ReaderMenuCommand.setTheme.run(state)
         XCTAssertEqual(state.theme, "light-warm")
+    }
+
+    func testApplyingUnchangedThemePreservesSystemAndSavedRetiredChoice() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let keys = ["theme", "lastLightTheme", "lastDarkTheme"]
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        let state = ReaderState(recordsHistory: false)
+        for id in ["system", "solarized-dark"] {
+            state.theme = id
+            inspectModal { content in
+                let chooser = try XCTUnwrap(self.descendants(content, of: ReaderThemeSelectionView.self).first)
+                XCTAssertEqual(chooser.selected.id, id)
+                XCTAssertEqual(chooser.preview.theme, try XCTUnwrap(ReaderTheme.resolve(id)))
+            }
+            state.chooseTheme()
+            XCTAssertEqual(state.theme, id, "Applying without changing the selection must retain its behavior")
+        }
     }
 
     func testDocumentColorEditorAppliesPreviewsAndPersistsAllThreeColors() throws {
@@ -141,6 +162,41 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertEqual(state.pendingReflowPosition?.font, "Georgia")
         panel.close()
         XCTAssertEqual(state.font, "Iowan Old Style", "Closing the live panel retains its applied changes")
+    }
+
+    func testCSSDraftEditorLoadsSavedContentAndFollowsExternalDraftChanges() async throws {
+        _ = NSApplication.shared
+        let draft = CSSDraft("p { text-align: justify; }")
+        let host = NSHostingView(rootView: CSSDraftHost(draft: draft))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 200),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let editor = try XCTUnwrap(descendants(host, of: NSTextView.self).first)
+        XCTAssertEqual(editor.string, draft.text, "Reopening the editor must display saved CSS")
+        window.makeFirstResponder(editor)
+        editor.insertText("p { color: #aa0000; }", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        XCTAssertEqual(draft.text, "p { color: #aa0000; }", "Normal native editing must update the draft")
+        for value in ["h1 { color: navy; }", ""] {
+            draft.text = value
+            for _ in 0..<100 where editor.string != value {
+                try await Task.sleep(nanoseconds: 10_000_000)
+                host.layoutSubtreeIfNeeded()
+            }
+            XCTAssertEqual(editor.string, value, "Replacing the document must replace the visible CSS")
+        }
+    }
+
+    private final class CSSDraft: ObservableObject {
+        @Published var text: String
+        init(_ text: String) { self.text = text }
+    }
+    private struct CSSDraftHost: View {
+        @ObservedObject var draft: CSSDraft
+        var body: some View { ReaderCSSDraftEditor(text: $draft.text) }
     }
 
     func testCancelKeepsThemeColorsAndClosingUntouchedTypographyPanelKeepsFont() throws {

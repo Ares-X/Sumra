@@ -4,7 +4,7 @@ import SumraCore
 
 extension ReaderState {
     func chooseTheme() {
-        let chooser = ReaderThemeSelectionView(themes: ReaderTheme.all, selected: theme)
+        let chooser = ReaderThemeSelectionView(themes: ReaderTheme.choices(selected: theme), selected: theme)
         let alert = NSAlert(); alert.messageText = L("Choose Theme…")
         alert.accessoryView = chooser
         alert.addButton(withTitle: L("Apply")); alert.addButton(withTitle: L("Cancel"))
