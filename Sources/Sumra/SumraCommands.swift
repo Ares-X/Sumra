@@ -49,6 +49,7 @@ final class ReaderUndoCommands: ObservableObject {
 }
 
 struct SumraCommands: Commands {
+    let application: ReaderApplicationDelegate
     @ObservedObject var undoCommands: ReaderUndoCommands
     @FocusedObject private var state: ReaderState?
     @AppStorage("language") private var language = "system"
@@ -56,6 +57,7 @@ struct SumraCommands: Commands {
 
     var body: some Commands {
         let _ = language
+        let _ = application.installWindowOpener { [openWindow] in openWindow(id: "reader", value: $0) }
         applicationCommands
         readingCommands
         documentTools
@@ -92,21 +94,17 @@ struct SumraCommands: Commands {
         CommandGroup(replacing: .printItem) {
             ReaderCommandButton(command: .print)
         }
-        CommandGroup(replacing: .undoRedo) {
-            Button(L("Undo")) { undoCommands.perform(redo: false) }
-                .keyboardShortcut("z").disabled(!undoCommands.enabled(redo: false, state: state))
-            Button(L("Redo")) { undoCommands.perform(redo: true) }
-                .keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!undoCommands.enabled(redo: true, state: state))
-        }
-        CommandGroup(replacing: .pasteboard) {
-            Button(L("Cut")) { NSApp.sendAction(Selector(("cut:")), to: nil, from: nil) }.keyboardShortcut("x")
-            ReaderCommandButton(command: .copy)
-            ReaderCommandButton(command: .copyImage)
-            Button(L("Paste")) { NSApp.sendAction(Selector(("paste:")), to: nil, from: nil) }.keyboardShortcut("v")
-            ReaderCommandButton(command: .selectAll)
-            buttons([.selectCurrentPage, .selectRectangle, .copySelectionImage, .saveSelection, .printSelection, .copyLocation, .keyboardSelection])
+        if state?.nativePDF != nil && !undoCommands.isEditingText {
+            CommandGroup(replacing: .undoRedo) {
+                Button(L("Undo")) { undoCommands.perform(redo: false) }
+                    .keyboardShortcut("z").disabled(!undoCommands.enabled(redo: false, state: state))
+                Button(L("Redo")) { undoCommands.perform(redo: true) }
+                    .keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!undoCommands.enabled(redo: true, state: state))
+            }
         }
         CommandGroup(after: .pasteboard) {
+            ReaderCommandButton(command: .copyImage)
+            buttons([.selectCurrentPage, .selectRectangle, .copySelectionImage, .saveSelection, .printSelection, .copyLocation, .keyboardSelection])
             Menu(L("Find")) {
                 buttons([.find, .findNext, .findPrevious, .findSelectionNext, .findSelectionPrevious])
                 Divider()

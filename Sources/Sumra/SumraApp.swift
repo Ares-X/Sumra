@@ -242,7 +242,7 @@ private struct WindowTabs: NSViewRepresentable {
 }
 
 @MainActor
-final class ReaderCloseGuard: NSObject, NSWindowDelegate {
+final class ReaderCloseGuard: NSObject, NSWindowDelegate, NSUserInterfaceValidations {
     weak var state: ReaderState?
     // NSWindow caches forwarded notification selectors while this proxy is installed.
     let previous: NSWindowDelegate?
@@ -250,6 +250,14 @@ final class ReaderCloseGuard: NSObject, NSWindowDelegate {
     init(state: ReaderState?, previous: NSWindowDelegate?) {
         self.state = state
         self.previous = previous
+    }
+    // Preserve reader selection commands when a sibling sidebar has focus.
+    @objc func copy(_ sender: Any?) { state?.send(.copy) }
+    @objc func selectAll(_ sender: Any?) { state?.send(.selectAll) }
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(copy(_:)) { return ReaderMenuCommand.copy.enabled(state) }
+        if item.action == #selector(selectAll(_:)) { return ReaderMenuCommand.selectAll.enabled(state) }
+        return (previous as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item) ?? true
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let state else { return previous?.windowShouldClose?(sender) ?? true }
@@ -285,10 +293,19 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     private var pendingSyncTeX: [SyncTeXForwardRequest] = []
     private var syncTeXTasks: [String: Task<Void, Never>] = [:]
     private var createWindow: ((WindowPayload) -> Void)?
+    private var hasFinishedLaunching = false
     private weak var emptyReader: ReaderState?
 
-    // Finder may deliver files before a SwiftUI scene has installed its
-    // OpenWindowAction. Keep the request until that existing owner is ready.
+    // Finder can launch the app without creating an initial reader scene.
+    // Commands installs the app-wide action without requiring a window first.
+    func installWindowOpener(_ opener: @escaping (WindowPayload) -> Void) {
+        guard createWindow == nil else { return }
+        createWindow = opener
+        // Registration happens while SwiftUI builds commands. Open scenes only
+        // after that update, also allowing an existing Home to connect first.
+        Task { @MainActor [weak self] in self?.openPendingFiles() }
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         pendingFiles.append(contentsOf: urls.filter(\.isFileURL))
         for url in urls where url.scheme?.lowercased() == "sumra" {
@@ -300,18 +317,24 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
 
     func connect(_ state: ReaderState, canReuse: Bool) {
         guard state.window != nil else { return }
-        createWindow = state.createWindow
         // A restoration payload can still be waiting for its .task even
         // though its state has no document yet. Never replace that request.
         if canReuse, state.document == nil, !state.busy { emptyReader = state }
         openPendingFiles()
     }
 
+    // Let an initial Home connect during launch before opening pending books,
+    // so a later empty Home cannot cover an already opened book.
+    func finishLaunching() {
+        hasFinishedLaunching = true
+        openPendingFiles()
+    }
+
     private func openPendingFiles() {
-        guard !pendingFiles.isEmpty || !pendingSyncTeX.isEmpty else { return }
+        guard hasFinishedLaunching, let createWindow,
+              !pendingFiles.isEmpty || !pendingSyncTeX.isEmpty else { return }
         // Finder and editor requests can arrive before SwiftUI installs a window.
         NSApp.activate(ignoringOtherApps: true)
-        guard let createWindow else { return }
         let urls = pendingFiles
         pendingFiles.removeAll()
         for url in urls {
@@ -369,6 +392,7 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
         undoCommands.update()
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        finishLaunching()
         ScreenshotHotkey.restore()
         ReaderHelp.checkForUpdatesOnLaunch()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown, .otherMouseDown, .scrollWheel]) { [self] event in
@@ -402,7 +426,12 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
                 return shortcut.modifiers == flags && String(shortcut.key.character).lowercased() == event.characters(byApplyingModifiers: [])?.lowercased()
             }
             for command in ReaderMenuCommand.allCases where command.enabled(state) {
-                let extra = readerShortcutBindings(overrides[command.id] ?? command.defaultShortcut).dropFirst()
+                // Standard editing menus target the native responder, including
+                // modal text fields. Reader overrides belong only to the book.
+                let nativeEditing = command == .copy || command == .selectAll
+                if nativeEditing && typing { continue }
+                let bindings = readerShortcutBindings(overrides[command.id] ?? command.defaultShortcut)
+                let extra = nativeEditing ? bindings[...] : bindings.dropFirst()
                 if extra.contains(where: matches) {
                     if command == .open {
                         chooseDocuments { urls in
@@ -1400,13 +1429,19 @@ struct SumraApp: App {
         .defaultSize(width: 900, height: 740)
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unifiedCompact)
-        .commands { SumraCommands(undoCommands: delegate.undoCommands) }
+        // AppKit's delegate owns Finder files and SyncTeX URLs. Let it receive
+        // those requests instead of SwiftUI consuming them for an empty scene.
+        .handlesExternalEvents(matching: [])
+        .commands { SumraCommands(application: delegate, undoCommands: delegate.undoCommands) }
 
         Settings {
             SettingsView()
                 .modifier(ReaderLanguage())
         }
-        Window("Bookmarks", id: "bookmarks") { BookmarkBrowser().modifier(ReaderLanguage()) }.defaultSize(width: 460, height: 480)
+        .handlesExternalEvents(matching: [])
+        Window("Bookmarks", id: "bookmarks") { BookmarkBrowser().modifier(ReaderLanguage()) }
+            .defaultSize(width: 460, height: 480)
+            .handlesExternalEvents(matching: [])
     }
 }
 

@@ -4,7 +4,7 @@ import SumraCore
 
 extension ReaderState {
     func chooseTheme() {
-        let chooser = ReaderThemeSelectionView(themes: ReaderTheme.all, selected: theme)
+        let chooser = ReaderThemeSelectionView(themes: ReaderTheme.choices(selected: theme), selected: theme)
         let alert = NSAlert(); alert.messageText = L("Choose Theme…")
         alert.accessoryView = chooser
         alert.addButton(withTitle: L("Apply")); alert.addButton(withTitle: L("Cancel"))
@@ -18,7 +18,7 @@ extension ReaderState {
 
     func editTheme(_ base: ReaderTheme) {
         let editor = ReaderThemeEditorView(theme: base)
-        let alert = NSAlert(); alert.messageText = L("Customize Theme…")
+        let alert = ReaderThemeAlert(); alert.messageText = L("Customize Theme…")
         alert.accessoryView = editor
         let save = alert.addButton(withTitle: L("Save and Apply"))
         alert.addButton(withTitle: L("Cancel"))
@@ -49,7 +49,7 @@ extension ReaderState {
     }
 
     func configureDocumentColors() {
-        let alert = NSAlert(); alert.messageText = L("Custom Document Colors…")
+        let alert = ReaderThemeAlert(); alert.messageText = L("Custom Document Colors…")
         let editor = ReaderThemeEditorView(theme: palette, editsName: false)
         alert.accessoryView = editor
         let apply = alert.addButton(withTitle: L("Apply"))
@@ -854,8 +854,23 @@ final class ReaderThemeSelectionView: NSStackView {
     @objc private func changed() { preview.theme = selected }
 }
 
+final class ReaderThemeColorWell: NSColorWell {
+    override func mouseDown(with event: NSEvent) {
+        let selected = isActive
+        super.mouseDown(with: event)
+        // This dialog keeps its selected target until dismissal; the standard
+        // toggle otherwise leaves a visible picker with no color to edit.
+        if selected && !isActive { activate(true) }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        activate(true)
+        return true
+    }
+}
+
 final class ReaderThemeColorInput: NSStackView, NSTextFieldDelegate {
-    let well = NSColorWell(), hex = NSTextField()
+    let well = ReaderThemeColorWell(), hex = NSTextField()
     var onChange: (() -> Void)?
     var value: UInt32? {
         let input = hex.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -884,6 +899,26 @@ final class ReaderThemeColorInput: NSStackView, NSTextFieldDelegate {
         if let value { well.color = ReaderTheme.color(value) }
         hex.textColor = value == nil ? .systemRed : .labelColor
         onChange?()
+    }
+}
+
+// NSAlert is its window's delegate. Supply its literal text fields with a field
+// editor that cannot synchronize text formatting into the active color panel.
+private final class ReaderThemeAlert: NSAlert, NSWindowDelegate {
+    private let colorFieldEditor: NSTextView = {
+        let editor = FieldEditor(frame: .zero)
+        editor.isFieldEditor = true
+        return editor
+    }()
+    func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? { colorFieldEditor }
+
+    private final class FieldEditor: NSTextView {
+        override func becomeFirstResponder() -> Bool {
+            // AppKit configures field-editor attributes for each new field.
+            // Set this after that configuration, before it updates the panel.
+            usesFontPanel = false
+            return super.becomeFirstResponder()
+        }
     }
 }
 

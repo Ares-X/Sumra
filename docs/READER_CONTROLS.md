@@ -5,7 +5,25 @@ the visible document while the panel stays open. Typography includes installed
 font families and an editable name for supplemental fonts, size, line spacing,
 and margins. The existing native passage anchor keeps reflowable text at its
 reading location. Theme and layout controls share the reader's existing settings;
-Advanced Typography and CSS retains custom CSS and document-style choices.
+Choose Theme and Custom Document Colors are available directly in the panel.
+Clicking the selected color well again keeps the system picker connected to it;
+choosing another well changes the active target. Apply and Cancel close the picker.
+Following the system appearance remains selected when a theme dialog is applied
+unchanged. A document's previously saved retired palette is shown only while it
+is selected; the built-in presets remain limited to five.
+
+Advanced Typography and CSS uses drafts until **Apply Margins and CSS** (or Return
+in the margins field). The panel names the current document and refreshes its
+drafts when another document replaces it. The basic margin slider follows the
+applied advanced margins; unequal edges are labelled **Custom**. Moving that
+slider sets equal edges and updates the advanced draft, so applying CSS does not
+restore an older margin value. Closing the panel discards unapplied drafts and
+retains changes already applied to the document.
+The plain-text CSS editor loads the saved draft when reopened and replaces its
+visible contents when the current document changes, including an empty draft.
+An open panel follows interface-language changes without discarding its drafts.
+Its compact margin label rounds for display; the advanced values retain their
+full precision.
 
 For fixed pages, **Keep scroll position when turning pages** preserves the visible
 origin as fractions of the displayed page dimensions, including rotated pages.

@@ -141,14 +141,43 @@ final class ReaderLifecycleTests: XCTestCase {
     }
 
     @MainActor
-    func testFinderOpenWaitsForReaderWindowAndDoesNotReuseAClosedWindow() async throws {
+    func testFinderOpenCreatesFirstWindowWithoutAnExistingReader() async {
+        let app = NSApplication.shared
+        let urls = ["/first.txt", "/second.txt"].map { URL(fileURLWithPath: $0) }
+        let orders = [["files", "opener", "launch"], ["files", "launch", "opener"],
+                      ["opener", "files", "launch"], ["opener", "launch", "files"],
+                      ["launch", "files", "opener"], ["launch", "opener", "files"]]
+        for order in orders {
+            let delegate = ReaderApplicationDelegate()
+            var created = [WindowPayload]()
+            for (index, event) in order.enumerated() {
+                switch event {
+                case "files": delegate.application(app, open: urls)
+                case "opener": delegate.installWindowOpener { created.append($0) }
+                default: delegate.finishLaunching()
+                }
+                await Task.yield()
+                if index < 2 { XCTAssertTrue(created.isEmpty, "Files need both a scene opener and completed app launch") }
+            }
+            let deadline = Date().addingTimeInterval(3)
+            while created.count < urls.count, Date() < deadline {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            XCTAssertEqual(created.map(\.path), urls.map(\.path))
+            delegate.application(app, open: [urls[0]])
+            XCTAssertEqual(created.map(\.path), [urls[0].path, urls[1].path, urls[0].path])
+        }
+    }
+
+    @MainActor
+    func testFinderOpenReusesLiveHomeAndDoesNotReuseAClosedWindow() async throws {
         let app = NSApplication.shared
         let defaults = UserDefaults.standard, previous = defaults.object(forKey: "disableHistory")
         defaults.set(true, forKey: "disableHistory")
         defer { defaults.set(previous, forKey: "disableHistory") }
         let directory = try TemporaryDirectory(), url = directory.url.appendingPathComponent("opening.txt")
         try "Finder opening fixture".write(to: url, atomically: true, encoding: .utf8)
-        for windowFirst in [false, true] {
+        for openerFirst in [false, true] {
             let delegate = ReaderApplicationDelegate(), state = ReaderState(recordsHistory: false)
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: 400),
                                   styleMask: .borderless, backing: .buffered, defer: false)
@@ -156,14 +185,11 @@ final class ReaderLifecycleTests: XCTestCase {
             defer { state.windowClosed(); window.close(); withExtendedLifetime(directory) {} }
             var created = [WindowPayload]()
             delegate.application(app, open: [url])
-            if windowFirst { state.window = window }
-            else { state.createWindow = { created.append($0) } }
-            delegate.connect(state, canReuse: true)
-            XCTAssertTrue(created.isEmpty, "The initial Home must be ready before pending files are dispatched")
-            XCTAssertNil(state.document)
+            if openerFirst { delegate.installWindowOpener { created.append($0) } }
             state.window = window
-            state.createWindow = { created.append($0) }
             delegate.connect(state, canReuse: true)
+            if !openerFirst { delegate.installWindowOpener { created.append($0) } }
+            delegate.finishLaunching()
             let deadline = Date().addingTimeInterval(3)
             while state.document == nil, state.error == nil, Date() < deadline {
                 try await Task.sleep(nanoseconds: 10_000_000)

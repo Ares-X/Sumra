@@ -5532,6 +5532,7 @@ struct NativeReadingAccessibilitySnapshot {
         @objc private func copySelection() { state?.send(.copy) }
         @objc private func copySelectedAnnotation() { state?.send(.annotate("copy")) }
         @objc func copy(_ sender: Any?) { state?.send(.copy) }
+        override func selectAll(_ sender: Any?) { state?.send(.selectAll) }
         @objc func cut(_ sender: Any?) { state?.send(.annotate("cut")) }
         @objc func paste(_ sender: Any?) {
             state?.send(.annotate("paste", at: (sender as? NSMenuItem)?.representedObject as? ReadingPosition))

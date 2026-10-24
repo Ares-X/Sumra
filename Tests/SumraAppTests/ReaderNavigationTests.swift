@@ -9,6 +9,44 @@ import SumraCore
 
 final class ReaderNavigationTests: XCTestCase {
     @MainActor
+    func testNativeEditingOverridesReachBookButLeaveTextFieldsToAppKit() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, keys = ["shortcuts", "customCommands", "externalCommands"]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        defaults.set("{\"copy\":\"cmd+shift+c;cmd+alt+c\",\"selectAll\":\"cmd+shift+a;cmd+alt+a\"}", forKey: "shortcuts")
+        defaults.set("[]", forKey: "customCommands"); defaults.set("[]", forKey: "externalCommands")
+        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
+        let state = ReaderState(recordsHistory: false)
+        state.document = try nativePDFReadingFixture(); state.count = 1
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: 500),
+            styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; state.window = window
+        let closeGuard = ReaderCloseGuard(state: state, previous: nil)
+        window.delegate = closeGuard
+        let editor = NSTextView(frame: window.contentLayoutRect)
+        window.contentView = editor; window.makeKeyAndOrderFront(nil)
+        let application = ReaderApplicationDelegate()
+        defer {
+            state.windowClosed(); window.contentView = nil; window.close()
+            withExtendedLifetime(closeGuard) {}
+        }
+        for typing in [false, true] {
+            window.makeFirstResponder(typing ? editor : nil)
+            for (key, character) in [(UInt16(8), "c"), (0, "a")] {
+                for modifier: NSEvent.ModifierFlags in [[.command, .shift], [.command, .option]] {
+                    let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                        modifierFlags: modifier, timestamp: 0, windowNumber: window.windowNumber,
+                        context: nil, characters: character, charactersIgnoringModifiers: character,
+                        isARepeat: false, keyCode: key))
+                    let result = application.handleReaderEvent(event)
+                    XCTAssertEqual(result == nil, !typing,
+                        "binding=\(character), modifiers=\(modifier), typing=\(typing), enabled=\(ReaderMenuCommand.selectAll.enabled(state))")
+                }
+            }
+        }
+    }
+
+    @MainActor
     func testLocalReaderMonitorQueuesRepeatedArrowsAcrossPagedFocusReplacement() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard, keys = ["shortcuts", "customCommands", "externalCommands"]

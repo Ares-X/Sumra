@@ -36,6 +36,7 @@ import SumraCore
 
 @MainActor struct ReaderReadingSettings: View {
     @ObservedObject var state: ReaderState
+    @AppStorage("language") private var language = "system"
     @AppStorage("customThemes") private var customThemes = "[]"
     @AppStorage("preservePageTurnPosition") private var preservePageTurnPosition = false
     @AppStorage("keepZoomOnLinks") private var keepZoomOnLinks = false
@@ -45,17 +46,27 @@ import SumraCore
     @State private var error = ""
 
     private var typographyAvailable: Bool { state.isText || state.isBrowser || state.reflowable }
+    private var uniformMargin: Double? {
+        guard let margins = state.pageMargins else { return state.margin }
+        return margins.values.allSatisfy { $0 == margins.top } ? margins.top : nil
+    }
 
     var body: some View {
+        let _ = language
         let _ = customThemes
         Form {
             Section {
+                if let document = state.document { Text(document.url.lastPathComponent).font(.headline) }
                 Text(L("Changes appear in your document immediately.")).font(.caption).foregroundStyle(.secondary)
                 Picker(L("Theme"), selection: Binding(get: { state.theme }, set: { value in
                     state.captureReflowPosition(); state.setTheme(value)
                 })) {
-                    Text(L("System")).tag("system")
-                    ForEach(ReaderTheme.all) { theme in Text(theme.displayName).tag(theme.id) }
+                    ForEach(ReaderTheme.choices(selected: state.theme)) { theme in Text(theme.displayName).tag(theme.id) }
+                }
+                HStack {
+                    Button(L("Choose Theme…"), action: state.chooseTheme)
+                    Spacer()
+                    Button(L("Custom Document Colors…"), action: state.configureDocumentColors)
                 }
                 if state.supportsPagination {
                     Picker(L("Layout"), selection: Binding(
@@ -86,11 +97,13 @@ import SumraCore
                         Text(state.lineHeight, format: .number.precision(.fractionLength(1))).monospacedDigit().frame(width: 30)
                     }
                     LabeledContent(L("Margins")) {
-                        Slider(value: Binding(get: { state.margin }, set: { value in
+                        Slider(value: Binding(get: { uniformMargin ?? state.margin }, set: { value in
                             state.captureReflowPosition()
                             state.margin = value; state.pageMargins = PageMargins(cssValues: [value]); state.applyTypography()
-                        }), in: 0...96, step: 8)
-                        Text("\(Int(state.margin))").monospacedDigit().frame(width: 30)
+                        }), in: 0...200, step: 1)
+                            .accessibilityLabel(L("Margins"))
+                        Text(uniformMargin.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? L("Custom"))
+                            .monospacedDigit().lineLimit(1).frame(minWidth: 50)
                     }
                     Toggle(L("Use document styles"), isOn: typography(\.useDocumentCSS))
                     Toggle(L("Use Changes as Defaults"), isOn: Binding(get: { state.typographyForAll }, set: { value in
@@ -98,8 +111,9 @@ import SumraCore
                     }))
                     DisclosureGroup(L("Advanced Typography and CSS"), isExpanded: $advanced) {
                         TextField(L("Margins: top right bottom left"), text: $marginsDraft)
+                            .onSubmit(applyAdvanced)
                         Text(L("Leave margins blank to use the document default.")).font(.caption).foregroundStyle(.secondary)
-                        TextEditor(text: $cssDraft).font(.system(.body, design: .monospaced)).frame(height: 135)
+                        ReaderCSSDraftEditor(text: $cssDraft).frame(height: 135)
                         Button(L("Apply Margins and CSS"), action: applyAdvanced)
                         if !error.isEmpty { Text(error).foregroundStyle(.red).font(.caption) }
                     }
@@ -111,10 +125,23 @@ import SumraCore
             }
         }
         .formStyle(.grouped)
-        .onAppear {
-            cssDraft = state.userCSS
-            marginsDraft = state.pageMargins.map { "\($0.top) \($0.right) \($0.bottom) \($0.left)" } ?? ""
+        .onAppear(perform: resetDrafts)
+        .onChange(of: language) { _ in
+            state.window?.childWindows?.first(where: { $0 is ReaderReadingSettingsPanel })?.title = L("Reading Settings")
         }
+        .onChange(of: state.document?.id) { _ in
+            resetDrafts(); advanced = false
+        }
+        .onChange(of: state.pageMargins) { _ in marginsDraft = marginValues }
+        .onChange(of: state.userCSS) { cssDraft = $0 }
+    }
+
+    private var marginValues: String {
+        state.pageMargins.map { $0.values.map { $0 == $0.rounded() ? String(Int($0)) : String($0) }.joined(separator: " ") } ?? ""
+    }
+
+    private func resetDrafts() {
+        cssDraft = state.userCSS; marginsDraft = marginValues; error = ""
     }
 
     private func typography<Value>(_ path: ReferenceWritableKeyPath<ReaderState, Value>, overrideDocumentStyles: Bool = false) -> Binding<Value> {
@@ -132,15 +159,52 @@ import SumraCore
         }
         state.captureReflowPosition()
         state.pageMargins = value.isEmpty ? nil : PageMargins(cssValues: value)
+        if let uniformMargin { state.margin = uniformMargin }
         state.userCSS = cssDraft
         state.applyTypography()
         error = ""
+    }
+}
+
+@MainActor struct ReaderCSSDraftEditor: NSViewRepresentable {
+    @Binding var text: String
+    var label = L("Advanced Typography and CSS")
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        let editor = scroll.documentView as! NSTextView
+        editor.isRichText = false
+        editor.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        editor.isAutomaticQuoteSubstitutionEnabled = false
+        editor.isAutomaticDashSubstitutionEnabled = false
+        editor.isAutomaticTextReplacementEnabled = false
+        editor.setAccessibilityLabel(label)
+        editor.delegate = context.coordinator
+        editor.string = text
+        return scroll
+    }
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.text = $text
+        let editor = scroll.documentView as! NSTextView
+        editor.setAccessibilityLabel(label)
+        if editor.string != text { editor.string = text }
+    }
+
+    @MainActor final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+        func textDidChange(_ notification: Notification) {
+            guard let editor = notification.object as? NSTextView else { return }
+            text.wrappedValue = editor.string
+        }
     }
 }
 // NSComboBox keeps the installed-font list and accepts supplemental family names
 // that macOS can resolve but does not expose in availableFontFamilies.
 @MainActor struct ReaderFontNamePicker: NSViewRepresentable {
     @Binding var selection: String
+    var label = L("Font")
 
     func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
     func makeNSView(context: Context) -> NSComboBox {
@@ -148,13 +212,14 @@ import SumraCore
         combo.isEditable = true
         combo.completes = true
         combo.addItems(withObjectValues: ["system", "serif", "sans-serif", "monospace"] + ReaderFontPicker.families)
-        combo.setAccessibilityLabel(L("Font"))
+        combo.setAccessibilityLabel(label)
         combo.delegate = context.coordinator
         combo.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return combo
     }
     func updateNSView(_ combo: NSComboBox, context: Context) {
         context.coordinator.selection = $selection
+        combo.setAccessibilityLabel(label)
         if combo.currentEditor() == nil { combo.stringValue = selection }
     }
 

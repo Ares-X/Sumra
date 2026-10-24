@@ -528,7 +528,15 @@
  }
 --- a/source/html/epub-doc.c
 +++ b/source/html/epub-doc.c
-@@ -77,6 +77,7 @@
+@@ -55,6 +55,7 @@
+ 	epub_chapter **spine;
+ 	fz_outline *outline;
+ 	char *dc_title, *dc_creator;
++	char *cover_image; /* Resolved OPF cover-image resource, independent of its chapter id. */
+ 	int reading_direction; /* 0: absent, 1: declared LTR/default, 2: declared RTL */
+ 	int fixed_chapters, reflow_chapters;
+ 	epub_accelerator *accel;
+@@ -77,6 +78,7 @@
  	char *path;
  	int number;
  	int fixed_layout;
@@ -536,28 +544,141 @@
  };
  
  struct epub_page
-@@ -483,7 +484,7 @@
+@@ -462,6 +464,31 @@
+ 	return ch;
+ }
+ 
++/* Resource identity connects the OPF image declaration to its XHTML/SVG
++ * presentation. The HTML owner still decides whether this is a single-image page. */
++static int
++epub_uses_cover_image(fz_xml *node, const char *base_uri, const char *cover_image)
++{
++	for (; node; node = fz_xml_next(node))
++	{
++		const char *src = fz_xml_is_tag(node, "img") ? fz_xml_att(node, "src") : NULL;
++		if (fz_xml_is_tag(node, "image"))
++		{
++			src = fz_xml_att(node, "xlink:href");
++			if (!src) src = fz_xml_att(node, "href");
++		}
++		if (src)
++		{
++			char path[2048];
++			fz_snprintf(path, sizeof path, "%s/%s", base_uri, src);
++			fz_cleanname(fz_urldecode(path));
++			if (!strcmp(path, cover_image)) return 1;
++		}
++		if (epub_uses_cover_image(fz_xml_down(node), base_uri, cover_image)) return 1;
++	}
++	return 0;
++}
++
+ static fz_html *
+ epub_parse_chapter(fz_context *ctx, epub_document *doc, epub_chapter *ch)
+ {
+@@ -469,6 +496,8 @@
+ 	fz_buffer *buf;
+ 	char base_uri[2048];
+ 	fz_html *html;
++	fz_xml *dom = NULL;
++	fz_var(dom);
+ 
+ 	/* Look for one we made earlier */
+ 	html = fz_find_html(ctx, doc, ch->number);
+@@ -481,12 +510,26 @@
+ 	if (!buf)
+ 		buf = fz_new_buffer_from_printf(ctx, "<html><body><p><i>ERROR: cannot find chapter %<</i></p></body></html>", ch->path);
  	fz_try(ctx)
- 		html = fz_parse_html(ctx, doc->set, zip, base_uri, buf,
- 			ch->fixed_layout ? NULL : doc->super.user_css, 1, 1,
+-		html = fz_parse_html(ctx, doc->set, zip, base_uri, buf,
+-			ch->fixed_layout ? NULL : doc->super.user_css, 1, 1,
 -			ch->fixed_layout ? FZ_HTML_FLAVOR_EPUB_FIXED : FZ_HTML_FLAVOR_DEFAULT,
-+			ch->fixed_layout ? FZ_HTML_FLAVOR_EPUB_FIXED : ch->cover ? FZ_HTML_FLAVOR_EPUB_COVER : FZ_HTML_FLAVOR_DEFAULT,
- 			ch->fixed_layout ? 1 : doc->super.publisher_css);
+-			ch->fixed_layout ? 1 : doc->super.publisher_css);
++	{
++		if (!ch->fixed_layout && doc->cover_image)
++		{
++			dom = fz_parse_html_dom(ctx, buf, 1, 1);
++			int cover = ch->cover || epub_uses_cover_image(fz_dom_body(ctx, dom), base_uri, doc->cover_image);
++			html = fz_parse_html_dom_chapter(ctx, doc->set, zip, base_uri, dom, doc->super.user_css,
++				cover ? FZ_HTML_FLAVOR_EPUB_COVER : FZ_HTML_FLAVOR_DEFAULT, doc->super.publisher_css,
++				NULL, NULL, NULL);
++		}
++		else
++			html = fz_parse_html(ctx, doc->set, zip, base_uri, buf,
++				ch->fixed_layout ? NULL : doc->super.user_css, 1, 1,
++				ch->fixed_layout ? FZ_HTML_FLAVOR_EPUB_FIXED : ch->cover ? FZ_HTML_FLAVOR_EPUB_COVER : FZ_HTML_FLAVOR_DEFAULT,
++				ch->fixed_layout ? 1 : doc->super.publisher_css);
++	}
  	fz_always(ctx)
++	{
++		fz_drop_xml(ctx, dom);
  		fz_drop_buffer(ctx, buf);
-@@ -1026,7 +1027,7 @@
++	}
+ 	fz_catch(ctx)
+ 		fz_rethrow(ctx);
+ 
+@@ -692,6 +735,7 @@
+ 		fz_free(ctx, ch);
+ 	}
+ 	fz_free(ctx, doc->spine);
++	fz_free(ctx, doc->cover_image);
+ 	epub_drop_accelerator(ctx, doc->accel);
+ 	fz_drop_archive(ctx, doc->zip);
+ 	fz_drop_html_font_set(ctx, doc->set);
+@@ -914,7 +958,7 @@
+ 	return head;
+ }
+ static void
+-epub_parse_nav(fz_context *ctx, epub_document *doc, const char *path)
++epub_parse_nav(fz_context *ctx, epub_document *doc, const char *path, char *cover, size_t cover_size)
+ {
+ 	fz_archive *zip = doc->zip;
+ 	fz_buffer *buf = NULL;
+@@ -931,8 +975,18 @@
+ 		buf = fz_read_archive_entry(ctx, zip, path);
+ 		nav_doc = fz_parse_xml(ctx, buf, 0);
+ 		nav = fz_xml_find_dfs(fz_xml_root(nav_doc), "nav", "epub:type", "toc");
+-		if (nav)
++		if (nav && !doc->outline)
+ 			doc->outline = epub_parse_nav_imp(ctx, doc, fz_xml_find_down(nav, "ol"), base_uri, 0);
++		nav = fz_xml_find_dfs(fz_xml_root(nav_doc), "nav", "epub:type", "landmarks");
++		fz_xml *anchor = fz_xml_find_dfs(nav, "a", "epub:type", "cover");
++		const char *href = fz_xml_att(anchor, "href");
++		if (!cover[0] && href)
++		{
++			fz_snprintf(cover, cover_size, "%s/%s", base_uri, href);
++			fz_cleanname(fz_urldecode(cover));
++			char *fragment = strchr(cover, '#');
++			if (fragment) *fragment = 0;
++		}
+ 	}
+ 	fz_always(ctx)
+ 	{
+@@ -1026,7 +1080,8 @@
  	char base_uri[2048];
  	const char *full_path;
  	const char *version;
 -	char ncx[2048], s[2048];
-+	char ncx[2048], s[2048], cover[2048] = "";
++	char ncx[2048], s[2048], cover[2048] = "", cover_image[2048] = "";
++	const char *cover_id = NULL;
  	char *prefixed_full_path = NULL;
  	size_t prefix_len;
  	int i, fixed_layout = 0;
-@@ -1111,6 +1112,18 @@
+@@ -1105,12 +1160,30 @@
+ 			for (meta = fz_xml_find_down(metadata, "meta"); meta; meta = fz_xml_find_next(meta, "meta"))
+ 			{
+ 				const char *property = fz_xml_att(meta, "property");
++				const char *name = fz_xml_att(meta, "name");
++				if (name && !strcmp(name, "cover")) cover_id = fz_xml_att(meta, "content");
+ 				if (property && !strcmp(property, "rendition:layout") && !fz_xml_att(meta, "refines"))
+ 					fixed_layout = has_property(fz_xml_text(fz_xml_down(meta)), "pre-paginated");
+ 			}
  		}
  
  		manifest = fz_xml_find_down(package, "manifest");
++		path_from_idref(cover_image, manifest, base_uri, cover_id, sizeof cover_image);
++		for (fz_xml *item = fz_xml_find_down(manifest, "item"); item; item = fz_xml_find_next(item, "item"))
++			if (has_property(fz_xml_att(item, "properties"), "cover-image"))
++				path_from_idref(cover_image, manifest, base_uri, fz_xml_att(item, "id"), sizeof cover_image);
 +		fz_xml *guide = fz_xml_find_down(package, "guide");
 +		for (fz_xml *ref = fz_xml_find_down(guide, "reference"); ref; ref = fz_xml_find_next(ref, "reference"))
 +		{
@@ -573,12 +694,44 @@
  		spine = fz_xml_find_down(package, "spine");
  		const char *direction = fz_xml_att(spine, "page-progression-direction");
  		if (direction)
-@@ -1156,6 +1169,8 @@
+@@ -1120,9 +1193,27 @@
+ 		{
+ 			epub_parse_ncx(ctx, doc, ncx);
+ 		}
+-		else if (path_from_prop(ncx, manifest, base_uri, "nav", sizeof(ncx)))
+-		{
+-			epub_parse_nav(ctx, doc, ncx);
++		if (path_from_prop(ncx, manifest, base_uri, "nav", sizeof(ncx)))
++			epub_parse_nav(ctx, doc, ncx, cover, sizeof cover);
++
++		/* A guide may identify the cover image itself rather than an XHTML page. */
++		for (fz_xml *item = fz_xml_find_down(manifest, "item"); item; item = fz_xml_find_next(item, "item"))
++		{
++			const char *type = fz_xml_att(item, "media-type");
++			if (type && !strncmp(type, "image/", 6) &&
++				path_from_idref(s, manifest, base_uri, fz_xml_att(item, "id"), sizeof s) && !strcmp(s, cover))
++				fz_strlcpy(cover_image, s, sizeof cover_image);
++		}
++		if (cover_image[0]) doc->cover_image = fz_strdup(ctx, cover_image);
++
++		/* Only the first linear spine item is a structural cover candidate.
++		 * Its HTML normalizer leaves authored text and captions untouched. */
++		fz_xml *first_linear = fz_xml_find_down(spine, "itemref");
++		while (first_linear)
++		{
++			const char *linear = fz_xml_att(first_linear, "linear");
++			if (!linear || strcmp(linear, "no")) break;
++			first_linear = fz_xml_find_next(first_linear, "itemref");
+ 		}
+ 
+ 		// count number of chapters
+@@ -1156,6 +1247,9 @@
  				fz_try(ctx)
  				{
  					doc->spine[i] = epub_load_chapter(ctx, doc, s, i);
 +					const char *idref = fz_xml_att(itemref, "idref");
-+					doc->spine[i]->cover = !strcmp(s, cover) || (i == 0 && idref && !fz_strcasecmp(idref, "cover"));
++					doc->spine[i]->cover = itemref == first_linear || !strcmp(s, cover) ||
++						(i == 0 && idref && !fz_strcasecmp(idref, "cover"));
  					doc->spine[i]->fixed_layout = fixed || (!reflow && fixed_layout);
  					if (doc->spine[i]->fixed_layout)
  						++doc->fixed_chapters;
@@ -600,6 +753,14 @@
  	unsigned int page_break_before : 3;
  	unsigned int page_break_after : 3;
  	unsigned int visibility : 2;
+@@ -353,6 +355,7 @@
+ 	fz_storable storable;
+ 	fz_pool *pool; /* pool allocator for this html tree */
+ 	fz_html_box *root;
++	float image_cover_aspect; /* Set only by successful single-image cover normalization. */
+ 	/* Nodes stay in the original tree pool; only these O(1) directories move. */
+ 	void **flow_blocks, **flow_escape, **box_directory;
+ 	size_t flow_block_count, flow_block_capacity, flow_block_offset;
 --- a/source/html/html-layout.c
 +++ b/source/html/html-layout.c
 @@ -605,6 +605,7 @@
@@ -610,11 +771,10 @@
  	/* The ancestor trbl is the trbl for the last positioned
  	 * node we have walked though. Boxes with "absolute" positioning
  	 * will be positioned relative to this. Initially this will be the
-@@ -1076,6 +1077,18 @@
- 				node->w = node->h * aspect;
+@@ -1077,6 +1078,18 @@
  			if (width.unit != N_AUTO && height.unit == N_AUTO)
  				node->h = (aspect == 0) ? 0 : (node->w / aspect);
-+
+ 
 +			/* Reserve enclosing block insets, rather than earlier paragraphs:
 +			 * an oversized image must fit one page without consuming a blank
 +			 * page just to accommodate its own top/bottom margins. */
@@ -626,9 +786,19 @@
 +							ancestor->u.block.border[T] + ancestor->u.block.border[B];
 +			if (ld->figure_image_height > 0)
 +				max_h = fz_min(max_h, ld->figure_image_height);
- 
++
  			/* Shrink image to fit on one page if needed */
  			if (!ld->no_pagination && max_w > 0 && node->w > max_w)
+ 				xs = max_w / node->w;
+@@ -1445,7 +1458,7 @@
+ 	if (ignore_width)
+ 		ld->bounds[R] = ld->bounds[L] + auto_w;
+ 	else
+-		ld->bounds[R] = ld->bounds[L] + fz_from_css_number(box->style->width, em, auto_w, auto_w);
++		ld->bounds[R] = ld->bounds[L] + fz_from_css_number(box->style->width, em, reference_w, auto_w);
+ 
+ 	/* Adjust vertically for Height and spacings (noting that we have already done the top ones above!) */
+ 	auto_h = ld->bounds[B] - ld->bounds[T] - (margin[B] + border[B] + padding[B]);
 @@ -2941,6 +2954,25 @@
  
  	Return 1 if we should restart at the next block, 0 otherwise.
@@ -681,15 +851,53 @@
  
  	/* If restart is non-NULL, we are running in restartable mode. */
  	if (restart)
-@@ -3096,6 +3145,8 @@
- 		if (SHOULD_STOP_FOR_RESTART(restart))
+@@ -3097,6 +3146,8 @@
  			return 1;
  	}
-+
-+	ld->figure_image_height = previous_figure_height;
  
++	ld->figure_image_height = previous_figure_height;
++
  	return 0;
  }
+ 
+@@ -3150,7 +3201,7 @@
+ 			{
+ 				/* Compute preliminary width (will be adjusted if block is nested in table cell later) */
+ 				float auto_w = top_w - (margin[L] + margin[R] + border[L] + border[R] + padding[L] + padding[R]);
+-				box->s.layout.w = fz_from_css_number(box->style->width, em, auto_w, auto_w);
++				box->s.layout.w = fz_from_css_number(box->style->width, em, top_w, auto_w);
+ 			}
+ 		}
+ 
+@@ -3622,8 +3673,12 @@
+ void
+ fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em)
+ {
++	/* Image-only covers have no paper aspect ratio. Their intrinsic canvas
++	 * lets each reader row fit the image into its own available viewport. */
++	if (html->tree.image_cover_aspect > 0)
++		h = w / html->tree.image_cover_aspect;
+ 	/* Override requested page size if the meta viewport defines a width or height */
+-	if (html->fixed_layout)
++	else if (html->fixed_layout)
+ 	{
+ 		if (!isfinite(html->meta_w) || !isfinite(html->meta_h) || html->meta_w <= 0 || html->meta_h <= 0)
+ 			fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB requires positive viewport width and height");
+@@ -3652,12 +3707,12 @@
+ 		html->page_margin[T] = html->page_margin[B] = 0;
+ 
+ 	html->page_w = w - html->page_margin[L] - html->page_margin[R];
+-	if (!html->fixed_layout && html->page_w <= 72)
++	if (!html->fixed_layout && html->tree.image_cover_aspect == 0 && html->page_w <= 72)
+ 		html->page_w = 72; /* enforce a minimum page size! */
+ 	if (h > 0)
+ 	{
+ 		html->page_h = h - html->page_margin[T] - html->page_margin[B];
+-		if (!html->fixed_layout && html->page_h <= 72)
++		if (!html->fixed_layout && html->tree.image_cover_aspect == 0 && html->page_h <= 72)
+ 			html->page_h = 72; /* enforce a minimum page size! */
+ 	}
+ 	else
 --- a/source/html/html-parse.c
 +++ b/source/html/html-parse.c
 @@ -248,6 +248,7 @@
@@ -700,7 +908,17 @@
  	fz_pool *pool;
  	fz_html_tree *tree;
  	fz_html_font_set *set;
-@@ -1471,6 +1472,12 @@
+@@ -1429,6 +1430,9 @@
+ 	fz_html_box *img_block_box;
+ 	fz_html_box *img_inline_box;
+ 
++	if (g->is_epub_cover && img)
++		g->tree->image_cover_aspect = (float)img->w / img->h;
++
+ 	if (display == DIS_INLINE || display == DIS_INLINE_BLOCK)
+ 	{
+ 		root_box = find_inline_context(ctx, g, root_box);
+@@ -1471,6 +1475,12 @@
  			local_style.height.unit = strchr(h_att, '%') ? N_PERCENT : N_LENGTH;
  		}
  
@@ -713,11 +931,11 @@
  		img = load_html_image(ctx, g->zip, g->base_uri, src);
  		gen2_image_common(ctx, g, root_box, node, img, display, &local_style);
  	}
-@@ -2348,6 +2355,69 @@
+@@ -2348,6 +2358,69 @@
  	return s;
  }
  
-+/* Only a declared, single-image cover gets reader-controlled page fitting.
++/* Only a single-image cover candidate gets reader-controlled page fitting.
 + * Text covers and all ordinary chapters retain their authored layout. */
 +static int cover_image(fz_xml *node, fz_xml **image)
 +{
@@ -783,7 +1001,7 @@
  static void
  xml_to_boxes(fz_context *ctx,
  	fz_html_font_set *set,
-@@ -2397,6 +2467,11 @@
+@@ -2397,6 +2470,11 @@
  		memset(metadata, 0, sizeof(*metadata));
  
  	root = fz_xml_root(g.xml);
@@ -795,7 +1013,7 @@
  	g.css = fz_new_css(ctx);
  
  #ifndef NDEBUG
-@@ -2438,6 +2513,9 @@
+@@ -2438,6 +2516,9 @@
  			fz_parse_css(ctx, g.css, user_css, "<user>");
  			fz_add_css_font_faces(ctx, g.set, g.zip, ".", g.css, 0);
  		}

@@ -266,7 +266,10 @@ final class NativePDFReaderMigrationTests: XCTestCase {
                 state.readerScrollView != nil && RasterReader.pageIsRendered(in: state.readerFocusView,
                     pages: pages, location: state.pageLocation(state.page))
             }
-            state.send(.selectAll)
+            let view = try XCTUnwrap(state.readerFocusView)
+            XCTAssertTrue(window.makeFirstResponder(view))
+            XCTAssertTrue(view.tryToPerform(NSSelectorFromString("selectAll:"), with: nil),
+                "The native Select All menu must reach the displayed page")
             // Queue Copy while native selection is pending; the command queue
             // must copy the completed selection before acknowledging the marker.
             state.send(.copy)
@@ -275,7 +278,6 @@ final class NativePDFReaderMigrationTests: XCTestCase {
             XCTAssertEqual(state.selectedText.split(whereSeparator: { $0.isWhitespace }).map(String.init), expected)
             XCTAssertEqual(clipboard.string(forType: .string), state.selectedText)
 
-            let view = try XCTUnwrap(state.readerFocusView)
             for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 let event = try XCTUnwrap(NSEvent.mouseEvent(with: kind,
                     location: view.convert(CGPoint(x: view.bounds.width * 0.95, y: view.bounds.height * 0.95), to: nil),

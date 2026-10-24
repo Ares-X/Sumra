@@ -39,6 +39,15 @@ struct ReaderTheme: Identifiable, Codable, Equatable {
     private static let customDefaultsKey = "customThemes"
 
     static var all: [Self] { builtins + custom() }
+    static var system: Self {
+        let base = builtins[NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? 2 : 0]
+        return .init(id: "system", name: "System", text: base.text, background: base.background, link: base.link)
+    }
+    static func choices(selected id: String) -> [Self] {
+        var themes = [system] + all
+        if !themes.contains(where: { $0.id == id }), let current = resolve(id) { themes.append(current) }
+        return themes
+    }
     var isCustom: Bool { id.hasPrefix("custom-") }
     var displayName: String { isCustom ? name : L(name) }
 
@@ -74,7 +83,8 @@ struct ReaderTheme: Identifiable, Codable, Equatable {
     }
 
     static func resolve(_ id: String, customThemes: [Self]) -> Self? {
-        (builtins + customThemes + legacy).first { $0.id == id }
+        if id == "system" { return system }
+        return (builtins + customThemes + legacy).first { $0.id == id }
     }
 
     static func makeCustom(name: String, text: UInt32, background: UInt32, link: UInt32) -> Self {

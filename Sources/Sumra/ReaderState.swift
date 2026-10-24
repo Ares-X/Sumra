@@ -700,12 +700,11 @@ extension ReaderState {
 
     var resolvedTheme: String {
         guard theme == "system" else { return palette.dark ? "dark" : "light" }
-        return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light"
+        return ReaderTheme.system.dark ? "dark" : "light"
     }
 
     var palette: ReaderTheme {
-        let id = theme == "system" ? (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light") : theme
-        let base = ReaderTheme.resolve(id) ?? ReaderTheme.builtins[0]
+        let base = ReaderTheme.resolve(theme) ?? ReaderTheme.builtins[0]
         guard customTextColor != nil || customBackgroundColor != nil || customLinkColor != nil else { return base }
         return ReaderTheme(id: "custom", name: "Custom", text: customTextColor ?? base.text, background: customBackgroundColor ?? base.background, link: customLinkColor ?? base.link)
     }

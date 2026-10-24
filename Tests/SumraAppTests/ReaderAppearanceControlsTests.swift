@@ -2,6 +2,7 @@
 import AppKit
 import SwiftUI
 import XCTest
+import SumraCore
 @testable import Sumra
 
 @MainActor
@@ -27,20 +28,53 @@ final class ReaderAppearanceControlsTests: XCTestCase {
     func testColorPanelSwitchesExclusiveWellsWithoutChangingOtherInputs() {
         _ = NSApplication.shared
         let editor = ReaderThemeEditorView(theme: ReaderTheme.builtins[0])
-        defer { editor.closeColorPanel() }
-        editor.text.well.activate(true)
-        editor.paper.well.activate(true)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 380),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = editor
+        window.makeKeyAndOrderFront(nil)
+        defer { editor.closeColorPanel(); window.close() }
+        XCTAssertTrue(editor.text.well.accessibilityPerformPress())
+        XCTAssertTrue(editor.paper.well.accessibilityPerformPress())
+        XCTAssertTrue(editor.paper.well.accessibilityPerformPress())
         XCTAssertFalse(editor.text.well.isActive)
         XCTAssertTrue(editor.paper.well.isActive)
         XCTAssertEqual(ReaderTheme.rgb(NSColorPanel.shared.color), editor.paper.value)
         editor.paper.well.color = .white
         editor.paper.well.sendAction(editor.paper.well.action, to: editor.paper.well.target)
         XCTAssertEqual(editor.paper.value, 0xffffff)
-        editor.link.well.activate(true)
+        XCTAssertTrue(editor.link.well.accessibilityPerformPress())
         XCTAssertFalse(editor.paper.well.isActive)
         XCTAssertEqual(ReaderTheme.rgb(NSColorPanel.shared.color), editor.link.value)
         XCTAssertEqual(editor.paper.value, 0xffffff)
         XCTAssertEqual(editor.preview.theme.background, 0xffffff)
+    }
+
+    func testColorPanelKeepsDocumentColorWhenDialogTextTakesFocus() {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        for editsName in [false, true] {
+            inspectModal(response: editsName ? .alertSecondButtonReturn : .alertThirdButtonReturn) { content in
+                let editor = try XCTUnwrap(self.descendants(content, of: ReaderThemeEditorView.self).first)
+                let window = try XCTUnwrap(content.window)
+                let title = L(editsName ? "Customize Theme…" : "Custom Document Colors…")
+                let heading = try XCTUnwrap(self.descendants(content, of: NSTextField.self).first { $0.stringValue == title })
+                editor.paper.well.activate(true)
+                NSColorPanel.shared.color = ReaderTheme.color(0x945200)
+                XCTAssertEqual(editor.paper.value, 0x945200)
+                let fields = [heading, editor.text.hex, editor.paper.hex, editor.link.hex] + (editsName ? [editor.name] : [])
+                for field in fields {
+                    field.selectText(nil)
+                    let fieldEditor = try XCTUnwrap(window.firstResponder as? NSTextView)
+                    fieldEditor.updateFontPanel()
+                    XCTAssertEqual(editor.paper.value, 0x945200, "Focusing dialog text must not apply its text color to the book")
+                    XCTAssertEqual(ReaderTheme.rgb(NSColorPanel.shared.color), 0x945200)
+                    XCTAssertEqual(editor.paper.well.color.alphaComponent, 1)
+                }
+            }
+            if editsName { state.editTheme(ReaderTheme.builtins[0]) }
+            else { state.configureDocumentColors() }
+        }
     }
 
     func testThemeDialogDisplaysClickableChoicesAndAppliesSelection() {
@@ -54,11 +88,31 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         inspectModal { content in
             let picker = try XCTUnwrap(self.descendants(content, of: NSPopUpButton.self).first)
             self.assertClickable(picker, in: content)
-            XCTAssertEqual(picker.numberOfItems, ReaderTheme.all.count)
-            picker.selectItem(at: try XCTUnwrap(ReaderTheme.all.firstIndex { $0.id == "light-warm" }))
+            let choices = ReaderTheme.choices(selected: state.theme)
+            XCTAssertEqual(picker.numberOfItems, choices.count)
+            picker.selectItem(at: try XCTUnwrap(choices.firstIndex { $0.id == "light-warm" }))
         }
         ReaderMenuCommand.setTheme.run(state)
         XCTAssertEqual(state.theme, "light-warm")
+    }
+
+    func testApplyingUnchangedThemePreservesSystemAndSavedRetiredChoice() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let keys = ["theme", "lastLightTheme", "lastDarkTheme"]
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        let state = ReaderState(recordsHistory: false)
+        for id in ["system", "solarized-dark"] {
+            state.theme = id
+            inspectModal { content in
+                let chooser = try XCTUnwrap(self.descendants(content, of: ReaderThemeSelectionView.self).first)
+                XCTAssertEqual(chooser.selected.id, id)
+                XCTAssertEqual(chooser.preview.theme, try XCTUnwrap(ReaderTheme.resolve(id)))
+            }
+            state.chooseTheme()
+            XCTAssertEqual(state.theme, id, "Applying without changing the selection must retain its behavior")
+        }
     }
 
     func testDocumentColorEditorAppliesPreviewsAndPersistsAllThreeColors() throws {
@@ -141,6 +195,110 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertEqual(state.pendingReflowPosition?.font, "Georgia")
         panel.close()
         XCTAssertEqual(state.font, "Iowan Old Style", "Closing the live panel retains its applied changes")
+    }
+
+    func testDefaultTypographyReflectsSavedFontAndOffersInstalledSupplementalFamilies() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "font")
+        defaults.set("Iowan Old Style", forKey: "font")
+        defer { defaults.set(previous, forKey: "font") }
+        let host = NSHostingView(rootView: SettingsView())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 540),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        var fonts: NSComboBox?
+        for _ in 0..<100 {
+            host.layoutSubtreeIfNeeded()
+            fonts = descendants(host, of: NSComboBox.self).first
+            if fonts != nil { break }
+            for scroll in descendants(host, of: NSScrollView.self) {
+                scroll.documentView?.scroll(NSPoint(x: 0, y: scroll.documentView?.bounds.height ?? 0))
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let combo = try XCTUnwrap(fonts)
+        XCTAssertTrue(combo.isEditable)
+        XCTAssertEqual(combo.stringValue, "Iowan Old Style")
+        if FileManager.default.fileExists(atPath: "/System/Library/Fonts/Supplemental/Iowan Old Style.ttc") {
+            XCTAssertTrue(combo.objectValues.contains { $0 as? String == "Iowan Old Style" })
+        }
+        combo.selectItem(withObjectValue: "Georgia")
+        let delegate = try XCTUnwrap(combo.delegate as? ReaderFontNamePicker.Coordinator)
+        delegate.comboBoxSelectionDidChange(Notification(name: NSComboBox.selectionDidChangeNotification, object: combo))
+        XCTAssertEqual(defaults.string(forKey: "font"), "Georgia")
+    }
+
+    func testCSSDraftEditorLoadsSavedContentAndFollowsExternalDraftChanges() async throws {
+        _ = NSApplication.shared
+        let draft = CSSDraft("p { text-align: justify; }")
+        let host = NSHostingView(rootView: CSSDraftHost(draft: draft))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 200),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let editor = try XCTUnwrap(descendants(host, of: NSTextView.self).first)
+        XCTAssertEqual(editor.string, draft.text, "Reopening the editor must display saved CSS")
+        window.makeFirstResponder(editor)
+        editor.insertText("p { color: #aa0000; }", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        XCTAssertEqual(draft.text, "p { color: #aa0000; }", "Normal native editing must update the draft")
+        draft.label = "高级排版与 CSS"
+        for _ in 0..<100 where editor.accessibilityLabel() != draft.label {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            host.layoutSubtreeIfNeeded()
+        }
+        XCTAssertEqual(editor.accessibilityLabel(), draft.label)
+        XCTAssertEqual(editor.string, draft.text, "Changing the interface label must preserve the draft")
+        for value in ["h1 { color: navy; }", ""] {
+            draft.text = value
+            for _ in 0..<100 where editor.string != value {
+                try await Task.sleep(nanoseconds: 10_000_000)
+                host.layoutSubtreeIfNeeded()
+            }
+            XCTAssertEqual(editor.string, value, "Replacing the document must replace the visible CSS")
+        }
+    }
+
+    private final class CSSDraft: ObservableObject {
+        @Published var text: String
+        @Published var label = "Advanced Typography and CSS"
+        init(_ text: String) { self.text = text }
+    }
+    private struct CSSDraftHost: View {
+        @ObservedObject var draft: CSSDraft
+        var body: some View { ReaderCSSDraftEditor(text: $draft.text, label: draft.label) }
+    }
+
+    func testOpenReadingPanelFollowsLanguageChangesWithoutReopening() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let saved = defaults.object(forKey: "language")
+        defaults.set("en", forKey: "language")
+        defer { defaults.set(saved, forKey: "language") }
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/language-panel.txt"), content: .text("Reading"))
+        let parent = appearanceWindow(state: state)
+        defer { parent.close(); state.windowClosed() }
+        state.editTypography()
+        let panel = try XCTUnwrap(parent.childWindows?.compactMap { $0 as? ReaderReadingSettingsPanel }.first)
+        let content = try XCTUnwrap(panel.contentView)
+        for _ in 0..<100 where descendants(content, of: NSComboBox.self).isEmpty {
+            content.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let font = try XCTUnwrap(descendants(content, of: NSComboBox.self).first)
+        XCTAssertEqual(panel.title, "Reading Settings")
+        defaults.set("zh-Hans", forKey: "language")
+        for _ in 0..<100 where panel.title != "阅读设置" || font.accessibilityLabel() != "字体" {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            content.layoutSubtreeIfNeeded()
+        }
+        XCTAssertEqual(panel.title, "阅读设置")
+        XCTAssertEqual(font.accessibilityLabel(), "字体")
     }
 
     func testCancelKeepsThemeColorsAndClosingUntouchedTypographyPanelKeepsFont() throws {
