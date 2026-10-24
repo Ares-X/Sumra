@@ -854,8 +854,23 @@ final class ReaderThemeSelectionView: NSStackView {
     @objc private func changed() { preview.theme = selected }
 }
 
+final class ReaderThemeColorWell: NSColorWell {
+    override func mouseDown(with event: NSEvent) {
+        let selected = isActive
+        super.mouseDown(with: event)
+        // This dialog keeps its selected target until dismissal; the standard
+        // toggle otherwise leaves a visible picker with no color to edit.
+        if selected && !isActive { activate(true) }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        activate(true)
+        return true
+    }
+}
+
 final class ReaderThemeColorInput: NSStackView, NSTextFieldDelegate {
-    let well = NSColorWell(), hex = NSTextField()
+    let well = ReaderThemeColorWell(), hex = NSTextField()
     var onChange: (() -> Void)?
     var value: UInt32? {
         let input = hex.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)

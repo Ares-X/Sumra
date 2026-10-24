@@ -6,6 +6,8 @@ font families and an editable name for supplemental fonts, size, line spacing,
 and margins. The existing native passage anchor keeps reflowable text at its
 reading location. Theme and layout controls share the reader's existing settings;
 Choose Theme and Custom Document Colors are available directly in the panel.
+Clicking the selected color well again keeps the system picker connected to it;
+choosing another well changes the active target. Apply and Cancel close the picker.
 Following the system appearance remains selected when a theme dialog is applied
 unchanged. A document's previously saved retired palette is shown only while it
 is selected; the built-in presets remain limited to five.

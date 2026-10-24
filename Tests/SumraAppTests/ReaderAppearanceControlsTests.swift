@@ -28,16 +28,22 @@ final class ReaderAppearanceControlsTests: XCTestCase {
     func testColorPanelSwitchesExclusiveWellsWithoutChangingOtherInputs() {
         _ = NSApplication.shared
         let editor = ReaderThemeEditorView(theme: ReaderTheme.builtins[0])
-        defer { editor.closeColorPanel() }
-        editor.text.well.activate(true)
-        editor.paper.well.activate(true)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 380),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = editor
+        window.makeKeyAndOrderFront(nil)
+        defer { editor.closeColorPanel(); window.close() }
+        XCTAssertTrue(editor.text.well.accessibilityPerformPress())
+        XCTAssertTrue(editor.paper.well.accessibilityPerformPress())
+        XCTAssertTrue(editor.paper.well.accessibilityPerformPress())
         XCTAssertFalse(editor.text.well.isActive)
         XCTAssertTrue(editor.paper.well.isActive)
         XCTAssertEqual(ReaderTheme.rgb(NSColorPanel.shared.color), editor.paper.value)
         editor.paper.well.color = .white
         editor.paper.well.sendAction(editor.paper.well.action, to: editor.paper.well.target)
         XCTAssertEqual(editor.paper.value, 0xffffff)
-        editor.link.well.activate(true)
+        XCTAssertTrue(editor.link.well.accessibilityPerformPress())
         XCTAssertFalse(editor.paper.well.isActive)
         XCTAssertEqual(ReaderTheme.rgb(NSColorPanel.shared.color), editor.link.value)
         XCTAssertEqual(editor.paper.value, 0xffffff)

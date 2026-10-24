@@ -22,6 +22,14 @@ interface language and updates the panel title and native input labels without
 recreating the editor or discarding its draft. These paths require acceptance in
 the replacement signed candidate.
 
+A second signed candidate exposed another actual mouse path: clicking the active
+color well again deactivated it while leaving the shared picker visible. A
+subsequent color selection then changed the picker without changing the document
+color. The color-well owner now preserves its selected target after the native
+mouse interaction and supports primary accessibility activation. The accessible
+activation regression failed on the previous control and passes on the replacement;
+repeated physical clicks still require acceptance in the final signed package.
+
 The five presets are Light, Light Warm, Dark, Dracula and Gruvbox. System is the
 automatic appearance option; user-created themes and the current retired choice
 are separate from that preset count. Aa exposes the visual chooser and document
