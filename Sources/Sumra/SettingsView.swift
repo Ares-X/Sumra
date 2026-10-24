@@ -45,7 +45,7 @@ struct SettingsView:View{
             }
             .pickerStyle(.segmented)
             .onChange(of: appIcon) { AppIcon.apply($0) }
-            Picker(L("Language"), selection: $language) {
+            Picker(L("Language"), selection: Binding(get: { ReaderLocalization.selection(language) }, set: { language = $0 })) {
                 ForEach(ReaderLocalization.languages, id: \.self) { code in
                     Text(ReaderLocalization.name(code) + (code != "system" && ReaderLocalization.isPartial(code) ? " — " + L("Partial translation") : "")).tag(code)
                 }
@@ -57,8 +57,12 @@ struct SettingsView:View{
             Picker(L("Default fit"),selection:$fit) { ForEach(ReadingZoom.fitTitles.keys.sorted(), id: \.self) { Text(L(ReadingZoom.fitTitles[$0]!)).tag($0) } }
             TextField(L("Zoom levels (%)"), text: $zoomLevels)
                 .foregroundStyle((try? ReadingZoom.parseLevels(zoomLevels)) != nil ? Color.primary : .red)
-            LabeledContent(L("Zoom increment (%)")) { TextField("0", value: $zoomIncrement, format: .number).frame(width: 70) }
+            LabeledContent(L("Zoom increment (%)")) {
+                TextField("0", value: $zoomIncrement, format: .number).labelsHidden()
+                    .accessibilityLabel(L("Zoom increment (%)")).frame(width: 70)
+            }
             Text(L("Blank levels use the defaults. Zero increment steps through levels; a positive increment changes the current zoom proportionally.")).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         Section(L("Reading")){
             Toggle(L("Use document's preferred layout"), isOn: $automaticLayout)
@@ -94,6 +98,7 @@ struct SettingsView:View{
             Button(L("Check for Updates…")) { ReaderHelp.checkForUpdates() }
             Text(L("Updates are checked daily. The prerelease channel also checks on startup. Sparkle verifies and installs updates after you approve them."))
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         Section(L("TeX source editor")) {
             Menu(L("Choose Installed Editor")) {
@@ -105,6 +110,7 @@ struct SettingsView:View{
             TextField(L("JSON argument array"), text: $sourceEditor)
             Text(L("Shift-Command-double-click a PDF to open its source. Use {file}, {line}, {column} in the argument array; [] uses the default app."))
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         Section(L("Default typography")){
             ReaderFontPicker(selection: $font)
@@ -114,10 +120,11 @@ struct SettingsView:View{
                 Slider(value: Binding(get: { margin }, set: { value in
                     margin = value
                     UserDefaults.standard.set(PageMargins(cssValues: [value]).flatMap { try? JSONEncoder().encode($0) }, forKey: "pageMargins")
-                }), in: 0...96, step: 8).frame(width: 190)
+                }), in: PageMargins.supportedRange, step: 1).frame(width: 190)
                 Text("\(Int(margin))").monospacedDigit().frame(width: 30)
             }
             Text(L("Adjusting margins overrides document styles on all four sides.")).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }.formStyle(.grouped).tabItem { Text(L("Reading")) }
         ShortcutSettings().tabItem { Text(L("Shortcuts")) }
@@ -206,7 +213,7 @@ private struct ShortcutSettings: View {
 // are separate user data and do not belong to an editable configuration.
 @MainActor
 enum ReaderPreferences {
-    static let strings: Set<String> = Set(["appIcon", "theme", "customThemes", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
+    static let strings: Set<String> = Set(["appIcon", "theme", "customThemes", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "pageMargins", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
     static func applyScrollbarDefaults() {
         let mode = UserDefaults.standard.string(forKey: "scrollbarMode") ?? "smart"
         for reader in ReaderWindows.states { reader.scrollbarMode = mode; if reader.isBrowser { reader.send(.style) } }
@@ -231,15 +238,25 @@ enum ReaderPreferences {
         var preferences = UserDefaults.standard.dictionaryRepresentation()
         // Preserve the public advanced-settings key while Sparkle owns persistence.
         preferences["checkForUpdates"] = boolean(for: "checkForUpdates")
+        if let language = preferences["language"] as? String {
+            preferences["language"] = ReaderLocalization.selection(language)
+        }
+        // Public settings use editable CSS-order points; persistence keeps Codable data.
+        preferences["pageMargins"] = try UserDefaults.standard.data(forKey: "pageMargins")
+            .map { try JSONDecoder().decode(PageMargins.self, from: $0).shorthand } ?? ""
         let values = preferences.filter {
             keys.contains($0.key) && (query.isEmpty || $0.key.localizedCaseInsensitiveContains(query))
         }
         return try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys])
     }
     static func apply(_ data: Data) throws {
-        guard let values = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ReadError("Settings must be a JSON object") }
+        guard var values = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ReadError("Settings must be a JSON object") }
+        if let language = values["language"] as? String, ReaderLocalization.retiredLanguages.contains(language) {
+            values["language"] = "system"
+        }
         let customThemes = try (values["customThemes"] as? String).map(ReaderTheme.decodeCustom) ?? ReaderTheme.custom()
         let previousCustomThemes = ReaderTheme.custom()
+        var pageMarginsData: Data?
         if values["customThemes"] != nil, values["customCommands"] == nil,
            let commands = UserDefaults.standard.string(forKey: "customCommands") {
             _ = try ReaderConfiguredCommand.read(commands, customThemes: customThemes)
@@ -249,10 +266,15 @@ enum ReaderPreferences {
             if strings.contains(key), !(value is String) { throw ReadError("\(key) must be text") }
             if numbers.contains(key) {
                 guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else { throw ReadError("\(key) must be a finite number") }
-                let ranges = ["fontSize": 10.0...36.0, "lineHeight": 1.0...2.4, "margin": 0.0...96.0, "speechRate": 90.0...540.0, "contentsDepth": 0.0...3.0, "sidebarWidth": 180.0...360.0, "pageGridWidth": 1.0...720.0, "pageGridHeight": 1.0...720.0, "pageGridOffsetX": -720.0...720.0, "pageGridOffsetY": -720.0...720.0, "pageGridSubdivisions": 1.0...32.0, "pageGridColor": 0.0...16777215.0, "zoomIncrement": 0.0...1000000.0]
+                let ranges = ["fontSize": 10.0...36.0, "lineHeight": 1.0...2.4, "margin": PageMargins.supportedRange, "speechRate": 90.0...540.0, "contentsDepth": 0.0...3.0, "sidebarWidth": 180.0...360.0, "pageGridWidth": 1.0...720.0, "pageGridHeight": 1.0...720.0, "pageGridOffsetX": -720.0...720.0, "pageGridOffsetY": -720.0...720.0, "pageGridSubdivisions": 1.0...32.0, "pageGridColor": 0.0...16777215.0, "zoomIncrement": 0.0...1000000.0]
                 guard ranges[key]?.contains(number.doubleValue) == true else { throw ReadError("\(key) is outside its supported range") }
             }
             if booleans.contains(key), CFGetTypeID(value as CFTypeRef) != CFBooleanGetTypeID() { throw ReadError("\(key) must be true or false") }
+            if key == "pageMargins", let text = value as? String,
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                guard let margins = PageMargins(cssValues: text) else { throw ReadError("Margins must contain 1, 2 or 4 values between 0 and 200.") }
+                pageMarginsData = try JSONEncoder().encode(margins)
+            }
             if key == "fit", let fit = value as? String, ReadingZoom.fitTitles[fit] == nil { throw ReadError("Unknown fit mode: \(fit)") }
             if key == "language", let language = value as? String, !ReaderLocalization.languages.contains(language) { throw ReadError("Unknown language: \(language)") }
             if key == "theme", let theme = value as? String, theme != "system",
@@ -275,6 +297,7 @@ enum ReaderPreferences {
         }
         for (key, value) in values {
             if key == "checkForUpdates", let enabled = value as? Bool { ReaderHelp.setAutomaticUpdateChecks(enabled) }
+            else if key == "pageMargins" { UserDefaults.standard.set(pageMarginsData, forKey: key) }
             else { UserDefaults.standard.set(value, forKey: key) }
         }
         if values["updateChannel"] != nil { ReaderHelp.updateChannelChanged() }

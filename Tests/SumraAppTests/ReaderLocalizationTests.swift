@@ -3,12 +3,26 @@ import XCTest
 @testable import Sumra
 
 final class ReaderLocalizationTests: XCTestCase {
-    func testBundledCoverageRecognizesSourceAndCompletedChineseCatalog() {
-        XCTAssertFalse(ReaderLocalization.isPartial("en"), "Missing coverage data must not make the source language appear incomplete")
-        XCTAssertFalse(ReaderLocalization.isPartial("zh-Hans"), "The completed source-key inventory must ship with the app")
+    func testBundledCatalogsCoverManagedInterfaceInventory() {
+        for language in ReaderLocalization.languages where language != "system" {
+            XCTAssertFalse(ReaderLocalization.isPartial(language), "The completed interface inventory must ship for \(language)")
+        }
     }
 
-    func testPartialLocaleUsesLocalizedCoreControlsAndEnglishForUnknownText() {
+    func testRetiredLanguagePreferencesUseSystemAndAreNotOffered() {
+        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "language")
+        defer { defaults.set(previous, forKey: "language") }
+        let choices = Set(ReaderLocalization.languages)
+        XCTAssertTrue(choices.isDisjoint(with: ReaderLocalization.retiredLanguages))
+        for retired in ReaderLocalization.retiredLanguages {
+            defaults.set(retired, forKey: "language")
+            XCTAssertEqual(ReaderLocalization.selection(retired), "system")
+            XCTAssertEqual(ReaderLocalization.language, ReaderLocalization.preferredLanguage(Locale.preferredLanguages))
+            XCTAssertFalse(ReaderLocalization.isPartial(retired), "The completed system fallback must not display a partial-translation warning")
+        }
+    }
+
+    func testExplicitLocaleUsesLocalizedCoreControlsAndEnglishForUnknownText() {
         let defaults = UserDefaults.standard, previous = defaults.object(forKey: "language")
         defer { defaults.set(previous, forKey: "language") }
         defaults.set("fr", forKey: "language")
@@ -18,6 +32,22 @@ final class ReaderLocalizationTests: XCTestCase {
         }
         let absent = "An unrecognized test-only label"
         XCTAssertEqual(ReaderLocalization.string(absent), absent)
+    }
+
+    func testExplicitLanguageChangesRemainLiveAfterResolvingSystemFallback() {
+        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "language")
+        defer { defaults.set(previous, forKey: "language") }
+        defaults.set("system", forKey: "language")
+        let systemLanguage = ReaderLocalization.preferredLanguage(Locale.preferredLanguages)
+        XCTAssertEqual(ReaderLocalization.language, systemLanguage)
+        for language in ["fr", "ja", "ar", "en"] {
+            defaults.set(language, forKey: "language")
+            XCTAssertEqual(ReaderLocalization.language, language)
+        }
+        defaults.set("system", forKey: "language")
+        XCTAssertEqual(ReaderLocalization.language, systemLanguage)
+        defaults.set("unsupported-test-language", forKey: "language")
+        XCTAssertEqual(ReaderLocalization.language, systemLanguage)
     }
 
     func testSystemLanguageFallsBackToEnglishOnlyAfterSupportedPreferences() {

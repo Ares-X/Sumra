@@ -1,5 +1,7 @@
 # Language support audit — 2026-10-23
 
+Current interface scope and follow-up: [October 24 localization and UX](LOCALIZATION_UX_20261024.md).
+
 Follow-up: the Hebrew, variable-font and marked-input defects were addressed
 for 0.2.10. See [current support and limits](LANGUAGE_SUPPORT.md). The findings
 below are the historical 0.2.9 audit, not the current feature status.

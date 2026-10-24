@@ -19,6 +19,7 @@ ENTRY = re.compile(rf'^\s*({STRING})\s*=\s*({STRING});\s*$', re.MULTILINE)
 # Product/format names are intentionally identical across interface languages.
 INVARIANT = {'Sumra', 'PDF', 'Dracula', 'Gruvbox'}
 PRINTF = re.compile(r'%(?:\d+\$)?[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|ll|[hljztL])?[@diuoxXfFeEgGaAcCsSp]')
+TEMPLATE = re.compile(r'\{[A-Za-z][A-Za-z0-9]*\}')
 
 
 def strings(source):
@@ -86,6 +87,10 @@ def audit():
                 errors.append(f'{locale}: empty translation {key!r}')
             if placeholders(key) != placeholders(value):
                 errors.append(f'{locale}: format placeholders differ for {key!r}')
+            if key.count('%%') != value.count('%%'):
+                errors.append(f'{locale}: literal percent escapes differ for {key!r}')
+            if Counter(TEMPLATE.findall(key)) != Counter(TEMPLATE.findall(value)):
+                errors.append(f'{locale}: command template placeholders differ for {key!r}')
             entries[key] = value
         # Anything beyond comments and parsed entries is a catalog syntax error.
         remainder = ENTRY.sub('', re.sub(r'/\*.*?\*/', '', source, flags=re.DOTALL))

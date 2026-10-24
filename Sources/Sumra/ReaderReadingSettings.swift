@@ -100,7 +100,7 @@ import SumraCore
                         Slider(value: Binding(get: { uniformMargin ?? state.margin }, set: { value in
                             state.captureReflowPosition()
                             state.margin = value; state.pageMargins = PageMargins(cssValues: [value]); state.applyTypography()
-                        }), in: 0...200, step: 1)
+                        }), in: PageMargins.supportedRange, step: 1)
                             .accessibilityLabel(L("Margins"))
                         Text(uniformMargin.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? L("Custom"))
                             .monospacedDigit().lineLimit(1).frame(minWidth: 50)

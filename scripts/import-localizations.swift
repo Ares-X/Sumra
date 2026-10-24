@@ -1,5 +1,5 @@
 #!/usr/bin/env swift
-// Add reviewed upstream translations without replacing existing catalog values.
+// Import matching upstream translations without replacing existing catalog values.
 import Foundation
 import CryptoKit
 let sourceURL = URL(string: "https://www.apptranslator.org/api/dltranshist?app=SumatraPDF&size=0")!
@@ -7,24 +7,24 @@ let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingL
     .appendingPathComponent("Sources/Sumra/Resources/Localizations")
 let languages =
 [
-    "be": "by", "ca-ES-valencia": "ca-xv", "ckb": "ku", "cs": "cz",
-    "da": "dk", "fy": "fy-nl", "hy": "am", "ko": "kr", "ms": "my",
-    "my": "mm", "nb": "no", "pt-BR": "br", "pt-PT": "pt",
-    "sr-Cyrl": "sr-rs", "sr-Latn": "sp-rs", "vi": "vn", "zh-Hant": "tw",
+    "ko": "kr", "ms": "my", "pt-BR": "br", "pt-PT": "pt",
+    "zh-Hans": "cn", "vi": "vn", "zh-Hant": "tw",
 ]
-let exact = [
-    "# History", "* Annotations", "= Settings", "> Commands", "@ Tabs",
-    "Clear History", "Document Properties", "Dots", "Dotted lines",
-    "Frequently Read", "Open", "Pin", "Recently Opened", "Redo",
-    "Restore Tab Group", "Save Tab Group", "Search", "Set", "Solid lines",
-    "Translate", "Undo", "Unpin", "Zoom",
-    "Bold", "Circle", "Contribute Translation", "Delete Pages", "Extract Pages", "Extract Text",
-    "Italic", "None", "Search Image with Google Lens", "Square", "Underline",
-    "Page scaling", "Update EU Trusted List",
-    "Add", "Chapter:", "Custom", "Link", "Page:",
-    "Voice",
-    "Search Page with Google Lens", "Search Selection with Google Lens",
-]
+// The audit owns the complete inventory, including dynamic menu/choice labels.
+func inventory() throws -> [String] {
+    let process = Process(), output = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    let audit = root.deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("scripts/audit-localizations.py")
+    process.arguments = ["python3", "-c", "import json,runpy,sys; a=runpy.run_path(sys.argv[1]); l,d=a['source_inventory'](); print(json.dumps(sorted((l|d)-a['INVARIANT'])))", audit.path]
+    process.standardOutput = output
+    try process.run()
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { throw ImportError(description: "Source inventory failed") }
+    return try JSONSerialization.jsonObject(with: data) as! [String]
+}
 let aliasPairs = [
     // Same settings/reader actions as upstream; strip only mnemonic markers,
     // label punctuation and menu ellipses, never infer translations from words.
@@ -150,10 +150,106 @@ let aliasPairs = [
     ("Actual size (1:1)", "A&ctual size (1:1)"),
     ("Rotate printout:", "&Rotate printout:"),
     ("Center page horizontally on the paper", "Center page hori&zontally on the paper"),
+    // Whole-label aliases for identical reader/menu actions; no word substitutions.
+    ("Actual Size", "&Actual Size"),
+    ("Apply", "&Apply"),
+    ("Close Tabs to the Left", "Close Tabs To The Left"),
+    ("Close Tabs to the Right", "Close Tabs To The Right"),
+    ("Compress PDF…", "Compress PDF..."),
+    ("Configure Page Grid…", "Configure Page Grid..."),
+    ("Copy Selection as Image", "Copy Selection As Image"),
+    ("Crop Image…", "Crop Image..."),
+    ("Custom Zoom…", "Custom &Zoom..."),
+    ("Decompress PDF…", "Decompress PDF..."),
+    ("Decrypt PDF…", "Decrypt PDF..."),
+    ("Document Properties…", "Document Properties..."),
+    ("Encrypt PDF…", "Encrypt PDF..."),
+    ("Find…", "Find..."),
+    ("First page", "First Page"),
+    ("Highlight Form Fields", "&Highlight Form Fields"),
+    ("Image", "&Image"),
+    ("Insert Image…", "Insert Image..."),
+    ("Last page", "Last Page"),
+    ("Open Document", "&Open Document"),
+    ("Open…", "Open..."),
+    ("Presentation", "Pr&esentation"),
+    ("Print Selection…", "Print Selection..."),
+    ("Print…", "&Print..."),
+    ("Rename File…", "Rename File..."),
+    ("Resize Image…", "Resize Image..."),
+    ("Restore Tab Group…", "Restore Tab Group..."),
+    ("Right to Left", "Right to left"),
+    ("Save Image…", "Save Image..."),
+    ("Save Tab Group…", "Save Tab Group..."),
+    ("Select Text with Keyboard", "Select Text With Keyboard"),
+    ("Sort by Name", "Sort By Name"),
+    ("Theme", "&Theme"),
+    ("Trim Empty Margins", "&Trim Empty Margins"),
+    ("Uniform Page Width", "&Uniform Page Width"),
+    ("View Certificate…", "View Certificate..."),
+    ("Visit Website", "Visit &Website"),
+    ("Zoom to Selection", "&Zoom To Selection"),
+    ("Add Caret", "Create Caret Annotation"),
+    ("Add Ellipse", "Create Circle Annotation"),
+    ("Add Line", "Create Line Annotation"),
+    ("Add Link…", "Create Link Annotation"),
+    ("Add Note…", "Create Text Annotation"),
+    ("Add Polygon", "Create Polygon Annotation"),
+    ("Add Polyline", "Create Polyline Annotation"),
+    ("Add Rectangle", "Create Square Annotation"),
+    ("Add Stamp", "Create Stamp Annotation"),
+    ("Add Text…", "Create Free Text Annotation"),
+    ("Apply Redactions…", "Apply Redactions"),
+    ("Automatic Scrolling", "Automatically Scroll"),
+    ("Bookmark This Position…", "Add Favorite"),
+    ("Browse Files…", "Browse Files In Folder..."),
+    ("Check for Updates…", "Check For Updates"),
+    ("Collapse Sibling Chapters", "Collapse Same Level"),
+    ("Command Palette…", "Command Palette"),
+    ("Delete Pages…", "Delete Pages From PDF..."),
+    ("Extract Pages…", "Extract Pages From PDF..."),
+    ("Extract Text…", "Extract Text From Document..."),
+    ("Export Pages as Images…", "Convert PDF to Images..."),
+    ("Export Outline…", "Export Bookmarks"),
+    ("File format", "File Type:"),
+    ("Follow Links with Keyboard", "Follow Link With Keyboard"),
+    ("Global Screenshot Shortcut", "Set Screenshot Hotkey"),
+    ("Global Screenshot Shortcut…", "Set Screenshot Hotkey..."),
+    ("Go Back", "Navigate Back"),
+    ("Go Forward", "Navigate Forward"),
+    ("Highlight Brush", "Highlight with Brush"),
+    ("Invert Reading Bar", "Reading Bar Invert"),
+    ("Merge PDFs…", "Merge PDF..."),
+    ("Move Focus to Next Pane", "Move Frame Focus"),
+    ("Next Bookmark", "Go to Next Favorite"),
+    ("Next File", "Open Next File In Folder"),
+    ("Next Tab by Recent Use", "Smart Next Tab"),
+    ("Open Clipboard Image", "Paste Image From Clipboard"),
+    ("Open Document…", "Open a document..."),
+    ("Open Recent", "Open Recent File"),
+    ("Paste Image as Annotation", "Create Image Annotation From Clipboard"),
+    ("Presentation Black Screen", "Presentation Black Background"),
+    ("Presentation White Screen", "Presentation White Background"),
+    ("Previous Bookmark", "Go to Previous Favorite"),
+    ("Previous File", "Open Previous File In Folder"),
+    ("Previous Tab by Recent Use", "Smart Previous Tab"),
+    ("Reading speed", "Speed"),
+    ("Reopen Closed Document", "Reopen Last Closed"),
+    ("Reveal Current Chapter", "Expand TOC to Current Page"),
+    ("Save Selection as Image…", "Save As Image..."),
+    ("Scroll Faster", "Automatically Scroll Faster"),
+    ("Scroll Slower", "Automatically Scroll Slower"),
+    ("Search annotations", "Find Annotation"),
+    ("Send by Email…", "Send Document By Email..."),
+    ("Tab Color", "Set Tab Color"),
+    ("Tab Color…", "Change Tab Color..."),
+    ("Toggle Contents", "Toggle Table Of Contents"),
+    ("Toggle Full Screen", "Toggle Fullscreen"),
+    ("Use Theme", "Set theme"),
 ]
-let sourceOrder = exact + aliasPairs.map { $0.0 }
-var sources = Dictionary(uniqueKeysWithValues: exact.map { ($0, $0) })
-sources.merge(aliasPairs) { _, new in new }
+let sourceOrder = try inventory()
+var sources = Dictionary(uniqueKeysWithValues: sourceOrder.map { ($0, $0) })
+sources.merge(aliasPairs.filter { sources[$0.0] != nil }) { _, new in new }
 let entry = try NSRegularExpression(pattern: #"^\s*("(?:\\.|[^"\\])*")\s*=\s*("(?:\\.|[^"\\])*");\s*$"#, options: .anchorsMatchLines)
 func replace(_ value: String, _ pattern: String, _ replacement: String) -> String {
     value.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
@@ -217,7 +313,7 @@ func updateCatalogs(_ translations: [TranslationKey: String], at root: URL) thro
         .filter { $0.pathExtension == "lproj" }.sorted { $0.path < $1.path }
     for directory in directories {
         let language = directory.deletingPathExtension().lastPathComponent
-        if language == "en" || language == "zh-Hans" { continue }
+        if language == "en" { continue }
         let path = directory.appendingPathComponent("Localizable.strings")
         if !FileManager.default.fileExists(atPath: path.path) { continue }
         let original = try String(contentsOf: path, encoding: .utf8)
@@ -248,24 +344,31 @@ func updateCatalogs(_ translations: [TranslationKey: String], at root: URL) thro
         }
         let count = entries.count + additions.count
         totalAdded += additions.count; totalEntries += count
-        let missingJSON = try JSONSerialization.data(withJSONObject: missing, options: .withoutEscapingSlashes)
-        print("\(language): added \(additions.count), total \(count), missing \(String(decoding: missingJSON, as: UTF8.self))")
+        print("\(language): added \(additions.count), total \(count), missing \(missing.count)")
     }
     print("Total: added \(totalAdded), entries \(totalEntries)")
 }
 func main() throws {
-    let semaphore = DispatchSemaphore(value: 0)
-    var result: Result<Data, Error>!
-    var request = URLRequest(url: sourceURL); request.timeoutInterval = 60
-    URLSession.shared.dataTask(with: request) { data, response, error in
-        if let error { result = .failure(error) }
-        else if let status = (response as? HTTPURLResponse)?.statusCode, !(200..<300).contains(status) {
-            result = .failure(ImportError(description: "Translation server returned HTTP \(status)"))
-        } else { result = .success(data!) }
-        semaphore.signal()
-    }.resume()
-    semaphore.wait()
-    let data = try result.get()
+    let arguments = Array(CommandLine.arguments.dropFirst())
+    let data: Data
+    if arguments.isEmpty {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Result<Data, Error>!
+        var request = URLRequest(url: sourceURL); request.timeoutInterval = 60
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error { result = .failure(error) }
+            else if let status = (response as? HTTPURLResponse)?.statusCode, !(200..<300).contains(status) {
+                result = .failure(ImportError(description: "Translation server returned HTTP \(status)"))
+            } else { result = .success(data!) }
+            semaphore.signal()
+        }.resume()
+        semaphore.wait()
+        data = try result.get()
+    } else if arguments.count == 2 && arguments[0] == "--csv" {
+        data = try Data(contentsOf: URL(fileURLWithPath: arguments[1]))
+    } else {
+        throw ImportError(description: "Usage: scripts/import-localizations.swift [--csv path]")
+    }
     let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     print("Source: \(sourceURL)\nBytes: \(data.count)\nSHA-256: \(digest)")
     let text = String(decoding: data, as: UTF8.self)
@@ -273,7 +376,8 @@ func main() throws {
     let wanted = Set(sources.values)
     // Oldest-first history: an explicitly empty final record removes the value.
     for row in csv(text) where row.count == 6 && row[0] == "t" && wanted.contains(row[4]) {
-        translations[TranslationKey(language: row[3], source: row[4])] = row[5]
+        let key = TranslationKey(language: row[3], source: row[4])
+        translations[key] = row[5]
     }
     guard !translations.isEmpty else { throw ImportError(description: "No reviewed translation records in the server response") }
     try updateCatalogs(translations, at: root)

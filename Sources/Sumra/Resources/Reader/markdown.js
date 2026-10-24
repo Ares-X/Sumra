@@ -43,7 +43,11 @@
         : scrollTo({left: x, top: document.documentElement.scrollHeight, behavior: 'instant'})
     const snapPage = () => {
         if (!paged()) return
-        const offset = Math.max(0, Math.min(pageExtent(), Math.round(pageOffset() / innerWidth) * innerWidth))
+        const extent = pageExtent(), current = pageOffset()
+        // The last spread can be narrower than a viewport. Keep its true end
+        // instead of rounding back and trapping next-chapter navigation.
+        const offset = current >= extent - 1 ? extent
+            : Math.max(0, Math.min(extent, Math.round(current / innerWidth) * innerWidth))
         scrollTo({left: offset * pageDirection(), top: 0, behavior: 'instant'})
     }
     let searchGeneration = 0, searchKey = '', searchOptions = null, hits = [], hitsCapped = false, selected = -1, scan = null, searchAbort = null
