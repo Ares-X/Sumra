@@ -2,8 +2,9 @@
 
 ## Communication and release status
 
-Fourth-round work is in the repair and verification stage. No completion reply
-or public release has been made for it. Issue 31 remains open.
+The repaired runtime is bound to source revision
+`7c6f190ac4e6696ba4fc28d2477712538e7031c5`. No completion reply has been
+posted for this round. Issue 31 remains open. Delivery status is recorded below.
 
 ## What the reporter found
 
@@ -80,3 +81,86 @@ outline publication belonging to the committed reader revision and retains both
 exact destination comparisons. No product behavior was changed for this race.
 The in-progress source run with the incomplete wait was stopped, retaining its
 log, before starting verification of the corrected test.
+
+## Automated verification of the repaired batch
+
+Source revision: `7c6f190ac4e6696ba4fc28d2477712538e7031c5`.
+Native patch SHA-256: `dadd1cd2eb4a23d62fc76dc0a87ccf3ad3c5da06e22c3b2853a71256a98de355`.
+
+- All 67 ordered native patches reverse to the unchanged pinned-source digest
+  and reapply; a complete engine build succeeds.
+- All 33 original files across four rounds pass the native cover/layout sweep.
+  The fourth round additionally checks each affected interior illustration through
+  six paged layouts and continuous reading: one occurrence, containment, growth
+  with a larger window and identical placement on returning to the same size.
+  The old signed 0.2.16 engine fails the growth assertion for A.
+- Nine authored CSS/image regressions cover exact dimensions, viewport units,
+  percentage references, maximum-size constraints, responsive container insets,
+  small-logo controls, metadata-only covers and lazy first-chapter opening.
+- The hosted reader verifies actual painted extents and source identity through
+  reading-mode cycles and width-only/height-only window changes. The corrected
+  outline test observes the committed outline publication; exact destination
+  assertions remain intact.
+- `scripts/check-source.sh`: PASS — 121 core tests, 1,036 app tests (six opt-in
+  skips), three Quick Look tests, 58 packaging checks, parser checks and all 25
+  retained translation catalogs with 677 inventoried keys present.
+- The separate opt-in hosted corpus run passes all 25 files (14 EPUB, two PDF,
+  three CBZ, two Markdown, two text, one CHM and one MOBI), in 182.36 seconds.
+  A large EPUB’s whole workflow takes 102.56 seconds, close to the previous
+  101.52-second result; these are workflow totals, not cold-open measurements.
+  Original sizes, modification timestamps and SHA-256 hashes are unchanged.
+
+Evidence: `build/issue31-fourth-round/source-checks-final.log`,
+`final-focused.log`, `four-round-native-regression.log`,
+`revision-layout-assertions.json`, `corpus-workflows.json` and
+`corpus-preservation.json`. Earlier failed/interrupted runs are retained and are
+not counted as successful acceptance. Signed candidate interaction remains the
+next independent verification layer.
+
+## Signed candidate acceptance
+
+The unmodified CI candidate 0.2.17 (19) passes complete bundle/provenance,
+corresponding-source and signing checks. Its executable UUID is
+`B58D2397-0C35-373F-9A52-476B74BF138A`; ZIP SHA-256 is
+`ed6d01aa38d9f415c9f6d8708ccf83673fddbd3f40cf4fcec1174c5bf46f4779`.
+The observed running process loaded that candidate’s exact bundle path.
+Its packaged MuPDF library independently passes the eight original fourth-round
+geometry checks, including continuous reading and returning to prior sizes.
+
+Actual application interaction on macOS 27.0.1 arm64:
+
+| Case | Observed result |
+| --- | --- |
+| Fourth-round F, first process/open | First visible art fills its intrinsic canvas without the unused-cover padding |
+| A, restarted process | Cover and following art both render at appropriate scale; the art remains on its own single chapter page |
+| A/B, full-screen/window return | Art grows with the reading window and returns to its prior placement |
+| A, system Window → Zoom and restore | Page/source remain stable and artwork remains complete |
+| A, Single Page / Continuous / Two Pages | Same illustration retained; finite modes fit the page and continuous mode uses natural reading height |
+| B–E and repeated second-round D/F | Each affected interior image is visibly large, proportional and in its authored chapter; neighboring text remains present |
+| Third-round A/B/C controls | Heading decoration and inline title art stay centered; publisher logo remains small |
+| Repeated second-round C, last image | Single Page → Continuous → Single Page returns to 2:4 with the complete blue illustration |
+
+A coordinate drag attempt did not change the actual window bounds and is excluded
+from resize acceptance. Width-only/height-only/narrow-window changes are covered
+by the hosted painted-reader test and packaged native geometry; real GUI size
+changes above use full screen and the system Window menu.
+
+The inline tool preview appeared to clip the last illustration after a mode
+change. Publication was held while both agents checked original PNG pixels.
+The saved 2400×1520 images have identical artwork bounds before/after:
+`[671,120,1729,1476]`; a background row below the image confirms its lower edge
+is present. This was a preview-display artifact, not a demonstrated product bug.
+No product workaround was added. The hosted test was strengthened to require
+the entire transformed image inside the visible canvas in Fit Page mode; its
+focused run also passes. Evidence is retained in
+`signed-ui/last-artwork-pixel-comparison.json` and
+`whole-artwork-before-fix.log` (the filename preserves the initial hypothesis).
+
+Candidate UI captures and AX states are under
+`build/issue31-fourth-round/signed-ui/`; identity and corresponding-source
+receipts are under `build/release-0.2.17-candidate/`.
+
+## Delivery
+
+Signed candidate accepted; public promotion and installed-update verification
+are pending. No issue reply or closure is authorized by this report.

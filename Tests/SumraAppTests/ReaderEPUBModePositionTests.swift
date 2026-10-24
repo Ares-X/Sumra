@@ -257,7 +257,12 @@ final class ReaderEPUBModePositionTests: XCTestCase {
                     }
                     if let canvas = view as? RasterCanvas.Canvas {
                         let visible = view.visibleRect
-                        let expected = nativeBounds.applying(canvas.pageTransform).intersection(visible)
+                        let artwork = nativeBounds.applying(canvas.pageTransform)
+                        if state.flow == "paged", state.fit == "page", !visible.insetBy(dx: -1, dy: -1).contains(artwork) {
+                            diagnostics.append("fit-page illustration clipped: artwork=\(artwork), visible=\(visible)")
+                            return false
+                        }
+                        let expected = artwork.intersection(visible)
                         let pixels = CGRect(x: (expected.minX - visible.minX) * CGFloat(bitmap.pixelsWide) / visible.width,
                                             y: (expected.minY - visible.minY) * CGFloat(bitmap.pixelsHigh) / visible.height,
                                             width: expected.width * CGFloat(bitmap.pixelsWide) / visible.width,
