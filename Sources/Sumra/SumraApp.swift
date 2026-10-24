@@ -278,7 +278,6 @@ final class ReaderCloseGuard: NSObject, NSWindowDelegate {
 
 @MainActor
 final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
-    let undoCommands = ReaderUndoCommands()
     private var keyMonitor: Any?
     private var terminationPending = false
     private var pendingFiles: [URL] = []
@@ -380,9 +379,6 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
         if let window = NSApp.keyWindow { alert.beginSheetModal(for: window) }
         else { alert.runModal() }
     }
-    func applicationWillUpdate(_ notification: Notification) {
-        undoCommands.update()
-    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         finishLaunching()
         ScreenshotHotkey.restore()
@@ -418,7 +414,12 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
                 return shortcut.modifiers == flags && String(shortcut.key.character).lowercased() == event.characters(byApplyingModifiers: [])?.lowercased()
             }
             for command in ReaderMenuCommand.allCases where command.enabled(state) {
-                let extra = readerShortcutBindings(overrides[command.id] ?? command.defaultShortcut).dropFirst()
+                // Standard editing menus target the native responder, including
+                // modal text fields. Reader overrides belong only to the book.
+                let nativeEditing = command == .copy || command == .selectAll
+                if nativeEditing && typing { continue }
+                let bindings = readerShortcutBindings(overrides[command.id] ?? command.defaultShortcut)
+                let extra = nativeEditing ? bindings[...] : bindings.dropFirst()
                 if extra.contains(where: matches) {
                     if command == .open {
                         chooseDocuments { urls in
@@ -1419,7 +1420,7 @@ struct SumraApp: App {
         // AppKit's delegate owns Finder files and SyncTeX URLs. Let it receive
         // those requests instead of SwiftUI consuming them for an empty scene.
         .handlesExternalEvents(matching: [])
-        .commands { SumraCommands(application: delegate, undoCommands: delegate.undoCommands) }
+        .commands { SumraCommands(application: delegate) }
 
         Settings {
             SettingsView()

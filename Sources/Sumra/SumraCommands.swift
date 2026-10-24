@@ -1,56 +1,8 @@
 #if os(macOS)
 import SwiftUI
 
-// MuPDF owns document history; native inputs keep AppKit's undo manager.
-// Publish only menu availability so focus changes also update SwiftUI commands.
-@MainActor
-final class ReaderUndoCommands: ObservableObject {
-    @Published private(set) var isEditingText = false
-    @Published private var nativeCanUndo = false
-    @Published private var nativeCanRedo = false
-
-    private var pdfState: ReaderState? {
-        guard let window = NSApp.keyWindow,
-              (window.firstResponder as? NSTextView)?.isEditable != true else { return nil }
-        return ReaderWindows.states.first { $0.window === window && $0.nativePDF != nil }
-    }
-
-    func update() {
-        let responder = NSApp.keyWindow?.firstResponder
-        let editingText = (responder as? NSTextView)?.isEditable == true
-        let manager = responder?.undoManager
-        let undo = manager?.canUndo == true, redo = manager?.canRedo == true
-        if isEditingText != editingText { isEditingText = editingText }
-        if nativeCanUndo != undo { nativeCanUndo = undo }
-        if nativeCanRedo != redo { nativeCanRedo = redo }
-    }
-
-    func enabled(redo: Bool, state: ReaderState?) -> Bool {
-        if !isEditingText, let state, state.nativePDF != nil {
-            guard state.canEditPDF, let info = state.nativePDFInfo else { return false }
-            return redo ? info.undoPosition < info.undoSteps : info.undoPosition > 0
-        }
-        return redo ? nativeCanRedo : nativeCanUndo
-    }
-
-    func perform(redo: Bool) {
-        guard let state = pdfState else {
-            NSApp.sendAction(NSSelectorFromString(redo ? "redo:" : "undo:"), to: nil, from: nil)
-            update()
-            return
-        }
-        let documentID = state.document?.id
-        Task {
-            guard state.document?.id == documentID else { return }
-            do { try await state.changeNativePDFHistory(redo: redo) }
-            catch { if state.document?.id == documentID { state.error = error.localizedDescription } }
-        }
-    }
-}
-
 struct SumraCommands: Commands {
     let application: ReaderApplicationDelegate
-    @ObservedObject var undoCommands: ReaderUndoCommands
     @FocusedObject private var state: ReaderState?
     @AppStorage("language") private var language = "system"
     @Environment(\.openWindow) private var openWindow
@@ -94,21 +46,9 @@ struct SumraCommands: Commands {
         CommandGroup(replacing: .printItem) {
             ReaderCommandButton(command: .print)
         }
-        CommandGroup(replacing: .undoRedo) {
-            Button(L("Undo")) { undoCommands.perform(redo: false) }
-                .keyboardShortcut("z").disabled(!undoCommands.enabled(redo: false, state: state))
-            Button(L("Redo")) { undoCommands.perform(redo: true) }
-                .keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!undoCommands.enabled(redo: true, state: state))
-        }
-        CommandGroup(replacing: .pasteboard) {
-            Button(L("Cut")) { NSApp.sendAction(Selector(("cut:")), to: nil, from: nil) }.keyboardShortcut("x")
-            ReaderCommandButton(command: .copy)
-            ReaderCommandButton(command: .copyImage)
-            Button(L("Paste")) { NSApp.sendAction(Selector(("paste:")), to: nil, from: nil) }.keyboardShortcut("v")
-            ReaderCommandButton(command: .selectAll)
-            buttons([.selectCurrentPage, .selectRectangle, .copySelectionImage, .saveSelection, .printSelection, .copyLocation, .keyboardSelection])
-        }
         CommandGroup(after: .pasteboard) {
+            ReaderCommandButton(command: .copyImage)
+            buttons([.selectCurrentPage, .selectRectangle, .copySelectionImage, .saveSelection, .printSelection, .copyLocation, .keyboardSelection])
             Menu(L("Find")) {
                 buttons([.find, .findNext, .findPrevious, .findSelectionNext, .findSelectionPrevious])
                 Divider()

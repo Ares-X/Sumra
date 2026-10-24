@@ -95,6 +95,20 @@ it retains the same tile-versus-full-image geometry assertions.
 
 ## Color-panel state transitions
 
+The signed b402450 candidate exposed another real interaction failure: with the
+RGB input focused and the app verified in front, Cmd+A left the insertion point
+unchanged. Cut, Copy, Paste and Select All were disabled in the actual Edit menu
+during the modal dialog. This was confirmed after the user paused other desktop
+input; earlier input with a different app in front remains inconclusive.
+The candidate was rejected. A subsequent real keyboard check also confirmed
+that modal Undo was disabled by the same closure-based command replacement.
+Standard native editing and undo commands now stay in the
+responder chain, with reader-only overrides handled by the existing event owner.
+The native page canvas responds to Select All and owns PDF undo/redo actions and
+their availability. The replaced SwiftUI undo observer has been removed.
+Fresh signed acceptance is
+required before publication.
+
 Actual native mouse dragging changed the wheel color, RGB field and preview.
 Switching to Finder and back retained the color at 100% opacity, and another
 wheel drag still changed the intended target. Six successive switches among
