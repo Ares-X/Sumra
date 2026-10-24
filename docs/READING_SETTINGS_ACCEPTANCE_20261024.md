@@ -30,6 +30,19 @@ mouse interaction and supports primary accessibility activation. The accessible
 activation regression failed on the previous control and passes on the replacement;
 repeated physical clicks still require acceptance in the final signed package.
 
+A third signed candidate failed a real Finder cold launch: the process finished
+launching but had no native or accessibility window. The queued-file dispatcher
+depended on an action supplied by an existing reader scene. Startup tracing also
+showed SwiftUI consuming external events for an empty scene, and an early explicit
+book window being covered by the later initial Home.
+
+The command scope now supplies the scene opener independently of reader windows.
+External file and SyncTeX requests stay with the AppKit delegate, which drains
+them after launch completes and can reuse the initial Home. An isolated native
+launch then displayed only Cover C, with no activation or Dock click from the
+test observer. The final signed package still requires the Finder cold-launch
+and closed-window reopening checks before publication.
+
 The five presets are Light, Light Warm, Dark, Dracula and Gruvbox. System is the
 automatic appearance option; user-created themes and the current retired choice
 are separate from that preset count. Aa exposes the visual chooser and document

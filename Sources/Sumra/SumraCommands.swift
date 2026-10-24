@@ -49,6 +49,7 @@ final class ReaderUndoCommands: ObservableObject {
 }
 
 struct SumraCommands: Commands {
+    let application: ReaderApplicationDelegate
     @ObservedObject var undoCommands: ReaderUndoCommands
     @FocusedObject private var state: ReaderState?
     @AppStorage("language") private var language = "system"
@@ -56,6 +57,7 @@ struct SumraCommands: Commands {
 
     var body: some Commands {
         let _ = language
+        let _ = application.installWindowOpener { [openWindow] in openWindow(id: "reader", value: $0) }
         applicationCommands
         readingCommands
         documentTools
