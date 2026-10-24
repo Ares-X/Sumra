@@ -115,12 +115,46 @@ Actual GUI exercises on that withheld candidate included:
 | Real 44 MB, 174-page technical PDF, out-of-range page entry, distant page, Fit Width and repeated paging | Page entry clamps to last page; distant content renders; Fit Width persists while paging |
 
 These observations are preliminary runtime evidence for that exact candidate,
-not acceptance of a later build. The replacement signed candidate must pass
-both newly discovered workflows and the affected image/opening regressions.
-No issue closure or success reply has been made for this round.
+not acceptance of a later build. Both discovered defects were repaired before
+the replacement candidate below was accepted.
 
 The image identity check uses the four fixture colors to distinguish painted
 illustrations, not to assert display color accuracy. A first attempt compared
 exact device RGB values and failed on AppKit's calibrated-color conversion;
 that invalid acceptance condition was replaced by saturated-color identity.
 Source and logical-position assertions remain unchanged.
+
+## Accepted replacement candidate
+
+The replacement candidate is source
+`5e8dea73e1bc29985a1aaad0d4bccb0ca88620ef`, version **0.2.16 (18)**,
+built once by [workflow 40093301477](https://github.com/Ares-X/Sumra/actions/runs/40093301477).
+Its signed executable UUID is `47333842-497F-37AC-A71E-11F66888A53C`.
+The application archive SHA-256 is
+`8a1f2fdaf016b3f1792b78f9b9b59d3e24c1b82fcd22b58ea4f95b67ef4954d7`.
+
+| Evidence layer | Result and boundary |
+| --- | --- |
+| Source checks | PASS: 121 Core, 1,027 App (six opt-in cases skipped), three Quick Look and 58 packaging checks; 25 catalogs cover all 677 inventoried keys; reader scripts pass syntax checks |
+| Real-book hosted reader | PASS: 25 books across EPUB, PDF, CBZ, TXT, Markdown, CHM and MOBI; first/middle/last passages, directory navigation and whole-book search completion/caps. This is hosted integration, not physical input or cold-start timing |
+| Exact signed native engine | PASS: 175 reporter layouts, including 150 neighboring sizes for the repeated-image case; source image order/count, proportions, clipping, alignment and paged fit checked |
+| Exact signed GUI on macOS 27.0.1 arm64 | PASS: cold Finder Open With before automation attachment; A/B alignment; C's small logo; D in windowed/full-screen layouts; repeated C's third illustration and full-screen fit; numbered first/middle/last image cycles through continuous/single/facing modes |
+| Additional exact signed GUI | PASS: Markdown link reaches its final heading; failed PDF opening names the file and retains the previous Markdown position; HTML search survives a layout change; saved PDF form and placed note reopen; Hebrew search and mixed-script text render with a changed font/theme and survive a mode cycle; invalid RGB disables Apply, valid RGB enables it, and Cancel retains the original colors |
+| Identity and preservation | PASS: signed bundle contents, modes, symlinks, certificate, nested extensions, update signature and corresponding source agree with provenance. All 29 GUI inputs, 14 behavior fixtures, 25 corpus inputs and the original five-book ZIP/sample manifest remain unchanged |
+
+The local receipts are `accepted-source-verification.json`,
+`corpus-acceptance.json`, `accepted-signed-public-api.json`,
+`accepted-signed-acceptance.json` and `accepted-input-preservation.json` under
+`build/issue31-third-round/`. Exact-candidate screenshots and accessibility
+records are in `accepted-signed-ui/`. Early screenshots on the external display
+contain capture padding; moving the window to the built-in display produced
+full-frame captures and exercised display relayout. The original English
+metadata query with zero results is not counted as Hebrew rendering evidence;
+the actual Hebrew query and visible passages are recorded separately.
+
+Publication must promote these accepted bytes without rebuilding. Public
+downloads/feed/signature and the actual installed 0.2.15-to-0.2.16 update are
+separate delivery checks, recorded under `build/release-0.2.16-accepted/`.
+The issue remains open for reporter confirmation. This acceptance does not
+claim macOS 15 interactive testing, a native-speaker translation review, every
+page of every book, or a performance benchmark from automation round-trip times.
