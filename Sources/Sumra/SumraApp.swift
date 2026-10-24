@@ -242,7 +242,7 @@ private struct WindowTabs: NSViewRepresentable {
 }
 
 @MainActor
-final class ReaderCloseGuard: NSObject, NSWindowDelegate {
+final class ReaderCloseGuard: NSObject, NSWindowDelegate, NSUserInterfaceValidations {
     weak var state: ReaderState?
     // NSWindow caches forwarded notification selectors while this proxy is installed.
     let previous: NSWindowDelegate?
@@ -250,6 +250,14 @@ final class ReaderCloseGuard: NSObject, NSWindowDelegate {
     init(state: ReaderState?, previous: NSWindowDelegate?) {
         self.state = state
         self.previous = previous
+    }
+    // Preserve reader selection commands when a sibling sidebar has focus.
+    @objc func copy(_ sender: Any?) { state?.send(.copy) }
+    @objc func selectAll(_ sender: Any?) { state?.send(.selectAll) }
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(copy(_:)) { return ReaderMenuCommand.copy.enabled(state) }
+        if item.action == #selector(selectAll(_:)) { return ReaderMenuCommand.selectAll.enabled(state) }
+        return (previous as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item) ?? true
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let state else { return previous?.windowShouldClose?(sender) ?? true }
@@ -278,6 +286,7 @@ final class ReaderCloseGuard: NSObject, NSWindowDelegate {
 
 @MainActor
 final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
+    let undoCommands = ReaderUndoCommands()
     private var keyMonitor: Any?
     private var terminationPending = false
     private var pendingFiles: [URL] = []
@@ -378,6 +387,9 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
         alert.informativeText = error.localizedDescription
         if let window = NSApp.keyWindow { alert.beginSheetModal(for: window) }
         else { alert.runModal() }
+    }
+    func applicationWillUpdate(_ notification: Notification) {
+        undoCommands.update()
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         finishLaunching()
@@ -1420,7 +1432,7 @@ struct SumraApp: App {
         // AppKit's delegate owns Finder files and SyncTeX URLs. Let it receive
         // those requests instead of SwiftUI consuming them for an empty scene.
         .handlesExternalEvents(matching: [])
-        .commands { SumraCommands(application: delegate) }
+        .commands { SumraCommands(application: delegate, undoCommands: delegate.undoCommands) }
 
         Settings {
             SettingsView()

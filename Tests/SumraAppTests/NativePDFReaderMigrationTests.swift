@@ -1,58 +1,11 @@
 #if os(macOS)
 import AppKit
-import Combine
 import SwiftUI
 import SumraCore
 import XCTest
 @testable import Sumra
 
 final class NativePDFReaderMigrationTests: XCTestCase {
-    @MainActor
-    func testNativeUndoAndRedoMenusUsePDFHistoryFromThePageResponder() async throws {
-        try requireMuPDF()
-        _ = NSApplication.shared
-        let state = ReaderState(recordsHistory: false)
-        state.document = try nativePDFReadingFixture(); state.count = 1
-        let pages = try XCTUnwrap(state.nativePDF)
-        let unlocked = expectation(description: "PDF editing unlocked")
-        let observation = state.$pdfEditingEnabled.dropFirst().first().sink { _ in unlocked.fulfill() }
-        state.setPDFEditingEnabled(true)
-        await fulfillment(of: [unlocked], timeout: 3)
-        withExtendedLifetime(observation) {}
-        XCTAssertTrue(state.canEditPDF)
-        let id = try await pages.pdfCreateAnnotation(page: 0, type: "Square",
-            bounds: CGRect(x: 20, y: 30, width: 60, height: 40), edits: [.contents("Undo menu")])
-        try await state.nativePDFDidChange(pages)
-        state.flow = "paged"; state.spread = false; state.fit = "page"
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 520, height: 340),
-            styleMask: .titled, backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false; state.window = window
-        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
-        window.contentView = host; window.makeKeyAndOrderFront(nil)
-        defer { state.windowClosed(); window.contentView = nil; window.close() }
-        func waitFor(_ condition: () -> Bool) async throws {
-            let deadline = Date().addingTimeInterval(5)
-            repeat {
-                host.layoutSubtreeIfNeeded()
-                if condition() { return }
-                try await Task.sleep(nanoseconds: 10_000_000)
-            } while Date() < deadline && state.error == nil
-            XCTAssertTrue(condition(), state.error ?? "Native history action did not settle")
-        }
-        try await waitFor { state.readerFocusView?.window === window }
-        let view = try XCTUnwrap(state.readerFocusView)
-        XCTAssertTrue(window.makeFirstResponder(view))
-        for redo in [false, true] {
-            let item = NSMenuItem(title: redo ? "Redo" : "Undo",
-                action: NSSelectorFromString(redo ? "redo:" : "undo:"), keyEquivalent: "")
-            XCTAssertTrue(try XCTUnwrap(view as? NSUserInterfaceValidations).validateUserInterfaceItem(item))
-            XCTAssertTrue(view.tryToPerform(try XCTUnwrap(item.action), with: item))
-            try await waitFor { state.nativePDFInfo?.undoPosition == (redo ? 1 : 0) }
-            let annotations = try await pages.pdfAnnotations(0)
-            XCTAssertEqual(annotations.contains { $0.id == id }, redo)
-        }
-    }
-
     func testAutomaticLayoutUsesPDFCatalogAndPreservesUnspecifiedDirection() async throws {
         try requireMuPDF()
         let directory = try TemporaryDirectory()

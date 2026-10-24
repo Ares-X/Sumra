@@ -104,8 +104,13 @@ The candidate was rejected. A subsequent real keyboard check also confirmed
 that modal Undo was disabled by the same closure-based command replacement.
 Standard native editing and undo commands now stay in the
 responder chain, with reader-only overrides handled by the existing event owner.
-The native page canvas responds to Select All and owns PDF undo/redo actions and
-their availability. The replaced SwiftUI undo observer has been removed.
+The native page canvas responds to Select All. Reader-window fallback selection
+commands remain reachable with sidebar focus. Text editing uses native Undo/Redo;
+PDF history retains the existing reader command owner only when a PDF has focus
+and text is not being edited. A fully native undo group did not reach MuPDF
+history in the actual PDF window and was discarded before candidacy.
+The test host had no key window, so its attempted global menu-dispatch check
+was inconclusive. Real application menu tests supply that acceptance layer.
 Fresh signed acceptance is
 required before publication.
 

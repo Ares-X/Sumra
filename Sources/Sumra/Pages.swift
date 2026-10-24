@@ -5537,17 +5537,6 @@ struct NativeReadingAccessibilitySnapshot {
         @objc func paste(_ sender: Any?) {
             state?.send(.annotate("paste", at: (sender as? NSMenuItem)?.representedObject as? ReadingPosition))
         }
-        @objc func undo(_ sender: Any?) { changeHistory(redo: false) }
-        @objc func redo(_ sender: Any?) { changeHistory(redo: true) }
-        private func changeHistory(redo: Bool) {
-            guard let state else { return }
-            let documentID = state.document?.id
-            Task {
-                guard state.document?.id == documentID else { return }
-                do { try await state.changeNativePDFHistory(redo: redo) }
-                catch { state.error = error.localizedDescription }
-            }
-        }
         @objc private func editSelectedAnnotation() { state?.send(.annotate("edit")) }
         @objc private func deleteSelectedAnnotation() { state?.send(.deleteAnnotation) }
         @objc private func copySelectionImage() { state?.send(.copySelectionImage) }
@@ -5652,10 +5641,6 @@ struct NativeReadingAccessibilitySnapshot {
             } else { state.navigate(.href(links[index].uri)) }
         }
         func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-            if item.action == #selector(undo(_:)) || item.action == #selector(redo(_:)) {
-                guard state?.canEditPDF == true, let info = state?.nativePDFInfo else { return false }
-                return item.action == #selector(undo(_:)) ? info.undoPosition > 0 : info.undoPosition < info.undoSteps
-            }
             if item.action == #selector(cut(_:)) { return state.map { NativePDFClipboard.canCopy($0, cut: true) } ?? false }
             if item.action == #selector(paste(_:)) { return state.map { NativePDFClipboard.canPaste($0) } ?? false }
             if item.action == #selector(copy(_:)), pages?.isPDF == true { return state?.nativePDFInfo?.permissions.copy == true }
