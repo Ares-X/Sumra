@@ -1,5 +1,11 @@
 # Issue 31: third-round image layout acceptance
 
+**Later regression report:** fourth-round files exposed cover-following image
+sizes and metadata-only cover behavior missing from this acceptance. The 0.2.16
+checks below passed their stated assertions; they do not establish absence of
+those regressions. See [the fourth-round investigation](ISSUE31_FOURTH_ROUND_ACCEPTANCE_20261024.md)
+for the reproduced failures, coverage gaps and expanded verification boundaries.
+
 The reporter confirms cold file opening, color picking and font selection now
 work. This round concerns authored image sizing/alignment, image pagination and
 full-page interior illustrations. The baseline is the installed signed 0.2.15
