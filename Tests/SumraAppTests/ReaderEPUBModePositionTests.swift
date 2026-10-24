@@ -227,7 +227,7 @@ final class ReaderEPUBModePositionTests: XCTestCase {
             withExtendedLifetime(directory) {}
         }
         var paintDiagnostic = "No illustration bitmap inspected"
-        func paintedIllustration(_ image: Int, location: PageLocation) -> Bool {
+        func paintedIllustration(_ image: Int, location: PageLocation, nativeBounds: CGRect) -> Bool {
             var diagnostics = [String]()
             func visit(_ view: NSView) -> Bool {
                 let rendered = RasterReader.pageIsRendered(in: view, pages: pages, location: location)
@@ -240,17 +240,38 @@ final class ReaderEPUBModePositionTests: XCTestCase {
                     view.cacheDisplay(in: view.visibleRect, to: bitmap)
                     var identities = [Int](repeating: 0, count: 4)
                     var coloredSamples = [String]()
-                    for y in stride(from: 0, to: bitmap.pixelsHigh, by: 16) {
-                        for x in stride(from: 0, to: bitmap.pixelsWide, by: 16) {
+                    var paintedBounds = CGRect.null
+                    let step = 4
+                    for y in stride(from: 0, to: bitmap.pixelsHigh, by: step) {
+                        for x in stride(from: 0, to: bitmap.pixelsWide, by: step) {
                             guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                             let r = color.redComponent, g = color.greenComponent, b = color.blueComponent
-                            if let identity = illustrationIdentity(red: r, green: g, blue: b) { identities[identity] += 1 }
+                            if let identity = illustrationIdentity(red: r, green: g, blue: b) {
+                                identities[identity] += 1
+                                if identity == image { paintedBounds = paintedBounds.union(CGRect(x: x, y: y, width: step, height: step)) }
+                            }
                             if coloredSamples.count < 4, max(r, g, b) - min(r, g, b) > 0.2 {
                                 coloredSamples.append(String(format: "%.3f/%.3f/%.3f", Double(r), Double(g), Double(b)))
                             }
                         }
                     }
-                    if identities[image] > 5 { return true }
+                    if let canvas = view as? RasterCanvas.Canvas {
+                        let visible = view.visibleRect
+                        let expected = nativeBounds.applying(canvas.pageTransform).intersection(visible)
+                        let pixels = CGRect(x: (expected.minX - visible.minX) * CGFloat(bitmap.pixelsWide) / visible.width,
+                                            y: (expected.minY - visible.minY) * CGFloat(bitmap.pixelsHigh) / visible.height,
+                                            width: expected.width * CGFloat(bitmap.pixelsWide) / visible.width,
+                                            height: expected.height * CGFloat(bitmap.pixelsHigh) / visible.height)
+                        // Sampled edges allow two sample intervals for antialiasing.
+                        // Count/identity alone previously let a tiny painted stamp pass.
+                        let tolerance = CGFloat(step * 2)
+                        if !paintedBounds.isNull, !pixels.isEmpty,
+                           abs(paintedBounds.minX - pixels.minX) <= tolerance,
+                           abs(paintedBounds.minY - pixels.minY) <= tolerance,
+                           abs(paintedBounds.width - pixels.width) <= tolerance,
+                           abs(paintedBounds.height - pixels.height) <= tolerance { return true }
+                        diagnostics.append("painted=\(paintedBounds), expected=\(pixels)")
+                    }
                     diagnostics.append("bitmap=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh), identities=\(identities), coloredSamples=\(coloredSamples)")
                 }
                 return view.subviews.contains(where: visit)
@@ -288,8 +309,9 @@ final class ReaderEPUBModePositionTests: XCTestCase {
             state.go("2:\(image + 1)")
             let single = PageLocation(chapter: 1, page: image)
             try await waitFor {
-                state.pendingReflowPosition == nil && state.currentPosition.anchor.flatMap(ChapterTable.bookmarkLocation)?.location == single &&
-                    state.currentPosition.nativePassage != nil && paintedIllustration(image, location: single)
+                let bounds = try await pages.imageBounds(single)
+                return state.pendingReflowPosition == nil && state.currentPosition.anchor.flatMap(ChapterTable.bookmarkLocation)?.location == single &&
+                    state.currentPosition.nativePassage != nil && bounds.count == 1 && paintedIllustration(image, location: single, nativeBounds: bounds[0])
             }
             let source = try XCTUnwrap(state.currentPosition.nativePassage).source
             sources.insert(source)
@@ -305,12 +327,32 @@ final class ReaderEPUBModePositionTests: XCTestCase {
                     let position = await pages.layoutPosition
                     let expectedMode = mode == .continuous ? state.flow == "continuous" && !state.spread
                         : state.flow == "paged" && state.spread == (mode == .twoPages)
+                    let bounds = try await pages.imageBounds(expected)
+                    let art = mode == .continuous ? image : 0
                     return expectedMode && newRevision > revision && state.pendingReflowPosition == nil &&
                         state.chapterLayout == table && table.pageCount(1) == (mode == .continuous ? 1 : 4) &&
                         position.anchor.flatMap(ChapterTable.bookmarkLocation)?.location == expected &&
                         state.currentPosition.anchor.flatMap(ChapterTable.bookmarkLocation)?.location == expected &&
                         position.nativePassage?.source == source && state.currentPosition.nativePassage?.source == source &&
-                        paintedIllustration(image, location: expected)
+                        bounds.indices.contains(art) && paintedIllustration(image, location: expected, nativeBounds: bounds[art])
+                }
+                XCTAssertNil(state.error)
+            }
+            for size in [CGSize(width: 926, height: 620), CGSize(width: 640, height: 620),
+                         CGSize(width: 640, height: 900), CGSize(width: 926, height: 770)] {
+                RasterReader.recordPosition(in: state.readerScrollView?.documentView)
+                state.captureReflowPosition()
+                let revision = await pages.layoutRevision
+                transition = "illustration \(image + 1) resized to \(size)"
+                window.setContentSize(size)
+                try await waitFor {
+                    let newRevision = await pages.layoutRevision, table = await pages.chapterLayout
+                    let position = await pages.layoutPosition, bounds = try await pages.imageBounds(single)
+                    return newRevision > revision && state.pendingReflowPosition == nil && state.chapterLayout == table &&
+                        table.pageCount(1) == 4 && position.nativePassage?.source == source &&
+                        state.currentPosition.nativePassage?.source == source &&
+                        state.currentPosition.anchor.flatMap(ChapterTable.bookmarkLocation)?.location == single &&
+                        bounds.count == 1 && paintedIllustration(image, location: single, nativeBounds: bounds[0])
                 }
                 XCTAssertNil(state.error)
             }

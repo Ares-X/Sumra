@@ -22,7 +22,7 @@ static fz_document *declared_cover(fz_context *ctx, int mode) {
     fz_zip_writer *zip = fz_new_zip_writer_with_output(ctx, fz_new_output_with_buffer(ctx, buffer));
     zip_text(ctx, zip, "mimetype", "application/epub+zip");
     zip_text(ctx, zip, "META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OPS/package.opf' media-type='application/oebps-package+xml'/></rootfiles></container>");
-    const char *metadata = mode == 0 || mode == 6 ? "<meta name='cover' content='art-resource'/>" : mode == 7 ? "<meta name='cover' content='other-resource'/>" : "";
+    const char *metadata = mode == 0 || mode == 6 || mode == 12 || mode == 13 ? "<meta name='cover' content='art-resource'/>" : mode == 7 ? "<meta name='cover' content='other-resource'/>" : "";
     const char *properties = mode == 1 ? " properties='cover-image'" : "";
     const char *guide = mode == 2 || mode == 9 ? "<guide><reference type='cover' href='art/cover.png'/></guide>" : mode == 4 ? "<guide><reference type='cover' href='chapters/presentation.xhtml#cover-target'/></guide>" : "";
     const char *spine = mode == 7 || mode == 10 ? "<itemref idref='front'/><itemref idref='presentation'/>" : mode == 11 ? "<itemref idref='front' linear='no'/><itemref idref='presentation'/>" : "<itemref idref='presentation'/>";
@@ -45,7 +45,10 @@ static fz_document *declared_cover(fz_context *ctx, int mode) {
     zip_text(ctx, zip, "OPS/nav.xhtml", mode == 3 ?
         "<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'><body><nav epub:type='toc'><ol><li><a href='chapters/presentation.xhtml'>Nav outline</a></li></ol></nav><nav epub:type='landmarks'><ol><li><a epub:type='cover' href='chapters/presentation.xhtml#cover-target'>Cover</a></li></ol></nav></body></html>" :
         "<html xmlns='http://www.w3.org/1999/xhtml'><body/></html>");
-    zip_text(ctx, zip, "OPS/chapters/presentation.xhtml", mode == 8 ?
+    // Structural candidates must actually have flexible image sizing. Explicit
+    // small artwork needs a declared cover role before reader normalization.
+    zip_text(ctx, zip, "OPS/chapters/presentation.xhtml", mode == 5 || mode == 11 ?
+        "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>@page{margin:40px}body{margin:30px}img{width:auto;height:auto}</style></head><body><div id='cover-target'><img src='../art/cov%65r.png'/></div></body></html>" : mode == 8 ?
         "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>@page{margin:0}body{margin:0;padding:0}h1{margin:0;text-align:center}div{width:33%;margin-left:33.5%}img{width:100%;height:auto}</style></head><body><h1>1</h1><div><img src='../art/cov%65r.png'/></div></body></html>" : mode == 9 ?
         "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>@page{margin:40px}body{margin:30px}</style></head><body><div id='cover-target'><svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' width='20' height='40' viewBox='0 0 600 900'><image width='600' height='900' xlink:href='../art/cov%65r.png'/></svg></div></body></html>" :
         mode == 6 ?

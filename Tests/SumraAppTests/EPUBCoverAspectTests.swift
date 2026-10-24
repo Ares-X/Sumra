@@ -244,7 +244,9 @@ final class EPUBCoverAspectTests: XCTestCase {
                 let directory = try TemporaryDirectory()
                 defer { withExtendedLifetime(directory) {} }
                 let pictures = (0..<4).map { "<section class='stage'><div class='frame'><img id='art\($0)' src='cover.png'/></div></section>" }.joined()
-                let following = expected == .zero ? "<p>VISIBLE TEXT</p>" : ""
+                // Keep the CSS fallback contract in ordinary prose. A chapter
+                // containing only independent art has separate page-fit behavior.
+                let following = expected == .zero || name == "percentage height in auto container" ? "<p>VISIBLE TEXT</p>" : ""
                 let html = "<html><head><style>@page{margin:0}body{margin:0}img{display:\(display)}\(css)</style></head><body>\(pictures)\(following)</body></html>"
                 let file = try NativeFile(fixture(in: directory.url, coverDocument: html), engine: .mupdf)
                 for height in [CGFloat(480), 0] {

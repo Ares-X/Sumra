@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import Combine
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -506,6 +507,10 @@ final class RasterLazyLayoutTests: XCTestCase {
         state.fontSize = 11; state.lineHeight = 1.4; state.margin = 24; state.font = "serif"; state.theme = "light"
         state.flow = "paged"; state.spread = false; state.automaticLayout = false; state.renderRevision = 1
         state.reflowable = true; state.searchable = true
+        let initialRevision = state.renderRevision
+        var publishedOutlineRevision = initialRevision
+        let outlineObservation = state.$outline.sink { _ in publishedOutlineRevision = state.renderRevision }
+        defer { withExtendedLifetime(outlineObservation) {} }
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 600), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages)); window.contentView = host
@@ -523,13 +528,15 @@ final class RasterLazyLayoutTests: XCTestCase {
             }
             XCTFail("Reader did not finish resolving the reflowed outline")
         }
-        try await waitFor { !state.outlineBusy && state.outline.count == 2 && state.outline.allSatisfy { $0.page != nil } }
+        // The prepared outline belongs to the default 420x595 layout. Wait for
+        // the mounted reader's viewport commit and refreshed destinations.
+        try await waitFor { state.renderRevision > initialRevision && publishedOutlineRevision == state.renderRevision && !state.outlineBusy && state.outline.count == 2 && state.outline.allSatisfy { $0.page != nil } }
         let before = try XCTUnwrap(state.outline.last?.page), target = try XCTUnwrap(state.outline.last?.target)
         let firstDestination = try await pages.resolve(target)
         XCTAssertEqual(before, firstDestination?.page)
         let revision = state.renderRevision
         state.fontSize = 30; state.send(.style)
-        try await waitFor { state.renderRevision > revision && !state.outlineBusy && (state.outline.last?.page ?? -1) > before }
+        try await waitFor { state.renderRevision > revision && publishedOutlineRevision == state.renderRevision && !state.outlineBusy && (state.outline.last?.page ?? -1) > before }
         let after = try XCTUnwrap(state.outline.last?.page), actual = try await pages.resolve(target)
         XCTAssertGreaterThan(after, before)
         XCTAssertEqual(after, actual?.page)
