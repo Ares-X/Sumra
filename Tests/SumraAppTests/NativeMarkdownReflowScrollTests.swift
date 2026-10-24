@@ -63,7 +63,7 @@ final class NativeMarkdownReflowScrollTests: XCTestCase {
         }
     }
 
-    func testInitialNaturalRestoreKeepsPixelsWhenViewportContainsOnlyArtworkOrBlankPaper() async throws {
+    func testInitialNaturalRestoreUsesArtworkSourceAndKeepsBlankPaperPixels() async throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
         let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 16, pixelsHigh: 640,
@@ -89,12 +89,21 @@ final class NativeMarkdownReflowScrollTests: XCTestCase {
             let first = try XCTUnwrap(words.first { $0.source != nil && !$0.text.allSatisfy(\.isWhitespace) })
             XCTAssertGreaterThan(first.bounds.minY, viewport.height, "The complete initial viewport must precede body text")
             let restored = try await pages.restore(.init(page: 0, x: 0, y: 10), viewport: viewport)
-            XCTAssertNil(restored.nativePassage, "An initial artwork or blank viewport must not acquire distant body text")
+            if artwork {
+                let passage = try XCTUnwrap(restored.nativePassage, "Visible artwork needs its own source identity")
+                XCTAssertFalse(words.contains { $0.source == passage.source }, "An artwork viewport must not acquire distant body text")
+                let images = try await pages.imageBounds(.init(chapter: 0, page: 0))
+                let image = try XCTUnwrap(images.first)
+                XCTAssertEqual(try XCTUnwrap(restored.x) - passage.offsetX, Double(image.minX), accuracy: 0.01)
+                XCTAssertEqual(try XCTUnwrap(restored.y) - passage.offsetY, Double(image.minY), accuracy: 0.01)
+            } else {
+                XCTAssertNil(restored.nativePassage, "Blank paper must not acquire distant body text")
+            }
             XCTAssertEqual(restored.page, 0)
             XCTAssertEqual(restored.x, 0)
             XCTAssertEqual(restored.y, 10)
             let reported = try await pages.position(page: 0, x: 0, y: 10, viewport: viewport)
-            XCTAssertNil(reported.nativePassage)
+            XCTAssertEqual(reported.nativePassage?.source, restored.nativePassage?.source)
             XCTAssertEqual(reported.x, restored.x)
             XCTAssertEqual(reported.y, restored.y)
         }
