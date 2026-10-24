@@ -162,5 +162,45 @@ receipts are under `build/release-0.2.17-candidate/`.
 
 ## Delivery
 
-Signed candidate accepted; public promotion and installed-update verification
-are pending. No issue reply or closure is authorized by this report.
+The runtime and acceptance changes merged through [PR 40](https://github.com/Ares-X/Sumra/pull/40).
+[0.2.17 (19)](https://github.com/Ares-X/Sumra/releases/tag/v0.2.17) is public.
+Its runtime source remains `7c6f190ac4e6696ba4fc28d2477712538e7031c5`;
+subsequent commits change only tests, documentation and the update feed.
+
+Anonymous downloads of all six published assets match the accepted candidate's
+asset IDs, sizes and SHA-256 hashes. The public main-branch update feed matches
+the accepted feed, and the Sparkle Ed25519 signature verifies. The accepted
+`SHA256SUMS` digest is
+`b7119136e042c85a37aa208bcf8dce9574899cba123ed896ad760b852c326ec1`.
+The public-verification receipt is retained; redundant downloaded asset copies
+were removed after comparison with the retained accepted assets.
+
+The existing formal installation completed a real Sparkle **0.2.16 → 0.2.17**
+download, install and relaunch. All 140 installed files, five symlinks and
+91 directories match the accepted provenance; signing identity, executable UUID
+and embedded binaries also pass. An initial automation action selected Skip
+instead of Install after accessibility indices changed; it is recorded as an
+unsuccessful attempt, then corrected using the refreshed control identifier.
+The final preferences contain no skipped-update entry.
+
+After quitting the installed app and confirming no Sumra executable was running,
+Finder's actual Open With menu contained exactly one Sumra entry. Selecting it
+opened the original A EPUB in the formal installed app. Before any app-selection
+or activation helper was used, a passive process/window observation confirmed
+that Sumra was active and its document window was on screen. Cover and following
+illustration were then checked in the actual installed reader. Receipts and
+captures are in `signed-ui/finder-*` and `signed-ui/installed-finder-*`.
+
+Final preservation checks confirm all 33 original four-round books and all
+18 downloaded input/sidecar entries remain unchanged. Earlier corpus checks
+also preserve all 25 local books. Application preferences match the pre-test
+snapshot except the updater's legitimate last-check timestamp. The test app and
+owned Finder window are closed, the Cua kernel is reset, completed agents retain
+no owned background work, and redundant public downloads released 184,222,109
+bytes. Prior cleanup is separately recorded in `cleanup-partial.json`; the final
+receipt is `final-cleanup-preservation.json`. Shared processes and unrelated
+working-tree changes were preserved.
+
+No issue reply or closure was performed for this round. Acceptance establishes
+the documented cases on macOS 27.0.1 arm64, not a guarantee for every EPUB or
+macOS version.
