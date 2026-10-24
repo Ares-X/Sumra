@@ -19,6 +19,9 @@ restore an older margin value. Closing the panel discards unapplied drafts and
 retains changes already applied to the document.
 The plain-text CSS editor loads the saved draft when reopened and replaces its
 visible contents when the current document changes, including an empty draft.
+An open panel follows interface-language changes without discarding its drafts.
+Its compact margin label rounds for display; the advanced values retain their
+full precision.
 
 For fixed pages, **Keep scroll position when turning pages** preserves the visible
 origin as fractions of the displayed page dimensions, including rotated pages.

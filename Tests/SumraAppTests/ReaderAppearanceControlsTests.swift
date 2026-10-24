@@ -180,6 +180,13 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         window.makeFirstResponder(editor)
         editor.insertText("p { color: #aa0000; }", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
         XCTAssertEqual(draft.text, "p { color: #aa0000; }", "Normal native editing must update the draft")
+        draft.label = "高级排版与 CSS"
+        for _ in 0..<100 where editor.accessibilityLabel() != draft.label {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            host.layoutSubtreeIfNeeded()
+        }
+        XCTAssertEqual(editor.accessibilityLabel(), draft.label)
+        XCTAssertEqual(editor.string, draft.text, "Changing the interface label must preserve the draft")
         for value in ["h1 { color: navy; }", ""] {
             draft.text = value
             for _ in 0..<100 where editor.string != value {
@@ -192,11 +199,40 @@ final class ReaderAppearanceControlsTests: XCTestCase {
 
     private final class CSSDraft: ObservableObject {
         @Published var text: String
+        @Published var label = "Advanced Typography and CSS"
         init(_ text: String) { self.text = text }
     }
     private struct CSSDraftHost: View {
         @ObservedObject var draft: CSSDraft
-        var body: some View { ReaderCSSDraftEditor(text: $draft.text) }
+        var body: some View { ReaderCSSDraftEditor(text: $draft.text, label: draft.label) }
+    }
+
+    func testOpenReadingPanelFollowsLanguageChangesWithoutReopening() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let saved = defaults.object(forKey: "language")
+        defaults.set("en", forKey: "language")
+        defer { defaults.set(saved, forKey: "language") }
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/language-panel.txt"), content: .text("Reading"))
+        let parent = appearanceWindow(state: state)
+        defer { parent.close(); state.windowClosed() }
+        state.editTypography()
+        let panel = try XCTUnwrap(parent.childWindows?.compactMap { $0 as? ReaderReadingSettingsPanel }.first)
+        let content = try XCTUnwrap(panel.contentView)
+        for _ in 0..<100 where descendants(content, of: NSComboBox.self).isEmpty {
+            content.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let font = try XCTUnwrap(descendants(content, of: NSComboBox.self).first)
+        XCTAssertEqual(panel.title, "Reading Settings")
+        defaults.set("zh-Hans", forKey: "language")
+        for _ in 0..<100 where panel.title != "阅读设置" || font.accessibilityLabel() != "字体" {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            content.layoutSubtreeIfNeeded()
+        }
+        XCTAssertEqual(panel.title, "阅读设置")
+        XCTAssertEqual(font.accessibilityLabel(), "字体")
     }
 
     func testCancelKeepsThemeColorsAndClosingUntouchedTypographyPanelKeepsFont() throws {

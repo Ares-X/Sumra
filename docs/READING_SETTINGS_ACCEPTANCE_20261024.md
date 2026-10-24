@@ -14,6 +14,14 @@ application and subsequent signed-release acceptance are separate evidence.
 | Saved CSS was present in reader state but the SwiftUI editor displayed an empty field when reopened. | A native plain-text editor displays the saved CSS after close/reopen. Its behavior test also exercises normal text insertion and external replacement with both another draft and an empty draft. |
 | Applying an unchanged theme dialog changed System to Light. | Select System in Aa, open Choose Theme and apply unchanged: System remains selected. AppKit regression also preserves the current saved Solarized Dark ID without restoring the retired catalog to the choices. |
 
+The first signed candidate was rejected before publication: a long fractional
+margin wrapped its compact label, and an already-open panel remained English
+after switching the app to Chinese. The follow-up uses a single-line, compact
+margin display while retaining exact advanced values. It observes the selected
+interface language and updates the panel title and native input labels without
+recreating the editor or discarding its draft. These paths require acceptance in
+the replacement signed candidate.
+
 The five presets are Light, Light Warm, Dark, Dracula and Gruvbox. System is the
 automatic appearance option; user-created themes and the current retired choice
 are separate from that preset count. Aa exposes the visual chooser and document

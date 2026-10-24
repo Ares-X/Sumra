@@ -36,6 +36,7 @@ import SumraCore
 
 @MainActor struct ReaderReadingSettings: View {
     @ObservedObject var state: ReaderState
+    @AppStorage("language") private var language = "system"
     @AppStorage("customThemes") private var customThemes = "[]"
     @AppStorage("preservePageTurnPosition") private var preservePageTurnPosition = false
     @AppStorage("keepZoomOnLinks") private var keepZoomOnLinks = false
@@ -51,6 +52,7 @@ import SumraCore
     }
 
     var body: some View {
+        let _ = language
         let _ = customThemes
         Form {
             Section {
@@ -100,7 +102,8 @@ import SumraCore
                             state.margin = value; state.pageMargins = PageMargins(cssValues: [value]); state.applyTypography()
                         }), in: 0...200, step: 1)
                             .accessibilityLabel(L("Margins"))
-                        Text(uniformMargin.map { String(format: "%g", $0) } ?? L("Custom")).monospacedDigit().frame(width: 50)
+                        Text(uniformMargin.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? L("Custom"))
+                            .monospacedDigit().lineLimit(1).frame(minWidth: 50)
                     }
                     Toggle(L("Use document styles"), isOn: typography(\.useDocumentCSS))
                     Toggle(L("Use Changes as Defaults"), isOn: Binding(get: { state.typographyForAll }, set: { value in
@@ -123,6 +126,9 @@ import SumraCore
         }
         .formStyle(.grouped)
         .onAppear(perform: resetDrafts)
+        .onChange(of: language) { _ in
+            state.window?.childWindows?.first(where: { $0 is ReaderReadingSettingsPanel })?.title = L("Reading Settings")
+        }
         .onChange(of: state.document?.id) { _ in
             resetDrafts(); advanced = false
         }
@@ -162,6 +168,7 @@ import SumraCore
 
 @MainActor struct ReaderCSSDraftEditor: NSViewRepresentable {
     @Binding var text: String
+    var label = L("Advanced Typography and CSS")
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -172,7 +179,7 @@ import SumraCore
         editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false
         editor.isAutomaticTextReplacementEnabled = false
-        editor.setAccessibilityLabel(L("Advanced Typography and CSS"))
+        editor.setAccessibilityLabel(label)
         editor.delegate = context.coordinator
         editor.string = text
         return scroll
@@ -180,6 +187,7 @@ import SumraCore
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.text = $text
         let editor = scroll.documentView as! NSTextView
+        editor.setAccessibilityLabel(label)
         if editor.string != text { editor.string = text }
     }
 
@@ -196,6 +204,7 @@ import SumraCore
 // that macOS can resolve but does not expose in availableFontFamilies.
 @MainActor struct ReaderFontNamePicker: NSViewRepresentable {
     @Binding var selection: String
+    var label = L("Font")
 
     func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
     func makeNSView(context: Context) -> NSComboBox {
@@ -203,13 +212,14 @@ import SumraCore
         combo.isEditable = true
         combo.completes = true
         combo.addItems(withObjectValues: ["system", "serif", "sans-serif", "monospace"] + ReaderFontPicker.families)
-        combo.setAccessibilityLabel(L("Font"))
+        combo.setAccessibilityLabel(label)
         combo.delegate = context.coordinator
         combo.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return combo
     }
     func updateNSView(_ combo: NSComboBox, context: Context) {
         context.coordinator.selection = $selection
+        combo.setAccessibilityLabel(label)
         if combo.currentEditor() == nil { combo.stringValue = selection }
     }
 
