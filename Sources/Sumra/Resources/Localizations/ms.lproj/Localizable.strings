@@ -711,3 +711,6 @@
 "Theme name" = "Nama tema";
 "Toolbar" = "Bar alat";
 "Untranslated interface text is shown in English." = "Teks antara muka yang belum diterjemahkan dipaparkan dalam bahasa Inggeris.";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "Tidak dapat membuka %@.";

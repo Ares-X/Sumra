@@ -711,3 +711,6 @@
 "Theme name" = "نام پوسته";
 "Toolbar" = "نوار ابزار";
 "Untranslated interface text is shown in English." = "متن ترجمه‌نشدهٔ رابط به انگلیسی نمایش داده می‌شود.";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "باز کردن %@ امکان‌پذیر نیست.";

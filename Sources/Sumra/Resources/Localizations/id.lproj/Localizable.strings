@@ -716,3 +716,6 @@
 "to" = "sampai";
 "x %d, y %d, width %d, height %d" = "x %d, y %d, lebar %d, tinggi %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,lebar,tinggi; kosong menggunakan kembali kolom atau tidak terlihat";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "Tidak dapat membuka %@.";

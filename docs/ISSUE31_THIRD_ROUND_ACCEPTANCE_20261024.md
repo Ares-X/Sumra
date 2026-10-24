@@ -75,5 +75,52 @@ unchanged complete engine build rebuilt all native consumers, and the focused
 PDF test and full source check then passed. The final height fix is rebuilt and
 validated separately; stale partial-build results are not release evidence.
 
-Signed candidate and final runtime acceptance are in progress. No issue closure
-or success reply has been made for this round.
+## Broader product acceptance
+
+The first signed candidate, source `2b9809e8cc12b15e29de953d14dc67a1e6b556c8`,
+was withheld after two additional user workflows exposed defects outside the
+reported image alignment cases:
+
+- In the reporter's image-only chapter, Single Page at `2:3`, Continuous,
+  Single Page returned at `2:4`. The native passage owner only captured text.
+  Image viewports now use the existing stable HTML image source identity;
+  visible prose and captions retain priority. Native and real Reader tests
+  cover repeated resources and the first, middle and last illustration.
+  That complete Reader test also caught a chapter-start boundary: a saved blank
+  margin could resolve above the first image after reflow, putting the actual
+  viewport in the preceding chapter. The existing scroll destination owner now
+  keeps source restoration at or below its target chapter start, without
+  restricting normal scrolling or chapter-end positioning.
+- A small Markdown document's link to a later heading stayed in the first
+  column. Generated Markdown places an empty anchor before the heading, whose
+  empty content range had no geometry. The existing paged fragment owner now
+  aligns the adjacent heading. WebKit tests cover generated anchors and normal
+  content IDs in paged and continuous reading.
+
+An unreadable PDF also exposed an unhelpful error without its file name. The
+opening error now includes the requested file and original cause; the previous
+document is preserved. The short context message is translated in all shipped
+non-English catalogs.
+
+Actual GUI exercises on that withheld candidate included:
+
+| Workflow | Observed result |
+| --- | --- |
+| PDF form draft, cancel Save a Copy, place note, save new copy, undo/redo, cancel document replacement, discard disposable draft and reopen output | Form value and note preserved in the saved output; undo/redo works; both input PDF hashes unchanged |
+| CHM topic link, find, cancel Open, failed PDF Open, then successful PDF replacement | Topic and search survive cancel/failure; successful replacement clears old search |
+| CBZ cover alone, facing-page order, RTL forward movement, last-page boundary, sidebar arrow focus | Correct numbered pictures and direction; sidebar focus does not turn the reader page |
+| TXT search, continuous/paged transition, font change and multilingual text | Search remains usable at its passage; English, Chinese, Arabic and Hebrew glyphs render |
+| MOBI accented-character search and reading-mode transition | Accented text and Chinese render; matches remain available after reflow |
+| Real 170-chapter Chinese EPUB, directory filtering, chapter destination, whole-book search and mode round trip | Directory and search destinations reach the intended chapter and text |
+| Real 44 MB, 174-page technical PDF, out-of-range page entry, distant page, Fit Width and repeated paging | Page entry clamps to last page; distant content renders; Fit Width persists while paging |
+
+These observations are preliminary runtime evidence for that exact candidate,
+not acceptance of a later build. The replacement signed candidate must pass
+both newly discovered workflows and the affected image/opening regressions.
+No issue closure or success reply has been made for this round.
+
+The image identity check uses the four fixture colors to distinguish painted
+illustrations, not to assert display color accuracy. A first attempt compared
+exact device RGB values and failed on AppKit's calibrated-color conversion;
+that invalid acceptance condition was replaced by saturated-color identity.
+Source and logical-position assertions remain unchanged.

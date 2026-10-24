@@ -963,3 +963,6 @@
 "Reset" = "重置";
 "Restore this command's default shortcuts" = "恢复此命令的默认快捷键";
 "Search commands" = "搜索命令";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "无法打开“%@”。";

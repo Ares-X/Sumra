@@ -13,7 +13,7 @@ struct RasterLink: Decodable {
     let rect: [Double]
     var bounds: CGRect { CGRect(raster: rect) }
 }
-// HTML flow identities identify a source glyph, including repeated passages.
+// HTML flow identities identify a source glyph or image, including repeated passages.
 // They are valid only for the same source revision and parsing style.
 struct NativeSourceAnchor: Codable, Hashable, Comparable {
     let node: UInt32, offset: UInt32, part: UInt32

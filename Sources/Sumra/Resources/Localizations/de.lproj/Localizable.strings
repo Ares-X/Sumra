@@ -716,3 +716,6 @@
 "to" = "bis";
 "x %d, y %d, width %d, height %d" = "x %d, y %d, Breite %d, Höhe %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,Breite,Höhe; leer verwendet das Feld erneut oder bleibt unsichtbar";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "„%@“ kann nicht geöffnet werden.";

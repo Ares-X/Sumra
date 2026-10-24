@@ -718,3 +718,6 @@
 "to" = "до";
 "x %d, y %d, width %d, height %d" = "x %d, y %d, ширина %d, высота %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,ширина,высота; пустое значение использует существующее поле или невидимо";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "Не удалось открыть %@.";

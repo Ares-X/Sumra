@@ -718,3 +718,6 @@
 "x %d, y %d, width %d, height %d" = "x %d, y %d, 너비 %d, 높이 %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,width,height; 비우면 필드를 재사용하거나 보이지 않게 됩니다";
 "Export Outline…" = "개요 내보내기…";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "%@ 파일을 열 수 없습니다.";

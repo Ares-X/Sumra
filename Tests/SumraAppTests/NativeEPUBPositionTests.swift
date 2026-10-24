@@ -78,6 +78,51 @@ final class NativeEPUBPositionTests: XCTestCase {
         XCTAssertNotNil(source)
     }
 
+    func testImagePlacementsKeepTheirSourceAcrossPaginationAndContinuousLayout() async throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = try EPUBImagePositionFixture.make(in: directory.url, repeatedImage: true)
+        let pages = try Pages(input, format: .mupdf, deferReflowLayout: true)
+        var identities = Set<NativeSourceAnchor>()
+        for image in [0, 2, 3] {
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.2, margin: 0, font: "system", theme: "light", pageSize: CGSize(width: 720, height: 480))
+            var position = try await pages.position(.init(chapter: 1, page: image), x: 0, y: 0, viewport: CGSize(width: 720, height: 480))
+            let passage = try XCTUnwrap(position.nativePassage, "An image-only page needs a stable source passage")
+            identities.insert(passage.source)
+            let saved = try JSONDecoder().decode(NativePassage.self, from: JSONEncoder().encode(passage))
+            for size in [CGSize(width: 720, height: 0), CGSize(width: 360, height: 480),
+                         CGSize(width: 360, height: 0), CGSize(width: 720, height: 480)] {
+                _ = try await pages.relayout(fontSize: 17, lineHeight: 1.2, margin: 0, font: "system", theme: "light",
+                                             pageSize: size, readingPosition: position)
+                position = await pages.layoutPosition
+                let location = try XCTUnwrap(position.anchor.flatMap(ChapterTable.bookmarkLocation)?.location)
+                XCTAssertEqual(location, PageLocation(chapter: 1, page: size.height == 0 ? 0 : image))
+                XCTAssertEqual(position.nativePassage?.source, saved.source)
+                let images = try await pages.imageBounds(location)
+                let rect = try XCTUnwrap(size.height == 0 ? (images.indices.contains(image) ? images[image] : nil) : images.first)
+                XCTAssertEqual(try XCTUnwrap(position.x) - saved.offsetX, Double(rect.minX), accuracy: 0.03)
+                XCTAssertEqual(try XCTUnwrap(position.y) - saved.offsetY, Double(rect.minY), accuracy: 0.03)
+            }
+        }
+        XCTAssertEqual(identities.count, 3, "Repeated placements of the same raster must keep distinct source identities")
+    }
+
+    func testVisibleCaptionKeepsItsGlyphPriorityOverAnImagePassage() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = try EPUBImagePositionFixture.make(in: directory.url, captions: true)
+        let file = try NativeFile(input, engine: .mupdf, deferReflowLayout: true)
+        _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light", pageSize: CGSize(width: 720, height: 480))
+        let page = try file.page(.init(chapter: 1, page: 0))
+        let image = try XCTUnwrap(file.imageBounds(page).first)
+        let caption = try XCTUnwrap(file.matches("CAPTION_IMAGE_0", page: page).first?.rects.first)
+        let textPassage = try XCTUnwrap(file.passage(page, at: caption.origin))
+        let wholePage = try XCTUnwrap(file.passage(page, at: CGPoint(x: image.midX, y: image.midY)))
+        XCTAssertEqual(wholePage.source.node, textPassage.source.node, "Existing prose and captions remain the authoritative source when visible")
+        let imageRegion = try XCTUnwrap(file.passage(page, at: image.origin, in: image.insetBy(dx: 1, dy: 1)))
+        XCTAssertNotEqual(imageRegion.source.node, textPassage.source.node, "An image-only viewport must have its own stable source")
+    }
+
     private func epub(in directory: URL) throws -> URL {
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
         let names = ["zero", "one", "two"]

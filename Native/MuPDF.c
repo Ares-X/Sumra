@@ -2969,10 +2969,22 @@ static char *page_source_anchor(void *opaque, int chapter, int index, float x, f
                         if (distance < best) { best = distance; nearest = ch; }
                     }
             }
-            if (!nearest) lf_json(&j, "null");
+
+            fz_rect r;
+            SumraSource source = {0};
+            if (nearest) {
+                source = source_of(nearest);
+                r = fz_rect_from_quad(nearest->quad);
+            } else {
+                // Keep visible prose/captions authoritative. Image-only
+                // viewports use their existing stable HTML flow identity.
+                fz_page *owner = load_render_page(d, chapter, index, NULL);
+                fz_html_page_image_source(d->ctx, owner, &source.node, (fz_point){x, y},
+                    region ? *region : fz_infinite_rect, &r);
+            }
+            if (!source.node) lf_json(&j, "null");
             else {
-                fz_rect r = fz_rect_from_quad(nearest->quad);
-                lf_json(&j, "{\"source\":"); lf_json_source(&j, source_of(nearest)); lf_json(&j, ",\"rect\":");
+                lf_json(&j, "{\"source\":"); lf_json_source(&j, source); lf_json(&j, ",\"rect\":");
                 lf_json_rect(&j, r.x0, r.y0, r.x1-r.x0, r.y1-r.y0); lf_json(&j, "}");
             }
         }
@@ -2999,22 +3011,29 @@ API char *lf_html_anchor_position(void *opaque, int chapter, uint32_t node, uint
         int page = -1;
         int carrier = d->render_page && d->render_chapter == chapter ? d->render_index : 0;
         text = filtered_stext_at(d, chapter, carrier, fz_empty_rect, node, byte_offset, &page, NULL);
-        if (page < 0) lf_json(&j, "null");
-        else {
-            fz_stext_char *found = NULL;
+        fz_stext_char *found = NULL;
+        if (page >= 0) {
             for (fz_stext_block *block = text->first_block; block && !found; block = block->next) {
                 if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
                 for (fz_stext_line *line = block->u.t.first_line; line && !found; line = line->next)
                     for (fz_stext_char *ch = line->first_char; ch; ch = ch->next)
                         if (ch->source_node == node && ch->source_offset == byte_offset && ch->source_part == part) { found = ch; break; }
             }
-            if (!found) lf_json(&j, "null");
-            else {
-                fz_rect r = fz_rect_from_quad(found->quad);
-                lf_json(&j, "{\"page\":"); lf_json_number(&j, page); lf_json(&j, ",\"rect\":");
-                lf_json_rect(&j, r.x0, r.y0, r.x1-r.x0, r.y1-r.y0);
-                lf_json(&j, fz_is_unicode_whitespace(found->c) ? ",\"whitespace\":true}" : ",\"whitespace\":false}");
-            }
+        }
+        fz_rect r;
+        int resolved = found != NULL;
+        if (found) r = fz_rect_from_quad(found->quad);
+        else if (node != 0 && byte_offset == 0 && part == 0) {
+            fz_page *owner = load_render_page(d, chapter, carrier, NULL);
+            uint32_t image_node = node;
+            page = fz_html_page_image_source(d->ctx, owner, &image_node, (fz_point){0}, fz_infinite_rect, &r);
+            resolved = page >= 0;
+        }
+        if (!resolved) lf_json(&j, "null");
+        else {
+            lf_json(&j, "{\"page\":"); lf_json_number(&j, page); lf_json(&j, ",\"rect\":");
+            lf_json_rect(&j, r.x0, r.y0, r.x1-r.x0, r.y1-r.y0);
+            lf_json(&j, found && fz_is_unicode_whitespace(found->c) ? ",\"whitespace\":true}" : ",\"whitespace\":false}");
         }
     }
     fz_always(d->ctx) { fz_drop_stext_page(d->ctx, text); }

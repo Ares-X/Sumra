@@ -718,3 +718,6 @@
 "x %d, y %d, width %d, height %d" = "x %d, y %d, चौड़ाई %d, ऊँचाई %d";
 "x,y,width,height; empty reuses field or is invisible" = "x,y,width,height; खाली होने पर फ़ील्ड पुनः उपयोग होगा या अदृश्य रहेगा";
 "Export Outline…" = "रूपरेखा निर्यात करें…";
+
+/* Sumra file-opening context. */
+"Cannot open %@." = "%@ खोला नहीं जा सका।";

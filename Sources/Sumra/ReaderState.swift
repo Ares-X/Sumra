@@ -2458,7 +2458,9 @@ private extension ReaderState {
                 } else if missingRestoredIdentity || !FileManager.default.fileExists(atPath: url.path) {
                     self.error = error.localizedDescription
                     markFileMissing(url, position: openingPosition)
-                } else { self.error = error.localizedDescription }
+                } else {
+                    self.error = String(format: L("Cannot open %@."), url.lastPathComponent) + "\n\n" + error.localizedDescription
+                }
                 // Atomic replacement may have invalidated the previous file descriptor.
                 if missingFile == nil, let url = document?.url { watchFile(url) }
             }
