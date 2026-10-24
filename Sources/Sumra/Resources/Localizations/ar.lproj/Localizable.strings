@@ -29,7 +29,7 @@
 "Crop Image…" = "قص الصورة…";
 "Custom Zoom…" = "تقريب مخصص…";
 "Cut Annotation" = "قص التعليق التوضيحي";
-"Dark" = "مظلم";
+"Dark" = "داكن";
 "Decompress PDF…" = "فك ضغط PDF…";
 "Decrypt PDF…" = "فك تشفير PDF…";
 "Delete" = "حذف";
@@ -61,7 +61,7 @@
 "Insert Image…" = "إدراج صورة…";
 "Keyboard Shortcuts" = "اختصارات لوحة المفاتيح";
 "Last Page" = "آخر صفحة";
-"Light" = "خفيف";
+"Light" = "فاتح";
 "Match Case" = "مطابقة حالة الأحرف";
 "Match Whole Word" = "مطابقة الكلمة بأكملها";
 "Move Tab Left" = "تحريك علامة التبويب لليسار";
@@ -110,7 +110,7 @@
 "Stop" = "إيقاف";
 "Stop Reading" = "إيقاف القراءة";
 "Text" = "نص";
-"Theme" = "قالب";
+"Theme" = "السمة";
 "Toggle Toolbar" = "تبديل شريط الأدوات";
 "Translate Selection with DeepL" = "ترجمة التحديد باستخدام DeepL";
 "Translate Selection with Google" = "ترجمة التحديد باستخدام Google";
@@ -256,7 +256,7 @@
 "Choose Theme…" = "تغيير المظهر…";
 "Custom" = "مخصص";
 "Default fit" = "التكبير الافتراضي";
-"Default theme" = "قالب";
+"Default theme" = "السمة الافتراضية";
 "Expand Contents to Level 2" = "توسيع إلى المستوى 2";
 "Expand Contents to Level 3" = "توسيع إلى المستوى 3";
 "Filter setting names" = "إعدادات التصفية";

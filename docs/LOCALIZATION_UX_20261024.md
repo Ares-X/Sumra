@@ -71,6 +71,20 @@ declare the same style inputs as their manual layout; their original passage,
 painted-state and prediction assertions remain intact. Failed-run and diagnostic
 receipts are retained rather than clearing preferences to obtain a passing run.
 
+Local GUI exploration switched between German, French, Arabic, Hebrew, Hindi,
+Bengali, Japanese, Traditional Chinese, English and System while a multilingual
+Markdown document stayed open and pageable. It exposed truncated setting
+explanations and a duplicate numeric field label. Form explanations now retain
+their full wrapped height; the zoom-increment field has one visible label and an
+explicit accessibility name. Ten old Arabic, Hindi and Bengali control labels
+were corrected for their actual theme, fit, command and tab context.
+
+The actual settings window accepted margin 120, exported asymmetric margins,
+cleared them and imported the exported file intact. Invalid input left the
+previous values unchanged, and a retired-language configuration displayed System
+without an incomplete-translation warning. These are local development GUI
+observations; exact signed release acceptance is recorded separately.
+
 Source, resource integrity, glyph screening and actual UI results are recorded
 separately in `build/maintenance-20261024/`. Native-speaker review and macOS 13/15
 runtime are not established by this macOS 27.0.1 arm64 validation.

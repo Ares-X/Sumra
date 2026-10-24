@@ -1,6 +1,6 @@
 /* Matching SumatraPDF translations from apptranslator.org, 2026-10-01. See THIRD_PARTY.md. */
 "Actual Size" = "প্রকৃত আকার";
-"Advanced" = "উন্নমিত";
+"Advanced" = "উন্নত";
 "All" = "সব";
 "Annotations" = "ব্যখা";
 "Apply" = "প্রয়োগ করুন";
@@ -255,7 +255,7 @@
 "Chapter:" = "অধ্যায়:";
 "Choose Theme…" = "থিম পরিবর্তন করুন…";
 "Custom" = "কাস্টম";
-"Default fit" = "পুর্ব নির্ধারিত বড় আকৃতি";
+"Default fit" = "পূর্বনির্ধারিত ফিট মোড";
 "Default theme" = "থিম";
 "Expand Contents to Level 2" = "স্তর ২ এ প্রসারিত করুন";
 "Expand Contents to Level 3" = "স্তর ৩ এ প্রসারিত করুন";

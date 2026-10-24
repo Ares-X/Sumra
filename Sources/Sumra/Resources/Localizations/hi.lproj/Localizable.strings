@@ -50,7 +50,7 @@
 "First Page" = "पहला पृष्ठ";
 "Fit Content" = "फिट  सामग्री";
 "Fit Height" = "ऊंचाई फ़िट करें";
-"Fit Page" = "फिट और पेज";
+"Fit Page" = "पृष्ठ फ़िट करें";
 "Fit Width" = "फिट और चौड़ाई";
 "Fit by Orientation" = "अभिविन्यास के अनुसार फ़िट करें";
 "Font" = "फ़ॉन्ट";
@@ -232,7 +232,7 @@
 "Expand All Contents" = "सभी का विस्तार";
 "Page Thumbnails" = "थंबनेल";
 "Sort Bookmarks by Name" = "नाम के अनुसार क्रमबद्ध करें";
-"Commands" = "नियंत्रण";
+"Commands" = "आदेश";
 "History" = "इतिहास";
 "Next" = "अगला पृष्ठ";
 "Open without History" = "इतिहास के बिना फ़ाइल खोलें";
@@ -255,7 +255,7 @@
 "Chapter:" = "अध्याय:";
 "Choose Theme…" = "थीम बदलें…";
 "Custom" = "कस्टम";
-"Default fit" = "डिफ़ॉल्ट पृष्ठ आकार";
+"Default fit" = "डिफ़ॉल्ट फ़िट मोड";
 "Default theme" = "थीम";
 "Expand Contents to Level 2" = "स्तर 2 तक विस्तारित करें";
 "Expand Contents to Level 3" = "स्तर 3 तक विस्तारित करें";
@@ -296,7 +296,7 @@
 /* Sumra-specific theme and reading controls, translated 2026-10-24. */
 "Theme name" = "नाम";
 "Paged" = "पृष्ठवार";
-"Use window tabs" = "उपयोग Tabs";
+"Use window tabs" = "विंडो टैब का उपयोग करें";
 "Partial translation" = "आंशिक अनुवाद";
 "Untranslated interface text is shown in English." = "इंटरफ़ेस का अनूदित न हुआ पाठ अंग्रेज़ी में दिखाया जाता है।";
 "Add Caret" = "कैरेट एनोटेशन बनाएं";

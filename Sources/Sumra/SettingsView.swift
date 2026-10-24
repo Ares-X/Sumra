@@ -57,8 +57,12 @@ struct SettingsView:View{
             Picker(L("Default fit"),selection:$fit) { ForEach(ReadingZoom.fitTitles.keys.sorted(), id: \.self) { Text(L(ReadingZoom.fitTitles[$0]!)).tag($0) } }
             TextField(L("Zoom levels (%)"), text: $zoomLevels)
                 .foregroundStyle((try? ReadingZoom.parseLevels(zoomLevels)) != nil ? Color.primary : .red)
-            LabeledContent(L("Zoom increment (%)")) { TextField("0", value: $zoomIncrement, format: .number).frame(width: 70) }
+            LabeledContent(L("Zoom increment (%)")) {
+                TextField("0", value: $zoomIncrement, format: .number).labelsHidden()
+                    .accessibilityLabel(L("Zoom increment (%)")).frame(width: 70)
+            }
             Text(L("Blank levels use the defaults. Zero increment steps through levels; a positive increment changes the current zoom proportionally.")).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         Section(L("Reading")){
             Toggle(L("Use document's preferred layout"), isOn: $automaticLayout)
@@ -94,6 +98,7 @@ struct SettingsView:View{
             Button(L("Check for Updates…")) { ReaderHelp.checkForUpdates() }
             Text(L("Updates are checked daily. The prerelease channel also checks on startup. Sparkle verifies and installs updates after you approve them."))
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         Section(L("TeX source editor")) {
             Menu(L("Choose Installed Editor")) {
@@ -105,6 +110,7 @@ struct SettingsView:View{
             TextField(L("JSON argument array"), text: $sourceEditor)
             Text(L("Shift-Command-double-click a PDF to open its source. Use {file}, {line}, {column} in the argument array; [] uses the default app."))
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         Section(L("Default typography")){
             ReaderFontPicker(selection: $font)
@@ -118,6 +124,7 @@ struct SettingsView:View{
                 Text("\(Int(margin))").monospacedDigit().frame(width: 30)
             }
             Text(L("Adjusting margins overrides document styles on all four sides.")).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }.formStyle(.grouped).tabItem { Text(L("Reading")) }
         ShortcutSettings().tabItem { Text(L("Shortcuts")) }
