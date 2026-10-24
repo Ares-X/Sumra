@@ -18,6 +18,7 @@ final class ReaderLocalizationTests: XCTestCase {
             defaults.set(retired, forKey: "language")
             XCTAssertEqual(ReaderLocalization.selection(retired), "system")
             XCTAssertEqual(ReaderLocalization.language, ReaderLocalization.preferredLanguage(Locale.preferredLanguages))
+            XCTAssertFalse(ReaderLocalization.isPartial(retired), "The completed system fallback must not display a partial-translation warning")
         }
     }
 

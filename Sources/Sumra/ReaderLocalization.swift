@@ -59,7 +59,8 @@ enum ReaderLocalization {
     }()
 
     static func isPartial(_ selected: String) -> Bool {
-        let resolved = selected == "system" ? language : selected
+        let effective = selection(selected)
+        let resolved = effective == "system" ? language : effective
         guard let value = coverage[resolved] else { return true }
         return value.translated < value.total
     }
