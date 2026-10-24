@@ -48,6 +48,51 @@ automatic appearance option; user-created themes and the current retired choice
 are separate from that preset count. Aa exposes the visual chooser and document
 color editor directly.
 
+## Second reporter follow-up
+
+The later comment exposed two gaps in the earlier acceptance: the heading itself
+had not been clicked, and the Finder cold-open result came from 0.2.10 rather
+than a fresh 0.2.13 run. That earlier result was NOT_REPRODUCED, not proof of a
+repair. It must not qualify the next release. The third rejected signed 0.2.14
+candidate reproduced the missing-window failure.
+
+Clicking the actual alert heading reproduced the white color at alpha
+0.8470588235294118. The native stack showed the text field editor updating the
+font/color panel, which then notified the active document color well. The two
+palette alerts now supply a native field editor with font-panel synchronization
+disabled before it becomes first responder. The regression fails on the old
+implementation and passes for headings, RGB fields and the theme-name field.
+
+In the repaired development app, physical heading/RGB/name clicks preserve the
+chosen brown and alpha 1 in both dialogs. Switching to Finder and returning by
+clicking the heading also preserves it, and a later wheel drag changes only the
+selected color. Six physical double-click switches among text/background/link
+retain the selected target; Apply closes the panel and reopening retains the
+values. These observations still require confirmation in the exact signed app.
+
+Settings now uses the same editable font control as Aa. Installed Supplemental
+font metadata contributes families absent from NSFontManager, including Iowan
+Old Style. In the actual Settings window, typing Iowan autocompletes the family,
+the list offers it, and closing/reopening retains the selected global default.
+Global typography, per-format defaults, and a remembered book's settings remain
+separate existing scopes; the global defaults are applied first.
+
+All twenty reporter EPUBs pass native cover checks in four layouts each. Second
+round A's two small title decorations also center in the actual reading window.
+OPF cover-image metadata, guide resources and EPUB3 landmarks identify covers;
+an image-only first linear spine item also qualifies without reliable metadata.
+Text/caption pages retain their source layout and anchors. Percentage block
+widths use the containing width, correcting the offset decorations.
+
+Normalized image-only covers expose an intrinsic-aspect canvas. The development
+reader displays a synthetic 2:1 landscape cover across the full viewport with
+Cover on Its Own, then resumes ordinary facing pages. This changes neither the
+global layout size nor ordinary chapter pagination. Native regressions cover
+portrait/landscape, spread/continuous transitions and unchanged ordinary chapter
+text, page bounds and anchors. The SVG subarea check now chooses its rectangle
+from the actual cover marker rather than the previous fixed paper coordinates;
+it retains the same tile-versus-full-image geometry assertions.
+
 ## Color-panel state transitions
 
 Actual native mouse dragging changed the wheel color, RGB field and preview.

@@ -1,6 +1,7 @@
 #if os(macOS)
 import SwiftUI
 import SumraCore
+import CoreText
 
 @MainActor
 struct ReaderView: View {
@@ -1030,26 +1031,29 @@ struct TypographyMenu: View {
 
 struct ReaderFontPicker: View {
     @Binding var selection: String
+    private static let supplementalFamilies: Set<String> = {
+        do {
+            let directory = URL(fileURLWithPath: "/System/Library/Fonts/Supplemental", isDirectory: true)
+            let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+            return Set(files.flatMap { file in
+                let faces = CTFontManagerCreateFontDescriptorsFromURL(file as CFURL) as? [CTFontDescriptor] ?? []
+                return faces.compactMap { CTFontDescriptorCopyAttribute($0, kCTFontFamilyNameAttribute) as? String }
+            })
+        } catch {
+            ReaderHelp.recordError("Unable to read supplemental font names: \(error.localizedDescription)")
+            return []
+        }
+    }()
     static var families: [String] {
-        NSFontManager.shared.availableFontFamilies.sorted {
+        Set(NSFontManager.shared.availableFontFamilies).union(supplementalFamilies).sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         }
     }
 
     var body: some View {
-        let families = Self.families
-        Picker(L("Font"), selection: $selection) {
-            Text(L("System")).tag("system")
-            Text(L("Serif")).tag("serif")
-            Text(L("Sans Serif")).tag("sans-serif")
-            Text(L("Monospace")).tag("monospace")
-            Divider()
-            if !["system", "serif", "sans-serif", "monospace"].contains(selection), !families.contains(selection) {
-                Text(selection).tag(selection)
-            }
-            ForEach(families, id: \.self) { family in
-                Text(family).tag(family)
-            }
+        LabeledContent(L("Font")) {
+            ReaderFontNamePicker(selection: $selection)
+                .frame(minWidth: 180, idealWidth: 240, maxWidth: .infinity, minHeight: 26, maxHeight: 26)
         }
     }
 }

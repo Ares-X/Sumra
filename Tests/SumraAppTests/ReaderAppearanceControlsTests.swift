@@ -50,6 +50,33 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertEqual(editor.preview.theme.background, 0xffffff)
     }
 
+    func testColorPanelKeepsDocumentColorWhenDialogTextTakesFocus() {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        for editsName in [false, true] {
+            inspectModal(response: editsName ? .alertSecondButtonReturn : .alertThirdButtonReturn) { content in
+                let editor = try XCTUnwrap(self.descendants(content, of: ReaderThemeEditorView.self).first)
+                let window = try XCTUnwrap(content.window)
+                let title = L(editsName ? "Customize Theme…" : "Custom Document Colors…")
+                let heading = try XCTUnwrap(self.descendants(content, of: NSTextField.self).first { $0.stringValue == title })
+                editor.paper.well.activate(true)
+                NSColorPanel.shared.color = ReaderTheme.color(0x945200)
+                XCTAssertEqual(editor.paper.value, 0x945200)
+                let fields = [heading, editor.text.hex, editor.paper.hex, editor.link.hex] + (editsName ? [editor.name] : [])
+                for field in fields {
+                    field.selectText(nil)
+                    let fieldEditor = try XCTUnwrap(window.firstResponder as? NSTextView)
+                    fieldEditor.updateFontPanel()
+                    XCTAssertEqual(editor.paper.value, 0x945200, "Focusing dialog text must not apply its text color to the book")
+                    XCTAssertEqual(ReaderTheme.rgb(NSColorPanel.shared.color), 0x945200)
+                    XCTAssertEqual(editor.paper.well.color.alphaComponent, 1)
+                }
+            }
+            if editsName { state.editTheme(ReaderTheme.builtins[0]) }
+            else { state.configureDocumentColors() }
+        }
+    }
+
     func testThemeDialogDisplaysClickableChoicesAndAppliesSelection() {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
@@ -168,6 +195,39 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertEqual(state.pendingReflowPosition?.font, "Georgia")
         panel.close()
         XCTAssertEqual(state.font, "Iowan Old Style", "Closing the live panel retains its applied changes")
+    }
+
+    func testDefaultTypographyReflectsSavedFontAndOffersInstalledSupplementalFamilies() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "font")
+        defaults.set("Iowan Old Style", forKey: "font")
+        defer { defaults.set(previous, forKey: "font") }
+        let host = NSHostingView(rootView: SettingsView())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 540),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        var fonts: NSComboBox?
+        for _ in 0..<100 {
+            host.layoutSubtreeIfNeeded()
+            fonts = descendants(host, of: NSComboBox.self).first
+            if fonts != nil { break }
+            for scroll in descendants(host, of: NSScrollView.self) {
+                scroll.documentView?.scroll(NSPoint(x: 0, y: scroll.documentView?.bounds.height ?? 0))
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let combo = try XCTUnwrap(fonts)
+        XCTAssertTrue(combo.isEditable)
+        XCTAssertEqual(combo.stringValue, "Iowan Old Style")
+        if FileManager.default.fileExists(atPath: "/System/Library/Fonts/Supplemental/Iowan Old Style.ttc") {
+            XCTAssertTrue(combo.objectValues.contains { $0 as? String == "Iowan Old Style" })
+        }
+        combo.selectItem(withObjectValue: "Georgia")
+        let delegate = try XCTUnwrap(combo.delegate as? ReaderFontNamePicker.Coordinator)
+        delegate.comboBoxSelectionDidChange(Notification(name: NSComboBox.selectionDidChangeNotification, object: combo))
+        XCTAssertEqual(defaults.string(forKey: "font"), "Georgia")
     }
 
     func testCSSDraftEditorLoadsSavedContentAndFollowsExternalDraftChanges() async throws {
