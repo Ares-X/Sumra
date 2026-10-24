@@ -834,10 +834,32 @@
  	/* The ancestor trbl is the trbl for the last positioned
  	 * node we have walked though. Boxes with "absolute" positioning
  	 * will be positioned relative to this. Initially this will be the
-@@ -635,13 +636,38 @@
+@@ -635,13 +636,60 @@
  #define TRBLCPY(DST,SRC) \
  do { DST[T] = SRC[T] ; DST[R] = SRC[R]; DST[B] = SRC[B]; DST[L] = SRC[L]; } while (0)
  
++/* A percentage image height needs a definite containing-block height.
++ * Resolve the existing computed CSS chain once for both an img block and
++ * its image flow, rather than overriding publisher heights in reader CSS. */
++static int definite_block_height(layout_data *ld, fz_html_box *box, float *height)
++{
++	float scale = 1;
++	while (box->up && box->style->height.unit == N_PERCENT)
++	{
++		scale *= box->style->height.value / 100;
++		box = box->up;
++	}
++	if (!box->up)
++	{
++		*height = (ld->page[B] - ld->page[T]) * scale;
++		return ld->page[B] > ld->page[T];
++	}
++	if (box->style->height.unit == N_AUTO)
++		return 0;
++	*height = fz_from_css_number(box->style->height, box->s.layout.em, 0, 0) * scale;
++	return 1;
++}
++
 +/* Enclosing margins and insets are part of an image's page budget. */
 +static float image_page_height(layout_data *ld, fz_html_box *top)
 +{
@@ -873,7 +895,7 @@
  	if (!ld->no_pagination && page_h > 0)
  	{
  		avail = page_h - fmodf(box->s.layout.b - page_top, page_h);
-@@ -666,6 +692,8 @@
+@@ -666,6 +714,8 @@
  			box->s.layout.b += avail;
  		}
  	}
@@ -882,10 +904,51 @@
  	layout_line(tree, ctx, indent, page_w, line_w, align, a, b, box, baseline, line_h);
  	box->s.layout.b += line_h;
  	if (box->s.layout.b > ld->used[B])
-@@ -1077,14 +1105,40 @@
+@@ -1054,28 +1104,48 @@
+ 		{
+ 			float xs = 1, ys = 1, s;
+ 			float aspect = 1;
+-			fz_css_number width = fz_html_flow_box(tree, node)->style->width;
+-			fz_css_number height = fz_html_flow_box(tree, node)->style->height;
++			fz_html_box *image_box = fz_html_flow_box(tree, node);
++			fz_css_number width = image_box->style->width;
++			fz_css_number height = image_box->style->height;
+ 			float image_em = ld->no_pagination ? fz_html_flow_box(tree, node)->s.layout.em : top->s.layout.em;
+ 			float max_w = ld->bounds[R] - ld->bounds[L]; // current block content box width
+ 			float max_h = ld->no_pagination ? ld->bounds[B] - ld->bounds[T] : ld->page[B] - ld->page[T];
++			float height_reference = max_h;
+ 
+ 			/* NOTE: We ignore the image DPI here, since most images in EPUB files have bogus values. */
+ 			node->w = node->content.image->w * (ld->no_pagination ? 1 : 72.0f / 96.0f);
+ 			node->h = node->content.image->h * (ld->no_pagination ? 1 : 72.0f / 96.0f);
+ 			aspect = node->h ? node->w / node->h : 0;
+ 
+-			/* Percentage heights have no reference in continuous layout. */
+-			if (height.unit == N_PERCENT && max_h <= 0)
+-				height.unit = N_AUTO;
++			if (height.unit == N_PERCENT)
++			{
++				if ((!strcmp(image_box->tag, "img") || !strcmp(top->tag, "img")) &&
++					(image_box->style->position == POS_STATIC || image_box->style->position == POS_RELATIVE))
++				{
++					fz_html_box *containing = !strcmp(top->tag, "img") ? top->up : top;
++					if (!definite_block_height(ld, containing, &height_reference))
++						height.unit = N_AUTO;
++				}
++				/* SVG retains its explicit viewport fitting semantics. */
++				else if (max_h <= 0)
++					height.unit = N_AUTO;
++			}
+ 			if (width.unit != N_AUTO)
+ 				node->w = fz_from_css_number(width, image_em, max_w, node->w);
+ 			if (height.unit != N_AUTO)
+-				node->h = fz_from_css_number(height, image_em, max_h, node->h);
++				node->h = fz_from_css_number(height, image_em, height_reference, node->h);
+ 			if (width.unit == N_AUTO && height.unit != N_AUTO)
+ 				node->w = node->h * aspect;
  			if (width.unit != N_AUTO && height.unit == N_AUTO)
  				node->h = (aspect == 0) ? 0 : (node->w / aspect);
- 
++
 +			/* Reserve enclosing block insets, rather than earlier paragraphs:
 +			 * an oversized image must fit one page without consuming a blank
 +			 * page just to accommodate its own top/bottom margins. */
@@ -893,10 +956,10 @@
 +				max_h = image_page_height(ld, top);
 +			if (ld->figure_image_height > 0)
 +				max_h = fz_min(max_h, ld->figure_image_height);
-+
+ 
  			/* Shrink image to fit on one page if needed */
  			if (!ld->no_pagination && max_w > 0 && node->w > max_w)
- 				xs = max_w / node->w;
+@@ -1083,8 +1153,26 @@
  			if (!ld->no_pagination && max_h > 0 && node->h > max_h)
  				ys = max_h / node->h;
  			s = fz_min(xs, ys);
@@ -925,7 +988,30 @@
  
  		}
  		else if (node->type == FLOW_ANCHOR)
-@@ -1445,7 +1499,29 @@
+@@ -1400,6 +1488,9 @@
+ 	const float *padding = box->u.block.padding;
+ 	float auto_w, auto_h;
+ 	float reference_w, reference_h;
++	fz_css_number height = box->style->height;
++	int image_percent_height = !strcmp(box->tag, "img") && height.unit == N_PERCENT &&
++		(box->style->position == POS_STATIC || box->style->position == POS_RELATIVE);
+ 	fz_html_restarter *restart = ld->restart;
+ 	int eop = 0;
+ 
+@@ -1436,8 +1527,10 @@
+ 	}
+ 	pd->has_width = fz_css_number_defined_not_auto(box->style->width);
+ 	pd->width = fz_from_css_number(box->style->width, em, reference_w, 0);
+-	pd->has_height = fz_css_number_defined_not_auto(box->style->height);
+-	pd->height = fz_from_css_number(box->style->height, em, reference_h, 0);
++	if (image_percent_height && !definite_block_height(ld, box->up, &reference_h))
++		height.unit = N_AUTO;
++	pd->has_height = fz_css_number_defined_not_auto(height);
++	pd->height = fz_from_css_number(height, em, reference_h, 0);
+ 
+ 	/* Adjust horizontally for Width and spacings */
+ 	auto_w = ld->bounds[R] - ld->bounds[L] - (margin[L] + margin[R] + border[L] + border[R] + padding[L] + padding[R]);
+@@ -1445,11 +1538,33 @@
  	if (ignore_width)
  		ld->bounds[R] = ld->bounds[L] + auto_w;
  	else
@@ -956,7 +1042,12 @@
  
  	/* Adjust vertically for Height and spacings (noting that we have already done the top ones above!) */
  	auto_h = ld->bounds[B] - ld->bounds[T] - (margin[B] + border[B] + padding[B]);
-@@ -2941,6 +3017,25 @@
+-	ld->bounds[B] = ld->bounds[T] + fz_from_css_number(box->style->height, em, auto_h, auto_h);
++	ld->bounds[B] = ld->bounds[T] + fz_from_css_number(height, em, image_percent_height ? reference_h : auto_h, auto_h);
+ 
+ 	/* So bounds and fixed are calculated as they should be for positioned: static */
+ 	ld->used[T] = ld->bounds[T];
+@@ -2941,6 +3056,25 @@
  
  	Return 1 if we should restart at the next block, 0 otherwise.
  */
@@ -982,7 +1073,7 @@
  static int layout_block(fz_html_tree *tree, fz_context *ctx, layout_data *ld, fz_html_box *box)
  {
  	fz_html_box *child;
-@@ -2950,8 +3045,25 @@
+@@ -2950,8 +3084,25 @@
  	float em = box->s.layout.em;
  	int eop = 0;
  	position_data position;
@@ -1008,7 +1099,7 @@
  
  	/* If restart is non-NULL, we are running in restartable mode. */
  	if (restart)
-@@ -3097,6 +3209,8 @@
+@@ -3097,6 +3248,8 @@
  			return 1;
  	}
  
@@ -1017,7 +1108,7 @@
  	return 0;
  }
  
-@@ -3150,7 +3264,7 @@
+@@ -3150,7 +3303,7 @@
  			{
  				/* Compute preliminary width (will be adjusted if block is nested in table cell later) */
  				float auto_w = top_w - (margin[L] + margin[R] + border[L] + border[R] + padding[L] + padding[R]);
@@ -1026,7 +1117,7 @@
  			}
  		}
  
-@@ -3622,8 +3736,12 @@
+@@ -3622,8 +3775,12 @@
  void
  fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em)
  {
@@ -1040,7 +1131,7 @@
  	{
  		if (!isfinite(html->meta_w) || !isfinite(html->meta_h) || html->meta_w <= 0 || html->meta_h <= 0)
  			fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB requires positive viewport width and height");
-@@ -3652,12 +3770,12 @@
+@@ -3652,12 +3809,12 @@
  		html->page_margin[T] = html->page_margin[B] = 0;
  
  	html->page_w = w - html->page_margin[L] - html->page_margin[R];

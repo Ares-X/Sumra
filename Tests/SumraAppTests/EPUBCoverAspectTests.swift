@@ -179,6 +179,98 @@ final class EPUBCoverAspectTests: XCTestCase {
         }
     }
 
+    func testInteriorArtPagesUseTheReadersRealCSSComposition() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let pictures = (0..<4).map { "<p><a id='art\($0)'/><img src='cover.png'/></p>" }.joined()
+        let html = "<html><head><style>@page{margin:0}body,p{margin:0}img{width:auto;height:auto}</style></head><body>\(pictures)</body></html>"
+        let file = try NativeFile(fixture(in: directory.url, coverDocument: html), engine: .mupdf)
+        for useDocumentCSS in [true, false] {
+            for userCSS in ["", "@page{margin:24px!important}body{margin:11px!important}"] {
+                for size in [CGSize(width: 720, height: 480), CGSize(width: 360, height: 480),
+                             CGSize(width: 480, height: 720), CGSize(width: 1200, height: 800)] {
+                    _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light",
+                                          userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageSize: size)
+                    XCTAssertEqual(file.chapterTable?.pageCount(0), 4, "Each independent illustration needs its own page")
+                    for index in 0..<4 {
+                        let page = try file.page(.init(chapter: 0, page: index))
+                        let canvas = try XCTUnwrap(file.bounds(page))
+                        let images = try file.imageBounds(page)
+                        XCTAssertEqual(images.count, 1)
+                        let art = try XCTUnwrap(images.first)
+                        XCTAssertEqual(art.width / art.height, 2.0 / 3.0, accuracy: 0.002)
+                        XCTAssertEqual(art.midX, canvas.midX, accuracy: 0.03)
+                        XCTAssertEqual(art.midY, canvas.midY, accuracy: 0.03)
+                        XCTAssertGreaterThan(art.height, 225, "Full-page art must grow beyond the 200x300 source's natural height")
+                        XCTAssertGreaterThanOrEqual(art.minX, canvas.minX - 0.03)
+                        XCTAssertLessThanOrEqual(art.maxX, canvas.maxX + 0.03)
+                        XCTAssertGreaterThanOrEqual(art.minY, canvas.minY - 0.03)
+                        XCTAssertLessThanOrEqual(art.maxY, canvas.maxY + 0.03)
+                        XCTAssertEqual(try file.resolve("c0.xhtml#art\(index)")?.page, index)
+                    }
+                }
+            }
+        }
+        _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light",
+                              pageSize: CGSize(width: 360, height: 0))
+        XCTAssertEqual(file.chapterTable?.pageCount(0), 1)
+        let images = try file.imageBounds(0)
+        XCTAssertEqual(images.count, 4)
+        for art in images {
+            XCTAssertEqual(art.width, 150, accuracy: 0.03, "Continuous reading retains the source's natural size within its column")
+            XCTAssertEqual(art.height, 225, accuracy: 0.03)
+        }
+    }
+
+    func testReaderBridgePreservesExplicitImageConstraintsAndPercentageHeightReferences() throws {
+        // Max constraints remain a classification boundary. General max-size
+        // layout is still unsupported, so those cases retain their natural size.
+        let cases: [(String, String, CGSize, CGSize?)] = [
+            ("width only", "img{width:40px}", CGSize(width: 40, height: 60), nil),
+            ("height only", "img{height:30px}", CGSize(width: 20, height: 30), nil),
+            ("em height", "img{height:2em}", CGSize(width: 34 * 2.0 / 3.0, height: 34), nil),
+            ("maximum width", "img{max-width:25%}", CGSize(width: 150, height: 225), nil),
+            ("ancestor maximum height", ".frame{max-height:25%}", CGSize(width: 150, height: 225), nil),
+            ("percentage width container", ".frame{width:25%}img{width:100%}", CGSize(width: 180, height: 270), nil),
+            ("percentage height in auto container", "img{height:50%}", CGSize(width: 150, height: 225), nil),
+            ("percentage height in pixel container", ".frame{height:200px}img{height:50%}", CGSize(width: 100 * 2.0 / 3.0, height: 100), nil),
+            ("percentage height in em container", ".frame{height:12em}img{height:50%}", CGSize(width: 68, height: 102), nil),
+            ("percentage height in percentage container", ".stage{height:200px}.frame{height:50%}img{height:50%}", CGSize(width: 50 * 2.0 / 3.0, height: 50), nil),
+            ("zero pixel container", "html,body,.stage{height:100%}.frame{height:0px}img{height:50%}", .zero, nil),
+            ("zero percentage container", "html,body,.stage{height:100%}.frame{height:0%}img{height:50%}", .zero, CGSize(width: 150, height: 225))
+        ]
+        for (name, css, expected, continuousExpected) in cases {
+            for display in ["inline", "block"] {
+                let directory = try TemporaryDirectory()
+                defer { withExtendedLifetime(directory) {} }
+                let pictures = (0..<4).map { "<section class='stage'><div class='frame'><img id='art\($0)' src='cover.png'/></div></section>" }.joined()
+                let following = expected == .zero ? "<p>VISIBLE TEXT</p>" : ""
+                let html = "<html><head><style>@page{margin:0}body{margin:0}img{display:\(display)}\(css)</style></head><body>\(pictures)\(following)</body></html>"
+                let file = try NativeFile(fixture(in: directory.url, coverDocument: html), engine: .mupdf)
+                for height in [CGFloat(480), 0] {
+                    _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light",
+                                          pageSize: CGSize(width: 720, height: height))
+                    let pageCount = try XCTUnwrap(file.chapterTable?.pageCount(0))
+                    let images = try (0..<pageCount).flatMap { index in
+                        try file.imageBounds(file.page(.init(chapter: 0, page: index)))
+                    }
+                    XCTAssertEqual(images.count, 4, "\(name), \(display): each source image must remain visible once")
+                    let size = height == 0 ? continuousExpected ?? expected : expected
+                    for art in images {
+                        XCTAssertEqual(art.width, size.width, accuracy: 0.03, "\(name), \(display), height \(height)")
+                        XCTAssertEqual(art.height, size.height, accuracy: 0.03, "\(name), \(display), height \(height)")
+                    }
+                    if expected == .zero {
+                        let text = try (0..<pageCount).map { index in
+                            try file.text(file.page(.init(chapter: 0, page: index))) ?? ""
+                        }.joined()
+                        XCTAssertTrue(text.contains("VISIBLE TEXT"), "Zero image dimensions must not consume the following text")
+                    }
+                }
+            }
+        }
+    }
+
     func testDeclaredTextCoverKeepsItsAuthoredContent() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }

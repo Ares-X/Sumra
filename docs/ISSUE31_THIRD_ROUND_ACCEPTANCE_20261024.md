@@ -53,5 +53,27 @@ D's repeated image is reproduced by the native renderer at specific page sizes;
 its source image appears in both adjacent page placements. Baseline geometry and
 size-sweep receipts are retained in the `native/` evidence directory.
 
-Fixes and final acceptance are in progress. No issue closure or success reply
-has been made for this round.
+## Integration findings caught before release
+
+The actual reader bridge injected `img{height:auto!important;max-width:100%!important}`.
+The newly recognized maximum-width property made this reader rule look like an
+author constraint, so direct native layout tests passed while real reader calls
+still failed to fit the image sequence. The global override was removed; normal
+image layout now resolves percentage height from its actual containing block.
+Real NativeFile regressions cover author width-only/height-only constraints,
+maximum-size classification, auto versus definite percentage references, paged
+and continuous reading, and zero-height containers with following text.
+
+Independent review exposed the zero-percent case: a valid zero-height result was
+mistaken for a missing height reference. A public-bridge probe confirmed that
+`0%` incorrectly restored a natural-size image while `0px` did not. The owner
+now distinguishes the existence of a reference from its computed result.
+
+A partial manual native relink initially reused an object compiled against an
+older private CSS-property enum and failed an existing PDF underline test. The
+unchanged complete engine build rebuilt all native consumers, and the focused
+PDF test and full source check then passed. The final height fix is rebuilt and
+validated separately; stale partial-build results are not release evidence.
+
+Signed candidate and final runtime acceptance are in progress. No issue closure
+or success reply has been made for this round.

@@ -557,9 +557,6 @@ void lf_install_system_fonts(fz_context *ctx) {
     // scripts can use the installed system fonts through the existing callback.
     fz_install_load_system_font_funcs(ctx, load_system_font, NULL, load_system_fallback_font);
 }
-// Sumatra's EPUB image fix (#5805): publisher height:100% collapses
-// images in flow containers without a fixed height.
-static const char *image_css = "img { height: auto !important; max-width: 100% !important; }\n";
 // LegacyText's extracted KF8 resources retain their MOBI-relative indexes.
 // Reuse MuPDF's public MOBI HTML adapter and its existing typography rules.
 static const fz_htdoc_format mobi_html = { "MOBI", NULL, 1, 1, FZ_HTML_FLAVOR_MOBI };
@@ -665,7 +662,7 @@ static void *open_document_input(const char *path, const char *password, int *ne
             d->saved_journal_position = pdf_undoredo_state(d->ctx, pdf, &steps);
         }
         if (fz_is_document_reflowable(d->ctx, d->doc) && !(defer_markdown_layout && markdown && !pdf)) {
-            fz_style_document(d->ctx, d->doc, 1, image_css);
+            fz_style_document(d->ctx, d->doc, 1, NULL);
             fz_layout_document(d->ctx, d->doc, 420, 595, 11);
         }
     }
@@ -852,15 +849,13 @@ API int lf_reflowable(SumraMuPDFDocument *d) { return fz_is_document_reflowable(
 API int lf_relayout_css(SumraMuPDFDocument *d, float width, float height, float em, const char *css, int publisher_css, char *error) {
     if (!fz_is_document_reflowable(d->ctx, d->doc)) return 0;
     lf_drop_render_page(d);
-    int n = 0; fz_buffer *style = NULL; fz_var(n); fz_var(style);
+    int n = 0; fz_var(n);
     fz_try(d->ctx) {
-        style = fz_new_buffer_from_printf(d->ctx, "%s%s", image_css, css ? css : "");
-        fz_style_document(d->ctx, d->doc, publisher_css != 0, fz_string_from_buffer(d->ctx, style));
+        fz_style_document(d->ctx, d->doc, publisher_css != 0, css);
         if (height == 0) fz_layout_document_continuous(d->ctx, d->doc, width, em);
         else fz_layout_document(d->ctx, d->doc, width, height, em > 0 ? em : 11);
         n = 1;
     }
-    fz_always(d->ctx) { fz_drop_buffer(d->ctx, style); }
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); return -1; }
     return n;
 }
