@@ -181,8 +181,12 @@ final class NativeLinkInteractionTests: XCTestCase {
                     scroll.reflectScrolledClipView(scroll.contentView)
                 case "viewport": window.setContentSize(CGSize(width: restore ? 520 : 540, height: 440))
                 default:
-                    NotificationCenter.default.post(name: restore ? NSWindow.didEnterFullScreenNotification : NSWindow.willEnterFullScreenNotification,
-                        object: window)
+                    guard !restore else { return }
+                    // Invoke the Canvas boundary without inventing a global
+                    // AppKit fullscreen lifecycle. Signed GUI acceptance owns
+                    // real fullscreen notification delivery and registration.
+                    _ = canvas.perform(NSSelectorFromString("previewWindowChanged:"),
+                        with: NSNotification(name: NSWindow.willEnterFullScreenNotification, object: window))
                 }
             }
 
