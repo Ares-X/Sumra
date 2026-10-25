@@ -4578,7 +4578,10 @@ struct NativeReadingAccessibilitySnapshot {
         if view.finitePredictionToken != predictionToken { view.cancelFinitePrediction() }
         view.finitePredictionToken = predictionToken
         view.renderPredictedPage = renderPredictedPage
-        if view.pages !== pages || view.location != location { view.closePreview() }
+        if view.pages !== pages || view.location != location || view.renderRevision != state.renderRevision ||
+            view.rotation != rotation || view.lastDisplaySize != displaySize || view.visibleBounds != visibleBounds {
+            view.closePreview()
+        }
         if view.pages !== pages || view.tileDocumentID != state.document?.id || view.location != location ||
             (view.viewportTileSize != nil && viewportTileSize == nil) {
             view.clearTiles()
@@ -5997,6 +6000,7 @@ struct NativeReadingAccessibilitySnapshot {
             if let preview { preview.parent?.removeChildWindow(preview); preview.close() }
             preview = nil
         }
+        @objc private func previewWindowChanged(_ notification: Notification) { closePreview() }
         override func mouseExited(with event: NSEvent) { closePreview() }
         override func resetCursorRects() {
             if let tool = state?.nativePDFAnnotationTool, tool.isPlacement || tool.kind == "eraser" { addCursorRect(bounds, cursor: .crosshair) }
@@ -6070,14 +6074,21 @@ struct NativeReadingAccessibilitySnapshot {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let observer = scrollObserver { NotificationCenter.default.removeObserver(observer) }; scrollObserver = nil
-            guard window != nil, let scroll = enclosingScrollView else { return }
+            guard let window, let scroll = enclosingScrollView else { return }
+            for name in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification,
+                         NSWindow.didResizeNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(previewWindowChanged(_:)), name: name, object: window)
+            }
             if let state, case .pages(let current) = state.document?.content, current === pages {
                 state.readerScrollView = scroll
                 if !(scroll is RasterViewport.Scroll) { ReaderScrollbars.apply(to: scroll, mode: state.scrollbarMode) }
             }
             scroll.contentView.postsBoundsChangedNotifications = true
             scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.schedulePosition() }
+                MainActor.assumeIsolated {
+                    self?.closePreview()
+                    self?.schedulePosition()
+                }
             }
             schedulePosition()
             restoreReaderFocus()
@@ -6118,6 +6129,10 @@ struct NativeReadingAccessibilitySnapshot {
                 anchor: state.reflowable ? state.chapterLayout?.bookmark(location) : nil), preservingNativePassage: true)
         }
         override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if newWindow !== window {
+                closePreview()
+                NotificationCenter.default.removeObserver(self)
+            }
             if newWindow == nil {
                 cancelFinitePrediction()
                 if window?.firstResponder === self { selections?.pendingReaderFocus = true }
@@ -6125,7 +6140,6 @@ struct NativeReadingAccessibilitySnapshot {
                 closeComment()
                 clearTiles()
                 if state?.readerFocusView === self { state?.readerFocusView = nil }
-                closePreview()
                 selections?.visibleBounds.removeValue(forKey: location)
                 if let observer = scrollObserver { NotificationCenter.default.removeObserver(observer) }; scrollObserver = nil
             }

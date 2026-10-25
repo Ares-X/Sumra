@@ -153,7 +153,65 @@ final class NativeLinkInteractionTests: XCTestCase {
         XCTAssertNil(state.error)
     }
 
-    private func makeReader() async throws -> (TemporaryDirectory, Pages, ReaderState, NSHostingView<RasterReader>, NSWindow) {
+    func testScrollViewportAndFullscreenChangesDismissShownAndPendingHoverImages() async throws {
+        for change in ["scroll", "viewport", "fullscreen"] {
+            let (directory, pages, state, host, window) = try await makeReader(flow: "continuous")
+            defer { close(state, window); withExtendedLifetime(directory) {} }
+            func sourceCanvas() async throws -> RasterCanvas.Canvas {
+                let deadline = Date().addingTimeInterval(5)
+                var steady = 0, lastRevision = -1
+                repeat {
+                    host.layoutSubtreeIfNeeded()
+                    let revision = await pages.layoutRevision
+                    let canvas = canvases(in: host).first { !$0.links.isEmpty && $0.readingReady }
+                    steady = canvas != nil && state.pendingReflowPosition == nil && revision == lastRevision ? steady + 1 : 0
+                    lastRevision = revision
+                    if steady == 10 { return try XCTUnwrap(canvas) }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                } while Date() < deadline && state.error == nil
+                XCTFail(state.error ?? "\(change): The source canvas did not finish reflow")
+                return try XCTUnwrap(canvases(in: host).first { !$0.links.isEmpty && $0.readingReady })
+            }
+            let canvas = try await sourceCanvas()
+            let scroll = try XCTUnwrap(canvas.enclosingScrollView)
+            func changeGeometry(_ restore: Bool = false) {
+                switch change {
+                case "scroll":
+                    scroll.contentView.scroll(to: CGPoint(x: 0, y: restore ? 0 : 10))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                case "viewport": window.setContentSize(CGSize(width: restore ? 520 : 540, height: 440))
+                default:
+                    NotificationCenter.default.post(name: restore ? NSWindow.didEnterFullScreenNotification : NSWindow.willEnterFullScreenNotification,
+                        object: window)
+                }
+            }
+
+            try enterLink(in: canvas)
+            changeGeometry()
+            try await Task.sleep(nanoseconds: 450_000_000)
+            XCTAssertFalse(window.childWindows?.contains { $0.contentView is NSImageView && $0.isVisible } == true,
+                "\(change) must cancel a hover image still waiting to appear")
+            canvas.mouseExited(with: NSEvent())
+            changeGeometry(true)
+            let current = try await sourceCanvas()
+            try enterLink(in: current)
+            try await wait(host, state) { window.childWindows?.contains { $0.contentView is NSImageView && $0.isVisible } == true }
+            let preview = try XCTUnwrap(window.childWindows?.first { $0.contentView is NSImageView })
+            // Layout/position bookkeeping with stationary geometry must retain
+            // an ordinary hover instead of cancelling its own preview.
+            current.schedulePosition()
+            try await Task.sleep(nanoseconds: 50_000_000)
+            XCTAssertTrue(preview.isVisible)
+            changeGeometry()
+            try await Task.sleep(nanoseconds: 50_000_000)
+            XCTAssertFalse(preview.isVisible, "\(change) must dismiss an already shown hover image")
+            XCTAssertNil(preview.parent, "\(change) must detach the dismissed child window")
+            current.mouseExited(with: NSEvent())
+            XCTAssertNil(state.error)
+        }
+    }
+
+    private func makeReader(flow: String = "paged") async throws -> (TemporaryDirectory, Pages, ReaderState, NSHostingView<RasterReader>, NSWindow) {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("links.md")
         try ("[Jump to destination](#destination)\n\n"
@@ -163,7 +221,7 @@ final class NativeLinkInteractionTests: XCTestCase {
         let pages = try Pages(input, format: .markdown), state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: input, content: .pages(pages), markdownPreference: .paged, markdownRenderer: .paged)
         state.reflowable = true; state.automaticLayout = false
-        state.flow = "paged"; state.spread = false; state.fit = "page"; state.zoom = 1
+        state.flow = flow; state.spread = false; state.fit = "page"; state.zoom = 1
         state.fontSize = 17; state.lineHeight = 1.6; state.font = "system"; state.theme = "light"
         state.margin = 32; state.pageMargins = nil; state.userCSS = ""; state.useDocumentCSS = true
         state.freePan = false; state.rectangularSelection = false; state.disableLinks = false
@@ -175,7 +233,7 @@ final class NativeLinkInteractionTests: XCTestCase {
         _ = try await pages.relayout(fontSize: state.fontSize, lineHeight: state.lineHeight,
             margin: state.margin, font: state.font, theme: state.resolvedTheme,
             userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS,
-            pageMargins: state.pageMargins, pageSize: CGSize(width: 520, height: 440))
+            pageMargins: state.pageMargins, pageSize: CGSize(width: 520, height: flow == "continuous" ? 0 : 440))
         _ = state.applyChapterLayout(await pages.chapterLayout)
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
         var frame = CGRect(x: 200, y: 300, width: 520, height: 440)
