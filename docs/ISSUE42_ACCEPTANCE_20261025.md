@@ -1,5 +1,10 @@
 # Issue 42: links, immersive reading and Quick Look
 
+Release-cycle status update (2026-10-26): use [Issue 42 Release
+Acceptance](ISSUE42_RELEASE_ACCEPTANCE_20261026.md) for the accepted 0.2.18
+candidate and release delivery state. That record supersedes the current or
+final labels below for this release cycle; dated evidence remains historical.
+
 Latest original-feedback recheck: [ORIGINAL_FEEDBACK_RECHECK_20261025.md](ORIGINAL_FEEDBACK_RECHECK_20261025.md). Current host is `7BD95D07-CE05-3822-9AE2-F7D5C6DFDCC4`; it fixes short-screen hover-preview containment. The 33-original / 175 third-round / 48 fourth-round layout matrix has now been replayed against current build inputs and the current packaged engine, with 81 focused checks and actual Virtual-display link acceptance. E316 and older observations below retain their historical attribution.
 
 ## Current follow-up (supersedes earlier final-candidate/input-boundary labels)

@@ -50,8 +50,9 @@ hover preference migrates to Auto Hide when enabled, otherwise Always Show.
 Advanced settings export/import uses `toolbarDisplayMode` (`shown`, `auto`,
 `hidden`). Existing configured `toolbar` commands keep their show/hide semantics
 and change this same setting; they do not maintain a separate window override.
-On macOS 15 and later, app visibility also controls the full-screen toolbar so
-the native menu-bar hover area does not impose a second reveal threshold.
+In full screen, the active reader synchronizes the native toolbar presentation
+policy with this same visibility state, so the menu-bar hover area does not
+impose a second reveal threshold or leave hidden chrome covering the first line.
 Window close/full-screen controls remain owned by macOS; minimizing is unavailable
 while the native full-screen window is active.
 Reader chrome uses a short 180 ms eased reveal. A hidden toolbar waits 140 ms
