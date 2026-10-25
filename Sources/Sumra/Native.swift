@@ -15,7 +15,7 @@ struct RasterLink: Decodable {
 }
 // HTML flow identities identify a source glyph or image, including repeated passages.
 // They are valid only for the same source revision and parsing style.
-struct NativeSourceAnchor: Codable, Hashable, Comparable {
+struct NativeSourceAnchor: Codable, Hashable, Comparable, Sendable {
     let node: UInt32, offset: UInt32, part: UInt32
     let chapter: Int?
     init(node: UInt32, offset: UInt32, part: UInt32, chapter: Int? = nil) {
@@ -247,6 +247,10 @@ final class NativeFile {
     private let sourceRevision: String
     private var htmlStyleSignature = ""
     private var legacyPaletteStyleSignature: String?
+    private typealias MarkdownCancelled = @convention(c) () -> Int32
+    private typealias MarkdownStep = @convention(c) (UnsafeMutableRawPointer, UInt, MarkdownCancelled, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+    private typealias MarkdownDrop = @convention(c) (UnsafeMutableRawPointer) -> Void
+    private var markdownSearches = [UUID: (handle: UnsafeMutableRawPointer, step: MarkdownStep, drop: MarkdownDrop)]()
 
     struct FileVersion: Equatable {
         let device: dev_t, inode: ino_t, size: off_t
@@ -517,7 +521,7 @@ final class NativeFile {
             }
             // Converted ebook input is regenerated in a fresh temporary directory
             // on every open. Its source nodes belong to the bytes, not that inode.
-            if engine == .mupdf, pdfSource == nil, ["document.mobihtml", "document.mobi", "document.fb2", "document.html"].contains(url.lastPathComponent) {
+            if engine == .mupdf, pdfSource == nil, ["document.mobihtml", "document.mobiepub", "document.mobi", "document.fb2", "document.html"].contains(url.lastPathComponent) {
                 sourceRevision = SHA256.hash(data: try Data(contentsOf: url, options: .mappedIfSafe)).map { String(format: "%02x", $0) }.joined()
             } else { sourceRevision = pdfSource?.sourceCheckpoint.version.signature ?? version?.signature ?? "" }
             self.library = library; self.document = document; initialCount = count; self.engine = engine; closeDocument = close
@@ -528,7 +532,7 @@ final class NativeFile {
             installed = true
         } catch { dlclose(library); throw error }
     }
-    deinit { closeDocument(document); dlclose(library) }
+    deinit { closeMarkdownSearches(); closeDocument(document); dlclose(library) }
 
     var pdfOpeningCheckpoint: FileCheckpoint? { pdfSource?.sourceCheckpoint }
 
@@ -1028,6 +1032,7 @@ final class NativeFile {
         let proseSpacing = "body{-sumra-prose-spacing:compact;}pre,code,table{-sumra-prose-spacing:preserve !important;}\n"
         let css = margins + proseSpacing + "body,body *{line-height:\(lineHeight) !important;}\n" + family + colors + "\n" + userCSS
         var error = [CChar](repeating: 0, count: 512)
+        closeMarkdownSearches()
         passagePosition = nil
         let count = css.withCString { fn(document, Float(pageSize.width), Float(pageSize.height), Float(fontSize), $0, useDocumentCSS ? 1 : 0, &error) }
         guard count > 0 else { throw Self.failure(error, "Cannot lay out this document") }
@@ -1036,7 +1041,7 @@ final class NativeFile {
         // flow nodes, so only that boundary invalidates a source passage.
         // effectiveUserCSS starts with ReaderTheme's color-only rule, including
         // custom colors. It cannot change the flow-node identities below it.
-        let palettePrefix = userCSS.range(of: #"^\*\{color:#[0-9a-f]{6} !important;background-color:transparent !important;\} html,body\{background-color:#[0-9a-f]{6} !important;color:#[0-9a-f]{6} !important;\} a,a \*\{color:#[0-9a-f]{6} !important;\}\n"#, options: .regularExpression)
+        let palettePrefix = userCSS.range(of: #"^\*\{color:#[0-9a-f]{6} !important;background-color:transparent !important;\} html,body\{background-color:#[0-9a-f]{6} !important;color:#[0-9a-f]{6} !important;\} a,a \*\{color:#[0-9a-f]{6} !important;\}(?: @page\{background-color:#[0-9a-f]{6} !important;\})?\n"#, options: .regularExpression)
         let sourceCSS = palettePrefix.map { String(userCSS[$0.upperBound...]) } ?? userCSS
         htmlStyleSignature = SHA256.hash(data: Data((sourceCSS + "\n" + String(useDocumentCSS)).utf8)).map { String(format: "%02x", $0) }.joined()
         // 0.2.2 included this palette in saved passages; normalize those records
@@ -1252,9 +1257,10 @@ final class NativeFile {
     }
     func markdownDocumentMatches(_ query: String, options: TextSearchOptions, startPage: Int,
                                  after: NativeSourceAnchor? = nil, backwards: Bool = false,
-                                 counting: Bool = false, maximum: Int = 1, inclusive: Bool = false) throws -> [RasterMatch] {
+                                 counting: Bool = false, maximum: Int? = 1, inclusive: Bool = false) throws -> [RasterMatch] {
         try Task.checkCancellation()
-        guard engine == .mupdf, !query.isEmpty, maximum > 0 else { return [] }
+        guard engine == .mupdf, !query.isEmpty else { return [] }
+        if let maximum, maximum <= 0 { return [] }
         typealias Cancelled = @convention(c) () -> Int32
         typealias Search = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>, Int32, Int32, Int32, Int32,
             UInt32, UInt32, UInt32, Int64, UnsafePointer<UInt8>?, Int, Cancelled,
@@ -1262,19 +1268,8 @@ final class NativeFile {
         guard let fn = symbol("lf_markdown_document_search", Search.self) else {
             throw ReadError("Incompatible MuPDF engine: lf_markdown_document_search")
         }
-        if options.allowedPages != nil { try publishWarmedChapters() }
+        let mask = try markdownPageMask(options)
         let start = try preparedLocation(startPage)
-        let mask: [UInt8]? = options.allowedPages.map { allowed in
-            var bits = [UInt8](repeating: 0, count: (count + 7) / 8)
-            for range in allowed.rangeView {
-                let lower = max(0, range.lowerBound), upper = min(count, range.upperBound)
-                guard lower < upper else { continue }
-                for page in lower..<upper {
-                    bits[page / 8] |= 1 << UInt8(page & 7)
-                }
-            }
-            return bits
-        }
         var error = [CChar](repeating: 0, count: 512)
         let flags: Int32 = (options.caseSensitive ? 1 : 0) | (options.wholeWord ? 2 : 0) |
             (backwards ? 4 : 0) | (counting ? 8 : 0) | (inclusive ? 16 : 0)
@@ -1283,29 +1278,46 @@ final class NativeFile {
             if let mask {
                 return mask.withUnsafeBufferPointer { bits in
                     fn(document, needle, flags, Int32(start.chapter), Int32(start.page), Int32(after?.chapter ?? 0), after?.node ?? 0, after?.offset ?? 0,
-                       after?.part ?? 0, Int64(maximum), bits.baseAddress, bits.count, cancelled, &error)
+                       after?.part ?? 0, maximum.map(Int64.init) ?? -1, bits.baseAddress, bits.count, cancelled, &error)
                 }
             }
             return fn(document, needle, flags, Int32(start.chapter), Int32(start.page), Int32(after?.chapter ?? 0), after?.node ?? 0, after?.offset ?? 0,
-                      after?.part ?? 0, Int64(maximum), nil, 0, cancelled, &error)
+                      after?.part ?? 0, maximum.map(Int64.init) ?? -1, nil, 0, cancelled, &error)
         }
         if Task.isCancelled { if let pointer { free(pointer) }; throw CancellationError() }
-        struct Fragment: Decodable { let chapter, page: Int; let rects: [[Double]] }
-        struct Hit: Decodable {
-            let source: NativeSourceAnchor
-            let chapter, page, index: Int
-            let context: String
-            let fragments: [Fragment]
-        }
-        struct Results: Decodable { let matches: [Hit]; let chapterPages: [Int] }
+        struct Results: Decodable { let matches: [MarkdownHit]; let chapterPages: [Int] }
         let result = try decode(pointer, error: error, as: Results.self)
+        applyMarkdownChapterCounts(result.chapterPages.enumerated().map { ($0.offset, $0.element) })
+        return markdownMatches(result.matches)
+    }
+    private struct MarkdownHit: Decodable {
+        struct Fragment: Decodable { let chapter, page: Int; let rects: [[Double]] }
+        let source: NativeSourceAnchor
+        let chapter, page, index: Int
+        let context: String
+        let fragments: [Fragment]
+    }
+    private func markdownPageMask(_ options: TextSearchOptions) throws -> [UInt8]? {
+        guard let allowed = options.allowedPages else { return nil }
+        try publishWarmedChapters()
+        var bits = [UInt8](repeating: 0, count: (count + 7) / 8)
+        for range in allowed.rangeView {
+            let lower = max(0, range.lowerBound), upper = min(count, range.upperBound)
+            guard lower < upper else { continue }
+            for page in lower..<upper { bits[page / 8] |= 1 << UInt8(page & 7) }
+        }
+        return bits
+    }
+    private func applyMarkdownChapterCounts(_ counts: [(Int, Int)]) {
         if var table = chapterTable {
-            for (chapter, count) in result.chapterPages.enumerated() where count >= 0 {
+            for (chapter, count) in counts where count >= 0 {
                 table.setPageCount(chapter: chapter, count: count)
             }
-            chapterTable = table; layoutChanged?(table)
+            if chapterTable != table { chapterTable = table; layoutChanged?(table) }
         }
-        return result.matches.compactMap { hit in
+    }
+    private func markdownMatches(_ hits: [MarkdownHit]) -> [RasterMatch] {
+        hits.compactMap { hit in
             guard hit.page >= 0, !hit.fragments.isEmpty else { return nil }
             let fragments = hit.fragments.compactMap { fragment -> RasterMatchFragment? in
                 let location = PageLocation(chapter: fragment.chapter, page: fragment.page)
@@ -1317,6 +1329,86 @@ final class NativeFile {
             return RasterMatch(page: page, index: hit.index, rects: fragments.first?.rects ?? [],
                                context: hit.context, source: hit.source, fragments: fragments, location: location)
         }
+    }
+    func beginMarkdownSearch(_ query: String, options: TextSearchOptions) throws -> UUID {
+        try Task.checkCancellation()
+        typealias Begin = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>, Int32, UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<CChar>) -> UnsafeMutableRawPointer?
+        guard let begin = symbol("lf_markdown_search_begin", Begin.self),
+              let step = symbol("lf_markdown_search_step", MarkdownStep.self),
+              let drop = symbol("lf_markdown_search_drop", MarkdownDrop.self) else {
+            throw ReadError("Incompatible MuPDF engine: incremental Markdown search")
+        }
+        let mask = try markdownPageMask(options)
+        let flags: Int32 = (options.caseSensitive ? 1 : 0) | (options.wholeWord ? 2 : 0)
+        var error = [CChar](repeating: 0, count: 512)
+        let handle = query.withCString { needle in
+            if let mask {
+                return mask.withUnsafeBufferPointer { begin(document, needle, flags, $0.baseAddress, $0.count, &error) }
+            }
+            return begin(document, needle, flags, nil, 0, &error)
+        }
+        guard let handle else { throw Self.failure(error, "Cannot start Markdown search") }
+        let id = UUID()
+        markdownSearches[id] = (handle, step, drop)
+        return id
+    }
+    func beginMarkdownFind(_ query: String, options: TextSearchOptions, startPage: Int,
+                           after: NativeSourceAnchor? = nil, backwards: Bool = false,
+                           maximum: Int? = 1, inclusive: Bool = false) throws -> UUID {
+        try Task.checkCancellation()
+        typealias Begin = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>, Int32, Int32, Int32, Int32,
+            UInt32, UInt32, UInt32, Int64, UnsafePointer<UInt8>?, Int,
+            UnsafeMutablePointer<CChar>) -> UnsafeMutableRawPointer?
+        guard let begin = symbol("lf_markdown_find_begin", Begin.self),
+              let step = symbol("lf_markdown_search_step", MarkdownStep.self),
+              let drop = symbol("lf_markdown_search_drop", MarkdownDrop.self) else {
+            throw ReadError("Incompatible MuPDF engine: incremental Markdown find")
+        }
+        let mask = try markdownPageMask(options)
+        let start = try preparedLocation(startPage)
+        let flags: Int32 = (options.caseSensitive ? 1 : 0) | (options.wholeWord ? 2 : 0) |
+            (backwards ? 4 : 0) | (inclusive ? 16 : 0)
+        var error = [CChar](repeating: 0, count: 512)
+        let handle = query.withCString { needle in
+            if let mask {
+                return mask.withUnsafeBufferPointer { bits in
+                    begin(document, needle, flags, Int32(start.chapter), Int32(start.page), Int32(after?.chapter ?? 0),
+                          after?.node ?? 0, after?.offset ?? 0, after?.part ?? 0, maximum.map(Int64.init) ?? -1,
+                          bits.baseAddress, bits.count, &error)
+                }
+            }
+            return begin(document, needle, flags, Int32(start.chapter), Int32(start.page), Int32(after?.chapter ?? 0),
+                         after?.node ?? 0, after?.offset ?? 0, after?.part ?? 0, maximum.map(Int64.init) ?? -1,
+                         nil, 0, &error)
+        }
+        guard let handle else { throw Self.failure(error, "Cannot start Markdown find") }
+        let id = UUID()
+        markdownSearches[id] = (handle, step, drop)
+        return id
+    }
+    func stepMarkdownSearch(_ id: UUID) throws -> (matches: [RasterMatch], complete: Bool) {
+        try Task.checkCancellation()
+        // Reflow closes sessions before it changes their parsed flow pointers.
+        guard let search = markdownSearches[id] else { throw CancellationError() }
+        var error = [CChar](repeating: 0, count: 512)
+        let cancelled: MarkdownCancelled = { Task<Never, Never>.isCancelled ? 1 : 0 }
+        let pointer = search.step(search.handle, 8192, cancelled, &error)
+        if Task.isCancelled { if let pointer { free(pointer) }; throw CancellationError() }
+        struct Results: Decodable {
+            let matches: [MarkdownHit]
+            let complete: Bool
+            let chapterPages: [[Int]]
+        }
+        let result = try decode(pointer, error: error, as: Results.self)
+        applyMarkdownChapterCounts(result.chapterPages.map { ($0[0], $0[1]) })
+        return (markdownMatches(result.matches), result.complete)
+    }
+    func closeMarkdownSearch(_ id: UUID) {
+        if let search = markdownSearches.removeValue(forKey: id) { search.drop(search.handle) }
+    }
+    private func closeMarkdownSearches() {
+        for search in markdownSearches.values { search.drop(search.handle) }
+        markdownSearches.removeAll()
     }
     func selection(_ page: Int, from a: CGPoint, to b: CGPoint, mode: Int32 = 0,
                    cancellation: NativeRenderCancellation? = nil) throws -> RasterSelection {

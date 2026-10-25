@@ -4,6 +4,25 @@ import XCTest
 @testable import Sumra
 
 final class ReaderThemeTests: XCTestCase {
+    func testBuiltinTextAndLinksRemainReadableAtNormalReadingSizes() {
+        // WCAG 2.2 SC 1.4.3 uses the authored sRGB colors, before font
+        // antialiasing. Custom palettes remain the user's explicit choice.
+        func luminance(_ rgb: UInt32) -> Double {
+            let channels = [16, 8, 0].map { shift -> Double in
+                let value = Double((rgb >> shift) & 255) / 255
+                return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+            }
+            return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+        }
+        for theme in ReaderTheme.builtins {
+            for foreground in [theme.text, theme.link] {
+                let a = luminance(foreground), b = luminance(theme.background)
+                XCTAssertGreaterThanOrEqual((max(a, b) + 0.05) / (min(a, b) + 0.05), 4.5,
+                    "\(theme.id) must keep both body text and links readable")
+            }
+        }
+    }
+
     func testFivePresetsAndRetiredIDsRemainReadable() throws {
         XCTAssertEqual(ReaderTheme.builtins.map(\.id), ["light", "light-warm", "dark", "dracula", "gruvbox"])
         XCTAssertEqual(ReaderTheme.builtins.first?.background, 0xffffff)

@@ -1267,22 +1267,32 @@ final class BrowserReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testSharedBrowserSearchPublishesAndClearsCappedCounts() async throws {
+    func testSharedBrowserSearchCountsEveryMatchAndNavigatesPastTheFormerCeiling() async throws {
         let html = "<p>" + String(repeating: "needle ", count: 5001) + "rare</p>"
         let (state, view) = try await loadedReaderFixture(topic: ("/first.html", Data(html.utf8)), home: "/first.html")
         _ = try await evaluate("""
         await window.leafCommand({name:'find',text:'needle'});
         """, in: view)
-        try await waitUntil { state.searchResults.count == 5000 && state.selectedSearchTarget != nil }
-        XCTAssertTrue(state.searchCountCapped)
-        XCTAssertEqual(state.searchCountText, "1 / 5000+")
-        XCTAssertEqual(state.status, "1 / 5000+ matches")
+        try await waitUntil { state.searchResults.count == 5001 && state.selectedSearchTarget != nil && !state.searchCounting }
+        XCTAssertEqual(state.searchCountText, "1 / 5001")
+        XCTAssertEqual(state.status, "1 / 5001 matches")
+        let last = try XCTUnwrap(state.searchResults.last?.target)
+        let position = try await evaluate("""
+        await window.leafCommand({name:'href',text:target});
+        const range=window.__sumatraFind.currentRange();
+        return {text:range?.toString(),start:range?.startOffset,end:range?.endOffset};
+        """, in: view, arguments: ["target": last]) as? [String: Any]
+        try await waitUntil { state.selectedSearchTarget == last }
+        XCTAssertEqual(state.searchCountText, "5001 / 5001")
+        XCTAssertEqual(position?["text"] as? String, "needle")
+        XCTAssertEqual(position?["start"] as? Int, 35000)
+        XCTAssertEqual(position?["end"] as? Int, 35006)
         _ = try await evaluate("await window.leafCommand({name:'toc'})", in: view)
         try await waitUntil { state.searchResults.isEmpty }
-        XCTAssertFalse(state.searchCountCapped)
+        XCTAssertFalse(state.searchCounting)
         _ = try await evaluate("await window.leafCommand({name:'find',text:'rare'})", in: view)
         try await waitUntil { state.searchResults.count == 1 && state.selectedSearchTarget != nil }
-        XCTAssertFalse(state.searchCountCapped)
+        XCTAssertFalse(state.searchCounting)
         XCTAssertEqual(state.searchCountText, "1 / 1")
         XCTAssertEqual(state.status, "1 / 1 matches")
         XCTAssertNil(state.error)
@@ -1307,7 +1317,7 @@ final class BrowserReaderTests: XCTestCase {
         window.__sumatraFind.searchAll = window.originalSearchAll;
         """, in: view)
         try await waitUntil { state.searchResults.isEmpty && state.selectedSearchTarget == nil }
-        XCTAssertFalse(state.searchCountCapped)
+        XCTAssertFalse(state.searchCounting)
         _ = try await evaluate("await window.leafCommand({name:'find',text:'o'})", in: view)
         try await waitUntil { state.searchResults.count == 3 && state.selectedSearchTarget != nil }
         XCTAssertNil(state.error)

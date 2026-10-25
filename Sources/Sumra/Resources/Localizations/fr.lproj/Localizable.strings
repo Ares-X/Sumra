@@ -719,3 +719,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "Impossible d’ouvrir %@.";
+
+"Toolbar Display" = "Affichage de la barre d’outils";
+"Always Show" = "Toujours afficher";
+"Auto Hide" = "Masquer automatiquement";
+"Always Hide" = "Toujours masquer";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "En mode de masquage automatique, déplacez le pointeur en haut de la fenêtre pour afficher la barre d’outils.";

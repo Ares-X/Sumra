@@ -51,6 +51,13 @@ int main(void) {
     // miss, positive values require that many real glyph hits (flags=0).
     struct Case { const char *body, *query; int skip, expected_hit; } cases[] = {
         {"<p>甲乙丙</p>", "甲丙乙", 1},
+        {"<p>glass</p>", "glass", 0, 1},
+        {"<p>g<span>l</span>ass</p>", "glass", 0, 1},
+        {"<p>alpha X beta</p>", "alpha beta", 1, -1},
+        {"<p>file ﬁle Straße</p>", "file", 0, 2},
+        {"<p>file ﬁle Straße</p>", "ss", 0, 1},
+        {"<p>g<span style='font-size:0'>X</span>lass</p>", "glass", 0, -1},
+        {"<p>alpha123 beta124</p>", "alpha124", 1, -1},
         {"<p>甲<span>乙</span>丙丁</p>", "甲乙丙丁", 0},
         {"<p>甲<span style='visibility:hidden'>丙</span>乙</p>", "甲乙", 0},
         {"<p>甲<span style='color:transparent'>丙</span>乙</p>", "甲乙", 0},
@@ -119,7 +126,7 @@ int main(void) {
             free(a); free(b); lf_render_cookie_drop(cookie); lf_close(fast); lf_close(reference);
         }
     }
-    // Force a real match across the projected stream's 4,096-character chunks.
+    // A long repeated prefix must retain the late real glyph match.
     FILE *f = fopen(path, "w"); fputs("<html><body><p>", f);
     for (int i = 0; i < 4095; ++i) fputs(i & 1 ? "乙" : "甲", f);
     fputs("乙丙丁甲</p></body></html>", f); fclose(f);
@@ -128,8 +135,8 @@ int main(void) {
     void *cookie = lf_render_cookie_new();
     char *a = lf_search_pages_at(fast, 0, 0, "乙丙丁甲", 0, -1, -1, -1, NULL, cookie, error);
     char *b = lf_search_options_at(reference, 0, 0, "乙丙丁甲", 0, -1, -1, NULL, error);
-    check(a && b && !strcmp(a,b) && !strstr(b, "\"matches\":[]"), "projection chunks must preserve boundary-spanning glyph matches");
+    check(a && b && !strcmp(a,b) && !strstr(b, "\"matches\":[]"), "long projections must preserve late glyph matches");
     free(a); free(b); lf_render_cookie_drop(cookie); lf_close(fast); lf_close(reference); unlink(path);
-    printf("natural phrase projection: %zu fixtures x 8 options/directions + chunk boundary; failures=%d\n", sizeof(cases)/sizeof(*cases), failures);
+    printf("natural phrase projection: %zu fixtures x 8 options/directions + long prefix; failures=%d\n", sizeof(cases)/sizeof(*cases), failures);
     return failures ? 1 : 0;
 }

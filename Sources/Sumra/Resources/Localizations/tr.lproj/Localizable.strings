@@ -721,3 +721,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "%@ açılamıyor.";
+
+"Toolbar Display" = "Araç Çubuğu Görüntüleme";
+"Always Show" = "Her Zaman Göster";
+"Auto Hide" = "Otomatik Gizle";
+"Always Hide" = "Her Zaman Gizle";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "Otomatik gizleme modunda araç çubuğunu göstermek için işaretçiyi pencerenin üst kısmına taşıyın.";

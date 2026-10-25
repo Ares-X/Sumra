@@ -1,0 +1,197 @@
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -671,25 +671,42 @@
+ 	size_t part_count, part_capacity, scratch_capacity, part_index, offset;
+ 	size_t sort_width, sort_start, sort_left, sort_right, sort_mid, sort_end, sort_out;
+ 	int phase, ascending, unordered, flow_page;
++ fz_html_box *seek_parent, *seek_after, *seek_probe;
++ fz_html_draw_index *seek_index;
++ fz_html_flow *seek_flow;
++ size_t seek_group;
++ int seek_ascending;
+ };
+ 
+ enum
+ {
+ 	HTML_SEARCH_CHAPTER, HTML_SEARCH_BOX, HTML_SEARCH_PROBE, HTML_SEARCH_BEGIN_FLOW,
+ 	HTML_SEARCH_GROUP, HTML_SEARCH_COLLECT, HTML_SEARCH_SORT, HTML_SEARCH_EMIT, HTML_SEARCH_NEXT,
+-	HTML_SEARCH_DONE
++	HTML_SEARCH_DONE, HTML_SEARCH_REACH, HTML_SEARCH_SEEK_GROUP, HTML_SEARCH_SEEK_PREVIOUS, HTML_SEARCH_SEEK_FLOW
+ };
+ 
+-fz_htdoc_search_source *fz_new_htdoc_search_source(fz_context *ctx, fz_document *doc)
++static fz_htdoc_search_source *new_htdoc_search_source(fz_context *ctx, fz_document *doc, int chapter, int page)
+ {
+ 	if (!fz_htdoc_is_markdown(ctx, doc))
+ 		fz_throw(ctx, FZ_ERROR_ARGUMENT, "Document has no Markdown search source");
+ 	fz_htdoc_search_source *source = fz_malloc_struct(ctx, fz_htdoc_search_source);
+ 	source->state.ctx = ctx;
+ 	source->state.doc = (html_document *)fz_keep_document(ctx, doc);
+-	source->state.started = 1;
+-	source->state.seek_page = -1;
++	source->state.chapter = chapter;
++ source->state.started = page < 0;
++ source->state.seek_page = page;
+ 	return source;
++}
++
++fz_htdoc_search_source *fz_new_htdoc_search_source(fz_context *ctx, fz_document *doc)
++{
++ return new_htdoc_search_source(ctx, doc, 0, -1);
++}
++
++fz_htdoc_search_source *fz_new_htdoc_search_source_from_page(fz_context *ctx, fz_document *doc, int chapter, int page)
++{
++ if (chapter < 0 || page < 0) fz_throw(ctx, FZ_ERROR_ARGUMENT, "Invalid Markdown search start location");
++ return new_htdoc_search_source(ctx, doc, chapter, page);
+ }
+ 
+ void fz_drop_htdoc_search_source(fz_context *ctx, fz_htdoc_search_source *source)
+@@ -703,6 +720,19 @@
+ }
+ 
+ 
++/* A skipped drawing group needs only the existence of preceding semantic
++ * source. Advance its probe without scanning source runes or using recursion. */
++static void html_search_seek_probe_next(fz_htdoc_search_source *source)
++{
++ fz_html_box *box = source->seek_probe;
++ if (!source->seek_ascending && fz_html_box_has_boxes(box) && box->down)
++ { source->seek_probe = box->down; return; }
++ if (box->next)
++ { source->seek_probe = box->next; source->seek_ascending = 0; return; }
++ source->seek_probe = box->up;
++ source->seek_ascending = 1;
++}
++
+ static void html_search_sort_range(fz_htdoc_search_source *source)
+ {
+ 	size_t start = source->sort_start, width = source->sort_width, count = source->part_count;
+@@ -744,26 +774,96 @@
+ 				source->probe = source->box->u.flow.head;
+ 				source->phase = HTML_SEARCH_PROBE;
+ 			}
+-			else
++   else if (!state->started && source->box && fz_html_box_has_boxes(source->box) && source->box->draw_index)
++   {
++    source->seek_parent = source->box;
++    source->seek_index = source->box->draw_index;
++    source->seek_group = 0;
++    source->phase = HTML_SEARCH_SEEK_GROUP;
++   }
++   else
++   {
++    source->ascending = 0;
++    source->phase = HTML_SEARCH_NEXT;
++   }
++   break;
++  case HTML_SEARCH_PROBE:
++			if (!source->probe)
+ 			{
+ 				source->ascending = 0;
+ 				source->phase = HTML_SEARCH_NEXT;
+ 			}
+-			break;
+-		case HTML_SEARCH_PROBE:
+-			if (!source->probe)
+-			{
+-				source->ascending = 0;
+-				source->phase = HTML_SEARCH_NEXT;
+-			}
+ 			else if (html_search_flow_has_text(&state->html->tree, source->probe))
+ 			{
+-				source->phase = HTML_SEARCH_BEGIN_FLOW;
+-				if (state->emitted && state->last_box != source->box && state->last_rune != '\n')
+-					html_search_emit(state, '\n', 0, 0, 0, state->last_page, 0);
++    if (!state->started)
++    {
++     source->probe = source->box->u.flow.head;
++     source->phase = HTML_SEARCH_REACH;
++    }
++    else
++    {
++     source->phase = HTML_SEARCH_BEGIN_FLOW;
++     if (state->emitted && state->last_box != source->box && state->last_rune != '\n')
++      html_search_emit(state, '\n', 0, 0, 0, state->last_page, 0);
++    }
+ 			}
+ 			else source->probe = fz_html_flow_next(&state->html->tree, source->probe);
+ 			break;
++  case HTML_SEARCH_REACH:
++   if (!source->probe)
++   {
++    state->previous_text = 1;
++    source->ascending = 0; source->phase = HTML_SEARCH_NEXT;
++   }
++   else if (html_search_flow_visible(&state->html->tree, source->probe) &&
++    (source->probe->type == FLOW_WORD || source->probe->type == FLOW_SPACE) &&
++    html_search_flow_page(state, source->probe) >= state->seek_page)
++   {
++    state->started = 1; source->phase = HTML_SEARCH_BEGIN_FLOW;
++    if (state->previous_text) html_search_emit(state, '\n', 0, 0, 0, state->seek_page, 0);
++   }
++   else source->probe = fz_html_flow_next(&state->html->tree, source->probe);
++   break;
++  case HTML_SEARCH_SEEK_GROUP:
++   if (source->seek_group == source->seek_index->count)
++   {
++    source->box = source->seek_parent; source->ascending = 1;
++    source->phase = HTML_SEARCH_NEXT;
++   }
++   else
++   {
++    fz_html_draw_group *group = &source->seek_index->groups[source->seek_group++];
++    if (isfinite(group->high) && group->high < state->seek_page * state->html->page_h)
++    {
++     if (!state->previous_text)
++     {
++      source->seek_probe = group->first; source->seek_after = group->after;
++      source->seek_ascending = 0; source->phase = HTML_SEARCH_SEEK_PREVIOUS;
++     }
++    }
++    else { source->box = group->first; source->phase = HTML_SEARCH_BOX; }
++   }
++   break;
++  case HTML_SEARCH_SEEK_PREVIOUS:
++   if (source->seek_probe == source->seek_after || source->seek_probe == source->seek_parent)
++    source->phase = HTML_SEARCH_SEEK_GROUP;
++   else if (!source->seek_ascending && source->seek_probe->type == BOX_FLOW)
++   {
++    source->seek_flow = source->seek_probe->u.flow.head;
++    source->phase = HTML_SEARCH_SEEK_FLOW;
++   }
++   else html_search_seek_probe_next(source);
++   break;
++  case HTML_SEARCH_SEEK_FLOW:
++   if (!source->seek_flow)
++   {
++    html_search_seek_probe_next(source);
++    source->phase = HTML_SEARCH_SEEK_PREVIOUS;
++   }
++   else if (html_search_flow_has_text(&state->html->tree, source->seek_flow))
++   { state->previous_text = 1; source->phase = HTML_SEARCH_SEEK_GROUP; }
++   else source->seek_flow = fz_html_flow_next(&state->html->tree, source->seek_flow);
++   break;
+ 		case HTML_SEARCH_BEGIN_FLOW:
+ 			state->text_y0 = source->box->s.layout.text_y0 + state->html->page_margin[T];
+ 			state->text_y1 = source->box->s.layout.text_y1 + state->html->page_margin[T];
+@@ -852,6 +952,7 @@
+ 			{
+ 				fz_drop_html(ctx, state->html); state->html = NULL;
+ 				++state->chapter;
++    state->started = 1; state->seek_page = -1;
+ 				source->phase = HTML_SEARCH_CHAPTER;
+ 			}
+ 			else if (source->box->next)
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -55,6 +55,9 @@
+  * document may be read/rendered between steps; drop the cursor before relayout. */
+ typedef struct fz_htdoc_search_source fz_htdoc_search_source;
+ fz_htdoc_search_source *fz_new_htdoc_search_source(fz_context *ctx, fz_document *doc);
++/* Preserve the navigation suffix's drawing-index seek and whole authored
++ * paragraph context while making its probes and source traversal resumable. */
++fz_htdoc_search_source *fz_new_htdoc_search_source_from_page(fz_context *ctx, fz_document *doc, int chapter, int page);
+ int fz_step_htdoc_search_source(fz_context *ctx, fz_htdoc_search_source *source,
+ 	fz_html_search_char_fn *callback, void *opaque, int (*cancelled)(void), size_t budget);
+ void fz_drop_htdoc_search_source(fz_context *ctx, fz_htdoc_search_source *source);

@@ -1950,11 +1950,23 @@ static size_t search_hit(fz_context *ctx, fz_search_match *match, const char *te
     }
     return end;
 }
-// A single necessary normalized rune can reject an owner page without
-// requiring the rest of a phrase to be present before its physical seam.
+// A letter/digit/Han phrase candidate retains a possible prefix at a physical
+// seam. Other queries use one necessary normalized rune without requiring the
+// rest of the phrase to be present on its owner page or parsed chapter.
 // Broad case/mark folding also covers a leading base whose combining marks
 // compose later. Multi-rune compatibility expansions cannot prove absence.
-static fz_search *page_search_first_candidate(fz_context *ctx, const char *needle) {
+static fz_search *page_search_candidate(fz_context *ctx, const char *needle) {
+    {
+        fz_search *search = fz_new_search(ctx, needle, FZ_SEARCH_IGNORE_CASE | FZ_SEARCH_IGNORE_DIACRITICS);
+        fz_search_character_candidate *candidate = NULL;
+        fz_try(ctx) { candidate = fz_new_search_character_candidate(ctx, search); }
+        fz_catch(ctx) { fz_drop_search(ctx, search); fz_rethrow(ctx); }
+        if (candidate) {
+            fz_drop_search_character_candidate(ctx, candidate);
+            return search;
+        }
+        fz_drop_search(ctx, search);
+    }
     if (!*needle) return NULL;
     int rune, bytes = fz_chartorune(&rune, needle);
     char first[8] = {0}; memcpy(first, needle, bytes);
@@ -1979,7 +1991,7 @@ API int lf_search_chapter_candidate(void *document, int chapter, const char *nee
     fz_try(d->ctx) {
         if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
         fz_search_options options = flags & 1 ? FZ_SEARCH_EXACT : FZ_SEARCH_IGNORE_CASE | FZ_SEARCH_IGNORE_DIACRITICS;
-        search = d->doc->layout_h != 0 ? page_search_first_candidate(d->ctx, needle)
+        search = d->doc->layout_h != 0 ? page_search_candidate(d->ctx, needle)
             : fz_new_search(d->ctx, needle, options);
         if (!search) possible = 1;
         else if (fz_search_needle_bytes(search))
@@ -2206,7 +2218,7 @@ API char *lf_search_pages_at(void *document, int chapter, int index, const char 
     fz_try(d->ctx) { do {
         fz_page *owner_page = load_render_page(d, chapter, index, cookie);
         if (!d->text_page && fz_is_document_reflowable(d->ctx, d->doc)) {
-            candidate = page_search_first_candidate(d->ctx, needle);
+            candidate = page_search_candidate(d->ctx, needle);
             if (candidate && !fz_html_page_has_search_candidate(d->ctx, owner_page, candidate, cancelled, cookie)) {
                 result = strdup("{\"text\":\"\",\"matches\":[]}");
                 if (!result) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate search results");
@@ -2363,7 +2375,7 @@ typedef struct {
     size_t allowed_bytes;
     int (*cancelled)(void);
     MarkdownSearchHit *primary, *wrap;
-    size_t primary_count, wrap_count;
+    size_t primary_count, wrap_count, primary_capacity, wrap_capacity;
 } MarkdownSearchState;
 /* Synthetic search characters keep the source ordinal and current laid-out
  * flow bounds alongside the Fitz character, without changing Fitz ownership. */
@@ -2409,11 +2421,19 @@ static void markdown_keep_hit(MarkdownSearchState *state, MarkdownSearchHit *hit
     fz_context *ctx = state->document->ctx;
     MarkdownSearchHit *slots = primary ? state->primary : state->wrap;
     size_t *count = primary ? &state->primary_count : &state->wrap_count;
+    size_t *capacity = primary ? &state->primary_capacity : &state->wrap_capacity;
     if (*count == state->maximum) {
         if (!state->backwards) { markdown_drop_hit(ctx, hit); return; }
         markdown_drop_hit(ctx, &slots[0]);
         memmove(slots, slots + 1, (state->maximum - 1) * sizeof(*slots));
         --*count;
+    }
+    if (*count == *capacity) {
+        size_t next = *capacity ? *capacity * 2 : 8;
+        if (next > state->maximum) next = state->maximum;
+        slots = fz_realloc_array(ctx, slots, next, MarkdownSearchHit);
+        if (primary) state->primary = slots; else state->wrap = slots;
+        *capacity = next;
     }
     slots[(*count)++] = *hit;
     memset(hit, 0, sizeof(*hit));
@@ -2562,6 +2582,53 @@ static int markdown_search_source_char(fz_context *ctx, void *opaque, const fz_h
     return state->finished;
 }
 
+static void markdown_begin_stream(MarkdownSearchState *state, const char *needle, int flags) {
+    fz_context *ctx = state->document->ctx;
+    fz_search_options options = flags & 1 ? FZ_SEARCH_EXACT : FZ_SEARCH_IGNORE_CASE | FZ_SEARCH_IGNORE_DIACRITICS;
+    state->search = fz_new_search(ctx, needle, options);
+    state->chunker = fz_new_search_chunker(ctx, state->search);
+    size_t bytes = fz_search_needle_bytes(state->search);
+    state->chunk_goal = bytes > 32768 ? bytes : 32768;
+}
+
+static void markdown_restart_wrap(MarkdownSearchState *state, const char *needle, int flags) {
+    fz_context *ctx = state->document->ctx;
+    // A suffix's provisional wrap result may precede the real document-first
+    // occurrence. Restart normalization; never join the end to the beginning.
+    for (size_t i = 0; i < state->wrap_count; ++i) markdown_drop_hit(ctx, &state->wrap[i]);
+    state->wrap_count = 0;
+    fz_drop_stext_page(ctx, state->building); state->building = NULL;
+    state->line = NULL; state->last_char = NULL;
+    fz_drop_search_chunker(ctx, state->chunker); state->chunker = NULL;
+    fz_drop_search(ctx, state->search); state->search = NULL;
+    state->sequence = 0; state->requested = -1; state->finished = 0;
+    state->normalized_bytes = 0; state->source_units = 0; state->last_source_rune = 0;
+    state->source_chapter = 0; state->last_char_after_assigned = 0;
+    state->last_start = (SumraSource){0}; state->wrap_only = 1;
+    markdown_begin_stream(state, needle, flags);
+}
+
+static void markdown_finish_stream(MarkdownSearchState *state) {
+    fz_context *ctx = state->document->ctx;
+    if (state->finished) return;
+    state->normalized_bytes += fz_finish_search_chunker(ctx, state->chunker);
+    markdown_feed_chunk(state);
+    while (!state->finished) {
+        if (state->cancelled && state->cancelled()) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
+        fz_feed_search(ctx, state->search, NULL, state->requested < 0 ? 0 : state->requested);
+        markdown_drain_search(state);
+    }
+}
+
+static void markdown_drop_state(fz_context *ctx, MarkdownSearchState *state) {
+    for (size_t i = 0; i < state->primary_count; ++i) markdown_drop_hit(ctx, &state->primary[i]);
+    for (size_t i = 0; i < state->wrap_count; ++i) markdown_drop_hit(ctx, &state->wrap[i]);
+    fz_free(ctx, state->primary); fz_free(ctx, state->wrap);
+    fz_drop_stext_page(ctx, state->building);
+    fz_drop_search_chunker(ctx, state->chunker);
+    fz_drop_search(ctx, state->search);
+}
+
 static void markdown_write_hit(SumraMuPDFDocument *d, SumraJSON *json, const MarkdownSearchHit *hit,
                                int (*cancelled)(void)) {
     fz_context *ctx = d->ctx;
@@ -2665,7 +2732,7 @@ API char *lf_markdown_document_search(void *opaque, const char *needle, int flag
     MarkdownSearchState state = {0};
     SumraJSON json = {0};
     fz_var(state); fz_var(json);
-    if (!d || !needle || !*needle || maximum <= 0) {
+    if (!d || !needle || !*needle || maximum == 0) {
         lf_json(&json, "{\"matches\":[]}");
         return lf_json_finish(&json, error);
     }
@@ -2681,48 +2748,21 @@ API char *lf_markdown_document_search(void *opaque, const char *needle, int flag
         state.after = (SumraSource){after_node, after_offset, after_part, after_chapter};
         state.allowed_bits = allowed_bits; state.allowed_bytes = allowed_bytes;
         state.cancelled = cancelled;
-        state.maximum = (size_t)maximum;
-        state.primary = fz_calloc(d->ctx, state.maximum, sizeof(*state.primary));
-        if (!state.counting) state.wrap = fz_calloc(d->ctx, state.maximum, sizeof(*state.wrap));
-        fz_search_options options = flags & 1 ? FZ_SEARCH_EXACT : FZ_SEARCH_IGNORE_CASE | FZ_SEARCH_IGNORE_DIACRITICS;
-        state.search = fz_new_search(d->ctx, needle, options);
-        state.chunker = fz_new_search_chunker(d->ctx, state.search);
+        state.maximum = maximum < 0 ? SIZE_MAX : (size_t)maximum;
+        markdown_begin_stream(&state, needle, flags);
         size_t needle_bytes = fz_search_needle_bytes(state.search);
-        state.chunk_goal = needle_bytes > 32768 ? needle_bytes : 32768;
         if (needle_bytes) {
             int suffix = !state.counting && !state.backwards && (start_chapter > 0 || start_page > 0);
             for (int pass = 0; pass < (suffix ? 2 : 1); ++pass) {
                 if (pass) {
-                    /* Suffix wrap hits are not authoritative: an earlier
-                       paragraph may have the first wrap result. Start fresh;
-                       never join the document's end to its beginning. */
-                    for (size_t i = 0; i < state.wrap_count; ++i) markdown_drop_hit(d->ctx, &state.wrap[i]);
-                    state.wrap_count = 0;
-                    fz_drop_stext_page(d->ctx, state.building); state.building = NULL;
-                    state.line = NULL; state.last_char = NULL;
-                    fz_drop_search_chunker(d->ctx, state.chunker); state.chunker = NULL;
-                    fz_drop_search(d->ctx, state.search); state.search = NULL;
-                    state.sequence = 0; state.requested = -1; state.finished = 0;
-                    state.normalized_bytes = 0; state.source_units = 0; state.last_source_rune = 0;
-                    state.last_char_after_assigned = 0; state.last_start = (SumraSource){0};
-                    state.wrap_only = 1;
-                    state.search = fz_new_search(d->ctx, needle, options);
-                    state.chunker = fz_new_search_chunker(d->ctx, state.search);
+                    markdown_restart_wrap(&state, needle, flags);
                 }
                 if (suffix && !pass)
                     fz_htdoc_walk_search_source_from_page(d->ctx, d->doc, start_chapter, start_page,
                         markdown_search_source_char, &state, cancelled);
                 else
                     fz_htdoc_walk_search_source(d->ctx, d->doc, markdown_search_source_char, &state, cancelled);
-                if (!state.finished) {
-                    state.normalized_bytes += fz_finish_search_chunker(d->ctx, state.chunker);
-                    markdown_feed_chunk(&state);
-                    while (!state.finished) {
-                        if (cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
-                        fz_feed_search(d->ctx, state.search, NULL, state.requested < 0 ? 0 : state.requested);
-                        markdown_drain_search(&state);
-                    }
-                }
+                markdown_finish_stream(&state);
                 if (!suffix || state.primary_count) break;
             }
         }
@@ -2745,16 +2785,158 @@ API char *lf_markdown_document_search(void *opaque, const char *needle, int flag
         if (json.failed) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate Markdown search results");
     }
     fz_always(d->ctx) {
-        for (size_t i = 0; i < state.primary_count; ++i) markdown_drop_hit(d->ctx, &state.primary[i]);
-        for (size_t i = 0; i < state.wrap_count; ++i) markdown_drop_hit(d->ctx, &state.wrap[i]);
-        fz_free(d->ctx, state.primary); fz_free(d->ctx, state.wrap);
-        fz_drop_stext_page(d->ctx, state.building);
-        fz_drop_search_chunker(d->ctx, state.chunker);
-        fz_drop_search(d->ctx, state.search);
+        markdown_drop_state(d->ctx, &state);
     }
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(json.data); return NULL; }
     return lf_json_finish(&json, error);
 }
+
+typedef struct {
+    MarkdownSearchState state;
+    fz_htdoc_search_source *cursor;
+    size_t emitted;
+    int finalized, chapters, suffix, flags;
+    int *chapter_pages;
+    char *needle;
+} SumraMarkdownSearch;
+
+API void lf_markdown_search_drop(void *opaque) {
+    SumraMarkdownSearch *session = opaque;
+    if (!session) return;
+    fz_context *ctx = session->state.document->ctx;
+    fz_drop_htdoc_search_source(ctx, session->cursor);
+    fz_free(ctx, (void *)session->state.allowed_bits);
+    fz_free(ctx, session->chapter_pages);
+    fz_free(ctx, session->needle);
+    markdown_drop_state(ctx, &session->state);
+    fz_free(ctx, session);
+}
+
+static void *markdown_new_session(void *opaque, const char *needle, int flags,
+    int start_chapter, int start_page, SumraSource after, int64_t maximum,
+    const uint8_t *allowed_bits, size_t allowed_bytes, char *error) {
+    SumraMuPDFDocument *d = opaque;
+    SumraMarkdownSearch *session = NULL;
+    fz_var(session);
+    fz_try(d->ctx) {
+        if (!fz_htdoc_is_markdown(d->ctx, d->doc))
+            fz_throw(d->ctx, FZ_ERROR_ARGUMENT, "Document is not Markdown");
+        session = fz_malloc_struct(d->ctx, SumraMarkdownSearch);
+        session->state.document = d;
+        session->state.requested = -1;
+        session->state.maximum = maximum < 0 ? SIZE_MAX : (size_t)maximum;
+        session->state.counting = (flags & 8) != 0;
+        session->state.backwards = !session->state.counting && (flags & 4) != 0;
+        session->state.inclusive = (flags & 16) != 0;
+        session->state.whole_word = (flags & 2) != 0;
+        session->state.start_chapter = start_chapter;
+        session->state.start_page = start_page;
+        session->state.after = after;
+        session->flags = flags;
+        session->needle = fz_strdup(d->ctx, needle);
+        session->suffix = !session->state.counting && !session->state.backwards && (start_chapter > 0 || start_page > 0);
+        if (allowed_bits) {
+            uint8_t *copy = fz_malloc(d->ctx, allowed_bytes ? allowed_bytes : 1);
+            memcpy(copy, allowed_bits, allowed_bytes);
+            session->state.allowed_bits = copy;
+            session->state.allowed_bytes = allowed_bytes;
+        }
+        session->chapters = fz_count_chapters(d->ctx, d->doc);
+        session->chapter_pages = fz_malloc_array(d->ctx, session->chapters, int);
+        for (int i = 0; i < session->chapters; ++i)
+            session->chapter_pages[i] = fz_htdoc_chapter_pages_known(d->ctx, d->doc, i);
+        markdown_begin_stream(&session->state, needle, flags);
+        if (maximum != 0 && fz_search_needle_bytes(session->state.search))
+            session->cursor = session->suffix
+                ? fz_new_htdoc_search_source_from_page(d->ctx, d->doc, start_chapter, start_page)
+                : fz_new_htdoc_search_source(d->ctx, d->doc);
+        else session->finalized = 1;
+    }
+    fz_catch(d->ctx) {
+        snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL));
+        lf_markdown_search_drop(session);
+        return NULL;
+    }
+    return session;
+}
+
+API void *lf_markdown_search_begin(void *opaque, const char *needle, int flags,
+    const uint8_t *allowed_bits, size_t allowed_bytes, char *error) {
+    return markdown_new_session(opaque, needle, flags | 8, 0, 0, (SumraSource){0}, -1,
+        allowed_bits, allowed_bytes, error);
+}
+
+API void *lf_markdown_find_begin(void *opaque, const char *needle, int flags,
+    int start_chapter, int start_page, int after_chapter,
+    uint32_t after_node, uint32_t after_offset, uint32_t after_part, int64_t maximum,
+    const uint8_t *allowed_bits, size_t allowed_bytes, char *error) {
+    return markdown_new_session(opaque, needle, flags & ~8, start_chapter, start_page,
+        (SumraSource){after_node, after_offset, after_part, after_chapter}, maximum,
+        allowed_bits, allowed_bytes, error);
+}
+
+API char *lf_markdown_search_step(void *opaque, size_t source_budget, int (*cancelled)(void), char *error) {
+    SumraMarkdownSearch *session = opaque;
+    MarkdownSearchState *state = &session->state;
+    SumraMuPDFDocument *d = state->document;
+    SumraJSON json = {0};
+    fz_var(json);
+    fz_try(d->ctx) {
+        if (cancelled && cancelled()) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+        state->cancelled = cancelled;
+        if (!session->finalized && (!state->counting || session->emitted == state->primary_count)) {
+            if (fz_step_htdoc_search_source(d->ctx, session->cursor,
+                markdown_search_source_char, state, cancelled, source_budget)) {
+                markdown_finish_stream(state);
+                if (session->suffix && !state->primary_count) {
+                    markdown_restart_wrap(state, session->needle, session->flags);
+                    fz_drop_htdoc_search_source(d->ctx, session->cursor);
+                    session->cursor = NULL;
+                    session->cursor = fz_new_htdoc_search_source(d->ctx, d->doc);
+                    session->suffix = 0;
+                } else session->finalized = 1;
+            }
+        }
+        lf_json(&json, "{\"matches\":[");
+        // Source scanning and geometry publication both yield. A high match
+        // count cannot turn the end of an incremental scan into one long draw.
+        MarkdownSearchHit *hits = state->primary_count ? state->primary : state->wrap;
+        size_t count = state->primary_count ? state->primary_count : state->wrap_count;
+        if ((state->counting || session->finalized) && session->emitted < count) {
+            size_t index = state->backwards ? count - session->emitted - 1 : session->emitted;
+            MarkdownSearchHit *hit = &hits[index];
+            markdown_write_hit(d, &json, hit, cancelled);
+            markdown_drop_hit(d->ctx, hit);
+            ++session->emitted;
+        }
+        int complete = session->finalized && session->emitted == count;
+        if (state->counting && session->emitted == state->primary_count) {
+            session->emitted = 0;
+            state->primary_count = 0;
+        }
+        lf_json(&json, "],\"complete\":");
+        lf_json(&json, complete ? "true" : "false");
+        lf_json(&json, ",\"chapterPages\":[");
+        int emitted = 0;
+        for (int i = 0; i < session->chapters; ++i) {
+            int pages = fz_htdoc_chapter_pages_known(d->ctx, d->doc, i);
+            if (pages < 0 || pages == session->chapter_pages[i]) continue;
+            if (emitted++) lf_json(&json, ",");
+            lf_json(&json, "["); lf_json_number(&json, i); lf_json(&json, ",");
+            lf_json_number(&json, pages); lf_json(&json, "]");
+            session->chapter_pages[i] = pages;
+        }
+        lf_json(&json, "]}");
+        if (json.failed) fz_throw(d->ctx, FZ_ERROR_SYSTEM, "Cannot allocate Markdown search results");
+    }
+    fz_catch(d->ctx) {
+        snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL));
+        free(json.data);
+        return NULL;
+    }
+    return lf_json_finish(&json, error);
+}
+
 static void selection_word(fz_context *ctx, void *arg, fz_stext_line *line, fz_stext_char *ch) {
     SumraSelectionWriter *writer = arg; SumraJSON *j = writer->json; char glyph[8] = {0};
     if (j->failed) return;

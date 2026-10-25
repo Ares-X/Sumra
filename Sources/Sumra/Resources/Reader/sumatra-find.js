@@ -8,7 +8,6 @@ var matches = [];
 var cur = -1;
 var curHl = null;
 var gen = 0;
-var kMaxMatches = 5000;
 var pendingYields = new Map();
 // Install Find rules with the initial reader styles so the first scan does not
 // trigger a separate full-document style update after yielding.
@@ -18,7 +17,7 @@ try {
   document.adoptedStyleSheets = document.adoptedStyleSheets.concat([ss]);
 } catch (e) {}
 function post() {
-  window.__sumatra__.notify("findResult", gen, cur + 1, matches.length, matches.length >= kMaxMatches);
+  window.__sumatra__.notify("findResult", gen, cur + 1, matches.length);
 }
 function isWordChar(text, offset, before) {
   var index = before ? offset - 1 : offset;
@@ -134,12 +133,12 @@ function workSlice() {
 // Search the same concatenation of eligible nodes without retaining the whole
 // text or a page-wide node index. Literal RegExp matching preserves UTF-16
 // offsets in case-insensitive searches.
-async function scanText(body, term, matchCase, wholeWord, withRanges, withSnippets, g, onMatch, matchLimit = kMaxMatches) {
+async function scanText(body, term, matchCase, wholeWord, withRanges, withSnippets, g, onMatch) {
   if (!term) { return true; }
   var esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   var re = new RegExp(esc, matchCase ? "g" : "gi");
   var chunkSize = Math.max(65536, 2 * term.length + 81);
-  var buffer = "", bufferStart = 0, scanPoint = 0, total = 0, count = 0;
+  var buffer = "", bufferStart = 0, scanPoint = 0, total = 0;
   var pieces = [];
   var work = workSlice();
   function locate(off, isEnd) {
@@ -157,7 +156,7 @@ async function scanText(body, term, matchCase, wholeWord, withRanges, withSnippe
     // decide whether its snippet ends with an ellipsis.
     var limit = final ? total : total - term.length - 40;
     var steps = 0;
-    while (scanPoint < limit && count < matchLimit) {
+    while (scanPoint < limit) {
       if ((steps++ & 127) === 0) {
         var pending = work.pause();
         if (pending) { await pending; }
@@ -171,12 +170,11 @@ async function scanText(body, term, matchCase, wholeWord, withRanges, withSnippe
       if (wholeWord) {
         if (isWordChar(buffer, s - bufferStart, true) || isWordChar(buffer, e - bufferStart, false)) { continue; }
       }
-      count++;
       var from = withRanges ? locate(s, false) : null;
       var to = withRanges ? locate(e, true) : null;
       onMatch(from, to, withSnippets ? makeSnippet(buffer, bufferStart, total, s, e, final) : null);
     }
-    if (!final && count < matchLimit) {
+    if (!final) {
       var trimTo = Math.max(bufferStart, scanPoint - 40);
       if (trimTo > bufferStart) {
         buffer = buffer.slice(trimTo - bufferStart);
@@ -192,7 +190,7 @@ async function scanText(body, term, matchCase, wholeWord, withRanges, withSnippe
   var walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   var node, visited = 0;
   try {
-    while (count < matchLimit && (node = walker.nextNode())) {
+    while ((node = walker.nextNode())) {
       if ((visited++ & 127) === 0) {
         var pending = work.pause();
         if (pending) { await pending; }
@@ -209,7 +207,7 @@ async function scanText(body, term, matchCase, wholeWord, withRanges, withSnippe
         }
         continue;
       }
-      for (var i = 0; i < data.length && count < matchLimit;) {
+      for (var i = 0; i < data.length;) {
         var length = Math.min(data.length - i, chunkSize - (total - scanPoint));
         var part = data.slice(i, i + length);
         if (withRanges) { pieces.push({ start: total, end: total + length, node: node, offset: i }); }
@@ -222,7 +220,7 @@ async function scanText(body, term, matchCase, wholeWord, withRanges, withSnippe
         }
       }
     }
-    if (count < matchLimit) { await process(true); }
+    await process(true);
     return g === gen;
   } finally {
     work.close();
@@ -281,7 +279,8 @@ async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
   var canHighlight = !!(window.CSS && CSS.highlights && window.Highlight);
   var all = canHighlight ? new Highlight() : null;
   var snippets = collectSnippets ? [] : null;
-  var found = [];
+  var found = [], first = -1;
+  var geometryCache = initIdx < 0 && window.leafFindRangeRect ? new WeakMap() : null;
   var completed = await scanText(document.body, term, matchCase, wholeWord, true, !!collectSnippets, g, function(st, en, snippet) {
     var r = document.createRange();
     try {
@@ -289,6 +288,23 @@ async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
       r.setEnd(en[0], en[1]);
       found.push(r);
       if (all) { all.add(r); }
+      if (first < 0) {
+        var index = found.length - 1;
+        var visible = initIdx >= 0 ? index === initIdx
+          : (window.leafFindRangeRect ? window.leafFindRangeRect(r, geometryCache) : r.getBoundingClientRect()).bottom >= 0;
+        if (visible) {
+          first = index;
+          matches = found;
+          if (canHighlight) {
+            curHl = new Highlight();
+            CSS.highlights.set("sumatra-find-cur", curHl);
+          }
+          setCur(first);
+          // Position the first visible occurrence before counting the rest of
+          // a dense page. The same scan continues yielding and owns the count.
+          post();
+        }
+      }
     } catch (e) {}
     if (snippets) { snippets.push(snippet); }
   });
@@ -296,32 +312,16 @@ async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
   matches = found;
   if (canHighlight) {
     CSS.highlights.set("sumatra-find", all);
-    curHl = new Highlight();
-    CSS.highlights.set("sumatra-find-cur", curHl);
-  }
-  if (matches.length > 0) {
-    var first = 0;
-    if (initIdx >= 0) {
-      first = Math.min(initIdx, matches.length - 1);
-    } else {
-      var geometryCache = window.leafFindRangeRect ? new WeakMap() : null;
-      var work = workSlice();
-      try {
-        for (var k = 0; k < matches.length; k++) {
-          var pending = work.pause();
-          if (pending) { await pending; }
-          if (g !== gen) { return; }
-          var rc = window.leafFindRangeRect ? window.leafFindRangeRect(matches[k], geometryCache) : matches[k].getBoundingClientRect();
-          if (rc.bottom >= 0) { first = k; break; }
-        }
-      } finally {
-        work.close();
-      }
+    if (!curHl) {
+      curHl = new Highlight();
+      CSS.highlights.set("sumatra-find-cur", curHl);
     }
-    setCur(first);
+  }
+  if (matches.length > 0 && first < 0) {
+    setCur(initIdx >= 0 ? Math.min(initIdx, matches.length - 1) : 0);
   }
   post();
-  // Pass only bounded snippets to this query's all-page scan.
+  // Reuse the current page's snippets in this query's all-page scan.
   if (collectSnippets) { return snippets; }
 }
 function gotoMatch(i) {
@@ -332,40 +332,57 @@ function gotoMatch(i) {
 // search every page of the document (urls in page order); pages are fetched
 // sequentially so the match records stay in page order
 async function searchAll(urls, term, matchCase, wholeWord, g, loadDocument, currentSnippets) {
-  var recs = [];
-  for (var pi = 0; pi < urls.length; pi++) {
-    if (g !== gen || recs.length >= kMaxMatches) { break; }
-    var doc;
-    try {
-      // The reader adapter owns decoding and reuses the current page's live DOM.
-      doc = await loadDocument(urls[pi]);
-    } catch (error) {
-      // An obsolete query's failed fetch is cancellation, but an active
-      // scan must not publish a complete count after skipping a page.
-      if (g !== gen) { return; }
-      var name = new URL(urls[pi], location.href).pathname.split('/').pop();
-      try { name = decodeURIComponent(name); } catch (e) {}
-      throw new Error("Unable to search " + name + ": " + (error.message || String(error)), { cause: error });
-    }
-    if (g !== gen) { return; }
-    if (!doc.body) { continue; }
-    var snippets = currentSnippets;
-    if (doc !== document || !snippets) {
-      // Sibling documents need only the remaining global result budget,
-      // and snippets rather than live-DOM Range positions.
-      snippets = [];
-      if (!await scanText(doc.body, term, matchCase, wholeWord, false, true, g,
-          function(st, en, snippet) { snippets.push(snippet); }, kMaxMatches - recs.length)) { return; }
-    }
-    if (g !== gen) { return; }
-    for (var i = 0; i < snippets.length && recs.length < kMaxMatches; i++) {
-      recs.push((pi + 1) + "\x1f" + i + "\x1f" + snippets[i]);
-    }
+  var recs = [], total = 0;
+  var work = workSlice();
+  function publish(complete) {
+    if (!recs.length && !complete) { return; }
+    window.__sumatra__.notify("findAllResult", g, total, recs.join("\x1e"), complete);
+    recs = [];
   }
-  if (g !== gen) { return; }
-  // Scanning stops at the boundary; the remaining total is unknown even
-  // when the document happens to contain exactly this many matches.
-  window.__sumatra__.notify("findAllResult", g, recs.length, recs.join("\x1e"), recs.length >= kMaxMatches);
+  function add(page, index, snippet) {
+    recs.push((page + 1) + "\x1f" + index + "\x1f" + snippet);
+    total++;
+    if (recs.length === 128) { publish(false); }
+  }
+  try {
+    for (var pi = 0; pi < urls.length; pi++) {
+      if (g !== gen) { return; }
+      var doc;
+      try {
+        // The reader adapter owns decoding and reuses the current page's live DOM.
+        doc = await loadDocument(urls[pi]);
+      } catch (error) {
+        // An obsolete query's failed fetch is cancellation, but an active
+        // scan must not publish a complete count after skipping a page.
+        if (g !== gen) { return; }
+        var name = new URL(urls[pi], location.href).pathname.split('/').pop();
+        try { name = decodeURIComponent(name); } catch (e) {}
+        throw new Error("Unable to search " + name + ": " + (error.message || String(error)), { cause: error });
+      }
+      if (g !== gen) { return; }
+      if (!doc.body) { continue; }
+      var snippets = currentSnippets;
+      if (doc !== document || !snippets) {
+        // Sibling documents need snippets rather than live-DOM Range positions.
+        var index = 0;
+        if (!await scanText(doc.body, term, matchCase, wholeWord, false, true, g,
+            function(st, en, snippet) { add(pi, index++, snippet); })) { return; }
+      } else {
+        for (var i = 0; i < snippets.length; i++) {
+          var pending = work.pause();
+          if (pending) { await pending; }
+          if (g !== gen) { return; }
+          add(pi, i, snippets[i]);
+        }
+      }
+      if (g !== gen) { return; }
+      publish(false);
+    }
+    if (g !== gen) { return; }
+    publish(true);
+  } finally {
+    work.close();
+  }
 }
 // Sumra's existing Find from Selection command uses the same match Ranges;
 // it must not search a separately normalized string or overwrite the selection.

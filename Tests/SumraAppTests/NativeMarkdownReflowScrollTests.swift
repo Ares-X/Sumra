@@ -242,7 +242,7 @@ final class NativeMarkdownReflowScrollTests: XCTestCase {
         }
     }
 
-    func testReflowRetainsOccurrenceBeyondCountCap() async throws {
+    func testReflowRetainsFinalOccurrenceInFullSearchResults() async throws {
         try await withReader(flow: "continuous", text: String(repeating: "hit ", count: 1006)) { state, pages, host in
             let count = await pages.count
             state.navigate(.page(count - 1))
@@ -253,18 +253,17 @@ final class NativeMarkdownReflowScrollTests: XCTestCase {
             let expected = try XCTUnwrap(ending.first)
             state.send(.find("hit", backwards: true))
             try await self.wait(host, state: state) {
-                !state.searchCounting && state.searchCountCapped && state.searchResults.count == 999 &&
+                !state.searchCounting && state.searchResults.count == 1006 &&
                     self.highlightedMatch(state)?.source == expected.source
             }
             try await self.settle(host)
-            XCTAssertFalse(state.searchResults.contains { $0.target == state.selectedSearchTarget },
-                           "The selected occurrence must actually lie beyond the capped result list")
+            XCTAssertEqual(state.searchResults.last?.target, state.selectedSearchTarget)
+            XCTAssertEqual(state.searchCountText, "1006 / 1006")
             let original = try XCTUnwrap(state.currentPosition.nativePassage)
             let revision = state.renderRevision
             state.setZoom(1.5)
             try await self.wait(host, state: state) {
-                state.renderRevision > revision && !state.searchCounting && state.searchCountCapped &&
-                    state.searchResults.count == 999 &&
+                state.renderRevision > revision && !state.searchCounting && state.searchResults.count == 1006 &&
                     self.highlightedMatch(state)?.source == expected.source &&
                     self.highlightedMatch(state)?.rects.isEmpty == false
             }
@@ -273,8 +272,9 @@ final class NativeMarkdownReflowScrollTests: XCTestCase {
             let refreshed = try await pages.markdownDocumentMatches("hit", options: .init(),
                 startPage: state.page, after: expected.source, inclusive: true)
             XCTAssertEqual(self.highlightedMatch(state), refreshed.first,
-                           "The mounted selected canvas must use refreshed geometry outside the counting list")
-            XCTAssertFalse(state.searchResults.contains { $0.target == state.selectedSearchTarget })
+                           "The mounted selected canvas must use refreshed geometry for the final occurrence")
+            XCTAssertEqual(state.searchResults.last?.target, state.selectedSearchTarget)
+            XCTAssertEqual(state.searchCountText, "1006 / 1006")
             let next = try await pages.markdownDocumentMatches("hit", options: .init(),
                 startPage: state.page, after: expected.source, backwards: true)
             state.send(.find("hit", backwards: true))
@@ -538,7 +538,7 @@ final class NativeMarkdownReflowScrollTests: XCTestCase {
             paintViewport(host); try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertNil(state.error, file: file, line: line)
-        XCTAssertTrue(predicate(), "Timed out waiting for mounted Markdown reader; page=\(state.page), target=\(state.selectedSearchTarget ?? "nil"), count=\(state.searchCountText), capped=\(state.searchCountCapped)", file: file, line: line)
+        XCTAssertTrue(predicate(), "Timed out waiting for mounted Markdown reader; page=\(state.page), target=\(state.selectedSearchTarget ?? "nil"), count=\(state.searchCountText)", file: file, line: line)
     }
 }
 #endif

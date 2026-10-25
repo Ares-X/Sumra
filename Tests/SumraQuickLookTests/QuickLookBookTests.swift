@@ -70,4 +70,36 @@ final class QuickLookBookTests: XCTestCase {
         XCTAssertEqual(CGFloat(second.image.width) / CGFloat(second.image.height), 2, accuracy: 0.01)
         XCTAssertEqual(try Data(contentsOf: url), before)
     }
+
+    func testOriginalIssue42SamplesRenderAndNavigateWithoutRenaming() async throws {
+        guard let path = ProcessInfo.processInfo.environment["SUMRA_ISSUE42_FIXTURES"] else {
+            throw XCTSkip("Set SUMRA_ISSUE42_FIXTURES to the reporter's extracted formatsampler directory")
+        }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let engine = root.appendingPathComponent("build/engines/MuPDF.dylib")
+        for name in ["sample_comic.cbz", "sample_comic.cbr", "sample_illustrated.epub", "sample_illustrated.mobi", "sample_illustrated.azw3", "sample_illustrated.fb2"] {
+            let url = URL(fileURLWithPath: path).appendingPathComponent(name)
+            let original = try Data(contentsOf: url)
+            let book = try QuickLookBook(url: url, engineURL: engine)
+            let first = try await book.image(maximum: CGSize(width: 600, height: 800))
+            XCTAssertGreaterThan(first.image.width, 100, name)
+            XCTAssertGreaterThan(first.image.height, 100, name)
+            let bitmap = NSBitmapImageRep(cgImage: first.image)
+            var ink = 0
+            for y in stride(from: 0, to: bitmap.pixelsHigh, by: 4) {
+                for x in stride(from: 0, to: bitmap.pixelsWide, by: 4) {
+                    if let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                       min(color.redComponent, color.greenComponent, color.blueComponent) < 0.8 { ink += 1 }
+                }
+            }
+            XCTAssertGreaterThan(ink, 100, "\(name) must contain visible page content")
+            XCTAssertTrue(first.hasNext, name)
+            let second = try await book.image(maximum: CGSize(width: 600, height: 800), direction: 1)
+            XCTAssertNotEqual(second.label, first.label, name)
+            let back = try await book.image(maximum: CGSize(width: 600, height: 800), direction: -1)
+            XCTAssertEqual(back.label, first.label, name)
+            XCTAssertEqual(try Data(contentsOf: url), original, name)
+        }
+    }
+
 }

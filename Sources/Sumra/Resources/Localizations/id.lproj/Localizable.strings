@@ -719,3 +719,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "Tidak dapat membuka %@.";
+
+"Toolbar Display" = "Tampilan Bilah Alat";
+"Always Show" = "Selalu Tampilkan";
+"Auto Hide" = "Sembunyikan Otomatis";
+"Always Hide" = "Selalu Sembunyikan";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "Dalam mode sembunyikan otomatis, gerakkan penunjuk ke bagian atas jendela untuk menampilkan bilah alat.";

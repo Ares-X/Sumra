@@ -16,10 +16,38 @@ final class BrowserRangeHighlightTests: XCTestCase {
         ]
         let rects = BrowserRangeHighlightView.rectangles(body, zoom: 2, size: CGSize(width: 700, height: 400))
         XCTAssertEqual(rects.find, [CGRect(x: 0, y: 0, width: 14, height: 16)])
-        XCTAssertEqual(rects.current.count, 5000)
+        XCTAssertEqual(rects.current.count, 6000)
         XCTAssertEqual(rects.speech, [CGRect(x: 10, y: 12, width: 14, height: 16)])
         XCTAssertTrue(BrowserRangeHighlightView.rectangles(body, zoom: .infinity, size: CGSize(width: 700, height: 400)).isEmpty)
         XCTAssertTrue(BrowserRangeHighlightView.rectangles([:], zoom: 1, size: CGSize(width: 700, height: 400)).isEmpty)
+    }
+
+    @MainActor
+    func testDenseVisibleRangesKeepTheFinalMatchAndSelectedQuad() throws {
+        _ = NSApplication.shared
+        let view = BrowserRangeHighlightView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        let rows = (0..<6000).map { index in
+            [Double(index % 100) * 0.6, Double(index / 100) * 0.6, 0.3, 0.3]
+        }
+        view.rectangles = BrowserRangeHighlightView.rectangles([
+            "find": rows + [[5, 80, 5, 5]],
+            "current": rows + [[90, 80, 100, 90, 90, 100, 80, 90]],
+            "speech": rows
+        ], zoom: 1, size: view.bounds.size)
+        XCTAssertEqual(view.rectangles.find.count, 6001)
+        XCTAssertEqual(view.rectangles.current.count, 6001)
+        XCTAssertEqual(view.rectangles.speech.count, 6000)
+        XCTAssertEqual(view.rectangles.find.last, CGRect(x: 5, y: 80, width: 5, height: 5))
+        XCTAssertEqual(view.rectangles.current.last, CGRect(x: 80, y: 80, width: 20, height: 20))
+        let screen = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: screen)
+        let scale = CGFloat(screen.pixelsWide) / view.bounds.width
+        XCTAssertGreaterThan(try XCTUnwrap(screen.colorAt(x: Int(7 * scale), y: Int(82 * scale))).alphaComponent, 0,
+            "The final valid visible match must remain painted beyond the former input ceiling")
+        XCTAssertGreaterThan(try XCTUnwrap(screen.colorAt(x: Int(90 * scale), y: Int(90 * scale))).alphaComponent, 0,
+            "The final selected fragment must retain its highlight")
+        XCTAssertEqual(try XCTUnwrap(screen.colorAt(x: Int(81 * scale), y: Int(81 * scale))).alphaComponent, 0,
+            "Retaining every shape must preserve quad geometry rather than painting its bounding box")
     }
 
     @MainActor

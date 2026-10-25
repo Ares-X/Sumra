@@ -398,9 +398,7 @@ struct ReadingDocument: Identifiable {
                 if let data = try LegacyText.mobiPDF(input) { return try embeddedPDF(data, url: url, password: password) }
                 if let content = try LegacyText.mobiContent(input) {
                     let directory = try TemporaryDirectory()
-                    let source = directory.url.appendingPathComponent("document.mobihtml")
-                    try content.html.write(to: source)
-                    for (name, data) in content.resources { try data.write(to: directory.url.appendingPathComponent(name)) }
+                    let source = try content.materialize(in: directory.url)
                     let outline = content.outline.map { ContentsItem(title: $0.title, target: $0.target, depth: $0.level) }
                     return .init(url: url, content: .pages(try Pages(source, format: .mupdf, outline: outline.isEmpty ? nil : outline, deferReflowLayout: deferReflowLayout)), temporary: directory)
                 }

@@ -1,0 +1,119 @@
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -1991,50 +1991,64 @@
+ 	}
+ }
+ 
+-/* fz_bidi_fragment_text already treats printable ASCII in an explicit LTR
+- * paragraph as level zero. With a Latin letter present, split_at_script emits
+- * one Latin fragment. Keep its normal path for every other kind of flow. */
++/* A single Latin/Han script with only LTR-compatible neutral units produces
++ * one level-zero fragment. Keep the full bidi/script owner for mixed scripts,
++ * explicit controls and right-to-left text. */
+ static int
+-detect_simple_latin_flow(fz_html_tree *tree, fz_bidi_direction dir, fz_html_flow *flow)
+-{
+-	fz_html_flow *node, *last_text = NULL, *end;
+-	int latin = 0;
+-
+-	if (dir != FZ_BIDI_LTR)
+-		return 0;
+-	for (node = flow; node; node = fz_html_flow_next(tree, node))
+-	{
+-		if (node->bidi_level & 1)
+-			return 0;
+-		if (node->type == FLOW_WORD)
+-		{
+-			const unsigned char *text = (const unsigned char *)fz_html_flow_text(node);
+-			if (*text) last_text = node;
+-			for (; *text; ++text)
+-			{
+-				if (*text < 0x20 || *text > 0x7e)
+-					return 0;
+-				latin |= (*text >= 'A' && *text <= 'Z') || (*text >= 'a' && *text <= 'z');
+-			}
+-		}
+-		else if (node->type == FLOW_SPACE)
+-			last_text = node;
+-		else if (node->type == FLOW_BREAK || node->type == FLOW_IMAGE)
+-			return 0;
+-	}
+-	if (!latin)
+-		return 0;
+-
+-	/* The validated flow is one level-zero Latin fragment. Assign it
+-	 * directly instead of decoding every word again in fragment_cb.
+-	 * Like that callback, leave trailing zero-length nodes untouched. */
+-	end = fz_html_flow_next(tree, last_text);
+-	for (node = flow; node != end; node = fz_html_flow_next(tree, node))
+-	{
+-		node->bidi_level = 0;
+-		node->script = UCDN_SCRIPT_LATIN;
+-	}
+-	return 1;
++detect_simple_ltr_flow(fz_html_tree *tree, fz_bidi_direction dir, fz_html_flow *flow)
++{
++ fz_html_flow *node, *last_text = NULL, *end;
++ int script = UCDN_SCRIPT_COMMON;
++
++ if (dir != FZ_BIDI_LTR) return 0;
++ for (node = flow; node; node = fz_html_flow_next(tree, node))
++ {
++  if (node->bidi_level & 1) return 0;
++  if (node->type == FLOW_WORD)
++  {
++   const char *text = fz_html_flow_text(node);
++   if (*text) last_text = node;
++   while (*text)
++   {
++    int rune, next_script = UCDN_SCRIPT_COMMON;
++    if ((unsigned char)*text < 0x80) rune = (unsigned char)*text++;
++    else text += fz_chartorune(&rune, text);
++    if (rune >= 0x3400 && rune <= 0x9fff) next_script = UCDN_SCRIPT_HAN;
++    else if ((rune >= 'A' && rune <= 'Z') || (rune >= 'a' && rune <= 'z')) next_script = UCDN_SCRIPT_LATIN;
++    else if (rune < 0x20 || rune > 0x7e)
++    {
++     next_script = ucdn_get_script(rune);
++     if (next_script != UCDN_SCRIPT_HAN && next_script != UCDN_SCRIPT_COMMON &&
++         next_script != UCDN_SCRIPT_INHERITED && next_script != UCDN_SCRIPT_UNKNOWN) return 0;
++     /* With no strong RTL unit, these classes resolve to the explicit LTR
++      * paragraph. Embeddings/isolates and Arabic numbers retain upstream. */
++     switch (ucdn_get_bidi_class(rune))
++     {
++     case UCDN_BIDI_CLASS_L: case UCDN_BIDI_CLASS_EN:
++     case UCDN_BIDI_CLASS_ES: case UCDN_BIDI_CLASS_ET: case UCDN_BIDI_CLASS_CS:
++     case UCDN_BIDI_CLASS_NSM: case UCDN_BIDI_CLASS_BN:
++     case UCDN_BIDI_CLASS_WS: case UCDN_BIDI_CLASS_ON: break;
++     default: return 0;
++     }
++    }
++    if (next_script != UCDN_SCRIPT_COMMON && next_script != UCDN_SCRIPT_INHERITED && next_script != UCDN_SCRIPT_UNKNOWN)
++    {
++     if (script != UCDN_SCRIPT_COMMON && script != next_script) return 0;
++     script = next_script;
++    }
++   }
++  }
++  else if (node->type == FLOW_SPACE) last_text = node;
++  else if (node->type == FLOW_BREAK || node->type == FLOW_IMAGE) return 0;
++ }
++ if (script == UCDN_SCRIPT_COMMON) return 0;
++ end = fz_html_flow_next(tree, last_text);
++ for (node = flow; node != end; node = fz_html_flow_next(tree, node))
++ {
++  node->bidi_level = 0;
++  node->script = script;
++ }
++ return 1;
+ }
+ 
+ static fz_bidi_direction
+@@ -2042,7 +2056,7 @@
+ {
+ 	fz_html_flow *end = flow;
+ 	bidi_data data;
+-	if (detect_simple_latin_flow(tree, bidi_dir, flow))
++	if (detect_simple_ltr_flow(tree, bidi_dir, flow))
+ 		return bidi_dir;
+ 
+ 	while (end)

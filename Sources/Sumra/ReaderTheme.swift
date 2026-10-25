@@ -10,7 +10,7 @@ struct ReaderTheme: Identifiable, Codable, Equatable {
     static let builtins: [Self] = [
         .init(id: "light", name: "Light", text: 0x000000, background: 0xffffff, link: 0x0020a0),
         .init(id: "light-warm", name: "Light Warm", text: 0x333333, background: 0xebe6da, link: 0x0020a0),
-        .init(id: "dark", name: "Dark", text: 0xF9FAFB, background: 0x000000, link: 0x6B7280),
+        .init(id: "dark", name: "Dark", text: 0xF9FAFB, background: 0x000000, link: 0x9CA3AF),
         .init(id: "dracula", name: "Dracula", text: 0xf8f8f2, background: 0x282a36, link: 0x8be9fd),
         .init(id: "gruvbox", name: "Gruvbox", text: 0xebdbb2, background: 0x282828, link: 0x83a598),
     ]
@@ -127,7 +127,7 @@ struct ReaderTheme: Identifiable, Codable, Equatable {
     }
     var css: String {
         let fg = String(format: "#%06x", text), bg = String(format: "#%06x", background), href = String(format: "#%06x", link)
-        return "*{color:\(fg) !important;background-color:transparent !important;} html,body{background-color:\(bg) !important;color:\(fg) !important;} a,a *{color:\(href) !important;}"
+        return "*{color:\(fg) !important;background-color:transparent !important;} html,body{background-color:\(bg) !important;color:\(fg) !important;} a,a *{color:\(href) !important;} @page{background-color:\(bg) !important;}"
     }
 }
 #endif

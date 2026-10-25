@@ -714,3 +714,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "Не вдалося відкрити %@.";
+
+"Toolbar Display" = "Відображення панелі інструментів";
+"Always Show" = "Завжди показувати";
+"Auto Hide" = "Автоматично приховувати";
+"Always Hide" = "Завжди приховувати";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "У режимі автоматичного приховування перемістіть вказівник до верхньої частини вікна, щоб показати панель інструментів.";

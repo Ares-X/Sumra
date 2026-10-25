@@ -721,3 +721,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "Nie można otworzyć %@.";
+
+"Toolbar Display" = "Wyświetlanie paska narzędzi";
+"Always Show" = "Zawsze pokazuj";
+"Auto Hide" = "Ukrywaj automatycznie";
+"Always Hide" = "Zawsze ukrywaj";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "W trybie automatycznego ukrywania przesuń wskaźnik na górę okna, aby pokazać pasek narzędzi.";

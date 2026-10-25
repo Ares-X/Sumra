@@ -1,11 +1,447 @@
 #if os(macOS)
 import XCTest
 import AppKit
+import Combine
 import SwiftUI
 @testable import Sumra
 
 @MainActor
 final class ReaderToolbarTests: XCTestCase {
+    func testHoverMotionCanReverseDuringGraceAndFadeWithoutBlinking() async throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/toolbar-motion.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .auto
+        let window = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+            styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = false
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); window.contentView = nil; window.close(); state.windowClosed() }
+        let top = NSPoint(x: 350, y: window.frame.height - 40)
+        let body = NSPoint(x: 350, y: 100)
+        var visibility = [Bool]()
+        let observation = state.$toolbarHoverVisible.dropFirst().sink { visibility.append($0) }
+        defer { observation.cancel() }
+        observer.pointerMoved(to: top)
+        observer.pointerMoved(to: body)
+        XCTAssertTrue(state.toolbarHoverVisible, "Leaving the edge must allow a gentle outro")
+        try await Task.sleep(nanoseconds: 50_000_000)
+        observer.pointerMoved(to: top)
+        try await Task.sleep(nanoseconds: 320_000_000)
+        XCTAssertEqual(visibility, [true], "A quick return must not hide and remount the controls")
+        XCTAssertEqual(state.toolbarHoverOpacity, 1)
+
+        observer.pointerMoved(to: body)
+        try await Task.sleep(nanoseconds: 170_000_000)
+        XCTAssertTrue(state.toolbarHoverVisible)
+        XCTAssertEqual(state.toolbarHoverOpacity, 0, "The fade target changes before the native toolbar is removed")
+        observer.pointerMoved(to: top)
+        try await Task.sleep(nanoseconds: 320_000_000)
+        XCTAssertEqual(visibility, [true], "Returning during a fade must cancel its old completion")
+        XCTAssertEqual(state.toolbarHoverOpacity, 1)
+
+        observer.pointerMoved(to: body)
+        try await Task.sleep(nanoseconds: 350_000_000)
+        XCTAssertFalse(state.toolbarHoverVisible)
+        observer.pointerMoved(to: top)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        XCTAssertFalse(state.toolbarHoverVisible, "Focus loss must dismiss immediately")
+        observer.reducedMotion = true
+        observer.pointerMoved(to: top); observer.pointerMoved(to: body)
+        XCTAssertFalse(state.toolbarHoverVisible, "Reduced Motion must not wait for the outro")
+        XCTAssertEqual(state.toolbarHoverOpacity, 0)
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testHoverToolbarPreservesBookViewportLayoutAndPassage() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = directory.url.appendingPathComponent("toolbar.fb2")
+        let paragraphs = (0..<100).map { "<p>Paragraph \($0) keeps its place when temporary controls overlay this book.</p>" }.joined()
+        try "<FictionBook xmlns='http://www.gribuser.ru/xml/fictionbook/2.0'><body><section>\(paragraphs)</section></body></FictionBook>"
+            .write(to: input, atomically: true, encoding: .utf8)
+        let defaults = UserDefaults.standard
+        let saved = ["flow", "spread", "cover"].map { ($0, defaults.object(forKey: $0)) }
+        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+
+        for flow in ["paged", "continuous"] {
+            let document = try ReadingDocument.open(input, deferReflowLayout: true)
+            guard case .pages(let pages) = document.content else { return XCTFail("Expected native book") }
+            let state = ReaderState(recordsHistory: false)
+            state.document = document; state.flow = flow; state.toolbarDisplayMode = .auto
+            state.showContents = false; state.showAI = false; state.showFind = false
+            state.spread = false; state.cover = false; state.automaticLayout = false
+            state.font = "serif"; state.fontSize = 17; state.margin = 32
+            state.freePan = false; state.fit = "page"; state.zoom = 1; state.scrollbarMode = "hidden"
+            let window = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 900, height: 650),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.toolbarStyle = .unifiedCompact
+            let toolbar = NSToolbar(identifier: "hover-book-\(flow)")
+            window.toolbar = toolbar; toolbar.isVisible = false
+            let host = NSHostingView(rootView: ReaderView(state: state))
+            window.contentView = host
+            defer { state.windowClosed(); window.contentView = nil; window.close() }
+            func settle() async throws {
+                let deadline = Date().addingTimeInterval(10)
+                repeat {
+                    host.layoutSubtreeIfNeeded()
+                    if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                        host.cacheDisplay(in: host.bounds, to: bitmap)
+                    }
+                    if RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page)),
+                       state.pendingReflowPosition == nil, state.currentPosition.nativePassage != nil { break }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                } while Date() < deadline && state.error == nil
+                for _ in 0..<15 {
+                    host.layoutSubtreeIfNeeded()
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+                XCTAssertNil(state.error)
+                XCTAssertNotNil(state.currentPosition.nativePassage)
+            }
+            try await settle()
+            let scroll = try XCTUnwrap(state.readerScrollView)
+            let frame = scroll.convert(scroll.bounds, to: nil)
+            let viewport = scroll.contentView.safeAreaRect.size
+            let generation = state.chapterLayout?.generation
+            let position = state.currentPosition.nativePassage
+            let revision = state.renderRevision
+            for shown in [true, false, true, false] {
+                state.toolbarHoverVisible = shown; toolbar.isVisible = shown
+                try await settle()
+                XCTAssertEqual(scroll.convert(scroll.bounds, to: nil), frame, flow)
+                XCTAssertEqual(scroll.contentView.safeAreaRect.size, viewport, flow)
+                XCTAssertEqual(state.chapterLayout?.generation, generation, "Hover must not paginate the book again")
+                XCTAssertEqual(state.renderRevision, revision, "Hover must not schedule a replacement surface")
+                XCTAssertEqual(state.currentPosition.nativePassage, position, "Hover must preserve the reading passage")
+            }
+            XCTAssertFalse(window.isVisible, "This regression must not activate or display a test window")
+        }
+    }
+
+    func testHiddenToolbarReclaimsTitlebarAndFollowsDocumentTheme() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/toolbar.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .auto
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480),
+                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let originalBackground = window.backgroundColor
+        let originalMouseMoved = window.acceptsMouseMovedEvents
+        let toolbar = NSToolbar(identifier: "toolbar-layout-test")
+        window.toolbar = toolbar
+        let observer = ReaderToolbarWindow.Host()
+        observer.reducedMotion = true
+        observer.state = state
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); observer.removeFromSuperview(); window.close(); state.windowClosed() }
+
+        func apply() {
+            observer.updateChrome()
+            // The ReaderView visibility modifier owns this native change.
+            toolbar.isVisible = state.toolbarShown
+            observer.updateChrome()
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+        let frame = window.frame
+        for theme in ["light", "light-warm", "dark", "dracula", "gruvbox"] {
+            state.theme = theme; apply()
+            XCTAssertFalse(toolbar.isVisible)
+            XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
+            XCTAssertTrue(window.titlebarAppearsTransparent)
+            XCTAssertEqual(window.titleVisibility, .hidden)
+            XCTAssertEqual(window.titlebarSeparatorStyle, .none)
+            XCTAssertEqual(window.contentView?.frame.maxY ?? 0, window.frame.height, accuracy: 0.1,
+                           "The book must occupy the unused titlebar space")
+            XCTAssertEqual(window.backgroundColor, ReaderTheme.color(state.palette.background), theme)
+        }
+        let hiddenHeight = try XCTUnwrap(window.contentView).frame.height
+        observer.pointerMoved(to: NSPoint(x: 320, y: window.frame.height - 1))
+        apply()
+        XCTAssertTrue(toolbar.isVisible)
+        XCTAssertEqual(window.frame, frame, "Revealing must not resize or move the reader window")
+        XCTAssertTrue(window.titlebarAppearsTransparent)
+        XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
+        XCTAssertEqual(try XCTUnwrap(window.contentView).frame.height, hiddenHeight, accuracy: 0.1,
+                       "Hover controls must overlay the book without resizing its viewport")
+        observer.pointerMoved(to: NSPoint(x: 320, y: window.contentLayoutRect.maxY + 1))
+        XCTAssertTrue(state.toolbarHoverVisible, "Controls stay usable after entering the toolbar")
+        observer.pointerMoved(to: NSPoint(x: 320, y: window.contentLayoutRect.midY))
+        apply()
+        XCTAssertFalse(toolbar.isVisible)
+        XCTAssertEqual(window.frame, frame, "Hiding must reclaim content space in the same window frame")
+        XCTAssertEqual(try XCTUnwrap(window.contentView).frame.height, hiddenHeight, accuracy: 0.1)
+
+        observer.detach()
+        XCTAssertFalse(window.styleMask.contains(.fullSizeContentView))
+        XCTAssertFalse(window.titlebarAppearsTransparent)
+        XCTAssertEqual(window.backgroundColor, originalBackground)
+        XCTAssertEqual(window.acceptsMouseMovedEvents, originalMouseMoved)
+        XCTAssertFalse(window.isVisible, "Geometry checks must leave the user's windows undisturbed")
+    }
+
+    func testThreeModesControlHoverAndPresentationWithoutChangingTheChoice() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/toolbar.txt"), content: .text("book"))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480),
+                              styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let observer = ReaderToolbarWindow.Host()
+        observer.reducedMotion = true; observer.state = state
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); observer.removeFromSuperview(); window.close(); state.windowClosed() }
+        let top = NSPoint(x: 320, y: window.frame.height - 1)
+        for mode in ReaderToolbarDisplayMode.allCases {
+            for presentation in [false, true] {
+                state.toolbarDisplayMode = mode; state.presentation = presentation
+                state.toolbarHoverVisible = false
+                XCTAssertEqual(state.toolbarShown, mode == .shown && !presentation)
+                XCTAssertEqual(state.toolbarOverlaysContent, mode != .shown || presentation)
+                observer.pointerMoved(to: top)
+                XCTAssertEqual(state.toolbarHoverVisible, mode == .auto)
+                XCTAssertEqual(state.toolbarShown, mode == .auto || (mode == .shown && !presentation))
+                XCTAssertEqual(state.toolbarDisplayMode, mode)
+                observer.pointerMoved(to: NSPoint(x: top.x, y: window.frame.height + 1))
+                XCTAssertFalse(state.toolbarHoverVisible)
+                observer.pointerMoved(to: top)
+                NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+                XCTAssertFalse(state.toolbarHoverVisible)
+            }
+        }
+        state.presentation = false; state.toolbarDisplayMode = .auto
+        observer.pointerMoved(to: top)
+        XCTAssertTrue(state.toolbarShown)
+        state.toolbarDisplayMode = .hidden
+        XCTAssertFalse(state.toolbarShown, "Always Hide must cancel an existing hover immediately")
+        XCTAssertEqual(state.toolbarHoverOpacity, 0)
+        state.toolbarDisplayMode = .shown
+        XCTAssertTrue(state.toolbarShown)
+        state.document = nil
+        observer.pointerMoved(to: top)
+        XCTAssertFalse(state.toolbarShown)
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testToolbarModeMigratesOldPreferenceOnceAndPreservesNewChoice() throws {
+        let suite = "SumraToolbarTests-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(ReaderToolbarDisplayMode.load(from: defaults), .shown)
+        for enabled in [false, true] {
+            defaults.removeObject(forKey: "toolbarDisplayMode")
+            defaults.set(enabled, forKey: "revealHiddenToolbar")
+            XCTAssertEqual(ReaderToolbarDisplayMode.load(from: defaults), enabled ? .auto : .shown)
+            XCTAssertNil(defaults.object(forKey: "revealHiddenToolbar"))
+        }
+        defaults.set("hidden", forKey: "toolbarDisplayMode")
+        defaults.set(true, forKey: "revealHiddenToolbar")
+        XCTAssertEqual(ReaderToolbarDisplayMode.load(from: defaults), .hidden)
+    }
+
+    func testModeRoundTripsAndUpdatesEveryOpenReaderAndNewReaders() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, key = "toolbarDisplayMode"
+        let original = defaults.object(forKey: key)
+        let readers = [ReaderState(recordsHistory: false), ReaderState(recordsHistory: false)]
+        let windows = readers.map { state -> NSWindow in
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480),
+                                  styleMask: .titled, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; state.window = window
+            return window
+        }
+        let delegates = readers.map { ReaderCloseGuard(state: $0, previous: nil) }
+        for (window, delegate) in zip(windows, delegates) { window.delegate = delegate }
+        defer {
+            withExtendedLifetime(delegates) {}
+            for (window, state) in zip(windows, readers) { window.delegate = nil; window.close(); state.windowClosed() }
+            defaults.set(original, forKey: key)
+        }
+        for mode in ReaderToolbarDisplayMode.allCases {
+            mode.apply()
+            XCTAssertTrue(readers.allSatisfy { $0.toolbarDisplayMode == mode })
+            XCTAssertEqual(ReaderState(recordsHistory: false).toolbarDisplayMode, mode, "New windows restore the shared choice")
+            let data = try ReaderPreferences.data(matching: key)
+            let exported = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+            XCTAssertEqual(exported[key], mode.rawValue)
+            try ReaderPreferences.apply(Data("{\"toolbarDisplayMode\":\"shown\"}".utf8))
+            try ReaderPreferences.apply(data)
+            XCTAssertTrue(readers.allSatisfy { $0.toolbarDisplayMode == mode })
+        }
+        for invalid in ["true", "\"invalid\""] {
+            XCTAssertThrowsError(try ReaderPreferences.apply(Data("{\"toolbarDisplayMode\":\(invalid)}".utf8)))
+            XCTAssertEqual(defaults.string(forKey: key), "hidden")
+        }
+        XCTAssertTrue(windows.allSatisfy { !$0.isVisible })
+    }
+
+    func testHoverEntryAndExitStayStableWhenNativeChromeChangesLayout() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/toolbar-hysteresis.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .auto
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let toolbar = NSToolbar(identifier: "toolbar-hover-hysteresis-test")
+        window.toolbar = toolbar
+        let observer = ReaderToolbarWindow.Host()
+        observer.reducedMotion = true
+        observer.state = state
+        window.contentView?.addSubview(observer)
+        toolbar.isVisible = state.toolbarShown
+        var changes = [Bool]()
+        let observation = state.$toolbarHoverVisible.dropFirst().sink { changes.append($0) }
+        defer {
+            observation.cancel(); observer.detach(); observer.removeFromSuperview()
+            window.close(); state.windowClosed()
+        }
+        let frame = window.frame
+        func point(_ depth: CGFloat) -> NSPoint { NSPoint(x: frame.width / 2, y: frame.height - depth) }
+        observer.pointerMoved(to: point(49))
+        XCTAssertFalse(state.toolbarHoverVisible)
+        observer.pointerMoved(to: point(40))
+        XCTAssertTrue(state.toolbarHoverVisible, "The pointer must reveal controls well inside the window")
+        observer.updateChrome()
+        toolbar.isVisible = state.toolbarShown
+        observer.pointerMoved(to: point(60))
+        XCTAssertTrue(state.toolbarHoverVisible, "The retention region must extend below the entry region")
+        for visible in [false, true, false] {
+            toolbar.isVisible = visible
+            window.contentView?.layoutSubtreeIfNeeded()
+            observer.pointerMoved(to: point(60))
+            observer.updateChrome()
+            XCTAssertTrue(state.toolbarHoverVisible, "Native content-layout changes must not hide controls under a stationary pointer")
+            XCTAssertEqual(window.frame, frame)
+        }
+        observer.pointerMoved(to: point(96))
+        XCTAssertTrue(state.toolbarHoverVisible)
+        XCTAssertEqual(changes, [true], "A stationary pointer must not generate repeated show/hide transitions")
+        observer.pointerMoved(to: point(97))
+        XCTAssertFalse(state.toolbarHoverVisible)
+        observer.pointerMoved(to: point(60))
+        XCTAssertFalse(state.toolbarHoverVisible, "Leaving the retention region must require re-entering the top strip")
+        observer.pointerMoved(to: point(48))
+        XCTAssertTrue(state.toolbarHoverVisible)
+        XCTAssertEqual(changes, [true, false, true])
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testExternalToolbarVisibilityPreservesFrameAfterLateInstallationAndReleasesOnDetach() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/toolbar-late.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .shown
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let observer = ReaderToolbarWindow.Host()
+        observer.reducedMotion = true
+        observer.state = state; window.contentView?.addSubview(observer)
+        defer { observer.detach(); observer.removeFromSuperview(); window.close(); state.windowClosed() }
+        let toolbar = NSToolbar(identifier: "toolbar-late-observation-test")
+        window.toolbar = toolbar
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        let frame = window.frame
+        for shown in [false, true] {
+            toolbar.isVisible = shown
+            observer.updateChrome()
+            XCTAssertEqual(toolbar.isVisible, shown, "The visibility owner must not be overwritten by the geometry observer")
+            XCTAssertEqual(window.frame, frame, "The toolbar setter must preserve the window's pre-change frame")
+        }
+        observer.detach(); observer.removeFromSuperview()
+        let detachedFrame = window.frame
+        toolbar.isVisible = false
+        XCTAssertNotEqual(window.frame, detachedFrame, "Detaching must return native toolbar sizing to its window")
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testHoverRoutesOwnedChildWindowCoordinatesAndIgnoresUnrelatedWindows() throws {
+        _ = NSApplication.shared
+        final class DocumentWindow: NSWindow {
+            var receivesPointer = true
+            override var isKeyWindow: Bool { receivesPointer }
+        }
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/toolbar-child.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .auto
+        let window = DocumentWindow(contentRect: CGRect(x: 200, y: 180, width: 640, height: 480),
+            styleMask: .titled, backing: .buffered, defer: false)
+        let child = NSWindow(contentRect: CGRect(x: 250, y: window.frame.maxY - 70, width: 500, height: 60),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        let unrelated = NSWindow(contentRect: window.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        for item in [window, child, unrelated] { item.isReleasedWhenClosed = false }
+        window.addChildWindow(child, ordered: .above)
+        let observer = ReaderToolbarWindow.Host()
+        observer.reducedMotion = true
+        observer.state = state
+        window.contentView?.addSubview(observer)
+        defer {
+            observer.detach(); observer.removeFromSuperview()
+            window.removeChildWindow(child)
+            for item in [child, unrelated, window] { item.close() }
+            state.windowClosed()
+        }
+        func event(in owner: NSWindow, point: NSPoint) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: owner.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        }
+        let top = NSPoint(x: window.frame.width / 2, y: window.frame.height - 4)
+        let childTop = child.convertPoint(fromScreen: window.convertPoint(toScreen: top))
+        XCTAssertLessThan(childTop.y, window.frame.height - 8,
+            "The child-local point must differ from the document's hover-strip coordinates")
+        observer.handleMouseMoved(try event(in: child, point: childTop))
+        XCTAssertTrue(state.toolbarHoverVisible, "An owned native chrome window must reveal its document's toolbar")
+
+        state.toolbarHoverVisible = false
+        observer.handleMouseMoved(try event(in: unrelated, point: top))
+        XCTAssertFalse(state.toolbarHoverVisible, "A different window cannot reveal this document's toolbar")
+        observer.handleMouseMoved(try event(in: window, point: top))
+        XCTAssertTrue(state.toolbarHoverVisible, "Direct document events keep their original coordinate path")
+
+        state.toolbarHoverVisible = false
+        window.receivesPointer = false
+        observer.handleMouseMoved(try event(in: child, point: childTop))
+        XCTAssertFalse(state.toolbarHoverVisible, "Owned child events still require the document to be key")
+        XCTAssertTrue([window, child, unrelated].allSatisfy { !$0.isVisible })
+    }
+
+    func testHoverRevealKeepsPageInputCompositionUntilEditingEnds() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/toolbar.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .auto
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480),
+                              styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let observer = ReaderToolbarWindow.Host()
+        observer.reducedMotion = true
+        observer.state = state
+        window.contentView?.addSubview(observer)
+        let field = NSTextField(string: "1")
+        field.frame = CGRect(x: 100, y: 100, width: 80, height: 24)
+        window.contentView?.addSubview(field)
+        state.pageInputField = field
+        defer { window.makeFirstResponder(nil); observer.detach(); window.close(); state.windowClosed() }
+        observer.pointerMoved(to: NSPoint(x: 320, y: window.frame.height - 1))
+        field.selectText(nil)
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.setMarkedText("2", selectedRange: NSRange(location: 1, length: 0), replacementRange: editor.selectedRange())
+        observer.pointerMoved(to: NSPoint(x: 320, y: 200))
+        XCTAssertTrue(state.toolbarShown)
+        XCTAssertTrue(editor.hasMarkedText())
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertEqual(editor.string, "2")
+        window.makeFirstResponder(nil)
+        observer.pointerMoved(to: NSPoint(x: 320, y: 200))
+        XCTAssertFalse(state.toolbarShown)
+        XCTAssertFalse(window.isVisible)
+    }
+
     func testFocusedPageInputTracksNavigationAndPreservesDraftAndComposition() async throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
@@ -68,13 +504,17 @@ final class ReaderToolbarTests: XCTestCase {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/page-input.txt"), content: .text("one\ntwo\nthree\nfour"))
-        state.count = 4; state.page = 2
+        state.count = 4; state.page = 2; state.toolbarDisplayMode = .shown
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 240, height: 100),
                               styleMask: .titled, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; state.window = window
         let host = NSHostingView(rootView: ReaderPageInput(state: state, finished: { window.makeFirstResponder(nil) })
             .frame(width: 80, height: 24))
         window.contentView = host
+        if let display = ProcessInfo.processInfo.environment["SUMRA_TEST_DISPLAY_NAME"] {
+            let screen = try XCTUnwrap(NSScreen.screens.first { $0.localizedName == display })
+            window.setFrameOrigin(NSPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.minY + 40))
+        }
         window.makeKeyAndOrderFront(nil)
         defer { window.makeFirstResponder(nil); window.contentView = nil; window.close(); state.windowClosed() }
         for _ in 0..<100 {

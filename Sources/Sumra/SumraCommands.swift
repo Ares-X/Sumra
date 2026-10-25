@@ -119,7 +119,9 @@ struct SumraCommands: Commands {
     @CommandsBuilder
     private var readingCommands: some Commands {
         CommandGroup(after: .toolbar) {
-            buttons([.contents, .thumbnails, .navigateThumbnail, .bookmarks, .bookmarksWindow, .annotations, .toolbar, .fullscreen, .presentation, .palette, .ai])
+            buttons([.contents, .thumbnails, .navigateThumbnail, .bookmarks, .bookmarksWindow, .annotations])
+            ReaderToolbarDisplayPicker()
+            buttons([.fullscreen, .presentation, .palette, .ai])
             Menu(L("Contents")) {
                 buttons([.contentsSearch])
                 Divider()

@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import QuartzCore
 import SwiftUI
 
 // A nonactivating child panel preserves the reader's first responder and selection.
@@ -37,6 +38,44 @@ import SwiftUI
     @MainActor final class Panel: NSPanel {
         override var canBecomeKey: Bool { false }
         override var canBecomeMain: Bool { false }
+        private var motionRevision = 0
+        private var dismissing = false
+
+        func reveal(reducedMotion: Bool = ReaderMotion.reducedMotion) {
+            motionRevision += 1
+            dismissing = false
+            ignoresMouseEvents = false
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = reducedMotion ? 0 : ReaderMotion.revealDuration
+                context.timingFunction = ReaderMotion.timingFunction
+                animator().alphaValue = 1
+            }
+        }
+
+        func dismiss(reducedMotion: Bool = ReaderMotion.reducedMotion) {
+            guard !dismissing else { return }
+            dismissing = true
+            ignoresMouseEvents = true
+            motionRevision += 1
+            let revision = motionRevision
+            if reducedMotion { orderOut(nil); return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = ReaderMotion.dismissDuration
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                animator().alphaValue = 0
+            } completionHandler: { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.motionRevision == revision else { return }
+                    self.orderOut(nil)
+                }
+            }
+        }
+
+        override func close() {
+            motionRevision += 1
+            ignoresMouseEvents = true
+            super.close()
+        }
     }
 
     @MainActor final class Coordinator: NSObject {
@@ -112,11 +151,13 @@ import SwiftUI
             guard !actions.isEmpty else { hide(); return }
             if panel == nil {
                 let created = Panel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+                created.alphaValue = 0
                 created.isReleasedWhenClosed = false
                 created.isOpaque = false
                 created.backgroundColor = .clear
                 created.hasShadow = true
                 created.hidesOnDeactivate = true
+                created.animationBehavior = .none
                 created.tabbingMode = .disallowed
                 parent.addChildWindow(created, ordered: .above)
                 panel = created
@@ -127,12 +168,14 @@ import SwiftUI
             panel?.contentView = view
             panel?.appearance = parent.effectiveAppearance
             panel?.setFrame(frame, display: true)
+            if panel?.isVisible == false { panel?.alphaValue = 0 }
             panel?.orderFront(nil)
+            panel?.reveal()
         }
 
         private static func actions(for state: ReaderState) -> [ReaderMenuCommand] { ReaderSelectionToolbar.actions(for: state) }
 
-        private func hide() { panel?.orderOut(nil) }
+        private func hide() { panel?.dismiss() }
 
         func detach() {
             positioning?.cancel(); positioning = nil
@@ -163,11 +206,29 @@ import SwiftUI
                     case .translateGoogle: Label(L("Translate"), systemImage: "character.bubble")
                     default: Label(L("Highlight"), systemImage: "highlighter")
                     }
-                }.buttonStyle(.borderless).padding(.horizontal, 9).padding(.vertical, 8)
+                }.buttonStyle(SelectionActionStyle())
             }
         }
         .fixedSize()
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+@MainActor private struct SelectionActionStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reducedMotion
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 9).padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : hovered ? 0.06 : 0))
+                    .padding(3)
+            }
+            .onHover { hovered = $0 }
+            .animation(reducedMotion ? nil : ReaderMotion.dismiss, value: hovered)
+            .animation(reducedMotion ? nil : ReaderMotion.dismiss, value: configuration.isPressed)
     }
 }
 #endif
