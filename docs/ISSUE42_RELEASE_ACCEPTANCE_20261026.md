@@ -1,10 +1,10 @@
 # Issue 42 Release Acceptance — 2026-10-26
 
-**Status: final candidate accepted; publication and installed-update checks pending.** Source commit
+**Status: released, installed update accepted, reporter invited to retest.** Source commit
 `dc2736990265a4761b6b56a0b8edab8acb2b0936` is pushed; its release candidate
 Action `40216514470`, final source gate and exact signed-app GUI acceptance pass.
-This record separates signed-candidate evidence from current source and pending
-release checks. It supersedes earlier documents' current/final labels for this
+This record separates source tests, signed-candidate acceptance and completed
+delivery checks. It supersedes earlier documents' current/final labels for this
 release cycle; their dated observations remain historical. See the [Issue 42
 acceptance record](ISSUE42_ACCEPTANCE_20261025.md), [broad acceptance
 matrix](FULL_ACCEPTANCE_20261025.md), [feedback traceability](FEEDBACK_TRACEABILITY_20261025.md),
@@ -166,5 +166,34 @@ receipts remain separate historical evidence, not current passes.
 
 ## Delivery state
 
-- Publication, update acceptance, and the Issue 42 reply. None is claimed by
-  this pre-publication record.
+- [PR 43](https://github.com/Ares-X/Sumra/pull/43) merged as
+  `b6f1f2599ca96cd790c693840f2ae8c6713e1f10`. Its final follow-up was
+  documentation only; compiled source remains `dc273699`.
+- [Publication Action 40219026650](https://github.com/Ares-X/Sumra/actions/runs/40219026650)
+  succeeded and promoted the accepted draft to
+  [0.2.18](https://github.com/Ares-X/Sumra/releases/tag/v0.2.18), preserving
+  release ID 423555672 and all six asset IDs and bytes. Anonymous downloads,
+  SHA256SUMS, public raw appcast and Sparkle Ed25519 signature passed.
+  Feed commit: `90fb2710fa72bd310edd23a8c98493869cee3ed4`.
+- The existing `/Applications/Sumra.app` **0.2.17 (19)** received the update
+  through Help → Check for Updates, downloaded it, then completed Install and
+  Relaunch as **0.2.18 (20)**. Every installed bundle file, directory mode,
+  symlink, certificate and UUID matches the accepted provenance; this was not
+  a manual bundle replacement. Its host SHA256 is
+  `ec7e2dbfcb56ed0c762c44f8fb42d954cbedf3d66eb5ed253f89074e918b9833`.
+- The installed reader opened the original sample EPUB. Application and both
+  Quick Look providers were registered from `/Applications`; a fresh system
+  preview painted CBR page 1/11 through that installed provider. Original
+  preferences were restored before the upgrade. The new Auto Hide choice is
+  enabled for the requested user handoff.
+- [Reporter reply](https://github.com/Ares-X/Sumra/issues/42#issuecomment-6401197956)
+  announces the release, describes the fixes, invites testing on the reporter's
+  own Mac/books and asks what still feels rough. Issue 42 remains open for
+  that feedback. Reporter acceptance is pending; local acceptance does not
+  substitute for it.
+
+Delivery evidence: `build/release-0.2.18/public-verification/public-check.json`,
+`publication-action.json`, `official-installed-identity.json`,
+`official-update-acceptance.json`, `official-finder-processes.txt` and
+`official-*-registration.txt`. Temporary candidate registration was removed;
+the installed official app owns the registered providers.
