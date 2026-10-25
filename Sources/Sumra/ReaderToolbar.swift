@@ -44,14 +44,11 @@ struct ReaderToolbarDisplayPicker: View {
 
 // SwiftUI owns toolbar items and visibility. AppKit preserves window geometry,
 // extends reading through the unused titlebar, and tracks native chrome.
-struct ReaderToolbarFullScreenVisibility: ViewModifier {
+struct ReaderToolbarAppearance: ViewModifier {
     var overlaysContent: Bool
     func body(content: Content) -> some View {
         if #available(macOS 15, *) {
-            // App visibility already includes the wider reader hover region.
-            // A second system menu-bar hover gate would keep those controls invisible.
-            content.windowToolbarFullScreenVisibility(.visible)
-                .toolbar(removing: overlaysContent ? .title : nil)
+            content.toolbar(removing: overlaysContent ? .title : nil)
                 .toolbarBackground(overlaysContent ? .hidden : .automatic, for: .windowToolbar)
         } else {
             content
@@ -106,7 +103,7 @@ struct ReaderToolbarFullScreenVisibility: ViewModifier {
                 self?.handleMouseMoved(event)
                 return event
             }
-            for name in [NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
+            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                          NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification,
                          NSWindow.didUpdateNotification] {
                 NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: name, object: window)
@@ -166,6 +163,17 @@ struct ReaderToolbarFullScreenVisibility: ViewModifier {
             if parent.titlebarSeparatorStyle != separator { parent.titlebarSeparatorStyle = separator }
             if parent.backgroundColor != background { parent.backgroundColor = background }
             if parent.frame != frame { parent.setFrame(frame, display: false) }
+            if parent.isKeyWindow, parent.styleMask.contains(.fullScreen) {
+                var options = NSApp.presentationOptions
+                // AppKit's detached fullscreen toolbar has a separate native
+                // rollover gate. Drive it from the same 48-point reader hover.
+                // autoHideToolbar is valid only while fullScreen is present.
+                if options.contains(.fullScreen) {
+                    if state.toolbarShown { options.remove(.autoHideToolbar) }
+                    else { options.insert(.autoHideToolbar) }
+                    if NSApp.presentationOptions != options { NSApp.presentationOptions = options }
+                }
+            }
         }
 
         func pointerMoved(to point: NSPoint) {

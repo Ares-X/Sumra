@@ -67,7 +67,7 @@ struct ReaderView: View {
         .onChange(of: state.cover) { UserDefaults.standard.set($0, forKey: "cover") }
         .toolbar(id: "reader") { toolbar }
         .toolbar(state.toolbarShown ? .visible : .hidden, for: .windowToolbar)
-        .modifier(ReaderToolbarFullScreenVisibility(overlaysContent: state.toolbarOverlaysContent))
+        .modifier(ReaderToolbarAppearance(overlaysContent: state.toolbarOverlaysContent))
         .onChange(of: reducedMotion) { _ in state.toolbarHoverVisible = false }
         .onChange(of: state.presentation) {
             state.toolbarHoverVisible = false
