@@ -197,3 +197,15 @@ Delivery evidence: `build/release-0.2.18/public-verification/public-check.json`,
 `official-update-acceptance.json`, `official-finder-processes.txt` and
 `official-*-registration.txt`. Temporary candidate registration was removed;
 the installed official app owns the registered providers.
+
+Final handoff recheck used the installed app in continuous reading mode. One
+preview remained after a cursor-warp/zero-delta input sequence during initial
+opening; its cause is unconfirmed. With native mouse-move events carrying real
+deltas, ordinary hover/exit, close/reopen and two link-hint refreshes while the
+preview was visible all dismissed it on exit. Three further reopen cycles left
+no preview after exit (only the first displayed one before exit). This does not
+prove the isolated observation impossible; it is retained separately from the
+passing cases in `official-handoff-settled.json`, `official-hover-hint-refresh.json`
+and `official-initial-hover-reopen-cycles.json`. The final handoff has no preview
+child, normal native window controls, Auto Hide enabled and the original sample
+EPUB open on the virtual display; see `official-final-handoff*.json/png`.
