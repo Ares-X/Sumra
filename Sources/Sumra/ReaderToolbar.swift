@@ -4,6 +4,273 @@ import AppKit
 import Darwin
 import SumraCore
 
+enum ReaderToolbarDisplayMode: String, CaseIterable {
+    case shown, auto, hidden
+
+    var title: String {
+        switch self {
+        case .shown: return L("Always Show")
+        case .auto: return L("Auto Hide")
+        case .hidden: return L("Always Hide")
+        }
+    }
+
+    static func load(from defaults: UserDefaults = .standard) -> Self {
+        if let value = defaults.string(forKey: "toolbarDisplayMode"), let mode = Self(rawValue: value) { return mode }
+        // Migrate the previous local hover preference once; visibility itself
+        // was window-local and did not survive relaunch.
+        let mode: Self = defaults.bool(forKey: "revealHiddenToolbar") ? .auto : .shown
+        defaults.set(mode.rawValue, forKey: "toolbarDisplayMode")
+        defaults.removeObject(forKey: "revealHiddenToolbar")
+        return mode
+    }
+
+    @MainActor func apply(to reader: ReaderState? = nil) {
+        UserDefaults.standard.set(rawValue, forKey: "toolbarDisplayMode")
+        reader?.toolbarDisplayMode = self
+        for state in ReaderWindows.states where state !== reader { state.toolbarDisplayMode = self }
+    }
+}
+
+struct ReaderToolbarDisplayPicker: View {
+    @AppStorage("toolbarDisplayMode") private var mode = ReaderToolbarDisplayMode.load()
+
+    var body: some View {
+        Picker(L("Toolbar Display"), selection: Binding(get: { mode }, set: { $0.apply() })) {
+            ForEach(ReaderToolbarDisplayMode.allCases, id: \.self) { Text($0.title).tag($0) }
+        }
+    }
+}
+
+// SwiftUI owns toolbar items and visibility. AppKit preserves window geometry,
+// extends reading through the unused titlebar, and tracks native chrome.
+struct ReaderToolbarAppearance: ViewModifier {
+    var overlaysContent: Bool
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.toolbar(removing: overlaysContent ? .title : nil)
+                .toolbarBackground(overlaysContent ? .hidden : .automatic, for: .windowToolbar)
+        } else {
+            content
+        }
+    }
+}
+
+@MainActor struct ReaderToolbarWindow: NSViewRepresentable {
+    @ObservedObject var state: ReaderState
+    var reducedMotion = ReaderMotion.reducedMotion
+
+    func makeNSView(context: Context) -> Host { Host() }
+    func updateNSView(_ view: Host, context: Context) {
+        view.state = state; view.reducedMotion = reducedMotion
+        view.updateChrome()
+    }
+    static func dismantleNSView(_ view: Host, coordinator: ()) { view.detach() }
+
+    @MainActor final class Host: NSView {
+        private static let hoverEntryDepth: CGFloat = 48
+        private static let hoverRetentionDepth: CGFloat = 96
+        weak var state: ReaderState?
+        var reducedMotion = ReaderMotion.reducedMotion
+        private weak var parent: NSWindow?
+        private var monitor: Any?
+        private var tracking: NSTrackingArea?
+        private weak var observedToolbar: NSToolbar?
+        private var toolbarObservation: NSKeyValueObservation?
+        private var visibilityFrame: NSRect?
+        private var hoverDismiss: Task<Void, Never>?
+        private var original: (fullSize: Bool, transparent: Bool, title: NSWindow.TitleVisibility,
+                               separator: NSTitlebarSeparatorStyle, background: NSColor, mouseMoved: Bool)?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            detach()
+            super.viewWillMove(toWindow: newWindow)
+        }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            parent = window
+            original = (window.styleMask.contains(.fullSizeContentView), window.titlebarAppearsTransparent,
+                        window.titleVisibility, window.titlebarSeparatorStyle, window.backgroundColor,
+                        window.acceptsMouseMovedEvents)
+            window.acceptsMouseMovedEvents = true
+            if let content = window.contentView {
+                let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+                content.addTrackingArea(area); tracking = area
+            }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+                self?.handleMouseMoved(event)
+                return event
+            }
+            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
+                         NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification,
+                         NSWindow.didUpdateNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: name, object: window)
+            }
+            updateChrome()
+        }
+
+        func handleMouseMoved(_ event: NSEvent) {
+            guard let parent, parent.isKeyWindow, let source = event.window,
+                  source === parent || source.parent === parent else { return }
+            // Fullscreen AppKit chrome receives moves in its child window's
+            // coordinates while the document window remains key.
+            let point = source === parent ? event.locationInWindow
+                : parent.convertPoint(fromScreen: source.convertPoint(toScreen: event.locationInWindow))
+            pointerMoved(to: point)
+        }
+
+        func updateChrome() {
+            guard let parent, let original, let state else { return }
+            if !state.toolbarHoverVisible {
+                hoverDismiss?.cancel(); hoverDismiss = nil
+            }
+            if observedToolbar !== parent.toolbar {
+                toolbarObservation?.invalidate()
+                toolbarObservation = nil; visibilityFrame = nil
+                observedToolbar = parent.toolbar
+                if let toolbar = parent.toolbar {
+                    toolbarObservation = toolbar.observe(\.isVisible, options: [.prior]) { [weak self] _, change in
+                        MainActor.assumeIsolated {
+                            guard let self, let parent = self.parent else { return }
+                            if change.isPrior { self.visibilityFrame = parent.frame }
+                            else if let frame = self.visibilityFrame {
+                                self.visibilityFrame = nil
+                                if parent.frame != frame { parent.setFrame(frame, display: false) }
+                            }
+                        }
+                    }
+                }
+            }
+            // Temporary hover controls overlay the book. Its viewport must not
+            // reflow every time the pointer enters or leaves the toolbar.
+            let hidden = state.toolbarOverlaysContent
+            let frame = parent.frame
+            // SwiftUI owns toolbar visibility. Preserve the frame around its
+            // native setter and the titlebar changes owned here.
+            let fullSize = hidden || original.fullSize
+            if parent.styleMask.contains(.fullSizeContentView) != fullSize {
+                if fullSize { parent.styleMask.insert(.fullSizeContentView) }
+                else { parent.styleMask.remove(.fullSizeContentView) }
+            }
+            let transparent = hidden || original.transparent
+            let title: NSWindow.TitleVisibility = hidden ? .hidden : original.title
+            let separator: NSTitlebarSeparatorStyle = hidden ? .none : original.separator
+            let background = state.hasDocument ? ReaderTheme.color(state.palette.background) : original.background
+            if parent.titlebarAppearsTransparent != transparent { parent.titlebarAppearsTransparent = transparent }
+            if parent.titleVisibility != title { parent.titleVisibility = title }
+            if parent.titlebarSeparatorStyle != separator { parent.titlebarSeparatorStyle = separator }
+            if parent.backgroundColor != background { parent.backgroundColor = background }
+            if parent.frame != frame { parent.setFrame(frame, display: false) }
+            if parent.isKeyWindow, parent.styleMask.contains(.fullScreen) {
+                var options = NSApp.presentationOptions
+                // AppKit's detached fullscreen toolbar has a separate native
+                // rollover gate. Drive it from the same 48-point reader hover.
+                // autoHideToolbar is valid only while fullScreen is present.
+                if options.contains(.fullScreen) {
+                    if state.toolbarShown { options.remove(.autoHideToolbar) }
+                    else { options.insert(.autoHideToolbar) }
+                    if NSApp.presentationOptions != options { NSApp.presentationOptions = options }
+                }
+            }
+        }
+
+        func pointerMoved(to point: NSPoint) {
+            guard let parent, let state else { return }
+            guard state.toolbarDisplayMode == .auto, state.hasDocument else {
+                setHoverVisible(false, immediately: true)
+                return
+            }
+            // Enter inside the top 48 points; retain the native controls over
+            // 96 points. The same stable window top owns both regions, so
+            // toolbar layout changes cannot toggle a stationary pointer.
+            let windowTop = parent.frame.height
+            let bottom = windowTop - (state.toolbarHoverVisible ? Self.hoverRetentionDepth : Self.hoverEntryDepth)
+            var upper = windowTop
+            if parent.styleMask.contains(.fullScreen), let screen = parent.screen {
+                // Native fullscreen menu/titlebar controls can occupy the
+                // screen strip above the document window's visible frame.
+                upper = parent.convertPoint(fromScreen: NSPoint(x: parent.frame.midX, y: screen.frame.maxY)).y
+            }
+            let overChrome = point.x >= 0 && point.x <= parent.frame.width && point.y >= bottom && point.y <= upper
+            let editing = state.toolbarHoverVisible && state.pageInputField?.currentEditor() != nil
+            let shown = overChrome || editing
+            setHoverVisible(shown)
+        }
+
+        private func setHoverVisible(_ shown: Bool, immediately: Bool = false) {
+            guard let state else { return }
+            if shown {
+                hoverDismiss?.cancel(); hoverDismiss = nil
+                if !state.toolbarHoverVisible { state.toolbarHoverVisible = true }
+                if state.toolbarHoverOpacity != 1 {
+                    withAnimation(reducedMotion ? nil : ReaderMotion.reveal) { state.toolbarHoverOpacity = 1 }
+                }
+            } else if immediately || reducedMotion {
+                hoverDismiss?.cancel(); hoverDismiss = nil
+                state.toolbarHoverOpacity = 0
+                if state.toolbarHoverVisible { state.toolbarHoverVisible = false }
+            } else if state.toolbarHoverVisible, hoverDismiss == nil {
+                // A brief exit grace keeps near-edge movement calm. Re-entry
+                // cancels this task and reverses opacity from its current value.
+                hoverDismiss = Task { [weak self, weak state] in
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(ReaderMotion.hoverDismissDelay * 1_000_000_000))
+                        guard let self, let state else { return }
+                        withAnimation(ReaderMotion.dismiss) { state.toolbarHoverOpacity = 0 }
+                        try await Task.sleep(nanoseconds: UInt64(ReaderMotion.dismissDuration * 1_000_000_000))
+                        state.toolbarHoverVisible = false
+                        self.hoverDismiss = nil
+                    } catch { /* Task.sleep throws when re-entry or teardown cancels dismissal. */ }
+                }
+            }
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            if let parent { pointerMoved(to: parent.convertPoint(fromScreen: NSEvent.mouseLocation)) }
+        }
+        @objc private func windowChanged(_ notification: Notification) {
+            if notification.name == NSWindow.willCloseNotification { detach() }
+            // SwiftUI may install its NSToolbar after this background view attaches.
+            else if notification.name == NSWindow.didUpdateNotification { updateChrome() }
+            else { setHoverVisible(false, immediately: true); updateChrome() }
+        }
+
+        func detach() {
+            // Dismantling runs inside SwiftUI's view update. Cancel work here;
+            // focus/window notifications own observable visibility changes.
+            hoverDismiss?.cancel(); hoverDismiss = nil
+            NotificationCenter.default.removeObserver(self)
+            toolbarObservation?.invalidate(); toolbarObservation = nil
+            observedToolbar = nil; visibilityFrame = nil
+            if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil
+            if let tracking { parent?.contentView?.removeTrackingArea(tracking) }; tracking = nil
+            if let parent, let original {
+                let frame = parent.frame
+                if original.fullSize { parent.styleMask.insert(.fullSizeContentView) }
+                else { parent.styleMask.remove(.fullSizeContentView) }
+                parent.titlebarAppearsTransparent = original.transparent
+                parent.titleVisibility = original.title
+                parent.titlebarSeparatorStyle = original.separator
+                parent.backgroundColor = original.background
+                parent.acceptsMouseMovedEvents = original.mouseMoved
+                if parent.frame != frame { parent.setFrame(frame, display: false) }
+            }
+            parent = nil; original = nil
+        }
+    }
+}
+
+@MainActor struct ReaderToolbarItemMotion: ViewModifier {
+    @ObservedObject var state: ReaderState
+    func body(content: Content) -> some View {
+        content
+            .opacity(state.toolbarOverlaysContent ? state.toolbarHoverOpacity : 1)
+            .accessibilityHidden(state.toolbarOverlaysContent && state.toolbarHoverOpacity == 0)
+    }
+}
+
 // AppKit owns the actual toolbar field editor, including programmatic focus.
 @MainActor struct ReaderPageInput: NSViewRepresentable {
     @ObservedObject var state: ReaderState
@@ -197,6 +464,9 @@ enum ReaderToolbarSVGRenderer {
     var body: some View {
         let _ = language
         VStack(alignment: .leading) {
+            ReaderToolbarDisplayPicker()
+            Text(L("In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar.")).font(.caption).foregroundStyle(.secondary)
+            Divider()
             Text(L("Custom Toolbar Buttons")).font(.headline)
             Text(L("Add commands, choose their icons and arrange them below. Drag the Custom Buttons group in Customize Toolbar to move or hide it.")).font(.caption).foregroundStyle(.secondary)
             TextField(L("Find a command to add"), text: $query)

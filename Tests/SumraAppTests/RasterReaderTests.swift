@@ -10,6 +10,47 @@ import XCTest
 
 final class RasterReaderTests: XCTestCase {
     @MainActor
+    func testFirstPaintFollowsReadyRenderRevisionWhenBitmapIsReused() async throws {
+        _ = NSApplication.shared
+        let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 160,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(NSColor.white.cgColor); context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        let image = try XCTUnwrap(context.makeImage())
+        let canvas = RasterCanvas.Canvas(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+        canvas.image = image; canvas.pageBounds = canvas.bounds; canvas.visibleBounds = canvas.bounds
+        canvas.readingReady = true; canvas.renderRevision = 1
+        var painted = [Int]()
+        canvas.didPaint = { painted.append(canvas.renderRevision) }
+        let window = NSWindow(contentRect: canvas.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = canvas
+        defer { window.contentView = nil; window.close() }
+        func paint() async throws {
+            let bitmap = try XCTUnwrap(canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds))
+            canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
+            // First-paint delivery is deferred until after the AppKit draw.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+        try await paint()
+        XCTAssertEqual(painted, [1])
+        try await paint()
+        XCTAssertEqual(painted, [1], "Repeated drawing of one ready revision must emit first paint once")
+
+        // A cached bitmap can survive viewport/style revision changes. Its new
+        // revision still needs actual ready pixels before pagination resumes.
+        canvas.renderRevision = 2; canvas.readingReady = false
+        XCTAssertTrue(canvas.image === image)
+        try await paint()
+        XCTAssertEqual(painted, [1], "An outgoing preview cannot acknowledge the replacement revision")
+        canvas.readingReady = true
+        try await paint()
+        XCTAssertEqual(painted, [1, 2])
+        try await paint()
+        XCTAssertEqual(painted, [1, 2])
+    }
+
+    @MainActor
     func testMarkdownCountWaitsForSelectedPassagePaintOnExistingAndNewPages() async throws {
         try await assertMarkdownCountWaitsForPaint(flow: "paged")
         try await assertMarkdownCountWaitsForPaint(flow: "continuous")
@@ -145,11 +186,16 @@ final class RasterReaderTests: XCTestCase {
         let lastTarget = state.selectedSearchTarget
         state.send(.find("Chapter 39 keeps", backwards: true))
         try await wait { state.selectedSearchTarget != lastTarget && state.pageLocation(state.page).chapter == 39 }
-        // A common query reaches the bounded count without requiring every
-        // chapter to have been painted. Navigation still retains its own hit.
+        // Count the common query across every chapter, including unpainted ones.
         state.send(.find("keeps"))
-        try await wait { state.searchResults.count == 999 && state.searchCountCapped && !state.searchCounting }
-        XCTAssertNotNil(state.selectedSearchTarget)
+        try await wait { state.searchResults.count == 1200 && !state.searchCounting }
+        let finalTarget = try XCTUnwrap(state.searchResults.last?.target)
+        state.send(.href(finalTarget))
+        try await wait {
+            state.selectedSearchTarget == finalTarget && state.searchCountText == "1200 / 1200" &&
+                state.pageLocation(state.page).chapter == 39 &&
+                RasterReader.highlightedMatch(in: state.readerFocusView) != nil
+        }
         XCTAssertNil(state.error)
     }
 
@@ -890,7 +936,7 @@ final class RasterReaderTests: XCTestCase {
         state.flow = "paged"; state.fit = "page"; state.spread = false; state.cover = false; state.rtl = false
         state.rotation = 0; state.automaticLayout = false; state.uniformPageWidth = false
         state.freePan = false; state.trimEmptyMargins = false; state.scrollbarMode = "shown"
-        state.toolbarVisible = true; state.presentation = false
+        state.toolbarDisplayMode = .shown; state.presentation = false
         state.showContents = false; state.showThumbnails = false; state.showBookmarks = false
         let host = NSHostingView(rootView: ReaderView(state: state))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 900, height: 740),
@@ -898,6 +944,10 @@ final class RasterReaderTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.toolbar = NSToolbar(identifier: .init("SumraToolbarViewport-" + UUID().uuidString))
         window.toolbarStyle = .unified; window.contentView = host; state.window = window
+        if let display = ProcessInfo.processInfo.environment["SUMRA_TEST_DISPLAY_NAME"] {
+            let screen = try XCTUnwrap(NSScreen.screens.first { $0.localizedName == display })
+            window.setFrameOrigin(NSPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.minY + 40))
+        }
         window.makeKeyAndOrderFront(nil)
         defer {
             state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
@@ -2228,7 +2278,6 @@ final class RasterReaderTests: XCTestCase {
                 try await wait { searchStarts > starts && !state.searchCounting && state.status == L("No matches") }
                 XCTAssertTrue(state.searchResults.isEmpty)
                 XCTAssertNil(state.selectedSearchTarget)
-                XCTAssertFalse(state.searchCountCapped)
             }
             let starts = searchStarts
             state.send(.find("Page 5", backwards: backwards, options: .init(allowedPages: IndexSet(integersIn: 0..<5))))
@@ -2244,12 +2293,12 @@ final class RasterReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testBoundedSearchCountsProbeTheNextPageAndNavigationKeepsItsOwnCursor() async throws {
+    func testFullSearchCountsIncludeLaterPagesAndNavigationKeepsItsOwnCursor() async throws {
         try requireMuPDF()
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
-        for total in [999, 1000] {
+        for total in [999, 1000, 1200] {
             let url = directory.url.appendingPathComponent("search-\(total).pdf")
             var media = CGRect(x: 0, y: 0, width: 400, height: 600)
             let writer = try XCTUnwrap(CGContext(url as CFURL, mediaBox: &media, nil))
@@ -2262,8 +2311,16 @@ final class RasterReaderTests: XCTestCase {
                     .draw(at: CGPoint(x: 20, y: CGFloat(550 - (first / 20) * 9)))
             }
             writer.endPDFPage(); writer.beginPDFPage(nil)
-            NSAttributedString(string: total == 1000 ? "Tail needle" : "No other hits", attributes: [.font: NSFont.systemFont(ofSize: 14)])
-                .draw(at: CGPoint(x: 40, y: 500))
+            if total > 999 {
+                for first in stride(from: 0, to: total - 999, by: 20) {
+                    NSAttributedString(string: String(repeating: "needle ", count: min(20, total - 999 - first)),
+                        attributes: [.font: NSFont.systemFont(ofSize: 4)])
+                        .draw(at: CGPoint(x: 20, y: CGFloat(550 - (first / 20) * 9)))
+                }
+            } else {
+                NSAttributedString(string: "No other hits", attributes: [.font: NSFont.systemFont(ofSize: 14)])
+                    .draw(at: CGPoint(x: 40, y: 500))
+            }
             writer.endPDFPage(); NSGraphicsContext.restoreGraphicsState(); writer.closePDF()
             let pages = try Pages(url, format: .pdf), state = ReaderState()
             let text = try await pages.text(0) as NSString
@@ -2271,7 +2328,11 @@ final class RasterReaderTests: XCTestCase {
                 .matches(in: text as String, range: NSRange(location: 0, length: text.length)).map { $0.range.location }
             XCTAssertEqual(offsets.count, 999)
             guard offsets.count == 999 else { continue }
-            let targets = offsets.map { "raster-search:0:\($0)" }
+            let tailText = try await pages.text(1) as NSString
+            let tailOffsets = try NSRegularExpression(pattern: "needle")
+                .matches(in: tailText as String, range: NSRange(location: 0, length: tailText.length)).map { $0.range.location }
+            XCTAssertEqual(tailOffsets.count, total - 999)
+            let targets = offsets.map { "raster-search:0:\($0)" } + tailOffsets.map { "raster-search:1:\($0)" }
             state.document = ReadingDocument(url: url, content: .pages(pages)); state.count = 2
             state.flow = "paged"; state.fit = "page"; state.spread = false; state.cover = false; state.automaticLayout = false
             state.searchCaseSensitive = false; state.searchWholeWord = false; state.setSearchPageRange("")
@@ -2291,47 +2352,46 @@ final class RasterReaderTests: XCTestCase {
                     if condition() { return }
                     try await Task.sleep(nanoseconds: 10_000_000)
                 } while Date() < deadline && state.error == nil
-                _ = try XCTUnwrap(condition() ? true : nil, "Bounded search did not settle: \(state.error ?? state.status)", line: line)
+                _ = try XCTUnwrap(condition() ? true : nil, "Full search did not settle: \(state.error ?? state.status)", line: line)
             }
             try await wait { state.readerFocusView?.window === window && state.readerScrollView != nil }
             // Queue a same-term repeat before the initial find has completed.
-            // Whichever navigation wins must still start the bounded counter.
+            // Whichever navigation wins must still start the full count.
             state.send(.find("needle")); state.send(.find("needle"))
             try await wait {
-                state.searchResults.count == 999 && state.selectedSearchTarget != nil && !state.searchCounting && state.status == state.searchCountText
+                state.searchResults.count == total && state.selectedSearchTarget != nil && !state.searchCounting && state.status == state.searchCountText
             }
             XCTAssertEqual(state.searchResults.map(\.target), targets)
-            XCTAssertEqual(state.searchCountCapped, total == 1000)
-            let suffix = total == 1000 ? "+" : "", settledPublications = publications
+            XCTAssertEqual(state.searchResults.last?.target, targets.last)
+            let settledPublications = publications
             // Selecting the current term from Recent Searches must keep the
             // completed list; the following explicit find still advances it.
             state.showFind = true
             state.updateFindQuery("needle")
             XCTAssertEqual(state.searchResults.map(\.target), targets)
-            XCTAssertEqual(state.searchCountCapped, total == 1000)
             state.send(.href(targets[998]))
-            try await wait { state.selectedSearchTarget == targets[998] && state.status == "999 / 999\(suffix)" }
+            try await wait { state.selectedSearchTarget == targets[998] && state.status == "999 / \(total)" }
             state.findNext(inResults: false)
-            let beyondList = total == 1000 ? "raster-search:1:\("Tail ".utf16.count)" : targets[0]
-            try await wait { state.selectedSearchTarget == beyondList && state.status == state.searchCountText }
-            XCTAssertEqual(state.searchCountText, total == 1000 ? "0 / 999+" : "1 / 999")
-            XCTAssertEqual(state.searchResults.map(\.target), targets, "Inline navigation must not replace the bounded list")
+            let afterFirstPage = total > 999 ? targets[999] : targets[0]
+            try await wait { state.selectedSearchTarget == afterFirstPage && state.status == state.searchCountText }
+            XCTAssertEqual(state.searchCountText, total > 999 ? "1000 / \(total)" : "1 / 999")
+            XCTAssertEqual(state.searchResults.map(\.target), targets, "Inline navigation must retain the full list")
             XCTAssertEqual(publications, settledPublications, "Inline navigation must not restart counting")
 
             // These are the floating find window's list-navigation commands.
-            // From a document hit outside the list, forward enters its first row.
+            // Every document hit also has a row in the complete results list.
             state.findNext(inResults: true)
             try await wait {
-                state.selectedSearchTarget == targets[total == 1000 ? 0 : 1] && state.status == state.searchCountText
+                state.selectedSearchTarget == targets[total > 1000 ? 1000 : total == 1000 ? 0 : 1] && state.status == state.searchCountText
             }
-            state.send(.href(targets[998]))
-            try await wait { state.selectedSearchTarget == targets[998] && state.status == state.searchCountText }
+            let lastTarget = try XCTUnwrap(targets.last)
+            state.send(.href(lastTarget))
+            try await wait { state.selectedSearchTarget == lastTarget && state.status == "\(total) / \(total)" }
             state.findNext(inResults: true)
-            try await wait { state.selectedSearchTarget == targets[0] && state.status == "1 / 999\(suffix)" }
+            try await wait { state.selectedSearchTarget == targets[0] && state.status == "1 / \(total)" }
             state.findNext(backwards: true, inResults: true)
-            try await wait { state.selectedSearchTarget == targets[998] && state.status == "999 / 999\(suffix)" }
+            try await wait { state.selectedSearchTarget == lastTarget && state.status == "\(total) / \(total)" }
             XCTAssertEqual(publications, settledPublications, "Floating-list navigation must not clear or republish the counter")
-            XCTAssertEqual(state.searchCountCapped, total == 1000)
             XCTAssertFalse(state.searchCounting)
             XCTAssertNil(state.error)
         }

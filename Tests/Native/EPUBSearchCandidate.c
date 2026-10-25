@@ -84,6 +84,82 @@ static void finite_page_parity(const char *path) {
     lf_close(fast); lf_close(reference);
 }
 
+static void parsed_phrase_parity(const char *directory, const char *path) {
+    struct Case { const char *body, *query; int negative; } cases[] = {
+        {"<p>甲丁乙甲丙丁</p>", "甲乙丙", 1},
+        {"<p>甲乙丙丁戊己庚辛</p>", "甲乙丙丁戊己庚辛"},
+        {"<p>甲乙甲乙甲丙</p>", "甲乙甲丙"},
+        {"<p>甲<span>乙</span>丙</p>", "甲乙丙"},
+        {"<p>甲<span style='visibility:hidden'>丁</span>乙丙</p>", "甲乙丙"},
+        {"<p>甲<span style='color:transparent'>丁</span>乙丙</p>", "甲乙丙"},
+        {"<p>甲<span style='display:none'>丁</span>乙丙</p>", "甲乙丙"},
+        {"<p>甲<span style='font-size:0'>丁</span>乙丙</p>", "甲乙丙"},
+        {"<p style='margin-top:-100px'>丁</p><p>甲乙丙</p>", "甲乙丙"},
+        {"<div style='position:absolute;top:-10000px'>丁</div><p>甲乙丙</p>", "甲乙丙"},
+        {"<p style='height:0'>甲乙丙</p>", "甲乙丙"},
+        {"<p>甲<sup>丁</sup>乙丙</p>", "甲乙丙"},
+        {"<p dir='rtl'>甲乙丙</p>", "甲丙乙"},
+        {"<p>甲乙אבג丙丁</p>", "甲乙丙丁"},
+        {"<table><tr><td>甲乙</td><td>丙丁</td></tr></table>", "甲乙丙丁"},
+        {"<p>甲神乙</p>", "甲神乙"},
+        {"<p>alpha X beta Z</p>", "alpha beta", 1},
+        {"<p>glass gap glass</p>", "glass"},
+        {"<p>g<span>l</span>ass</p>", "glass"},
+        {"<p>fi ﬁ file ﬁle Straße</p>", "file"},
+        {"<p>fi ﬁ file ﬁle Straße</p>", "ss"},
+        {"<p>SS ß</p>", "ß"},
+        {"<p>caf&#x65;&#x301; café</p>", "café"},
+        {"<p>alpha-beta</p>", "alphabeta"},
+        {"<style>p:before{content:'glass '}</style><p>paragraph</p>", "glass"},
+        {"<p>g<span style='font-size:0'>X</span>lass</p>", "glass"},
+        {"<p>alpha123 beta124</p>", "alpha124", 1},
+        {"<p>甲alpha乙123丙</p>", "alpha乙123"}
+    };
+    for (size_t i = 0; i < sizeof(cases)/sizeof(*cases); ++i) {
+        char body[2048];
+        snprintf(body, sizeof body, "<html xmlns='http://www.w3.org/1999/xhtml'><body>%s</body></html>", cases[i].body);
+        write_file(directory, "one.xhtml", body);
+        pid_t child = fork();
+        if (!child) { execl("/usr/bin/ditto", "ditto", "-c", "-k", directory, path, NULL); _exit(2); }
+        int status; waitpid(child, &status, 0); check(!status, "parsed phrase fixture archive");
+        for (int flags = 0; flags < 8; ++flags) {
+            SumraMuPDFDocument *fast = open_book(path), *reference = open_book(path);
+            char error[512] = {0};
+            const char *css = "@page{margin:0}body{margin:0}p{margin:0}";
+            check(lf_relayout_css(fast, 120, 100, 30, css, 1, error) == 1, error);
+            check(lf_relayout_css(reference, 120, 100, 30, css, 1, error) == 1, error);
+            int candidate = lf_search_chapter_candidate(fast, 0, cases[i].query, flags, NULL, NULL, error);
+            check(candidate >= 0 && fast->render_page == NULL && fast->text_page == NULL, "parsed phrase check must precede page/glyph loading");
+            if (cases[i].negative) {
+                if (candidate != 0) fprintf(stderr, "negative parsed case=%zu flags=%d candidate=%d\n", i, flags, candidate);
+                check(candidate == 0, "ordered negative chapter must skip pagination");
+            }
+            int pages = lf_chapter_pages(reference, 0, error);
+            for (int page = 0; page < pages; ++page) {
+                char *text = lf_text_at(reference, 0, page, error); check(text != NULL, error); free(text);
+                char *b = lf_search_pages_at(reference, 0, page, cases[i].query, flags, -1, -1, -1, NULL, NULL, error);
+                char *a = candidate ? lf_search_pages_at(fast, 0, page, cases[i].query, flags, -1, -1, -1, NULL, NULL, error)
+                    : strdup("{\"text\":\"\",\"matches\":[]}");
+                if (!(a && b && !strcmp(a, b))) fprintf(stderr, "parsed case=%zu flags=%d page=%d candidate=%d\n", i, flags, page, candidate);
+                check(a && b && !strcmp(a, b), "parsed/finite projection must retain exact glyph-window JSON");
+                free(a); free(b);
+            }
+            lf_close(fast); lf_close(reference);
+        }
+    }
+    // A source-prefix suffix remains a candidate before an adjacent spine
+    // chapter supplies the rest; no page loading is required to retain it.
+    write_file(directory, "one.xhtml", "<html><body><p>unrelated text 甲乙</p></body></html>");
+    pid_t child = fork(); if (!child) { execl("/usr/bin/ditto", "ditto", "-c", "-k", directory, path, NULL); _exit(2); }
+    int status; waitpid(child, &status, 0); check(!status, "prefix fixture archive");
+    SumraMuPDFDocument *d = open_book(path); char error[512] = {0};
+    check(lf_relayout_css(d, 120, 100, 30, "@page{margin:0}", 1, error) == 1, error);
+    check(lf_search_chapter_candidate(d, 0, "甲乙丙丁", 0, NULL, NULL, error) == 1 && d->render_page == NULL,
+        "a chapter's trailing query prefix cannot reject a spine continuation");
+    lf_close(d);
+    printf("parsed phrase candidate: %zu fixtures x 8 options/directions + spine prefix; failures=%d\n", sizeof(cases)/sizeof(*cases), failures);
+}
+
 int main(int argc, char **argv) {
     char directory[] = "/private/tmp/Sumra-search-candidate-XXXXXX";
     const char *path = argc == 2 ? argv[1] : fixture(directory);
@@ -158,6 +234,6 @@ int main(int argc, char **argv) {
     lf_render_cookie_drop(cookie); lf_close(d);
     if (argc != 2) finite_page_parity(path);
     printf("candidate parity: %zu queries x 8 option/direction combinations; failures=%d\n", sizeof(queries)/sizeof(*queries), failures);
-    if (argc != 2) cleanup_fixture(directory, path);
+    if (argc != 2) { parsed_phrase_parity(directory, path); cleanup_fixture(directory, path); }
     return failures ? 1 : 0;
 }

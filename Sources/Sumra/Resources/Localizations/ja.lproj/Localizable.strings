@@ -725,3 +725,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "%@を開けません。";
+
+"Toolbar Display" = "ツールバーの表示";
+"Always Show" = "常に表示";
+"Auto Hide" = "自動的に隠す";
+"Always Hide" = "常に隠す";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "自動的に隠すモードでは、ポインタをウインドウの上部に移動するとツールバーが表示されます。";

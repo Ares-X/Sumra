@@ -52,6 +52,7 @@ struct ReaderCommandArguments: Codable, Equatable {
         } else if let theme { reader.setTheme(theme) }
         else if let state {
             if command == .continuous { reader.setFlow(state ? "continuous" : "paged") }
+            else if command == .toolbar { (state ? ReaderToolbarDisplayMode.shown : .hidden).apply(to: reader) }
             else if command.checked(reader) != state { command.run(reader) }
         } else if let mode { reader.paletteMode = mode + " "; reader.showPalette = true }
         else if let annotation, let kind = command.annotationKind { reader.send(.annotate(kind, preset: annotation)) }

@@ -16,6 +16,7 @@ struct ReaderView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reducedMotion
 
     var body: some View {
         let _ = language
@@ -23,6 +24,7 @@ struct ReaderView: View {
         VStack(spacing: 0) {
             if state.showFind && !findFloating && !state.presentation {
                 ReaderFindControls(state: state, floating: $findFloating, close: closeFind)
+                    .modifier(ReaderChromeEntrance())
                 Divider()
             }
 
@@ -47,6 +49,9 @@ struct ReaderView: View {
                 .padding(.vertical, 4)
             }
         }
+        .background(state.hasDocument ? Color(nsColor: ReaderTheme.color(state.palette.background)) : Color(nsColor: .windowBackgroundColor))
+        .ignoresSafeArea(.container, edges: state.toolbarOverlaysContent ? .top : [])
+        .background(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion))
         .preferredColorScheme(state.theme == "system" ? nil : state.palette.dark ? .dark : .light)
         .onChange(of: colorScheme) { _ in
             if state.theme == "system", state.isText || state.isBrowser || state.reflowable {
@@ -61,8 +66,13 @@ struct ReaderView: View {
         }
         .onChange(of: state.cover) { UserDefaults.standard.set($0, forKey: "cover") }
         .toolbar(id: "reader") { toolbar }
-        .toolbar(state.presentation || !state.toolbarVisible || !state.hasDocument ? .hidden : .visible, for: .windowToolbar)
-        .onChange(of: state.presentation) { if !$0 { state.presentationBlank = nil } }
+        .toolbar(state.toolbarShown ? .visible : .hidden, for: .windowToolbar)
+        .modifier(ReaderToolbarAppearance(overlaysContent: state.toolbarOverlaysContent))
+        .onChange(of: reducedMotion) { _ in state.toolbarHoverVisible = false }
+        .onChange(of: state.presentation) {
+            state.toolbarHoverVisible = false
+            if !$0 { state.presentationBlank = nil }
+        }
         .onChange(of: state.focusCycle) { _ in
             if state.presentation { sidebarFocused = false; focusReader(); return }
             let sidebarVisible = state.showContents || state.showBookmarks || state.showThumbnails || state.showAnnotations || (state.showSearchResults && !findFloating)
@@ -122,19 +132,25 @@ struct ReaderView: View {
         ToolbarItem(id: "open", placement: .automatic, showsByDefault: true) {
             Button(action: openFiles) { Image(systemName: "folder") }
                 .help(L("Open Document")).accessibilityLabel(L("Open Document"))
+                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "contents", placement: .automatic, showsByDefault: true) {
             Button { state.showContents.toggle() } label: { Image(systemName: "sidebar.left") }
                 .disabled(!state.hasDocument).help(L("Toggle Contents")).accessibilityLabel(L("Toggle Contents"))
+                .foregroundStyle(state.showContents ? Color.accentColor : Color.primary)
+                .accessibilityValue(state.showContents ? L("On") : L("Off"))
+                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "print", placement: .automatic, showsByDefault: false) {
             toolbarButton(.print, symbol: "printer")
+                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "history", placement: .automatic, showsByDefault: false) {
             HStack(spacing: 4) {
                 toolbarButton(.back, symbol: "arrow.uturn.backward")
                 toolbarButton(.forward, symbol: "arrow.uturn.forward")
             }
+            .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "navigation", placement: .automatic, showsByDefault: true) {
             HStack(spacing: 6) {
@@ -146,6 +162,7 @@ struct ReaderView: View {
                     .monospacedDigit().foregroundStyle(.secondary)
                 toolbarButton(.next, symbol: "chevron.right")
             }.accessibilityElement(children: .contain)
+                .modifier(ReaderToolbarItemMotion(state: state))
         }
     }
 
@@ -157,6 +174,7 @@ struct ReaderView: View {
                 fitPresetButton(.fitPageSingle, symbol: "rectangle.portrait")
                 fitPresetButton(.fitWidthContinuous, symbol: "arrow.left.and.right")
             }
+            .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "zoom", placement: .automatic, showsByDefault: true) {
             HStack(spacing: 4) {
@@ -164,17 +182,22 @@ struct ReaderView: View {
                 zoomOptions.disabled(!state.hasDocument)
                 toolbarButton(.zoomIn, symbol: "plus.magnifyingglass")
             }.accessibilityElement(children: .contain)
+                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "layout", placement: .automatic, showsByDefault: true) {
             layoutOptions.disabled(!state.hasDocument)
+                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "readingSettings", placement: .automatic, showsByDefault: true) {
             Button(action: state.editTypography) { Label(L("Reading Settings"), systemImage: "textformat") }
                 .help(L("Reading Settings")).disabled(!state.hasDocument)
+                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "find", placement: .automatic, showsByDefault: true) {
             Button { state.showFindPanel() } label: { Image(systemName: "magnifyingglass") }
                 .disabled(!state.supportsSearch).help(L("Find")).accessibilityLabel(L("Find"))
+                .foregroundStyle(state.showFind ? Color.accentColor : Color.primary)
+                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "edit", placement: .automatic, showsByDefault: true) {
             Button { ReaderMenuCommand.pdfEditing.run(state) } label: {
@@ -185,9 +208,11 @@ struct ReaderView: View {
             .foregroundStyle(state.pdfEditingEnabled ? Color.accentColor : Color.primary)
             .disabled(!ReaderMenuCommand.pdfEditing.enabled(state))
             .help(L(state.pdfEditingEnabled ? "Lock Editing" : "Enable Editing"))
+            .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "custom", placement: .automatic, showsByDefault: false) {
             ReaderToolbarButtons(state: state, open: openFiles)
+                .modifier(ReaderToolbarItemMotion(state: state))
         }
     }
 
@@ -314,6 +339,7 @@ struct ReaderView: View {
                     Color.clear.onChange(of: geometry.size.width) { UserDefaults.standard.set(min(360, max(180, $0)), forKey: "sidebarWidth") }
                 })
                 .background(ReaderSidebarPosition(documentID: state.document?.id).frame(width: 0, height: 0))
+                .modifier(ReaderChromeEntrance())
         }
     }
 
@@ -431,7 +457,7 @@ struct ReaderView: View {
                 initialPosition: initialNativeCanvas?.document == document.id ? initialNativeCanvas?.position : nil)
                 .background(ReaderInitialViewport { size in
                     initialNativeViewport = (document.id, size)
-                })
+                }.ignoresSafeArea(.container, edges: state.toolbarOverlaysContent ? .top : []))
                 .task(id: initialNativeViewport?.document) {
                     guard let viewport = initialNativeViewport, viewport.document == document.id else { return }
                     let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
@@ -765,26 +791,109 @@ struct ReaderFindInput: NSViewRepresentable {
     }
 }
 
-struct ReaderSearchResults: View {
+struct ReaderSearchResults: NSViewRepresentable {
     @ObservedObject var state: ReaderState
-    var body: some View {
-        let selectedIndex = state.searchResults.firstIndex { $0.target == state.selectedSearchTarget }
-        return ScrollViewReader { proxy in
-            List(state.searchResults, id: \.target) { item in
-                Button { state.navigate(.href(item.target)) } label: {
-                    Text(item.title).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .listRowBackground(state.selectedSearchTarget == item.target ? Color.accentColor.opacity(0.18) : Color.clear)
-                .accessibilityAddTraits(state.selectedSearchTarget == item.target ? .isSelected : [])
+    func makeCoordinator() -> Coordinator { Coordinator(state) }
+    func makeNSView(context: Context) -> NSScrollView {
+        let table = Table()
+        let column = NSTableColumn(identifier: .init("result"))
+        column.resizingMask = .autoresizingMask
+        table.addTableColumn(column); table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        table.headerView = nil; table.style = .sourceList
+        table.rowHeight = 44; table.intercellSpacing = .zero
+        table.allowsMultipleSelection = false; table.allowsEmptySelection = true
+        table.delegate = context.coordinator; table.dataSource = context.coordinator
+        table.coordinator = context.coordinator
+        table.setAccessibilityLabel(L("Search Results"))
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
+        scroll.drawsBackground = false; scroll.documentView = table
+        return scroll
+    }
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        let table = scroll.documentView as! NSTableView
+        table.setAccessibilityLabel(L("Search Results"))
+        context.coordinator.update(table)
+    }
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        guard let table = scroll.documentView as? NSTableView else { return }
+        if table.window?.firstResponder === table { table.window?.makeFirstResponder(nil) }
+        table.delegate = nil; table.dataSource = nil; table.target = nil
+    }
+    final class Table: NSTableView {
+        weak var coordinator: Coordinator?
+        override func mouseDown(with event: NSEvent) {
+            let previous = selectedRow
+            super.mouseDown(with: event)
+            if selectedRow == previous { coordinator?.activate(self) }
+        }
+        override func keyDown(with event: NSEvent) {
+            if [36, 76, 49].contains(event.keyCode),
+               event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+                coordinator?.activate(self)
+            } else { super.keyDown(with: event) }
+        }
+    }
+    @MainActor final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+        let state: ReaderState
+        private var revision = -1
+        private var items = [ContentsItem]()
+        private var selectedTarget: String?
+        private var updatingSelection = false
+        init(_ state: ReaderState) { self.state = state }
+        func update(_ table: NSTableView) {
+            updatingSelection = true
+            defer { updatingSelection = false }
+            let changed = revision != state.searchResultsRevision
+            let previousRow = table.selectedRow
+            let targetChanged = selectedTarget != state.selectedSearchTarget
+            if changed {
+                revision = state.searchResultsRevision
+                items = state.searchResults
+                // Fixed-height native rows only create views for the viewport.
+                // Replacing the data does not build a SwiftUI Button per hit.
+                table.reloadData()
             }
-            .listStyle(.sidebar)
-            .onAppear {
-                if let target = state.selectedSearchTarget { proxy.scrollTo(target, anchor: .center) }
+            if changed || targetChanged {
+                selectedTarget = state.selectedSearchTarget
+                if let target = selectedTarget, let row = items.firstIndex(where: { $0.target == target }) {
+                    table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                    if targetChanged || row != previousRow { table.scrollRowToVisible(row) }
+                } else { table.deselectAll(nil) }
             }
-            .onChange(of: selectedIndex) { index in
-                if let index { proxy.scrollTo(state.searchResults[index].target, anchor: .center) }
+        }
+        func numberOfRows(in tableView: NSTableView) -> Int { items.count }
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            let identifier = NSUserInterfaceItemIdentifier("result")
+            let cell: NSTableCellView
+            if let reused = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView { cell = reused }
+            else {
+                cell = NSTableCellView(); cell.identifier = identifier
+                let text = NSTextField(wrappingLabelWithString: "")
+                text.maximumNumberOfLines = 2; text.lineBreakMode = .byTruncatingTail
+                text.font = .systemFont(ofSize: NSFont.systemFontSize)
+                text.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(text); cell.textField = text
+                NSLayoutConstraint.activate([
+                    text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+                    text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
+                    text.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    text.heightAnchor.constraint(lessThanOrEqualToConstant: 40)
+                ])
             }
+            cell.textField?.stringValue = items[row].title
+            cell.toolTip = items[row].title
+            return cell
+        }
+        func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? { items[row].title }
+        func tableViewSelectionDidChange(_ notification: Notification) {
+            if !updatingSelection, let table = notification.object as? NSTableView { activate(table) }
+        }
+        func activate(_ table: NSTableView) {
+            let row = table.selectedRow
+            // A pending SwiftUI update may still display the preceding query.
+            guard revision == state.searchResultsRevision, items.indices.contains(row) else { return }
+            state.navigate(.href(items[row].target))
         }
     }
 }

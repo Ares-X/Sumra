@@ -213,7 +213,7 @@ private struct ShortcutSettings: View {
 // are separate user data and do not belong to an editable configuration.
 @MainActor
 enum ReaderPreferences {
-    static let strings: Set<String> = Set(["appIcon", "theme", "customThemes", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "pageMargins", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
+    static let strings: Set<String> = Set(["appIcon", "theme", "customThemes", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "pageMargins", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "toolbarDisplayMode", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
     static func applyScrollbarDefaults() {
         let mode = UserDefaults.standard.string(forKey: "scrollbarMode") ?? "smart"
         for reader in ReaderWindows.states { reader.scrollbarMode = mode; if reader.isBrowser { reader.send(.style) } }
@@ -235,6 +235,7 @@ enum ReaderPreferences {
 
     static func data(matching query: String = "") throws -> Data {
         ReaderHelp.migrateUpdatePreferences()
+        _ = ReaderToolbarDisplayMode.load()
         var preferences = UserDefaults.standard.dictionaryRepresentation()
         // Preserve the public advanced-settings key while Sparkle owns persistence.
         preferences["checkForUpdates"] = boolean(for: "checkForUpdates")
@@ -280,7 +281,7 @@ enum ReaderPreferences {
             if key == "theme", let theme = value as? String, theme != "system",
                !customThemes.contains(where: { $0.id == theme }), ReaderTheme.resolve(theme)?.isCustom != false { throw ReadError("Unknown theme: \(theme)") }
             if key == "flow", let flow = value as? String, !["paged", "continuous"].contains(flow) { throw ReadError("Unknown layout: \(flow)") }
-            let choices = ["appIcon": AppIconStyle.allCases.map(\.rawValue), "pageGridStyle": ["dots", "dotted", "solid"], "documentColors": ["off", "smart", "legacy"], "engineeringEnhance": ["off", "auto", "on"], "scrollbarMode": ["smart", "shown", "hidden"], "updateChannel": ["stable", "prerelease"], "homePageViewMode": ["list", "thumbnails"]]
+            let choices = ["toolbarDisplayMode": ReaderToolbarDisplayMode.allCases.map(\.rawValue), "appIcon": AppIconStyle.allCases.map(\.rawValue), "pageGridStyle": ["dots", "dotted", "solid"], "documentColors": ["off", "smart", "legacy"], "engineeringEnhance": ["off", "auto", "on"], "scrollbarMode": ["smart", "shown", "hidden"], "updateChannel": ["stable", "prerelease"], "homePageViewMode": ["list", "thumbnails"]]
             if let allowed = choices[key], let choice = value as? String, !allowed.contains(choice) { throw ReadError("Invalid value for \(key)") }
             if key == "zoomLevels", let string = value as? String { _ = try ReadingZoom.parseLevels(string) }
             if key == "sourceEditor", let string = value as? String { _ = try JSONDecoder().decode([String].self, from: Data(string.utf8)) }
@@ -303,6 +304,7 @@ enum ReaderPreferences {
         if values["updateChannel"] != nil { ReaderHelp.updateChannelChanged() }
         if values["zoomLevels"] != nil || values["zoomIncrement"] != nil { applyZoomDefaults() }
         if values["scrollbarMode"] != nil { applyScrollbarDefaults() }
+        if values["toolbarDisplayMode"] != nil { ReaderToolbarDisplayMode.load().apply() }
         if values["customThemes"] != nil {
             func replacement(_ id: String) -> String { previousCustomThemes.first { $0.id == id }?.dark == true ? "dark" : "light" }
             for key in ["theme", "lastLightTheme", "lastDarkTheme"] {

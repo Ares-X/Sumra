@@ -714,3 +714,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "باز کردن %@ امکان‌پذیر نیست.";
+
+"Toolbar Display" = "نمایش نوار ابزار";
+"Always Show" = "همیشه نمایش";
+"Auto Hide" = "پنهان‌سازی خودکار";
+"Always Hide" = "همیشه پنهان";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "در حالت پنهان‌سازی خودکار، نشانگر را به بالای پنجره ببرید تا نوار ابزار نمایش داده شود.";

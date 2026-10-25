@@ -50,7 +50,7 @@
             : Math.max(0, Math.min(extent, Math.round(current / innerWidth) * innerWidth))
         scrollTo({left: offset * pageDirection(), top: 0, behavior: 'instant'})
     }
-    let searchGeneration = 0, searchKey = '', searchOptions = null, hits = [], hitsCapped = false, selected = -1, scan = null, searchAbort = null
+    let searchGeneration = 0, searchKey = '', searchOptions = null, hits = [], selected = -1, scan = null, searchAbort = null
     let speechNodes = [], speechRange = null, restoring = false, ready = false
     let activationRevision = 0, restoreRevision = 0
     let printViewport = null
@@ -390,11 +390,11 @@
         selected = (index % hits.length + hits.length) % hits.length
         const hit = hits[selected]
         post('searchHit', { target: hit.target })
-        post('status', { message: `${selected + 1} / ${hits.length}${hitsCapped ? '+' : ''} matches` })
+        post('status', { message: `${selected + 1} / ${hits.length} matches` })
         if (hit.page === currentPage) finder.gotoMatch(hit.index)
         else post('navigate', { href: hit.target })
     }
-    window.__sumatra__ = { notify(method, generation, current, total, capped = false) {
+    window.__sumatra__ = { notify(method, generation, current, total, complete = true) {
         if (generation !== searchGeneration) return
         if (method === 'findResult') {
             if (current > 0) {
@@ -403,29 +403,31 @@
             }
             const index = current - 1
             selected = hits.findIndex(hit => hit.page === currentPage && hit.index === index)
-            // A page-local miss cannot finish a multi-file search. The global
-            // findAllResult owns "No matches" after every requested page is read.
+            // A page-local result cannot finish a multi-file search. Its
+            // ordered global batches own progress and the completed count.
             if (ready && current > 0) {
                 post('searchHit', { target: searchTarget(currentPage, index) })
-                post('status', { message: selected >= 0 ? `${selected + 1} / ${hits.length}${hitsCapped ? '+' : ''} matches`
-                    : `${current} / ${total}${capped ? '+' : ''} matches` })
+                if (config.searchComplete !== false) post('status', { message: selected >= 0 ? `${selected + 1} / ${hits.length} matches`
+                    : `${current} / ${total} matches` })
             }
         } else if (method === 'findAllResult') {
             // Upstream records are page US local-index US snippet, joined with RS.
             const records = total ? total.split('\x1e') : []
-            const currentTarget = finder.currentRange() && searchTarget(currentPage, Math.max(0, currentMatch))
-            hits = records.map(record => {
+            const offset = hits.length
+            const additions = records.map((record, ordinal) => {
                 const [page, index, title] = record.split('\x1f'), p = Number(page) - 1, i = Number(index)
+                if (p === currentPage && i === currentMatch) selected = offset + ordinal
                 return { page: p, index: i, title, target: searchTarget(p, i), depth: 0 }
             })
-            hitsCapped = capped
-            post('results', { items: hits.map(({ title, target, depth, page }) => ({ title, target, depth, page })), capped: hitsCapped })
-            selected = hits.findIndex(hit => hit.target === currentTarget)
-            if (selected >= 0) post('status', { message: `${selected + 1} / ${hits.length}${hitsCapped ? '+' : ''} matches` })
+            hits.push(...additions)
+            config.searchComplete = complete
+            post('results', { items: additions.map(({ title, target, depth, page }) => ({ title, target, depth, page })), append: true, complete })
+            if (!complete) post('status', { message: `Searching… ${hits.length} matches` })
+            else if (selected >= 0) post('status', { message: `${selected + 1} / ${hits.length} matches` })
             else if (!hits.length) post('status', { message: 'No matches' })
         }
         if (method === 'findResult') currentMatch = current - 1
-        publishRangeHighlights(true)
+        if (method === 'findResult' || complete) publishRangeHighlights(true)
     } }
     let currentMatch = -1
     const selectRelative = (backwards, range) => {
@@ -435,6 +437,29 @@
         const candidates = hits.map((hit, index) => ({ hit, index })).filter(({ hit }) => backwards ? hit.page < currentPage : hit.page > currentPage)
         const candidate = backwards ? candidates.at(-1) : candidates[0]
         selectHit(candidate?.index ?? (backwards ? hits.length - 1 : 0))
+    }
+    const scanAll = async (generation, options, currentSnippets, origin, backwards) => {
+        const controller = new AbortController()
+        searchAbort = controller
+        const work = (async () => {
+            const snippets = await currentSnippets
+            if (generation !== searchGeneration) return
+            await finder.searchAll(pages, options.text, options.matchCase, options.matchWholeWords, generation,
+                url => fetchDocument(url, controller.signal), snippets)
+        })()
+        scan = work
+        try {
+            await work
+            if (generation !== searchGeneration || !hits.length) return
+            if (origin || selected < 0) selectRelative(backwards, origin)
+        } catch (error) {
+            if (generation !== searchGeneration) return
+            clearFind()
+            throw error
+        } finally {
+            if (scan === work) scan = null
+            if (searchAbort === controller) searchAbort = null
+        }
     }
     const find = async command => {
         if (!command.text) { clearFind(); return }
@@ -449,34 +474,17 @@
             if (origin) { selectRelative(command.backwards, origin); return }
             selectHit(selected + (command.backwards ? -1 : 1)); return
         }
-        searchKey = key; searchOptions = options; hits = []; hitsCapped = false; selected = -1
+        searchKey = key; searchOptions = options; hits = []; selected = -1
         const generation = ++searchGeneration
         searchAbort?.abort()
-        const controller = new AbortController()
-        searchAbort = controller
-        post('results', { items: [] }); post('status', { message: 'Searching…' })
-        const work = (async () => {
-            const currentSnippets = await finder.start(options.text, options.matchCase, options.matchWholeWords, generation, -1, true)
-            if (generation !== searchGeneration) return
-            await finder.searchAll(pages, options.text, options.matchCase, options.matchWholeWords, generation,
-                url => fetchDocument(url, controller.signal), currentSnippets)
-        })()
-        scan = work
-        try {
-            await work
-            if (generation !== searchGeneration || !hits.length) return
-            if (origin || selected < 0) selectRelative(command.backwards, origin)
-        } catch (error) {
-            if (generation !== searchGeneration) return
-            clearFind()
-            throw error
-        } finally {
-            if (scan === work) scan = null
-            if (searchAbort === controller) searchAbort = null
-        }
+        config.searchComplete = false
+        post('results', { items: [], complete: false }); post('status', { message: 'Searching…' })
+        return await scanAll(generation, options,
+            finder.start(options.text, options.matchCase, options.matchWholeWords, generation, -1, true), origin, command.backwards)
     }
     const clearFind = (publish = true) => {
-        ++searchGeneration; searchKey = ''; searchOptions = null; hits = []; hitsCapped = false; selected = -1; currentMatch = -1; scan = null
+        ++searchGeneration; searchKey = ''; searchOptions = null; hits = []; selected = -1; currentMatch = -1; scan = null
+        config.searchComplete = true
         searchAbort?.abort(); searchAbort = null
         finder.clear(); publishRangeHighlights()
         if (publish) { post('results', { items: [] }); post('searchHit', { target: null }); post('status', { message: '' }) }
@@ -895,12 +903,20 @@
                     || !!target.matchWholeWords !== !!search.matchWholeWords) return []
                 return [{ ...item, index: target.index }]
             })
-            hitsCapped = hits.length > 0 && config.searchCountCapped === true
         }
         searchKey = key; scan = null
         const generation = ++searchGeneration
         searchAbort?.abort(); searchAbort = null
-        await finder.start(search.text, search.matchCase, search.matchWholeWords, generation, search.index ?? -1)
+        const complete = config.searchComplete !== false
+        const snippets = await finder.start(search.text, search.matchCase, search.matchWholeWords, generation, search.index ?? -1, !complete)
+        if (generation === searchGeneration && !complete) {
+            // Navigating a streamed result replaces the WebKit document and
+            // cancels its old scan. The new page owns the same query's count;
+            // completed queries keep their retained results without rescanning.
+            hits = []; selected = -1
+            post('results', { items: [], complete: false })
+            void scanAll(generation, searchOptions, snippets).catch(error => post('error', { message: error.message }))
+        }
         return generation === searchGeneration
     }
     const restore = async position => {
@@ -948,7 +964,7 @@
         printViewport = null
         clearFind(false)
         config.searchResults = command.searchResults || []
-        config.searchCountCapped = command.searchCountCapped === true
+        config.searchComplete = command.searchComplete !== false
         // A cached page can still have only filename placeholders from an
         // earlier failed outline load. Preserve the host's recovered tree.
         if (mainFrame && Array.isArray(command.outline) && command.outline.length) outlineItems = command.outline

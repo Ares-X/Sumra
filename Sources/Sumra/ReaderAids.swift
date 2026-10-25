@@ -49,6 +49,7 @@ extension ReaderState {
     }
 
     func configureDocumentColors() {
+        let documentID = document?.id
         let alert = ReaderThemeAlert(); alert.messageText = L("Custom Document Colors…")
         let editor = ReaderThemeEditorView(theme: palette, editsName: false)
         alert.accessoryView = editor
@@ -58,6 +59,7 @@ extension ReaderState {
         apply.isEnabled = editor.isValid
         let response = alert.runModal()
         editor.closeColorPanel()
+        guard document?.id == documentID else { return }
         if response == .alertFirstButtonReturn {
             customTextColor = editor.text.value; customBackgroundColor = editor.paper.value
             customLinkColor = editor.link.value
@@ -151,10 +153,7 @@ extension ReaderState {
             var formats = try JSONDecoder().decode([String: ReadingPosition].self, from: Data(input.utf8))
             if clear { formats.removeValue(forKey: document.settingsFormat) }
             else {
-                var defaults = currentPosition
-                defaults.page = 0; defaults.pageCount = nil; defaults.x = nil; defaults.y = nil; defaults.anchor = nil; defaults.rotation = nil
-                defaults.markdownPassage = nil
-                formats[document.settingsFormat] = defaults
+                formats[document.settingsFormat] = currentPosition.formatSettings
             }
             let data = try JSONEncoder().encode(formats)
             UserDefaults.standard.set(String(decoding: data, as: UTF8.self), forKey: "formatDefaults")

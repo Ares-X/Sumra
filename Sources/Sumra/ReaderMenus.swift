@@ -376,7 +376,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .thumbnails: return state.showThumbnails
         case .bookmarks: return state.showBookmarks
         case .annotations: return state.showAnnotations
-        case .toolbar: return state.toolbarVisible
+        case .toolbar: return state.toolbarDisplayMode == .shown
         case .presentation: return state.presentation
         case .matchCase: return state.searchCaseSensitive
         case .wholeWord: return state.searchWholeWord
@@ -591,7 +591,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .laserPointer: state.laserPointer.toggle()
         case .blankBlack: state.presentationBlank = state.presentationBlank == "black" ? nil : "black"
         case .blankWhite: state.presentationBlank = state.presentationBlank == "white" ? nil : "white"
-        case .toolbar: state.toolbarVisible.toggle()
+        case .toolbar: (state.toolbarDisplayMode == .shown ? ReaderToolbarDisplayMode.hidden : .shown).apply(to: state)
         case .pageInfo: state.showPageInfo.toggle()
         case .cursorPosition: state.toggleCursorPosition()
         case .annotations: state.showAnnotations.toggle()

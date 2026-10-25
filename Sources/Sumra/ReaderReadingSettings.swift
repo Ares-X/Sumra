@@ -1,13 +1,18 @@
 #if os(macOS)
 import AppKit
+import QuartzCore
 import SwiftUI
 import SumraCore
 
 @MainActor final class ReaderReadingSettingsPanel: NSPanel {
+    private var motionRevision = 0
+    private var dismissing = false
     static func show(for state: ReaderState) {
         guard let parent = state.window else { return }
-        if let panel = parent.childWindows?.first(where: { $0 is ReaderReadingSettingsPanel }) {
+        if let panel = parent.childWindows?.first(where: { $0 is ReaderReadingSettingsPanel }) as? ReaderReadingSettingsPanel {
+            if !panel.isVisible { panel.alphaValue = 0 }
             panel.makeKeyAndOrderFront(nil)
+            panel.reveal()
             return
         }
         let panel = ReaderReadingSettingsPanel(contentRect: CGRect(x: 0, y: 0, width: 430, height: 620),
@@ -15,18 +20,60 @@ import SumraCore
         panel.title = L("Reading Settings")
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = true
+        panel.animationBehavior = .none
         panel.tabbingMode = .disallowed
         panel.contentMinSize = NSSize(width: 410, height: 420)
         panel.contentView = NSHostingView(rootView: ReaderReadingSettings(state: state).modifier(ReaderLanguage()))
         panel.setFrameTopLeftPoint(NSPoint(x: parent.frame.maxX - 450, y: parent.frame.maxY - 65))
-        parent.addChildWindow(panel, ordered: .above)
-        NotificationCenter.default.addObserver(panel, selector: #selector(parentClosed), name: NSWindow.willCloseNotification, object: parent)
+        panel.attach(to: parent)
+        panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
+        panel.reveal()
     }
 
-    @objc private func parentClosed(_ notification: Notification) { close() }
+    func attach(to parent: NSWindow) {
+        parent.addChildWindow(self, ordered: .above)
+        NotificationCenter.default.addObserver(self, selector: #selector(parentClosed), name: NSWindow.willCloseNotification, object: parent)
+    }
+
+    func reveal(reducedMotion: Bool = ReaderMotion.reducedMotion) {
+        motionRevision += 1
+        dismissing = false
+        ignoresMouseEvents = false
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = reducedMotion ? 0 : ReaderMotion.revealDuration
+            context.timingFunction = ReaderMotion.timingFunction
+            animator().alphaValue = 1
+        }
+    }
+
+    @objc private func parentClosed(_ notification: Notification) { closeImmediately() }
 
     override func close() {
+        dismiss(reducedMotion: ReaderMotion.reducedMotion)
+    }
+
+    func dismiss(reducedMotion: Bool) {
+        guard !dismissing else { return }
+        dismissing = true
+        ignoresMouseEvents = true
+        motionRevision += 1
+        let revision = motionRevision
+        if reducedMotion { closeImmediately(); return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = ReaderMotion.dismissDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.motionRevision == revision else { return }
+                self.closeImmediately()
+            }
+        }
+    }
+
+    private func closeImmediately() {
+        motionRevision += 1
         NotificationCenter.default.removeObserver(self)
         parent?.removeChildWindow(self)
         contentView = nil

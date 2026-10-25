@@ -1780,16 +1780,37 @@ final class MarkupReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testGlobalSearchStopsSiblingScanningAtRemainingResultBudget() async throws {
+    func testGlobalSearchStreamsAllSiblingMatchesAndReachesTheFinalFile() async throws {
         let siblingParagraph = "<p>needle " + String(repeating: "B", count: 96) + ".</p>"
         let (state, _, view) = try await reader([
             "A.html": "<p>" + String(repeating: "needle ", count: 4999) + "</p>",
             "B.html": "<body id='remaining-budget'>" + String(repeating: siblingParagraph, count: 6000) + "</body>",
             "C.html": "<p>needle in a later file</p>"
         ], opened: "A.html")
+        var nativeHeartbeats = 0, longestNativeGap = 0.0
+        let pulse = Task { @MainActor in
+            var previous = ProcessInfo.processInfo.systemUptime
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000)
+                if Task.isCancelled { break }
+                let now = ProcessInfo.processInfo.systemUptime
+                if state.searchCounting {
+                    nativeHeartbeats += 1
+                    longestNativeGap = max(longestNativeGap, now - previous)
+                }
+                previous = now
+            }
+        }
+        defer { pulse.cancel() }
         let outcome = try await evaluate("""
             const createWalker = Document.prototype.createTreeWalker, fetchPage = window.fetch;
-            let visited = 0, fetched = [];
+            let visited = 0, fetched = [], batches = [], heartbeats = 0;
+            const notify = window.__sumatra__.notify;
+            window.__sumatra__.notify = (...args) => {
+                if (args[0] === 'findAllResult') batches.push({count:args[2], size:args[3] ? args[3].split('\\x1e').length : 0, complete:args[4]});
+                return notify(...args);
+            };
+            const heartbeat = setInterval(() => { heartbeats++; }, 0);
             Document.prototype.createTreeWalker = function(...args) {
                 const walker = createWalker.apply(this, args);
                 if (this.body?.id === 'remaining-budget') {
@@ -1805,31 +1826,42 @@ final class MarkupReaderTests: XCTestCase {
             };
             try {
                 await window.leafCommand({name:'find', text:'needle'});
-                return {visited, fetched};
+                return {visited, fetched, batches, heartbeats};
             } finally {
                 Document.prototype.createTreeWalker = createWalker; window.fetch = fetchPage;
+                window.__sumatra__.notify = notify; clearInterval(heartbeat);
             }
             """, view) as? [String: Any]
-        try await wait { state.searchResults.count == 5000 && state.searchCountCapped }
-        XCTAssertEqual(state.searchCountText, "1 / 5000+")
-        XCTAssertEqual(outcome?["fetched"] as? [String], ["/entry/B.html"])
-        XCTAssertGreaterThan(outcome?["visited"] as? Int ?? 0, 0)
-        XCTAssertLessThan(outcome?["visited"] as? Int ?? 6000, 1000,
-            "A sibling with one remaining result must stop after bounded context, not scan thousands of unused matches")
+        try await wait { state.searchResults.count == 11000 && !state.searchCounting }
+        XCTAssertEqual(state.searchCountText, "1 / 11000")
+        XCTAssertEqual(outcome?["fetched"] as? [String], ["/entry/B.html", "/entry/C.html"])
+        XCTAssertGreaterThanOrEqual(outcome?["visited"] as? Int ?? 0, 6000,
+            "Full counts must read every sibling instead of stopping at the former result ceiling")
+        let batches = try XCTUnwrap(outcome?["batches"] as? [[String: Any]])
+        XCTAssertGreaterThan(batches.count, 2)
+        XCTAssertLessThan(batches.compactMap { $0["size"] as? Int }.max() ?? 11000, 11000,
+            "The native bridge must receive incremental additions, not one full result array")
+        XCTAssertEqual(batches.last?["count"] as? Int, 11000)
+        XCTAssertEqual(batches.last?["complete"] as? Bool, true)
+        XCTAssertTrue(batches.dropLast().allSatisfy { $0["complete"] as? Bool == false })
+        XCTAssertGreaterThan(outcome?["heartbeats"] as? Int ?? 0, 0, "Counting must yield the WebKit event loop")
+        pulse.cancel(); await pulse.value
+        XCTAssertGreaterThan(nativeHeartbeats, 0, "The app actor must keep scheduling while complete counts arrive")
+        print("Browser search responsiveness: matches=11000, bridgeBatches=\(batches.count), largestAddition=\(batches.compactMap { $0["size"] as? Int }.max() ?? 0), webTimerTicks=\(outcome?["heartbeats"] as? Int ?? 0), mainActorTicks=\(nativeHeartbeats), longestObservedSchedulingGapSeconds=\(longestNativeGap)")
         let last = try XCTUnwrap(state.searchResults.last)
-        XCTAssertEqual(last.title, "needle " + String(repeating: "B", count: 39) + "...")
+        XCTAssertEqual(last.title, "needle in a later file")
         let target = try XCTUnwrap(URLComponents(string: last.target))
         let fragment = try XCTUnwrap(target.fragment)
         XCTAssertTrue(fragment.hasPrefix("sumra-search="))
         let match = try JSONSerialization.jsonObject(with: Data(fragment.dropFirst("sumra-search=".count).utf8)) as? [String: Any]
-        XCTAssertEqual(target.path, "/entry/B.html")
+        XCTAssertEqual(target.path, "/entry/C.html")
         XCTAssertEqual(match?["index"] as? Int, 0)
         XCTAssertEqual(match?["text"] as? String, "needle")
         XCTAssertNil(state.error)
     }
 
     @MainActor
-    func testGlobalSearchCapSurvivesResultJumpsAndCachedBackWithoutRescanning() async throws {
+    func testCompleteGlobalSearchSurvivesResultJumpsAndCachedBackWithoutRescanning() async throws {
         let (state, coordinator, view) = try await reader([
             "A.html": "<p>" + String(repeating: "needle ", count: 2000) + "rare</p>",
             "B.html": "<p>" + String(repeating: "needle ", count: 4000) + "</p>",
@@ -1848,43 +1880,54 @@ final class MarkupReaderTests: XCTestCase {
         state.showFindPanel(); state.findQuery = "needle"
         state.send(.find("needle", backwards: false))
         try await completeCurrentCommand(state, coordinator, view)
-        try await wait { state.searchResults.count == 5000 && state.selectedSearchTarget != nil && state.status == "1 / 5000+ matches" }
-        XCTAssertTrue(state.searchCountCapped)
-        XCTAssertEqual(state.searchCountText, "1 / 5000+")
-        XCTAssertEqual(state.status, "1 / 5000+ matches")
+        try await wait { state.searchResults.count == 6100 && !state.searchCounting && state.selectedSearchTarget != nil && state.status == "1 / 6100 matches" }
+        XCTAssertFalse(state.searchCounting)
+        XCTAssertEqual(state.searchCountText, "1 / 6100")
+        XCTAssertEqual(state.status, "1 / 6100 matches")
         let fetched = try await evaluate("return window.searchFetches", view) as? [String]
-        XCTAssertEqual(fetched, ["/entry/B.html"], "Once the global boundary is reached, later files must remain unscanned")
+        XCTAssertEqual(fetched, ["/entry/B.html", "/entry/C.html"], "A complete count reads every requested file")
 
         let target = state.searchResults[2500].target
         state.navigate(.href(target))
         try await completeCurrentCommand(state, coordinator, view)
-        try await wait { view.url?.path.hasSuffix("B.html") == true && state.selectedSearchTarget == target && state.status == "2501 / 5000+ matches" }
-        XCTAssertEqual(state.searchCountText, "2501 / 5000+")
-        XCTAssertEqual(state.status, "2501 / 5000+ matches", "An uncapped local page must retain the global cap")
+        try await wait { view.url?.path.hasSuffix("B.html") == true && state.selectedSearchTarget == target && state.status == "2501 / 6100 matches" }
+        XCTAssertEqual(state.searchCountText, "2501 / 6100")
+        XCTAssertEqual(state.status, "2501 / 6100 matches", "A result jump must retain the completed global count")
         state.send(.find("needle", backwards: false))
         try await completeCurrentCommand(state, coordinator, view)
-        XCTAssertEqual(state.searchCountText, "2502 / 5000+")
+        XCTAssertEqual(state.searchCountText, "2502 / 6100")
         state.send(.find("needle", backwards: true))
         try await completeCurrentCommand(state, coordinator, view)
-        XCTAssertEqual(state.searchCountText, "2501 / 5000+")
+        XCTAssertEqual(state.searchCountText, "2501 / 6100")
         state.navigateHistory(-1)
         try await completeCurrentCommand(state, coordinator, view)
         let marker = try await evaluate("return window.cacheMarker", view) as? String
         XCTAssertEqual(marker, "first")
-        XCTAssertEqual(state.searchCountText, "1 / 5000+")
-        XCTAssertEqual(state.status, "1 / 5000+ matches")
+        XCTAssertEqual(state.searchCountText, "1 / 6100")
+        XCTAssertEqual(state.status, "1 / 6100 matches")
         let returnedFetches = try await evaluate("return window.searchFetches", view) as? [String]
         XCTAssertEqual(returnedFetches, fetched)
+        let lastTarget = try XCTUnwrap(state.searchResults.last?.target)
+        state.navigate(.href(lastTarget))
+        try await completeCurrentCommand(state, coordinator, view)
+        try await wait { state.selectedSearchTarget == lastTarget && state.status == "6100 / 6100 matches" }
+        let lastRange = try await evaluate("return window.__sumatraFind.currentRange()?.toString()", view) as? String
+        XCTAssertEqual(lastRange, "needle")
+        _ = try await evaluate("await window.leafCommand({name:'find',text:'needle'})", view)
+        try await wait { if case .href = state.command.action { return true }; return false }
+        try await completeCurrentCommand(state, coordinator, view)
+        try await wait { state.selectedSearchTarget == state.searchResults.first?.target && view.url?.path.hasSuffix("A.html") == true }
+        XCTAssertEqual(state.searchCountText, "1 / 6100")
         state.findQuery = "rare"; state.send(.find("rare", backwards: false))
         try await completeCurrentCommand(state, coordinator, view)
         try await wait { state.searchResults.count == 1 && state.selectedSearchTarget != nil && state.status == "1 / 1 matches" }
-        XCTAssertFalse(state.searchCountCapped)
+        XCTAssertFalse(state.searchCounting)
         XCTAssertEqual(state.searchCountText, "1 / 1")
         XCTAssertEqual(state.status, "1 / 1 matches")
         state.closeFind()
         try await completeCurrentCommand(state, coordinator, view)
         XCTAssertTrue(state.searchResults.isEmpty)
-        XCTAssertFalse(state.searchCountCapped)
+        XCTAssertFalse(state.searchCounting)
         XCTAssertNil(state.error)
     }
 
@@ -2052,7 +2095,7 @@ final class MarkupReaderTests: XCTestCase {
             """, view) as? [String: Any]
         XCTAssertEqual(outcome?["closedBeforeCompletion"] as? Bool, true)
         XCTAssertGreaterThan(outcome?["created"] as? Int ?? 0, 0, "Cancellation occurs after matching starts")
-        XCTAssertLessThan(outcome?["created"] as? Int ?? 5000, 5000, "Dense matching must yield before its cap")
+        XCTAssertLessThan(outcome?["created"] as? Int ?? 5000, 5000, "Dense matching must yield before consuming the whole input")
         XCTAssertEqual(outcome?["current"] as? String, "")
         XCTAssertTrue(state.searchResults.isEmpty)
         XCTAssertNil(state.error)
@@ -2084,7 +2127,7 @@ final class MarkupReaderTests: XCTestCase {
         XCTAssertEqual(outcome?["closedBeforeCompletion"] as? Bool, true)
         XCTAssertGreaterThan(outcome?["reads"] as? Int ?? 0, 0)
         XCTAssertLessThan(outcome?["reads"] as? Int ?? 5000, 5000,
-            "Closing Find must stop layout traversal when every capped match is above the viewport")
+            "Closing Find must stop layout traversal when every match is above the viewport")
         XCTAssertEqual(outcome?["current"] as? String, "")
         XCTAssertTrue(state.searchResults.isEmpty)
         XCTAssertNil(state.error)
@@ -2292,38 +2335,135 @@ final class MarkupReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testFindKeepsTheFiveThousandMatchLimit() async throws {
+    func testFindKeepsEveryRangeBeyondTheFormerFiveThousandCeiling() async throws {
         let (_, _, view) = try await reader(["Book.html": "<!doctype html><body></body>"], opened: "Book.html")
         let result = try await evaluate("""
             const reports = [];
             window.__sumatra__.notify = (...args) => reports.push(args);
             const finder = window.__sumatraFind;
             const boundary = [];
-            for (const count of [4999, 5000]) {
+            for (const count of [4999, 5000, 5001]) {
                 document.body.replaceChildren(document.createTextNode('a'.repeat(count)));
                 await finder.start('a', true, false, count, -1, true);
-                boundary.push({count:reports.at(-1)[3], capped:reports.at(-1)[4] === true});
+                boundary.push({count:reports.at(-1)[3]});
             }
-            const node = document.createTextNode('a'.repeat(5001));
+            const node = document.createTextNode('a'.repeat(12001));
             document.body.replaceChildren(node);
-            const snippets = await finder.start('a', true, false, 103, 4999, true);
+            const snippets = await finder.start('a', true, false, 103, 12000, true);
             const last = finder.currentRange();
             finder.report();
-            const capped = reports.at(-1)[4] === true;
             finder.clear();
             finder.report();
             return {boundary, count:snippets.length, start:last?.startOffset, end:last?.endOffset,
-                capped, clearedCount:reports.at(-1)[3], clearedCap:reports.at(-1)[4] === true};
+                clearedCount:reports.at(-1)[3]};
             """, view) as? [String: Any]
         let boundary = try XCTUnwrap(result?["boundary"] as? [[String: Any]])
-        XCTAssertEqual(boundary.map { $0["count"] as? Int }, [4999, 5000])
-        XCTAssertEqual(boundary.map { $0["capped"] as? Bool }, [false, true], "Reaching the boundary cannot attest an exact total")
-        XCTAssertEqual(result?["count"] as? Int, 5000)
-        XCTAssertEqual(result?["start"] as? Int, 4999)
-        XCTAssertEqual(result?["end"] as? Int, 5000)
-        XCTAssertEqual(result?["capped"] as? Bool, true)
+        XCTAssertEqual(boundary.map { $0["count"] as? Int }, [4999, 5000, 5001])
+        XCTAssertEqual(result?["count"] as? Int, 12001)
+        XCTAssertEqual(result?["start"] as? Int, 12000)
+        XCTAssertEqual(result?["end"] as? Int, 12001)
         XCTAssertEqual(result?["clearedCount"] as? Int, 0)
-        XCTAssertEqual(result?["clearedCap"] as? Bool, false)
+    }
+
+    @MainActor
+    func testDenseFindPositionsItsFirstOccurrenceBeforeTheCompleteCountFinishes() async throws {
+        let (_, _, view) = try await reader(["Book.html": "<!doctype html><body></body>"], opened: "Book.html")
+        let result = try await evaluate("""
+            const node=document.createTextNode('needle '.repeat(12001)); document.body.replaceChildren(node);
+            const createRange=document.createRange, notify=window.__sumatra__.notify;
+            let created=0,firstCreated,firstOffset,reports=[];
+            document.createRange=function(){created++;return createRange.call(this)};
+            window.__sumatra__.notify=(...args)=>{
+                reports.push(args);
+                if(args[0]==='findResult' && args[2]>0 && firstCreated===undefined){
+                    firstCreated=created; firstOffset=window.__sumatraFind.currentRange()?.startOffset;
+                }
+                return notify(...args);
+            };
+            try{
+                await window.__sumatraFind.start('needle',true,false,302,0,true);
+                return {firstCreated,firstOffset,count:reports.at(-1)[3],created};
+            }finally{document.createRange=createRange;window.__sumatra__.notify=notify;}
+            """, view) as? [String: Any]
+        XCTAssertGreaterThan(result?["firstCreated"] as? Int ?? 0, 0)
+        XCTAssertLessThan(result?["firstCreated"] as? Int ?? 12001, 12001,
+            "The first visible hit must not wait for every Range in a dense document")
+        XCTAssertEqual(result?["firstOffset"] as? Int, 0)
+        XCTAssertEqual(result?["count"] as? Int, 12001)
+        XCTAssertGreaterThanOrEqual(result?["created"] as? Int ?? 0, 12001)
+    }
+
+    @MainActor
+    func testReplacementQueryCancelsStreamedResultsBeforeTheOldCountCompletes() async throws {
+        let (state, _, view) = try await reader([
+            "A.html": "<p>" + String(repeating: "needle ", count: 6500) + "replacement</p>",
+            "B.html": "<p>" + String(repeating: "needle ", count: 6500) + "</p>"
+        ], opened: "A.html")
+        let result = try await evaluate("""
+            const notify=window.__sumatra__.notify;
+            let replacement, oldGeneration, oldComplete=false, partial=0;
+            window.__sumatra__.notify=(...args)=>{
+                const result=notify(...args);
+                if(args[0]==='findAllResult'){
+                    if(oldGeneration===undefined) oldGeneration=args[1];
+                    if(args[1]===oldGeneration){
+                        oldComplete ||= args[4]===true;
+                        if(!replacement && args[2]>0 && args[4]===false){
+                            partial=args[2]; replacement=window.leafCommand({name:'find',text:'replacement'});
+                        }
+                    }
+                }
+                return result;
+            };
+            try{
+                await window.leafCommand({name:'find',text:'needle'});
+                await replacement;
+                return {partial,oldComplete,current:window.__sumatraFind.currentRange()?.toString()};
+            }finally{window.__sumatra__.notify=notify;}
+            """, view) as? [String: Any]
+        XCTAssertGreaterThan(result?["partial"] as? Int ?? 0, 0)
+        XCTAssertLessThan(result?["partial"] as? Int ?? 13000, 13000)
+        XCTAssertEqual(result?["oldComplete"] as? Bool, false)
+        XCTAssertEqual(result?["current"] as? String, "replacement")
+        try await wait { !state.searchCounting && state.searchResults.count == 1 }
+        XCTAssertTrue(state.searchResults.first?.title.contains("replacement") == true)
+        XCTAssertEqual(state.selectedSearchTarget, state.searchResults.first?.target)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testJumpingToAStreamedSiblingResultContinuesToAnExactWholeBookCount() async throws {
+        let (state, coordinator, view) = try await reader([
+            "A.html": "<p>" + String(repeating: "needle ", count: 3000) + "</p>",
+            "B.html": "<p>needle current page</p>",
+            "C.html": "<p>" + String(repeating: "needle ", count: 3000) + "</p>"
+        ], opened: "B.html")
+        state.findQuery = "needle"; state.showFind = true
+        _ = try await evaluate("""
+            const originalFetch=window.fetch;
+            let reached; const waiting=new Promise(resolve=>{reached=resolve});
+            window.fetch=(url,options)=>{
+                if(new URL(url,location.href).pathname.endsWith('/C.html')){
+                    return new Promise((resolve,reject)=>{
+                        options.signal.addEventListener('abort',()=>reject(new DOMException('Search cancelled','AbortError')),{once:true});
+                        reached();
+                    });
+                }
+                return originalFetch(url,options);
+            };
+            window.pendingSearch=window.leafCommand({name:'find',text:'needle'});
+            await waiting;
+            """, view)
+        try await wait { state.searchCounting && state.searchResults.count == 3001 }
+        let first = try XCTUnwrap(state.searchResults.first?.target)
+        state.navigate(.href(first))
+        try await completeCurrentCommand(state, coordinator, view)
+        try await wait { !state.searchCounting && state.searchResults.count == 6001 && state.selectedSearchTarget == first }
+        XCTAssertTrue(view.url?.path.hasSuffix("A.html") == true)
+        XCTAssertEqual(state.searchCountText, "1 / 6001")
+        let range = try await evaluate("return window.__sumatraFind.currentRange()?.toString()", view) as? String
+        XCTAssertEqual(range, "needle")
+        XCTAssertNil(state.error)
     }
 
     @MainActor

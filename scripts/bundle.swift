@@ -12,8 +12,8 @@ let environment = ProcessInfo.processInfo.environment
 let identity = environment["SUMRA_CODE_SIGN_IDENTITY"] ?? "-"
 let keychain = environment["SUMRA_CODE_SIGN_KEYCHAIN"] ?? ""
 let timestamp = environment["SUMRA_CODE_SIGN_TIMESTAMP"] ?? ""
-let version = environment["SUMRA_VERSION"] ?? "0.2.17"
-let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "19"
+let version = environment["SUMRA_VERSION"] ?? "0.2.18"
+let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "20"
 
 func fail(_ message: String) throws -> Never {
     throw NSError(domain: "Sumra.Bundle", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
@@ -107,6 +107,35 @@ func bundle(_ input: URL) throws -> URL {
 func macOSVersion(_ value: String) -> [Int] {
     let parts = value.split(separator: ".").map { Int($0)! }
     return parts + Array(repeating: 0, count: max(0, 3 - parts.count))
+}
+
+// One registration list supplies the host app and both Quick Look extensions.
+// The imported CBZ identifiers are also used by other readers/archive apps;
+// Finder may already have assigned one of them to an existing comic.
+func quickLookRegistration() -> (exported: [[String: Any]], imported: [[String: Any]], contentTypes: [String]) {
+    let exported = [
+        ("dev.aresx.leaf.cbz", "Comic ZIP", ["cbz"], "public.zip-archive"),
+        ("dev.aresx.leaf.cbr", "Comic RAR", ["cbr"], "public.archive"),
+        ("dev.aresx.leaf.cbt", "Comic TAR", ["cbt"], "public.archive"),
+        ("dev.aresx.leaf.cb7", "Comic 7-Zip", ["cb7"], "public.archive"),
+        ("dev.aresx.leaf.mobi", "Mobipocket ebook", ["mobi", "prc"], "public.data"),
+        ("dev.aresx.leaf.kindle", "Kindle ebook", ["azw", "azw3"], "public.data"),
+        ("dev.aresx.leaf.fb2", "FictionBook ebook", ["fb2"], "public.data")
+    ]
+    let imported = [
+        ("com.bandisoft.cbz", "Comic ZIP", ["cbz"], "public.zip-archive"),
+        ("public.cbz-archive", "Comic ZIP", ["cbz"], "public.zip-archive"),
+        ("org.fictionbook.fb2", "FictionBook ebook", ["fb2"], "public.data")
+    ]
+    func declarations(_ types: [(String, String, [String], String)]) -> [[String: Any]] {
+        types.map { id, title, suffixes, parent in [
+            "UTTypeIdentifier": id, "UTTypeDescription": title,
+            "UTTypeConformsTo": parent == "public.archive" ? [parent, "public.data", "public.content"] : [parent, "public.content"],
+            "UTTypeTagSpecification": ["public.filename-extension": suffixes]
+        ] }
+    }
+    return (declarations(exported), declarations(imported),
+            ["org.idpf.epub-container"] + (exported + imported).map { $0.0 })
 }
 
 func package() throws {
@@ -237,18 +266,16 @@ func package() throws {
         "LSSupportsOpeningDocumentsInPlace": true, "LSMultipleInstancesProhibited": true,
         "CFBundleIconFile": "Sumra-Light.icns"
     ]
-    // Public EPUB plus dedicated comic UTIs: do not claim ordinary ZIP/RAR/7z
-    // archives as comic books in Finder.
-    let comicTypes = [
-        ("dev.aresx.leaf.cbz", "Comic ZIP", "cbz", "public.zip-archive"),
-        ("dev.aresx.leaf.cbr", "Comic RAR", "cbr", "public.archive"),
-        ("dev.aresx.leaf.cbt", "Comic TAR", "cbt", "public.archive"),
-        ("dev.aresx.leaf.cb7", "Comic 7-Zip", "cb7", "public.archive")
-    ]
-    info["UTExportedTypeDeclarations"] = comicTypes.map { id, title, suffix, parent in [
-        "UTTypeIdentifier": id, "UTTypeDescription": title,
-        "UTTypeConformsTo": [parent], "UTTypeTagSpecification": ["public.filename-extension": [suffix]]
-    ] as [String: Any] }
+    // Dedicated book/comic UTIs keep ordinary ZIP/RAR/7z archives out of Quick Look.
+    let quickLook = quickLookRegistration()
+    info["UTExportedTypeDeclarations"] = quickLook.exported
+    info["UTImportedTypeDeclarations"] = quickLook.imported
+    var documentTypes = info["CFBundleDocumentTypes"] as! [[String: Any]]
+    documentTypes.append([
+        "CFBundleTypeName": "Ebooks and comics", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
+        "LSItemContentTypes": quickLook.contentTypes
+    ])
+    info["CFBundleDocumentTypes"] = documentTypes
     if !updateFeed.isEmpty {
         info["SUFeedURL"] = updateFeed
         info["SUPublicEDKey"] = updateKey
@@ -256,7 +283,7 @@ func package() throws {
     }
     try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
 
-    let contentTypes = ["org.idpf.epub-container"] + comicTypes.map { $0.0 }
+    let contentTypes = quickLook.contentTypes
     var extensions = [URL]()
     for (kind, point, principal) in [("Thumbnail", "thumbnail", "ThumbnailProvider"), ("Preview", "preview", "PreviewViewController")] {
         let bundle = contents.appendingPathComponent("PlugIns/Sumra\(kind).appex")
@@ -320,8 +347,10 @@ func package() throws {
     print("\(copied.count) decoder dylibs bundled.")
 }
 
+#if !BUNDLE_METADATA_TESTS
 do { try package() }
 catch {
     FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
     exit(1)
 }
+#endif

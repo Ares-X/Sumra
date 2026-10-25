@@ -10,7 +10,7 @@ import XCTest
 /// This exercises reader owners and painted views, not physical user input.
 final class BookCorpusAcceptanceTests: XCTestCase {
     private struct Failure: Error, CustomStringConvertible { let description: String }
-    private let extensions: Set<String> = ["epub", "pdf", "cbz", "cbr", "cb7", "cbt", "zip", "rar", "tar", "7z", "ora", "txt", "md", "markdown", "chm", "mobi"]
+    private let extensions: Set<String> = ["epub", "pdf", "cbz", "cbr", "cb7", "cbt", "zip", "rar", "tar", "7z", "ora", "txt", "md", "markdown", "chm", "mobi", "azw3", "fb2"]
     private let comicExtensions: Set<String> = ["cbz", "cbr", "cb7", "cbt", "zip", "rar", "tar", "7z", "ora"]
 
     private func corpus() throws -> [URL] {

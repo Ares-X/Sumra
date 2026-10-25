@@ -45,8 +45,7 @@ final class BrowserRangeHighlightView: NSView {
         let viewport = CGRect(origin: .zero, size: size)
         func group(_ name: String) -> [Shape] {
             guard zoom.isFinite, zoom > 0, let rows = body[name] as? [Any] else { return [] }
-            // Bound malformed bridge input independently of the search matcher.
-            return rows.prefix(5000).compactMap { row in
+            return rows.compactMap { row in
                 guard let numbers = row as? [NSNumber], numbers.count == 4 || numbers.count == 8,
                       numbers.allSatisfy({ CFGetTypeID($0) != CFBooleanGetTypeID() }) else { return nil }
                 let values = numbers.map { CGFloat($0.doubleValue) * zoom }

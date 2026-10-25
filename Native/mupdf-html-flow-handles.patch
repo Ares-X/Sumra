@@ -2468,7 +2468,7 @@
  
  	for (link = head; link; link = link->next)
  	{
-@@ -181,32 +181,32 @@
+@@ -181,32 +181,34 @@
  }
  
  static float
@@ -2478,7 +2478,9 @@
  	// try to find next "real" element
 -	while (node->type == FLOW_ANCHOR && node->next)
 -		node = node->next;
-+	while (node->type == FLOW_ANCHOR && fz_html_flow_next(tree, node))
++	// Image generation wraps FLOW_IMAGE in soft breaks. Their baseline can
++	// sit at the image bottom; resolve the following image's top instead.
++	while ((node->type == FLOW_ANCHOR || node->type == FLOW_SBREAK) && fz_html_flow_next(tree, node))
 +		node = fz_html_flow_next(tree, node);
  	// an image flow node's coordinates are the top left corner
  	if (node->type == FLOW_IMAGE)

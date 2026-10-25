@@ -766,3 +766,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "無法開啟「%@」。";
+
+"Toolbar Display" = "工具列顯示方式";
+"Always Show" = "永遠顯示";
+"Auto Hide" = "自動隱藏";
+"Always Hide" = "永遠隱藏";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "在自動隱藏模式下，將指標移至視窗頂部即可顯示工具列。";

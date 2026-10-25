@@ -719,3 +719,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "Kan %@ niet openen.";
+
+"Toolbar Display" = "Weergave van de knoppenbalk";
+"Always Show" = "Altijd tonen";
+"Auto Hide" = "Automatisch verbergen";
+"Always Hide" = "Altijd verbergen";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "Beweeg in de modus Automatisch verbergen de aanwijzer naar de bovenkant van het venster om de knoppenbalk te tonen.";

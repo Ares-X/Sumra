@@ -719,3 +719,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "Không thể mở %@.";
+
+"Toolbar Display" = "Hiển thị thanh công cụ";
+"Always Show" = "Luôn hiện";
+"Auto Hide" = "Tự động ẩn";
+"Always Hide" = "Luôn ẩn";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "Ở chế độ tự động ẩn, di chuyển con trỏ lên đầu cửa sổ để hiện thanh công cụ.";

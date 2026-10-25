@@ -64,13 +64,28 @@ final class ReaderConfiguredCommandTests: XCTestCase {
     }
 
     @MainActor func testExplicitToggleIsIdempotentAndUsesExistingState() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, key = "toolbarDisplayMode"
+        let original = defaults.object(forKey: key)
+        defer { defaults.set(original, forKey: key) }
         let state = ReaderState()
-        state.toolbarVisible = true
+        state.toolbarDisplayMode = .shown
         let command = try ReaderConfiguredCommand.read("""
         [{"name":"hide toolbar","command":"toolbar","arguments":{"state":false}}]
         """)[0]
         command.run(state); command.run(state)
-        XCTAssertFalse(state.toolbarVisible)
+        XCTAssertEqual(state.toolbarDisplayMode, .hidden)
+        XCTAssertEqual(defaults.string(forKey: key), "hidden")
+        state.toolbarDisplayMode = .auto
+        command.run(state)
+        XCTAssertEqual(state.toolbarDisplayMode, .hidden, "An explicit hide must also disable hover reveal")
+        state.toolbarDisplayMode = .auto
+        let show = try ReaderConfiguredCommand.read("""
+        [{"name":"show toolbar","command":"toolbar","arguments":{"state":true}}]
+        """)[0]
+        show.run(state); show.run(state)
+        XCTAssertEqual(state.toolbarDisplayMode, .shown)
+        XCTAssertEqual(defaults.string(forKey: key), "shown")
     }
 }
 #endif

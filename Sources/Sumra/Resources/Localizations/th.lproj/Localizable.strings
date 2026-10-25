@@ -721,3 +721,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "ไม่สามารถเปิด %@ ได้";
+
+"Toolbar Display" = "การแสดงแถบเครื่องมือ";
+"Always Show" = "แสดงเสมอ";
+"Auto Hide" = "ซ่อนอัตโนมัติ";
+"Always Hide" = "ซ่อนเสมอ";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "ในโหมดซ่อนอัตโนมัติ เลื่อนตัวชี้ไปที่ด้านบนของหน้าต่างเพื่อแสดงแถบเครื่องมือ";

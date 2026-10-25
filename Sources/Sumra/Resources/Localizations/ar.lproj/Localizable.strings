@@ -721,3 +721,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "تعذّر فتح %@.";
+
+"Toolbar Display" = "عرض شريط الأدوات";
+"Always Show" = "إظهار دائمًا";
+"Auto Hide" = "إخفاء تلقائي";
+"Always Hide" = "إخفاء دائمًا";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "في وضع الإخفاء التلقائي، حرّك المؤشر إلى أعلى النافذة لإظهار شريط الأدوات.";

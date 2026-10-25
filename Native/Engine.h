@@ -86,12 +86,30 @@ API int lf_search_chapter_candidate(void *document, int chapter, const char *nee
 // The optional cursor is a source anchor from a prior result. allowed_bits is
 // a bitset of zero-based physical pages. One JSON match
 // may contain fragments on several pages. maximum is the caller's result budget;
-// nonpositive budgets return no matches.
+// zero returns no matches; a negative budget collects all matches.
 API char *lf_markdown_document_search(void *document, const char *needle, int flags,
     int start_chapter, int start_page, int after_chapter,
     uint32_t after_node, uint32_t after_offset, uint32_t after_part,
     int64_t maximum, const uint8_t *allowed_bits, size_t allowed_bytes,
     int (*cancelled)(void), char *error);
+// Incremental full-document Markdown search, sharing the synchronous match
+// owner. Begin uses case/whole-word bits 1/2 and copies the optional page mask.
+// Step preserves normalization and
+// page/chapter seams, bounds source work, and materializes one pending hit.
+// JSON contains matches, complete and changed chapterPages [chapter,count]
+// pairs. The caller serializes steps with document use and drops before
+// relayout/close, on cancellation, or when the search completes.
+API void *lf_markdown_search_begin(void *document, const char *needle, int flags,
+    const uint8_t *allowed_bits, size_t allowed_bytes, char *error);
+// Resumable interactive search with the synchronous find's source cursor,
+// direction, inclusive flag and caller budget. Step/drop and precise JSON are
+// shared with full counting; provisional suffix wrap hits are never published.
+API void *lf_markdown_find_begin(void *document, const char *needle, int flags,
+    int start_chapter, int start_page, int after_chapter,
+    uint32_t after_node, uint32_t after_offset, uint32_t after_part, int64_t maximum,
+    const uint8_t *allowed_bits, size_t allowed_bytes, char *error);
+API char *lf_markdown_search_step(void *session, size_t source_budget, int (*cancelled)(void), char *error);
+API void lf_markdown_search_drop(void *session);
 API int lf_is_markdown(void *document);
 API char *lf_markdown_legacy_anchor(void *document, uint32_t node, uint32_t offset, uint32_t part, char *error);
 

@@ -65,13 +65,15 @@ public enum LegacyText{
     }
 
     public struct MobiContent: Sendable {
+        /// First authored HTML document, followed by the remaining KF8 spine.
         public let html: Data
+        public let additionalParts: [Data]
         public let resources: [String: Data]
         public let outline: [(title: String, target: String, level: Int)]
     }
 
     /// MobiDoc's real image record indexes, KindleEmbedToRecIndex and
-    /// MaybeSynthesizeImagePages. Output uses the same MuPDF HTML renderer.
+    /// MaybeSynthesizeImagePages. MuPDF owns HTML and EPUB spine rendering.
     /// Reuse decoded HTML for ordinary books as well as HUFF/CDIC and trailer
     /// variants. Returning it avoids decoding the same Palm records in MuPDF.
     /// Containers without the supported MOBI header stay on the native path.
@@ -104,16 +106,32 @@ public enum LegacyText{
             guard cfEncoding != kCFStringEncodingInvalidId else { throw ReadError("Unsupported MOBI text codepage \(codepage)") }
             encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cfEncoding))
         }
-        let navigation = try mobiNavigation(raw, encoding: encoding)
-        let text = encoding == .utf8 ? String(decoding: navigation.data, as: UTF8.self) : String(data: navigation.data, encoding: encoding)
-        guard var html = text else { throw ReadError("Invalid MOBI text for codepage \(codepage)") }
+        var flowResources = [String: Data]()
+        let navigation: (parts: [Data], outline: [(title: String, target: String, level: Int)])
+        let isKF8 = info.length >= 248 ? try be(header, 36, 4) == 8 : false
+        if isKF8 {
+            let content = try kindleContent(raw, header: header, database: database)
+            navigation = (content.parts, content.outline); flowResources = content.resources
+        } else {
+            let content = try mobiNavigation(raw, encoding: encoding)
+            navigation = ([content.data], content.outline)
+        }
+        var documents = try navigation.parts.map { bytes -> String in
+            guard let text = encoding == .utf8 ? String(decoding: bytes, as: UTF8.self) : String(data: bytes, encoding: encoding) else {
+                throw ReadError("Invalid MOBI text for codepage \(codepage)")
+            }
+            return text
+        }
+        let html = documents.joined()
         let cover = try coverIndex(header, info: info)
         let string = html as NSString
         let indexes = kindleEmbeds.matches(in: html, range: NSRange(location: 0, length: string.length)).compactMap {
             Int(string.substring(with: $0.range(at: 1)), radix: 32).flatMap { $0 > 0 ? $0 : nil }
         }
         var pages = [Int]()
-        if images.count >= 2, html.range(of: "recindex", options: .caseInsensitive) == nil {
+        // A reconstructed KF8 spine already owns its content order, including
+        // images referenced by SVG/CSS flows outside the HTML documents.
+        if !isKF8, images.count >= 2, html.range(of: "recindex", options: .caseInsensitive) == nil {
             let fixed = html.range(of: "name=\"viewport\"", options: .caseInsensitive) != nil || html.range(of: "name='viewport'", options: .caseInsensitive) != nil
             if indexes.count >= 2, fixed { pages = indexes }
             else if indexes.count < 2 {
@@ -126,30 +144,203 @@ public enum LegacyText{
         let pageBreak = "<div style=\"page-break-before:always\"></div>"
         if !pages.isEmpty {
             if images[cover] != nil { pages.insert(cover, at: 0) }
-            html = "<!doctype html><html><body>" + pages.map(page).joined(separator: pageBreak) + "</body></html>"
+            documents = ["<!doctype html><html><body>" + pages.map(page).joined(separator: pageBreak) + "</body></html>"]
         } else {
-            html = try rewriteMobiImages(html)
-            let breaks = try NSRegularExpression(pattern: #"<mbp:pagebreak\b[^>]*>"#, options: .caseInsensitive)
-            html = breaks.stringByReplacingMatches(in: html, range: NSRange(html.startIndex..<html.endIndex, in: html), withTemplate: pageBreak)
-            if images[cover] != nil {
-                let body = try NSRegularExpression(pattern: #"<body\b[^>]*>"#, options: .caseInsensitive)
-                if let match = body.firstMatch(in: html, range: NSRange(html.startIndex..<html.endIndex, in: html)), let range = Range(match.range, in: html) {
-                    html.insert(contentsOf: page(cover) + pageBreak, at: range.upperBound)
-                } else { html = page(cover) + pageBreak + html }
+            for index in documents.indices {
+                var html = try rewriteMobiImages(documents[index])
+                let breaks = try NSRegularExpression(pattern: #"<mbp:pagebreak\b[^>]*>"#, options: .caseInsensitive)
+                html = breaks.stringByReplacingMatches(in: html, range: NSRange(html.startIndex..<html.endIndex, in: html), withTemplate: pageBreak)
+                if index == 0, images[cover] != nil {
+                    let body = try NSRegularExpression(pattern: #"<body\b[^>]*>"#, options: .caseInsensitive)
+                    if let match = body.firstMatch(in: html, range: NSRange(html.startIndex..<html.endIndex, in: html)), let range = Range(match.range, in: html) {
+                        html.insert(contentsOf: page(cover) + pageBreak, at: range.upperBound)
+                    } else { html = page(cover) + pageBreak + html }
+                }
+                documents[index] = html
             }
         }
-        var output = Data()
-        output.append(contentsOf: html.utf8)
-        return MobiContent(html: output, resources: Dictionary(uniqueKeysWithValues: images.map { (imageName($0.key), $0.value) }), outline: pages.isEmpty ? navigation.outline : [])
+        var resources = Dictionary(uniqueKeysWithValues: images.map { (imageName($0.key), $0.value) })
+        resources.merge(flowResources) { _, flow in flow }
+        return MobiContent(html: Data(documents[0].utf8), additionalParts: documents.dropFirst().map { Data($0.utf8) }, resources: resources, outline: pages.isEmpty ? navigation.outline : [])
     }
 
     private static func imageName(_ index: Int) -> String { String(format: "%05d", index) }
 
+    // KF8 stores XHTML skeletons, insertion fragments and CSS/SVG flows in the
+    // same decoded stream. Reconstruct that stream before translating links;
+    // fragment IDs are indexes in the division table, not byte offsets.
+    // Format reference: calibre's GPLv3 mobi8.py/index.py (Kovid Goyal, 2012).
+    private static func kindleContent(_ raw: Data, header: Data, database: PalmDatabase) throws
+        -> (parts: [Data], resources: [String: Data], outline: [(title: String, target: String, level: Int)]) {
+        func record(_ index: Int, signature: String) throws -> Data {
+            guard index > 0, index < database.count else { throw ReadError("Invalid KF8 \(signature) record") }
+            let bytes = database.record(index)
+            guard bytes.starts(with: signature.utf8) else { throw ReadError("Invalid KF8 \(signature) record") }
+            return bytes
+        }
+        func slice(_ start: Int, _ length: Int, in bytes: Data) throws -> Data {
+            guard start <= bytes.count, length <= bytes.count - start else { throw ReadError("Invalid KF8 content range") }
+            return bytes.subdata(in: start..<start + length)
+        }
+        func variable(_ bytes: Data, _ cursor: inout Int) throws -> Int {
+            var value = 0
+            while cursor < bytes.count {
+                let byte = bytes[cursor]; cursor += 1
+                guard value <= Int.max >> 7 else { throw ReadError("KF8 index integer overflow") }
+                value = (value << 7) | Int(byte & 0x7f)
+                if byte & 0x80 != 0 { return value }
+            }
+            throw ReadError("Truncated KF8 index integer")
+        }
+        func index(_ number: Int) throws -> [(name: String, tags: [Int: [Int]])] {
+            let top = try record(number, signature: "INDX")
+            let tagStart = try be(top, 4, 4), records = try be(top, 24, 4)
+            guard records < database.count - number else { throw ReadError("Invalid KF8 index record count") }
+            let tagx = try slice(tagStart, top.count - min(tagStart, top.count), in: top)
+            guard tagx.starts(with: "TAGX".utf8) else { throw ReadError("Missing KF8 TAGX") }
+            let tagEnd = try be(tagx, 4, 4), controls = try be(tagx, 8, 4)
+            guard tagEnd >= 12, tagEnd <= tagx.count, (tagEnd - 12) % 4 == 0 else { throw ReadError("Invalid KF8 TAGX size") }
+            var result = [(String, [Int: [Int]])]()
+            for r in 0..<records {
+                let bytes = try record(number + r + 1, signature: "INDX")
+                let idxt = try be(bytes, 20, 4), count = try be(bytes, 24, 4)
+                guard try slice(idxt, 4, in: bytes) == Data("IDXT".utf8) else { throw ReadError("Missing KF8 IDXT") }
+                guard count <= (bytes.count - idxt - 4) / 2 else { throw ReadError("Truncated KF8 IDXT") }
+                var offsets = try (0..<count).map { try be(bytes, idxt + 4 + $0 * 2, 2) }
+                offsets.append(idxt)
+                for entry in 0..<count {
+                    let start = offsets[entry], end = offsets[entry + 1]
+                    guard start < end, end <= idxt else { throw ReadError("Invalid KF8 index entry") }
+                    let item = bytes.subdata(in: start..<end), nameLength = Int(item[0])
+                    let name = String(decoding: try slice(1, nameLength, in: item), as: UTF8.self)
+                    let controlStart = 1 + nameLength
+                    _ = try slice(controlStart, controls, in: item)
+                    var cursor = controlStart + controls, control = controlStart
+                    var pending = [(tag: Int, count: Int?, bytes: Int?, values: Int)]()
+                    for t in stride(from: 12, to: tagEnd, by: 4) {
+                        let tag = Int(tagx[t]), values = Int(tagx[t + 1]), mask = tagx[t + 2]
+                        if tagx[t + 3] == 1 { control += 1; continue }
+                        guard control < controlStart + controls else { throw ReadError("Invalid KF8 control byte") }
+                        let value = item[control] & mask
+                        if value == 0 { continue }
+                        if value == mask, mask.nonzeroBitCount > 1 {
+                            pending.append((tag, nil, try variable(item, &cursor), values))
+                        } else {
+                            pending.append((tag, value == mask ? 1 : Int(value >> mask.trailingZeroBitCount), nil, values))
+                        }
+                    }
+                    var tags = [Int: [Int]]()
+                    for p in pending {
+                        var values = [Int]()
+                        if let count = p.count {
+                            for _ in 0..<count * p.values { values.append(try variable(item, &cursor)) }
+                        } else if let length = p.bytes {
+                            guard length <= item.count - cursor else { throw ReadError("Truncated KF8 index values") }
+                            let end = cursor + length
+                            while cursor < end { values.append(try variable(item, &cursor)) }
+                            guard cursor == end else { throw ReadError("Invalid KF8 index value size") }
+                        }
+                        tags[p.tag] = values
+                    }
+                    result.append((name, tags))
+                }
+            }
+            return result
+        }
+        let fdstIndex = try be(header, 192, 4)
+        var flows = [raw]
+        if fdstIndex != 0xffff_ffff {
+            let fdst = try record(fdstIndex, signature: "FDST")
+            let start = try be(fdst, 4, 4), count = try be(fdst, 8, 4)
+            guard count > 0, start <= fdst.count, count <= (fdst.count - start) / 8 else { throw ReadError("Invalid KF8 flow table") }
+            flows = try (0..<count).map {
+                let from = try be(fdst, start + $0 * 8, 4), to = try be(fdst, start + $0 * 8 + 4, 4)
+                guard from <= to else { throw ReadError("Invalid KF8 flow range") }
+                return try slice(from, to - from, in: raw)
+            }
+        }
+        let skeletons = try index(be(header, 252, 4)), fragments = try index(be(header, 248, 4))
+        guard !skeletons.isEmpty else { throw ReadError("KF8 document has no content parts") }
+        var data = Data(), positions = [Int: Int](), partStarts = [Int](), fragment = 0
+        for skeleton in skeletons {
+            guard let counts = skeleton.tags[1], let range = skeleton.tags[6], !counts.isEmpty, range.count >= 2 else { throw ReadError("Invalid KF8 skeleton") }
+            let start = range[0], length = range[1]
+            var part = try slice(start, length, in: flows[0]), cursor = start + length
+            for _ in 0..<counts[0] {
+                guard fragment < fragments.count, let insertion = Int(fragments[fragment].name),
+                      let range = fragments[fragment].tags[6], range.count >= 2,
+                      insertion >= start, insertion - start <= part.count else { throw ReadError("Invalid KF8 fragment") }
+                let offset = insertion - start, bytes = try slice(cursor, range[1], in: flows[0])
+                part.insert(contentsOf: bytes, at: offset)
+                positions[fragment] = insertion
+                cursor += range[1]; fragment += 1
+            }
+            // Skeleton positions include their following fragment bytes. Keeping
+            // their original lengths preserves the position vocabulary of KF8.
+            guard data.count == start else { throw ReadError("Invalid KF8 skeleton order") }
+            partStarts.append(data.count)
+            data.append(part)
+        }
+        guard fragment == fragments.count else { throw ReadError("Unreferenced KF8 fragments") }
+        var resources = [String: Data]()
+        let flowNames = flows.enumerated().map { number, bytes in
+            "kf8-flow-\(number)" + (String(decoding: bytes, as: UTF8.self).range(of: "<svg", options: .caseInsensitive) != nil ? ".svg" : ".css")
+        }
+        let resourceLinks = try NSRegularExpression(pattern: #"kindle:(flow|embed):([0-9a-v]+)(?:\?mime=[^\s\"'<>)]*)?"#, options: .caseInsensitive)
+        func expand(_ bytes: Data, embeds: Bool = false) throws -> Data {
+            var text = String(decoding: bytes, as: UTF8.self)
+            for match in resourceLinks.matches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text)).reversed() {
+                let source = text as NSString, kind = source.substring(with: match.range(at: 1)).lowercased()
+                if kind == "embed", !embeds { continue }
+                guard let number = Int(source.substring(with: match.range(at: 2)), radix: 32), number > 0 else { throw ReadError("Invalid KF8 resource reference") }
+                let name: String
+                if kind == "embed" { name = imageName(number) }
+                else {
+                    guard number < flowNames.count else { throw ReadError("Invalid KF8 flow reference") }
+                    name = flowNames[number]
+                }
+                text.replaceSubrange(Range(match.range, in: text)!, with: name)
+            }
+            return Data(text.utf8)
+        }
+        // Link positions refer to pre-expansion bytes; navigation inserts anchors
+        // first, then resource URI expansion may freely change string lengths.
+        let navigation = try mobiNavigation(data, encoding: .utf8, kindlePositions: positions, partStarts: partStarts)
+        let boundaries = navigation.partStarts + [navigation.data.count]
+        var parts = try zip(boundaries, boundaries.dropFirst()).map { try expand(navigation.data.subdata(in: $0..<$1)) }
+        var outline = navigation.outline
+        if parts.count > 1 {
+            // Keep each authored head/body and its stylesheet context in the
+            // existing EPUB spine renderer. Only source-offset links change.
+            let anchors = try NSRegularExpression(pattern: #"<a id="(mobi-filepos-[0-9]+)"></a>"#)
+            var targets = [String: String]()
+            for (index, part) in parts.enumerated() {
+                let text = String(decoding: part, as: UTF8.self), source = text as NSString
+                for match in anchors.matches(in: text, range: NSRange(location: 0, length: source.length)) {
+                    let anchor = source.substring(with: match.range(at: 1))
+                    targets["#" + anchor] = MobiContent.partName(index) + "#" + anchor
+                }
+            }
+            let links = try NSRegularExpression(pattern: #"href="(#mobi-filepos-[0-9]+)""#)
+            parts = parts.map { part in
+                var text = String(decoding: part, as: UTF8.self)
+                for match in links.matches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text)).reversed() {
+                    let value = (text as NSString).substring(with: match.range(at: 1))
+                    if let target = targets[value] { text.replaceSubrange(Range(match.range(at: 1), in: text)!, with: target) }
+                }
+                return Data(text.utf8)
+            }
+            outline = outline.map { ($0.title, targets[$0.target] ?? $0.target, $0.level) }
+        }
+        for number in 1..<flows.count { resources[flowNames[number]] = try expand(flows[number], embeds: true) }
+        return (parts, resources, outline)
+    }
+
     /// MobiDoc::FindMobiTocFilepos/ParseToc and EngineMobi::GetNamedDest use
     /// offsets in the original decompressed bytes, before codepage conversion.
     /// Translate only those offsets to HTML anchors; MuPDF still owns layout.
-    private static func mobiNavigation(_ raw: Data, encoding: String.Encoding) throws
-        -> (data: Data, outline: [(title: String, target: String, level: Int)]) {
+    private static func mobiNavigation(_ raw: Data, encoding: String.Encoding, kindlePositions: [Int: Int] = [:], partStarts: [Int] = []) throws
+        -> (data: Data, outline: [(title: String, target: String, level: Int)], partStarts: [Int]) {
         let byteText = String(data: raw, encoding: .isoLatin1)!, source = byteText as NSString
         let tags = try NSRegularExpression(pattern: #"<!--[\s\S]*?-->|<![^>]*>|</?([A-Za-z][A-Za-z0-9:_-]*)\b(?:[^\"'>]|\"[^\"]*\"|'[^']*')*>"#)
         let matches = tags.matches(in: byteText, range: NSRange(location: 0, length: source.length))
@@ -170,9 +361,19 @@ public enum LegacyText{
             sourceLines.append((text.count <= 80 && text.rangeOfCharacter(from: .newlines) == nil ? text : "body", line.anchor))
         }
         func position(_ value: String?) -> Int? {
-            guard let value, !value.isEmpty, value.utf8.allSatisfy({ (48...57).contains($0) }),
-                  let offset = Int(value), offset <= raw.count else { return nil }
-            return offset
+            guard let value, !value.isEmpty else { return nil }
+            let offset: Int
+            if value.lowercased().hasPrefix("kindle:pos:fid:") {
+                let fields = value.split(separator: ":")
+                guard fields.count == 6, fields[4].lowercased() == "off",
+                      let fid = Int(fields[3], radix: 32), let start = kindlePositions[fid],
+                      let displacement = Int(fields[5], radix: 32), displacement >= 0, displacement <= raw.count - start else { return nil }
+                offset = start + displacement
+            } else {
+                guard value.utf8.allSatisfy({ (48...57).contains($0) }), let number = Int(value) else { return nil }
+                offset = number
+            }
+            return offset <= raw.count ? offset : nil
         }
         func attributes(_ tag: String) -> [String: String] {
             let string = tag as NSString
@@ -257,7 +458,7 @@ public enum LegacyText{
                 }
             }
         }
-        guard !edits.isEmpty else { return (raw, outline) }
+        guard !edits.isEmpty else { return (raw, outline, partStarts) }
         edits.sort { $0.range.location == $1.range.location ? $0.range.length < $1.range.length : $0.range.location < $1.range.location }
         var data = Data(), cursor = 0
         for edit in edits {
@@ -266,7 +467,10 @@ public enum LegacyText{
             cursor = NSMaxRange(edit.range)
         }
         data.append(contentsOf: raw[cursor...])
-        return (data, outline)
+        let boundaries = partStarts.map { start in
+            start + edits.filter { $0.range.location < start }.reduce(0) { $0 + $1.data.count - $1.range.length }
+        }
+        return (data, outline, boundaries)
     }
 
     private static func coverIndex(_ header: Data, info: MobiHeader) throws -> Int {

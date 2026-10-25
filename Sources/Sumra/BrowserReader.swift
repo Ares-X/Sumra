@@ -841,7 +841,7 @@ struct BrowserReader: NSViewRepresentable {
                     "enabled": state.showFind || !state.searchResults.isEmpty],
                 "searchResults": state.searchResults.map { item -> [String: Any] in
                     ["title": item.title, "target": item.target, "depth": item.depth, "page": item.page ?? 0]
-                }, "searchCountCapped": state.searchCountCapped,
+                }, "searchComplete": !state.searchCounting,
                 "selectedSearchTarget": state.selectedSearchTarget ?? "",
                 "outline": state.outline.map { item -> [String: Any] in
                     ["title": item.title, "target": item.target, "depth": item.depth, "page": item.page ?? 0]
@@ -979,7 +979,9 @@ struct BrowserReader: NSViewRepresentable {
                     else {
                         if body["append"] as? Bool == true { state.searchResults.append(contentsOf: decoded) }
                         else { state.searchResults = decoded }
-                        state.searchCountCapped = !state.searchResults.isEmpty && body["capped"] as? Bool == true
+                        // An empty begin resets result-owned state first; the
+                        // scan remains active until its explicit completion.
+                        state.searchCounting = body["complete"] as? Bool == false
                     }
                 }
             case "position":

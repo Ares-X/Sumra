@@ -721,3 +721,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "%@ खोला नहीं जा सका।";
+
+"Toolbar Display" = "टूलबार प्रदर्शन";
+"Always Show" = "हमेशा दिखाएँ";
+"Auto Hide" = "अपने आप छिपाएँ";
+"Always Hide" = "हमेशा छिपाएँ";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "अपने आप छिपने के मोड में, टूलबार दिखाने के लिए पॉइंटर को विंडो के ऊपर ले जाएँ।";

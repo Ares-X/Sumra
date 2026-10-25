@@ -1,0 +1,183 @@
+--- a/source/fitz/stext-search.c
++++ b/source/fitz/stext-search.c
+@@ -1423,6 +1423,16 @@
+ 
+ static size_t search_candidate_transform(fz_context *ctx, const fz_search *search, int rune, char *text)
+ {
++ /* Basic Han and ASCII letters/digits are invariant under decomposition and
++  * mark removal. Only the optional ASCII case fold can change these scalars. */
++ if ((rune >= 0x3400 && rune <= 0x9fff) || (rune >= '0' && rune <= '9') ||
++     (rune >= 'A' && rune <= 'Z') || (rune >= 'a' && rune <= 'z'))
++ {
++  if ((search->transform & FZ_TEXT_TRANSFORM_UPPERCASE) && rune >= 'a' && rune <= 'z') rune -= 'a' - 'A';
++  size_t bytes = fz_runetochar(text, rune);
++  text[bytes] = 0;
++  return bytes;
++ }
+  transform_cache cache = {0};
+  /* Decomposition makes the necessary character independent of neighboring
+   * combining marks and visual line/paragraph separators. */
+@@ -1479,7 +1489,13 @@
+  }
+ }
+ 
+-/* A necessary ordered projection for pure unified-Han needles. Fitz owns
++static int search_candidate_character(int rune)
++{
++ return (rune >= 0x3400 && rune <= 0x9fff) || (rune >= '0' && rune <= '9') ||
++  (rune >= 'A' && rune <= 'Z') || (rune >= 'a' && rune <= 'z');
++}
++
++/* A necessary ordered projection for letter/digit/Han needles. Fitz owns
+  * normalization; painted glyph search still owns actual matches and quads. */
+ struct fz_search_character_candidate
+ {
+@@ -1504,22 +1520,24 @@
+  for (const char *p = search->spun_needle; *p; )
+  {
+   int rune; p += fz_chartorune(&rune, p);
+-  if (rune < 0x3400 || rune > 0x9fff) return NULL;
+-  ++units;
++  if (!search_candidate_character(rune) && rune != ' ') return NULL;
++  if (rune != ' ') ++units;
+  }
+- if (units < 2) return NULL;
++ int first; fz_chartorune(&first, search->spun_needle);
++ if (units < 2 || !search_candidate_character(first)) return NULL;
+  fz_search_character_candidate *candidate = fz_malloc_struct(ctx, fz_search_character_candidate);
+  fz_try(ctx)
+  {
+   candidate->normalizer = search;
+   candidate->needle = fz_malloc_array(ctx, units, int);
+   candidate->failure = fz_malloc_array(ctx, units, size_t);
+-  /* Stext removes repeated overprinted glyphs. Collapse adjacent equal Han
+-   * in both needle and stream so that elision cannot reject a real hit. */
++  /* Stext removes repeated overprinted glyphs. Collapse equal projected
++   * characters in both streams so that elision cannot reject a real hit. */
+   int last = 0;
+   for (const char *p = search->spun_needle; *p; )
+   {
+    int rune; p += fz_chartorune(&rune, p);
++   if (!search_candidate_character(rune)) continue;
+    if (rune != last) candidate->needle[candidate->length++] = rune;
+    last = rune;
+   }
+@@ -1546,9 +1564,9 @@
+   for (const char *p = normalized; *p && !candidate->found; )
+   {
+    p += fz_chartorune(&rune, p);
+-   /* Dropping non-Han only broadens a Han candidate. Different painted Han
+-    * remain barriers, including zero-area glyphs retained by default stext. */
+-   if (rune < 0x3400 || rune > 0x9fff || rune == candidate->last_projected) continue;
++   /* Dropping other units only broadens this projection. Different painted
++    * letters/digits/Han remain barriers, including zero-area stext glyphs. */
++   if (!search_candidate_character(rune) || rune == candidate->last_projected) continue;
+    candidate->last_projected = rune;
+    while (candidate->matched && rune != candidate->needle[candidate->matched])
+     candidate->matched = candidate->failure[candidate->matched - 1];
+--- a/source/html/epub-doc.c
++++ b/source/html/epub-doc.c
+@@ -552,7 +552,7 @@
+  fz_html *html = epub_parse_chapter(ctx, doc, ch);
+  int possible = 1;
+  fz_var(possible);
+- fz_try(ctx) { possible = fz_html_has_search_candidate(ctx, html, -1, search, cancelled, cookie); }
++ fz_try(ctx) { possible = fz_html_has_search_phrase_candidate(ctx, html, -2, search, cancelled, cookie); }
+  fz_always(ctx) { fz_drop_html(ctx, html); }
+  fz_catch(ctx) { fz_rethrow(ctx); }
+  return possible;
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -4595,40 +4595,52 @@
+ 
+ /* Follow fz_draw_html's actual painting order and culling. This is a
+  * necessary character projection, not a source replacement for glyph search. */
++static int html_phrase_source_geometry(const fz_css_style *style)
++{
++ return style->position == POS_STATIC && style->height.unit == N_AUTO && style->max_height.unit == N_AUTO &&
++  style->vertical_align == VA_BASELINE && style->font_size.value > 0 && style->line_height.value > 0 &&
++  style->margin[T].value >= 0 && style->margin[B].value >= 0 &&
++  style->padding[T].value >= 0 && style->padding[B].value >= 0 &&
++  style->border_width[T].value >= 0 && style->border_width[B].value >= 0;
++}
++
+ static int html_phrase_candidate_box(fz_context *ctx, fz_html *html, fz_html_box *box, fz_html_box *after,
+- float page_top, float page_bot, fz_search_character_candidate *candidate, int (*cancelled)(void), fz_cookie *cookie)
++ int parsed, float page_top, float page_bot, fz_search_character_candidate *candidate, int (*cancelled)(void), fz_cookie *cookie)
+ {
+  fz_html_tree *tree = &html->tree;
+  for (; box != after; box = box->next)
+  {
+   if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
++  /* Anonymous flow boxes carry a partial style. Their real inline owners
++   * are checked per flow below; block containers carry complete styles. */
++  if (parsed && box->type != BOX_FLOW && !html_phrase_source_geometry(box->style)) return 1;
+   if (fz_html_box_has_boxes(box))
+   {
+    float low = box->s.layout.y, high = box->s.layout.b;
+    if (box->type != BOX_TABLE_ROW)
+    { low -= box->u.block.padding[T]; high += box->u.block.padding[B]; }
+-   if (low > page_bot || high < page_top) continue;
++   if (!parsed && (low > page_bot || high < page_top)) continue;
+    if (box->list_item)
+    {
+     char text[40];
+     format_list_number(ctx, box->style->list_style_type, box->list_item, text, sizeof text);
+     if (fz_feed_search_character_candidate(ctx, candidate, text)) return 1;
+    }
+-   fz_html_draw_index *index = box->draw_index;
++   fz_html_draw_index *index = parsed ? NULL : box->draw_index;
+    if (index)
+    {
+     for (size_t i = 0; i < index->count; ++i)
+     {
+      fz_html_draw_group *group = &index->groups[i];
+      if (group->low > page_bot || group->high < page_top) continue;
+-     if (html_phrase_candidate_box(ctx, html, group->first, group->after, page_top, page_bot, candidate, cancelled, cookie)) return 1;
++     if (html_phrase_candidate_box(ctx, html, group->first, group->after, parsed, page_top, page_bot, candidate, cancelled, cookie)) return 1;
+     }
+    }
+-   else if (html_phrase_candidate_box(ctx, html, box->down, NULL, page_top, page_bot, candidate, cancelled, cookie)) return 1;
++   else if (html_phrase_candidate_box(ctx, html, box->down, NULL, parsed, page_top, page_bot, candidate, cancelled, cookie)) return 1;
+   }
+   else if (box->type == BOX_FLOW)
+   {
+-   size_t groups = box->u.flow.group_count;
++   size_t groups = parsed ? 0 : box->u.flow.group_count;
+    for (size_t i = 0; i < (groups ? groups : 1); ++i)
+    {
+     fz_html_flow *first = box->u.flow.head, *end = NULL;
+@@ -4641,8 +4653,9 @@
+     for (fz_html_flow *flow = first; flow != end; flow = fz_html_flow_next(tree, flow))
+     {
+     if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(ctx, FZ_ERROR_ABORT, "Search cancelled");
+-    if (flow->type != FLOW_WORD || flow->y < page_top || flow->y > page_bot) continue;
++    if (flow->type != FLOW_WORD || (!parsed && (flow->y < page_top || flow->y > page_bot))) continue;
+     const fz_css_style *style = fz_html_flow_box(tree, flow)->style;
++    if (parsed && !html_phrase_source_geometry(style)) return 1;
+     if (style->visibility != V_VISIBLE || (!style->text_fill_color.a && !style->text_stroke_color.a)) continue;
+     /* The stext device can reorder directional fragments. Their glyph matcher
+      * remains authoritative; this source projection cannot reject them. */
+@@ -4663,9 +4676,9 @@
+  fz_var(possible);
+  fz_try(ctx)
+  {
+-  possible = html_phrase_candidate_box(ctx, html, html->tree.root, NULL,
++  possible = html_phrase_candidate_box(ctx, html, html->tree.root, NULL, page == -2,
+    page < 0 ? 0 : page * html->page_h, page < 0 ? html->page_h : (page + 1) * html->page_h, candidate, cancelled, cookie) ||
+-   fz_finish_search_character_candidate(ctx, candidate, page >= 0);
++   fz_finish_search_character_candidate(ctx, candidate, page != -1);
+  }
+  fz_always(ctx) { fz_drop_search_character_candidate(ctx, candidate); }
+  fz_catch(ctx) { fz_rethrow(ctx); }
+--- a/include/mupdf/fitz/structured-text.h
++++ b/include/mupdf/fitz/structured-text.h
+@@ -1074,7 +1074,7 @@
+ /* Allocated unique decomposed nonspace characters necessary for a match.
+  * A zero count cannot reject. Uses the search owner's normalization. */
+ int *fz_search_candidate_characters(fz_context *ctx, const fz_search *search, size_t *count);
+-/* Necessary ordered character projection for a pure unified-CJK needle. The
++/* Necessary ordered projection for ASCII letter/digit/Han needles. The
+  * caller supplies painted characters in their actual order; NULL means the
+  * needle is outside this proof. Matches remain the regular glyph search's. */
+ typedef struct fz_search_character_candidate fz_search_character_candidate;

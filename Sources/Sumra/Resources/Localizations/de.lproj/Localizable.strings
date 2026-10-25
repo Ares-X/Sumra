@@ -719,3 +719,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "„%@“ kann nicht geöffnet werden.";
+
+"Toolbar Display" = "Symbolleistenanzeige";
+"Always Show" = "Immer einblenden";
+"Auto Hide" = "Automatisch ausblenden";
+"Always Hide" = "Immer ausblenden";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "Bewegen Sie im Modus „Automatisch ausblenden“ den Zeiger an den oberen Fensterrand, um die Symbolleiste einzublenden.";

@@ -721,3 +721,9 @@
 
 /* Sumra file-opening context. */
 "Cannot open %@." = "%@ 파일을 열 수 없습니다.";
+
+"Toolbar Display" = "도구 막대 표시";
+"Always Show" = "항상 표시";
+"Auto Hide" = "자동으로 가리기";
+"Always Hide" = "항상 가리기";
+"In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "자동으로 가리기 모드에서는 포인터를 윈도우 상단으로 이동하면 도구 막대가 표시됩니다.";

@@ -144,7 +144,7 @@ struct ReaderCommand: Equatable {
     var action: ReaderAction = .none
 }
 
-struct ContentsItem: Codable {
+struct ContentsItem: Codable, Sendable {
     let title: String
     let target: String
     var depth = 0
@@ -230,6 +230,15 @@ struct ReadingPosition: Codable, Hashable {
     // Only persisted PDF locations need this migration marker. In-memory
     // raster navigation always uses Fitz coordinates, including untagged points.
     var pdfCoordinateSpace: String?
+
+    var formatSettings: ReadingPosition {
+        var settings = self
+        settings.page = 0; settings.pageCount = nil; settings.scrollFraction = nil
+        settings.x = nil; settings.y = nil; settings.pageLocalOffset = nil; settings.anchor = nil
+        settings.markdownPassage = nil; settings.nativePassage = nil
+        settings.rotation = nil; settings.pdfCoordinateSpace = nil
+        return settings
+    }
 
     func convertingPDFCoordinates(_ transform: CGAffineTransform) -> ReadingPosition {
         var result = self
@@ -376,15 +385,18 @@ final class ReaderState: ObservableObject {
     var pendingReflowPosition: ReadingPosition?
     @Published var selectedText = ""
     @Published var searchResults: [ContentsItem] = [] {
-        didSet { if searchResults.isEmpty { selectedSearchTarget = nil; searchCountCapped = false; searchCounting = false } }
+        didSet {
+            searchResultsRevision &+= 1
+            if searchResults.isEmpty { selectedSearchTarget = nil }
+        }
     }
+    private(set) var searchResultsRevision = 0
     @Published var selectedSearchTarget: String?
-    @Published var searchCountCapped = false
     @Published var searchCounting = false
     var searchCountText: String {
         if searchCounting { return L("Searching…") + " " + String(format: L("%d matches"), searchResults.count) }
         let current = selectedSearchTarget.flatMap { target in searchResults.firstIndex { $0.target == target } }.map { $0 + 1 } ?? 0
-        return "\(current) / \(searchResults.count)\(searchCountCapped ? "+" : "")"
+        return "\(current) / \(searchResults.count)"
     }
     @Published var showThumbnails = false { didSet { if showThumbnails { selectSidebar("thumbnails") } } }
     @Published var showBookmarks = false { didSet { if showBookmarks { selectSidebar("bookmarks") } } }
@@ -423,7 +435,15 @@ final class ReaderState: ObservableObject {
     @Published var keyboardTextSelection = false
     @Published var rectangularSelection = false
     @Published var hasSelection = false
-    @Published var toolbarVisible = true
+    @Published var toolbarDisplayMode = ReaderToolbarDisplayMode.load() {
+        didSet { if toolbarDisplayMode != oldValue { toolbarHoverVisible = false } }
+    }
+    @Published var toolbarHoverVisible = false {
+        didSet { if !toolbarHoverVisible, toolbarHoverOpacity != 0 { toolbarHoverOpacity = 0 } }
+    }
+    @Published var toolbarHoverOpacity = 0.0
+    var toolbarShown: Bool { hasDocument && ((!presentation && toolbarDisplayMode == .shown) || (toolbarDisplayMode == .auto && toolbarHoverVisible)) }
+    var toolbarOverlaysContent: Bool { hasDocument && (presentation || toolbarDisplayMode != .shown) }
     @Published var presentationBlank: String?
     @Published var laserPointer = false
     @Published var readingBar = false
@@ -1237,7 +1257,7 @@ extension ReaderState {
         let replacesSearch = !findQuery.isEmpty && findQuery != query
         findQuery = query
         guard showFind, let documentID = document?.id else { return }
-        searchResults = []; status = ""
+        searchResults = []; searchCounting = false; status = ""
         if query.isEmpty {
             findNext()
             return
@@ -1368,7 +1388,7 @@ extension ReaderState {
         guard hasDocument, count > 0 else { return }
         window?.makeKeyAndOrderFront(nil)
         // OnMenuGoToPage selects the live toolbar edit control when visible.
-        if toolbarVisible, !presentation, let field = pageInputField,
+        if toolbarShown, let field = pageInputField,
            field.window === window, !field.isHiddenOrHasHiddenAncestor, !field.visibleRect.isEmpty {
             if let editor = field.currentEditor() { editor.selectAll(nil) }
             else { field.selectText(nil) }
@@ -2181,6 +2201,7 @@ private extension ReaderState {
     // Only state owned by the outgoing document. Reading preferences, position,
     // presentation and navigation history have different close/reload semantics.
     func resetDocumentTransientState() {
+        toolbarHoverVisible = false
         linkHintTask?.cancel(); linkHintTask = nil; linkDestinationHint = nil
         nativePassageTask?.cancel(); nativePassageTask = nil
         searchStartMarked = false
@@ -2213,7 +2234,7 @@ private extension ReaderState {
         landscapePages = []
         outlineBusy = false
         showFind = false
-        searchResults = []
+        searchResults = []; searchCounting = false
         showSearchResults = false
         selectedText = ""
         hasSelection = false
@@ -2386,7 +2407,7 @@ private extension ReaderState {
                     rotation = 0
                     page = 0
                     let formatDefaults = UserDefaults.standard.string(forKey: "formatDefaults") ?? "{}"
-                    if let defaults = try? JSONDecoder().decode([String: ReadingPosition].self, from: Data(formatDefaults.utf8)), let position = defaults[opened.settingsFormat] { apply(position) }
+                    if let defaults = try? JSONDecoder().decode([String: ReadingPosition].self, from: Data(formatDefaults.utf8)), let position = defaults[opened.settingsFormat] { apply(position.formatSettings) }
                     let restored = restoredPosition
                     useDocumentOpenAction = restored == nil
                     if let position = restored {

@@ -3,7 +3,7 @@ import ImageIO
 import SumraCore
 
 /// Quick Look owns its own read-only document, never a reader session or history.
-/// Comics use the shared archive reader; EPUB uses the app's bundled MuPDF ABI.
+/// Comics use the shared archive reader; ebooks use the app's bundled MuPDF ABI.
 actor QuickLookBook {
     struct Page {
         let image: CGImage
@@ -12,36 +12,40 @@ actor QuickLookBook {
     }
     private let archive: Archive?
     private let images: [String]
-    private let epub: QuickLookEPUB?
+    private let document: QuickLookDocument?
     private var chapter = 0, page = 0
 
     init(url: URL, engineURL: URL? = nil) throws {
-        if url.pathExtension.lowercased() == "epub" {
-            epub = try QuickLookEPUB(url: url, engineURL: engineURL)
+        let file = try FileHandle(forReadingFrom: url)
+        defer { try? file.close() }
+        let prefix = try file.read(upToCount: 1024) ?? Data()
+        let inspected = try Format.inspect(url, prefix: prefix)
+        if inspected.format == .book {
+            document = try QuickLookDocument(url: url, prefix: prefix, engineURL: engineURL)
             archive = nil; images = []
         } else {
-            let source = try Archive(url)
+            let source = try inspected.archive ?? Archive(url)
             let names = source.images
             guard !names.isEmpty else { throw ReadError("This archive has no comic pages.") }
-            archive = source; images = names; epub = nil
+            archive = source; images = names; document = nil
         }
     }
 
     func image(maximum: CGSize, direction: Int = 0) throws -> Page {
         try Task.checkCancellation()
-        if let epub {
+        if let document {
             if direction > 0 {
-                if page + 1 < (try epub.pages(chapter)) { page += 1 }
-                else if chapter + 1 < epub.chapters { chapter += 1; page = 0 }
+                if page + 1 < (try document.pages(chapter)) { page += 1 }
+                else if chapter + 1 < document.chapters { chapter += 1; page = 0 }
             } else if direction < 0 {
                 if page > 0 { page -= 1 }
-                else if chapter > 0 { chapter -= 1; page = try epub.pages(chapter) - 1 }
+                else if chapter > 0 { chapter -= 1; page = try document.pages(chapter) - 1 }
             }
-            let count = try epub.pages(chapter)
-            return try Page(image: epub.image(chapter: chapter, page: page, maximum: maximum),
-                            label: "\(chapter + 1)/\(epub.chapters) · \(page + 1)/\(count)",
+            let count = try document.pages(chapter)
+            return try Page(image: document.image(chapter: chapter, page: page, maximum: maximum),
+                            label: "\(chapter + 1)/\(document.chapters) · \(page + 1)/\(count)",
                             hasPrevious: chapter > 0 || page > 0,
-                            hasNext: chapter + 1 < epub.chapters || page + 1 < count)
+                            hasNext: chapter + 1 < document.chapters || page + 1 < count)
         }
         page = min(max(0, page + direction), images.count - 1)
         let bytes = try archive!.data(images[page])
@@ -64,9 +68,9 @@ actor QuickLookBook {
     }
 }
 
-// This extension registers EPUB, not PDF. It does not create another PDF model
+// This extension registers ebooks, not PDF. It does not create another PDF model
 // or activate scripts. The main app and both extensions share one bundled engine.
-private final class QuickLookEPUB {
+private final class QuickLookDocument {
     private typealias Open = @convention(c) (UnsafePointer<CChar>, UnsafePointer<CChar>?, UnsafeMutablePointer<Int32>, UnsafeMutablePointer<CChar>, Int32) -> UnsafeMutableRawPointer?
     private typealias Close = @convention(c) (UnsafeMutableRawPointer) -> Void
     private typealias Count = @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<CChar>) -> Int32
@@ -79,8 +83,19 @@ private final class QuickLookEPUB {
     private let bounds: Bounds
     private let render: Render
     let chapters: Int
+    private let temporaryDirectory: URL?
 
-    init(url: URL, engineURL: URL?) throws {
+    init(url: URL, prefix: Data, engineURL: URL?) throws {
+        var source = url, temporaryDirectory: URL?
+        var opened = false
+        defer { if !opened, let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) } }
+        if prefix.count >= 68, prefix[60..<68].elementsEqual("BOOKMOBI".utf8),
+           let content = try LegacyText.mobiContent(Data(contentsOf: url, options: .mappedIfSafe)) {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Sumra-QuickLook-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            temporaryDirectory = directory
+            source = try content.materialize(in: directory)
+        }
         // The extension links the shared engine at process startup. Its sandbox
         // cannot later open a sibling of its .appex with dlopen(path).
         let library = engineURL.map { dlopen($0.path, RTLD_NOW | RTLD_LOCAL) } ?? dlopen(nil, RTLD_NOW | RTLD_LOCAL)
@@ -99,16 +114,20 @@ private final class QuickLookEPUB {
             let open = try symbol("lf_open_classified", Open.self)
             let count = try symbol("lf_chapters", Count.self)
             var error = [CChar](repeating: 0, count: 512), password: Int32 = 0
-            guard let document = open(url.path, nil, &password, &error, 0) else {
+            guard let document = open(source.path, nil, &password, &error, 0) else {
                 throw ReadError(String(cString: error))
             }
             let chapters = count(document, &error)
             guard chapters > 0 else { close(document); throw ReadError(String(cString: error)) }
             self.document = document; self.chapters = Int(chapters); self.library = library
+            self.temporaryDirectory = temporaryDirectory; opened = true
         } catch { dlclose(library); throw error }
     }
 
-    deinit { close(document); dlclose(library) }
+    deinit {
+        close(document); dlclose(library)
+        if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
+    }
 
     func pages(_ chapter: Int) throws -> Int {
         var error = [CChar](repeating: 0, count: 512)

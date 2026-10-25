@@ -207,9 +207,25 @@ final class ReaderNavigationTests: XCTestCase {
     @MainActor
     func testFixedMarkupLinksKeepTheirFileAndFragmentDestinations() async throws {
         _ = NSApplication.shared
-        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "useFixedPageUI")
-        defaults.set(true, forKey: "useFixedPageUI")
-        defer { defaults.set(previous, forKey: "useFixedPageUI") }
+        let defaults = UserDefaults.standard
+        // Opening a sibling reloads the persisted reading settings. Keep this
+        // paginated-link fixture independent of the user's layout and CSS.
+        // A volatile override leaves the application's stored preferences alone.
+        let settings: [String: Any] = ["useFixedPageUI": true, "flow": "paged", "fit": "page", "spread": false,
+            "automaticLayout": false, "cover": false, "rtl": false, "font": "system", "fontSize": 17.0,
+            "lineHeight": 1.6, "margin": 32.0, "pageMargins": try JSONEncoder().encode(PageMargins(cssValues: [32])),
+            "theme": "light", "userCSS": "", "useDocumentCSS": true, "formatDefaults": "{}"]
+        let previousDomain = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        func preferenceSnapshot() -> [String: Any] {
+            settings.keys.reduce(into: [:]) { result, key in if let value = defaults.object(forKey: key) { result[key] = value } }
+        }
+        let before = preferenceSnapshot()
+        defaults.setVolatileDomain(previousDomain.merging(settings) { _, fixture in fixture }, forName: UserDefaults.argumentDomain)
+        defer {
+            defaults.setVolatileDomain(previousDomain, forName: UserDefaults.argumentDomain)
+            XCTAssertTrue(NSDictionary(dictionary: before).isEqual(to: preferenceSnapshot()), "The fixture must restore every overridden preference")
+            print("MARKUP-PREFERENCES restored \(settings.keys.sorted().joined(separator: ","))")
+        }
         for suffix in ["md", "html"] {
             let directory = try TemporaryDirectory()
             let source = directory.url.appendingPathComponent("source." + suffix)
@@ -747,7 +763,7 @@ final class ReaderNavigationTests: XCTestCase {
         state.document = try nativePDFReadingFixture(pdf)
         state.count = 4; state.page = 2
         for (toolbar, presentation) in [(true, false), (false, false), (true, true)] {
-            state.toolbarVisible = toolbar; state.presentation = presentation
+            state.toolbarDisplayMode = toolbar ? .shown : .hidden; state.presentation = presentation
             XCTAssertTrue(ReaderMenuCommand.goToPage.enabled(state))
         }
         let configured = try ReaderConfiguredCommand.read("""
@@ -797,14 +813,34 @@ final class ReaderNavigationTests: XCTestCase {
     }
 
     @MainActor
-    func testSearchResultsListStreamsThousandsAndScrollsUsingResultIdentity() async {
+    func testEmptyResultPublicationPreservesActiveCountAndExplicitClearStopsIt() {
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/search-count.txt"), content: .text("needle"))
+        state.showFindPanel(); state.findQuery = "needle"
+        state.searchResults = [.init(title: "needle", target: "raster-search:0:0")]
+        state.selectedSearchTarget = "raster-search:0:0"
+        state.searchCounting = true
+        state.searchResults = []
+        XCTAssertTrue(state.searchCounting, "A reflow's empty result projection does not complete the running search")
+        XCTAssertNil(state.selectedSearchTarget)
+        state.updateFindQuery("")
+        XCTAssertFalse(state.searchCounting, "Explicitly clearing the query stops its count")
+        XCTAssertTrue(state.searchResults.isEmpty)
+        state.searchCounting = true
+        state.windowClosed()
+        XCTAssertFalse(state.searchCounting, "Document teardown stops its count")
+    }
+
+    @MainActor
+    func testSearchResultsListStreamsThousandsAndScrollsUsingResultIdentity() async throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
-        let results = (0..<5_000).map {
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/search-results.txt"), content: .text("matching passage"))
+        let results = (0..<100_000).map {
             ContentsItem(title: "Page \($0 / 10 + 1): A matching passage containing BPF and surrounding text \($0)",
                          target: "raster-search:\($0 / 10):\($0 % 10)")
         }
-        let selectedTarget = results[4_992].target
+        let selectedTarget = results[99_992].target
         state.searchResults = Array(results.suffix(16))
         state.selectedSearchTarget = selectedTarget
         let host = NSHostingView(rootView: ReaderSearchResults(state: state))
@@ -834,24 +870,73 @@ final class ReaderNavigationTests: XCTestCase {
             return nil
         }
         guard await settle("initial 16 rows with selected result visible", {
-            $0.numberOfRows == 16 && NSLocationInRange(8, $0.rows(in: $0.visibleRect))
+            $0.numberOfRows == 16 && $0.selectedRow == 8 && NSLocationInRange(8, $0.rows(in: $0.visibleRect))
         }) != nil else { return }
         let started = Date()
-        for count in [1_000, 2_000, 3_000, 4_000, 5_000] {
+        for count in [1_000, 5_000, 20_000, 50_000, 100_000] {
             state.searchResults = Array(results.suffix(count))
             XCTAssertEqual(state.selectedSearchTarget, selectedTarget, "Prepending results must preserve the selected match")
             guard await settle("prepend to \(count) rows with selected result visible", {
-                $0.numberOfRows == count && NSLocationInRange(count - 8, $0.rows(in: $0.visibleRect))
+                $0.numberOfRows == count && $0.selectedRow == count - 8 && NSLocationInRange(count - 8, $0.rows(in: $0.visibleRect))
             }) != nil else { return }
             XCTAssertEqual(state.selectedSearchTarget, selectedTarget)
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 10,
                           "Streaming results must not occupy the UI for the observed minute-long diff")
         state.selectedSearchTarget = results.last?.target
-        guard let list = await settle("scroll to last result", { NSLocationInRange(4_999, $0.rows(in: $0.visibleRect)) }) else { return }
+        guard let list = await settle("scroll to last result", { NSLocationInRange(99_999, $0.rows(in: $0.visibleRect)) }) else { return }
         XCTAssertEqual(list.numberOfRows, results.count)
         state.selectedSearchTarget = results.first?.target
         guard await settle("scroll to first result", { NSLocationInRange(0, $0.rows(in: $0.visibleRect)) }) != nil else { return }
+        XCTAssertTrue(window.makeFirstResponder(list))
+        func key(_ keyCode: UInt16, characters: String, row: Int, line: UInt = #line) async throws {
+            let revision = state.command.revision
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode), line: line)
+            list.keyDown(with: event)
+            guard await settle("keyboard activation of row \(row)", line: line, {
+                $0.selectedRow == row && state.selectedSearchTarget == results[row].target &&
+                    state.command.revision > revision && state.command.action == .href(results[row].target)
+            }) != nil else { return }
+            // This fake document has no reader command consumer. Acknowledge
+            // each href before testing the next physical input event.
+            state.didHandleCommand(state.command.revision)
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        try await key(125, characters: "\u{F701}", row: 1)
+        try await key(126, characters: "\u{F700}", row: 0)
+        try await key(36, characters: "\r", row: 0)
+        try await key(49, characters: " ", row: 0)
+
+        // Appending a new counting batch must retain the user's current
+        // selection and browsing position even when they scroll away from it.
+        list.scrollRowToVisible(50_000)
+        guard await settle("manual browse away from selected row", {
+            NSLocationInRange(50_000, $0.rows(in: $0.visibleRect)) && !NSLocationInRange(0, $0.rows(in: $0.visibleRect))
+        }) != nil else { return }
+        let revisionBeforeAppend = state.command.revision
+        let appended = (100_000..<100_100).map {
+            ContentsItem(title: "A later matching passage \($0)", target: "raster-search:\($0):0")
+        }
+        state.searchResults = results + appended
+        guard await settle("append preserves manual browsing position", {
+            $0.numberOfRows == 100_100 && $0.selectedRow == 0 &&
+                NSLocationInRange(50_000, $0.rows(in: $0.visibleRect)) && !NSLocationInRange(0, $0.rows(in: $0.visibleRect))
+        }) != nil else { return }
+        XCTAssertEqual(state.selectedSearchTarget, results[0].target)
+        XCTAssertEqual(state.command.revision, revisionBeforeAppend, "Publishing results must not activate a row")
+
+        // Accessibility clients can change native selection without a mouse
+        // action. The selection notification must perform the same navigation.
+        let accessibleRow = 50_001, revisionBeforeSelection = state.command.revision
+        list.selectRowIndexes(IndexSet(integer: accessibleRow), byExtendingSelection: false)
+        guard await settle("native accessibility-style selection activates result", {
+            $0.selectedRow == accessibleRow && state.selectedSearchTarget == results[accessibleRow].target &&
+                state.command.revision > revisionBeforeSelection && state.command.action == .href(results[accessibleRow].target)
+        }) != nil else { return }
+        state.didHandleCommand(state.command.revision)
+        try await Task.sleep(nanoseconds: 10_000_000)
         state.searchResults = []
         guard await settle("clear results", { $0.numberOfRows == 0 }) != nil else { return }
         XCTAssertNil(state.selectedSearchTarget)
@@ -1469,7 +1554,7 @@ final class ReaderNavigationTests: XCTestCase {
         state.flow = "paged"; state.fit = "width"; state.spread = false; state.cover = false; state.rtl = false
         state.rotation = 0; state.automaticLayout = false; state.uniformPageWidth = false
         state.freePan = false; state.trimEmptyMargins = false; state.scrollbarMode = "shown"
-        state.toolbarVisible = true; state.presentation = false
+        state.toolbarDisplayMode = .shown; state.presentation = false
         state.showContents = false; state.showThumbnails = false; state.showBookmarks = false
         let host = NSHostingView(rootView: ReaderView(state: state))
         let window = NSWindow(contentRect: CGRect(x: 50, y: 50, width: 900, height: 740),
@@ -1477,6 +1562,10 @@ final class ReaderNavigationTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.toolbar = NSToolbar(identifier: .init("SumraWheelLayout-" + UUID().uuidString))
         window.toolbarStyle = .unified; window.contentView = host; state.window = window
+        if let display = ProcessInfo.processInfo.environment["SUMRA_TEST_DISPLAY_NAME"] {
+            let screen = try XCTUnwrap(NSScreen.screens.first { $0.localizedName == display })
+            window.setFrameOrigin(NSPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.minY + 40))
+        }
         window.orderFront(nil)
         var intercepted: Bool?
         let monitor = try XCTUnwrap(NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in

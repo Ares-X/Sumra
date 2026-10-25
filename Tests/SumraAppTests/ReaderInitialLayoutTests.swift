@@ -193,10 +193,12 @@ final class ReaderInitialLayoutTests: XCTestCase {
         try String(repeating: "Text remains continuous through the whole book.\n\n", count: 160)
             .write(to: input, atomically: true, encoding: .utf8)
 
+        for toolbarMode in ReaderToolbarDisplayMode.allCases {
         for (flow, spread) in [("continuous", false), ("paged", false), ("paged", true)] {
         for mode in ["smart", "shown", "hidden"] {
             let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
             let state = ReaderState(recordsHistory: false)
+            state.toolbarDisplayMode = toolbarMode
             state.document = ReadingDocument(url: input, content: .pages(pages))
             state.flow = flow; state.spread = spread; state.fit = "width"
             state.font = "serif"; state.fontSize = 17; state.lineHeight = 1.4
@@ -251,9 +253,9 @@ final class ReaderInitialLayoutTests: XCTestCase {
                 XCTAssertLessThanOrEqual(document.frame.width, clip.width + 0.01)
                 XCTAssertFalse(scroll.hasHorizontalScroller)
             }
-            XCTAssertEqual(bounds.width, expected.width, accuracy: 0.01, "\(flow) \(spread) \(mode)")
-            XCTAssertEqual(revision, initialPageSize == expected ? 1 : 2, "\(flow) \(spread) \(mode) may relayout only for an actual viewport change")
-            XCTAssertEqual(publications.count, 1, "The mounted reader must receive its final geometry in the first publication")
+            XCTAssertEqual(bounds.width, expected.width, accuracy: 0.01, "\(toolbarMode) \(flow) \(spread) \(mode)")
+            XCTAssertEqual(revision, initialPageSize == expected ? 1 : 2, "\(toolbarMode) \(flow) \(spread) \(mode) may relayout only for an actual viewport change")
+            XCTAssertEqual(publications.count, 1, "\(toolbarMode): The mounted reader must receive its final geometry in the first publication")
             let first = try XCTUnwrap(publications.first)
             XCTAssertNotNil(first.nativePassage)
             XCTAssertEqual(first.nativePassage?.source, state.currentPosition.nativePassage?.source)
@@ -264,6 +266,7 @@ final class ReaderInitialLayoutTests: XCTestCase {
                 XCTAssertEqual(bounds.height, expected.height, accuracy: 0.01)
                 XCTAssertEqual(firstBounds.height, expected.height, accuracy: 0.01)
             }
+        }
         }
         }
     }
