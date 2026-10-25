@@ -457,7 +457,7 @@ struct ReaderView: View {
                 initialPosition: initialNativeCanvas?.document == document.id ? initialNativeCanvas?.position : nil)
                 .background(ReaderInitialViewport { size in
                     initialNativeViewport = (document.id, size)
-                })
+                }.ignoresSafeArea(.container, edges: state.toolbarOverlaysContent ? .top : []))
                 .task(id: initialNativeViewport?.document) {
                     guard let viewport = initialNativeViewport, viewport.document == document.id else { return }
                     let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
