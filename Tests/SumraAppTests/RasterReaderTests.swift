@@ -10,6 +10,47 @@ import XCTest
 
 final class RasterReaderTests: XCTestCase {
     @MainActor
+    func testFirstPaintFollowsReadyRenderRevisionWhenBitmapIsReused() async throws {
+        _ = NSApplication.shared
+        let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 160,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(NSColor.white.cgColor); context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        let image = try XCTUnwrap(context.makeImage())
+        let canvas = RasterCanvas.Canvas(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+        canvas.image = image; canvas.pageBounds = canvas.bounds; canvas.visibleBounds = canvas.bounds
+        canvas.readingReady = true; canvas.renderRevision = 1
+        var painted = [Int]()
+        canvas.didPaint = { painted.append(canvas.renderRevision) }
+        let window = NSWindow(contentRect: canvas.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = canvas
+        defer { window.contentView = nil; window.close() }
+        func paint() async throws {
+            let bitmap = try XCTUnwrap(canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds))
+            canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
+            // First-paint delivery is deferred until after the AppKit draw.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+        try await paint()
+        XCTAssertEqual(painted, [1])
+        try await paint()
+        XCTAssertEqual(painted, [1], "Repeated drawing of one ready revision must emit first paint once")
+
+        // A cached bitmap can survive viewport/style revision changes. Its new
+        // revision still needs actual ready pixels before pagination resumes.
+        canvas.renderRevision = 2; canvas.readingReady = false
+        XCTAssertTrue(canvas.image === image)
+        try await paint()
+        XCTAssertEqual(painted, [1], "An outgoing preview cannot acknowledge the replacement revision")
+        canvas.readingReady = true
+        try await paint()
+        XCTAssertEqual(painted, [1, 2])
+        try await paint()
+        XCTAssertEqual(painted, [1, 2])
+    }
+
+    @MainActor
     func testMarkdownCountWaitsForSelectedPassagePaintOnExistingAndNewPages() async throws {
         try await assertMarkdownCountWaitsForPaint(flow: "paged")
         try await assertMarkdownCountWaitsForPaint(flow: "continuous")

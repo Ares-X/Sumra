@@ -2515,7 +2515,11 @@ private struct RasterScrollRequest: Equatable {
                 state.logicalPageLabel = label
             } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
         }
-        .task(id: firstRenderedRevision) {
+        .task(id: state.searchCounting ? nil : firstRenderedRevision) {
+            // Full-document search needs only candidate-positive chapters. Stop
+            // speculative pagination while it runs, then resume the eventual
+            // page total when search ends or is cancelled.
+            guard !state.searchCounting else { return }
             // Whole-book chapter counting starts only after actual visible
             // pixels, so an unpainted natural canvas cannot queue it ahead of
             // the first viewport's native tile requests.
@@ -2530,11 +2534,11 @@ private struct RasterScrollRequest: Equatable {
             do {
                 for chapter in 0..<table.chapterCount where !table.isLaidOut(chapter) {
                     try Task.checkCancellation()
-                    guard documentID == state.document?.id, revision == state.renderRevision else { return }
+                    guard !state.searchCounting, documentID == state.document?.id, revision == state.renderRevision else { return }
                     try await pages.warmChapter(chapter)
                     await Task.yield()
                 }
-                guard !Task.isCancelled, documentID == state.document?.id, revision == state.renderRevision else { return }
+                guard !Task.isCancelled, !state.searchCounting, documentID == state.document?.id, revision == state.renderRevision else { return }
                 try await pages.publishWarmedChapters()
             } catch { if !Task.isCancelled, documentID == state.document?.id, revision == state.renderRevision { state.error = error.localizedDescription } }
         }
@@ -4838,7 +4842,9 @@ struct NativeReadingAccessibilitySnapshot {
         private var formWidget: PDFAnnotationSnapshot?
         private var formTask: Task<Void, Never>?
         var lastRequest: ReadingPosition?
-        var renderRevision = 0
+        var renderRevision = 0 {
+            didSet { if renderRevision != oldValue { traceFirstPaint = true } }
+        }
         var lastDisplaySize = CGSize.zero
         var lastFocus: CGRect?
         var keyboardActive = false
