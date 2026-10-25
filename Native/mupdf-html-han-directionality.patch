@@ -1,6 +1,6 @@
 --- a/source/html/html-parse.c
 +++ b/source/html/html-parse.c
-@@ -1991,50 +1991,64 @@
+@@ -1991,50 +1991,67 @@
  	}
  }
  
@@ -8,7 +8,8 @@
 - * paragraph as level zero. With a Latin letter present, split_at_script emits
 - * one Latin fragment. Keep its normal path for every other kind of flow. */
 +/* A single Latin/Han script with only LTR-compatible neutral units produces
-+ * one level-zero fragment. Keep the full bidi/script owner for mixed scripts,
++ * one level-zero fragment within the current markup/break segment.
++ * Keep the full bidi/script owner for mixed scripts,
 + * explicit controls and right-to-left text. */
  static int
 -detect_simple_latin_flow(fz_html_tree *tree, fz_bidi_direction dir, fz_html_flow *flow)
@@ -51,15 +52,15 @@
 -		node->script = UCDN_SCRIPT_LATIN;
 -	}
 -	return 1;
-+detect_simple_ltr_flow(fz_html_tree *tree, fz_bidi_direction dir, fz_html_flow *flow)
++detect_simple_ltr_flow(fz_html_tree *tree, fz_bidi_direction dir, fz_html_flow *flow, fz_html_flow **after)
 +{
 + fz_html_flow *node, *last_text = NULL, *end;
 + int script = UCDN_SCRIPT_COMMON;
 +
-+ if (dir != FZ_BIDI_LTR) return 0;
++ if (dir != FZ_BIDI_LTR || (flow->bidi_level & 1)) return 0;
 + for (node = flow; node; node = fz_html_flow_next(tree, node))
 + {
-+  if (node->bidi_level & 1) return 0;
++  if (node->bidi_level & 1) break;
 +  if (node->type == FLOW_WORD)
 +  {
 +   const char *text = fz_html_flow_text(node);
@@ -95,9 +96,11 @@
 +   }
 +  }
 +  else if (node->type == FLOW_SPACE) last_text = node;
-+  else if (node->type == FLOW_BREAK || node->type == FLOW_IMAGE) return 0;
++  else if (node->type == FLOW_BREAK || node->type == FLOW_IMAGE)
++  { node = fz_html_flow_next(tree, node); break; }
 + }
 + if (script == UCDN_SCRIPT_COMMON) return 0;
++ *after = node;
 + end = fz_html_flow_next(tree, last_text);
 + for (node = flow; node != end; node = fz_html_flow_next(tree, node))
 + {
@@ -108,12 +111,20 @@
  }
  
  static fz_bidi_direction
-@@ -2042,7 +2056,7 @@
+@@ -2042,11 +2059,13 @@
  {
  	fz_html_flow *end = flow;
  	bidi_data data;
 -	if (detect_simple_latin_flow(tree, bidi_dir, flow))
-+	if (detect_simple_ltr_flow(tree, bidi_dir, flow))
- 		return bidi_dir;
- 
+-		return bidi_dir;
+-
  	while (end)
+ 	{
++		if (detect_simple_ltr_flow(tree, bidi_dir, flow, &end))
++		{
++			flow = end;
++			continue;
++		}
+ 		unsigned int level = end->bidi_level;
+ 
+ 		/* Gather the text from the flow up into a single buffer (at

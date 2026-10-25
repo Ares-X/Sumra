@@ -60,7 +60,14 @@ int main(void) {
         "<p dir='auto'>甲乙丙 123</p>",
         "<p>&#x202e;甲乙&#x202c;丙&#x2067;丁&#x2069;戊</p>",
         "<p>甲&#x301;乙&#x200d;丙 😀丁</p>",
-        "<p>甲<br/>乙</p><p>123 punctuation only!</p>"
+        "<p>甲<br/>乙</p><p>123 punctuation only!</p>",
+        "<p>甲乙，丙丁<br/>plain ASCII 123<br/>戊己。庚辛<br/>Latin mixed 中文<br/>壬癸</p>",
+        "<p>甲乙<br/>אבג 123<br/>丙丁<br/>العربية 456<br/>戊己</p>",
+        "<p>甲&#x301;乙<br/>&#x202e;甲乙&#x202c;<br/>丙&#x2067;丁&#x2069;戊<br/>庚辛</p>",
+        "<p dir='rtl'>甲乙<br/>Latin 123<br/>丙丁</p>",
+        "<p dir='auto'>甲乙<br/>אבג 123<br/>丙丁</p>",
+        "<p>甲乙<img src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='/>丙丁</p>",
+        "<p>甲乙<br/><br/>丙丁<br/></p>"
     };
     for (size_t i=0;i<sizeof(cases)/sizeof(*cases);++i) fixture(ctx,set,cases[i]);
     uint32_t random=19; char body[4096];
