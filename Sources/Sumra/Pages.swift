@@ -1600,9 +1600,15 @@ actor Pages {
         try Task.checkCancellation()
         let cancellation = document.native?.engine == .mupdf ? try NativeRenderCancellation() : nil
         return try await withTaskCancellationHandler {
-            try document.native?.matches(query, page: page, options: options, after: after,
-                                         backwards: backwards, maximum: maximum, cancellation: cancellation) ?? []
+            try nativeMatches(query, page: page, options: options, after: after,
+                              backwards: backwards, maximum: maximum, cancellation: cancellation)
         } onCancel: { cancellation?.cancel() }
+    }
+    private func nativeMatches(_ query: String, page: Int, options: TextSearchOptions, after: Int? = nil,
+                               backwards: Bool = false, maximum: Int? = nil,
+                               cancellation: NativeRenderCancellation?) throws -> [RasterMatch] {
+        try document.native?.matches(query, page: page, options: options, after: after,
+                                     backwards: backwards, maximum: maximum, cancellation: cancellation) ?? []
     }
     func match(_ query: String, at passage: NativePassage, options: TextSearchOptions) async throws -> RasterMatch? {
         guard let position = try document.native?.position(for: passage),
@@ -1631,16 +1637,23 @@ actor Pages {
     }
     func nextChapterMatches(_ query: String, chapter: Int, pageRange: Range<Int>,
                             options: TextSearchOptions, maximum: Int? = nil) async throws -> (matches: [RasterMatch], nextPage: Int, layout: ChapterTable) {
-        for page in pageRange {
+        try Task.checkCancellation()
+        let cancellation = document.native?.engine == .mupdf ? try NativeRenderCancellation() : nil
+        return try await withTaskCancellationHandler {
+            for page in pageRange {
+                try Task.checkCancellation()
+                let location = PageLocation(chapter: chapter, page: page)
+                let found = try nativeMatches(query, page: index(location), options: options,
+                    maximum: maximum, cancellation: cancellation)
+                    .map { match in var match = match; match.location = location; return match }
+                if !found.isEmpty { return (found, page + 1, chapterLayout) }
+                // One batch owns one abort cookie across its empty pages.
+                // Reading, reflow and cancellation still run between pages.
+                await Task.yield()
+            }
             try Task.checkCancellation()
-            let found = try await matches(query, location: .init(chapter: chapter, page: page),
-                                    options: options, maximum: maximum)
-            if !found.isEmpty { return (found, page + 1, chapterLayout) }
-            // Empty pages need no UI publication. Yield inside the decoder
-            // actor so reading and cancellation can still run between them.
-            await Task.yield()
-        }
-        return ([], pageRange.upperBound, chapterLayout)
+            return ([], pageRange.upperBound, chapterLayout)
+        } onCancel: { cancellation?.cancel() }
     }
     func markdownDocumentMatches(_ query: String, options: TextSearchOptions, startPage: Int,
                                  after: NativeSourceAnchor? = nil, backwards: Bool = false,
@@ -2112,6 +2125,7 @@ struct RasterSpeechSelection {
     var keyboardAnchor: (page: PageLocation, offset: Int)?
     var keyboardFocus: (page: PageLocation, offset: Int)?
     var pendingReaderFocus = false
+    weak var previewOwner: RasterCanvas.Canvas?
     var cursor: (page: PageLocation, point: CGPoint)?
     var caretRect: CGRect?
     var rectangular = false
@@ -2271,6 +2285,18 @@ private struct RasterScrollRequest: Equatable {
     }
 }
 
+private struct ReaderKeyboardFocus: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 14, *) {
+            // The whole reading viewport accepts arrow keys. A control-style
+            // focus outline obscures the page and can outlive a live resize.
+            content.focusable().focusEffectDisabled()
+        } else {
+            content.focusable()
+        }
+    }
+}
+
 @MainActor struct RasterReader: View {
     static func pageLocalOffset(in view: NSView?) -> PageLocalOffset? {
         guard let canvas = view as? RasterCanvas.Canvas, let clip = canvas.enclosingScrollView?.contentView,
@@ -2412,7 +2438,7 @@ private struct RasterScrollRequest: Equatable {
                     }
                 }
             }
-            .focusable()
+            .modifier(ReaderKeyboardFocus())
             .onAppear {
                 lastFinitePage = state.page
                 viewportFrame = geometry.size
@@ -4863,7 +4889,8 @@ struct NativeReadingAccessibilitySnapshot {
             if state?.status == linkInputHint { state?.status = "" }
             linkDigits = ""
         }
-        private var linkTracking = [NSTrackingArea]()
+        private var linkTracking: NSTrackingArea?
+        private var hoveredLink: RasterLink?
         private var preview: NSPanel?, previewTask: Task<Void, Never>?
         var comment: NSPopover?
         private var commentTask: Task<Void, Never>?
@@ -5128,6 +5155,7 @@ struct NativeReadingAccessibilitySnapshot {
             else { context.stroke(box) }
         }
         override func mouseMoved(with event: NSEvent) {
+            updateHover(at: event.locationInWindow)
             guard let tool = state?.nativePDFAnnotationTool, tool.isPlacement || tool.kind == "eraser" else { super.mouseMoved(with: event); return }
             guard tool.points.isEmpty || tool.page == page else { return }
             tool.use(self, page: page)
@@ -5497,6 +5525,7 @@ struct NativeReadingAccessibilitySnapshot {
             super.scrollWheel(with: event)
         }
         override func mouseDown(with event: NSEvent) {
+            selections?.previewOwner?.closePreview()
             closePreview()
             closeComment()
             let point = convert(event.locationInWindow, from: nil).applying(pageTransform.inverted())
@@ -5948,30 +5977,60 @@ struct NativeReadingAccessibilitySnapshot {
             return hintedLinks.last { $0.bounds.applying(pageTransform).contains(point) }?.uri ?? ""
         }
         override func updateTrackingAreas() {
-            for area in linkTracking { removeTrackingArea(area) }; linkTracking = []
-            if state?.nativePDFAnnotationTool != nil {
-                let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
-                addTrackingArea(area); linkTracking.append(area)
-            }
-            if state?.hoverPreview == true {
-                for link in hintedLinks where !["http", "https", "mailto", "ftp"].contains(URL(string: link.uri)?.scheme?.lowercased() ?? "") && (pages?.isPDF != true || link.uri.hasPrefix("#")) {
-                    let area = NSTrackingArea(rect: link.bounds.applying(pageTransform), options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self, userInfo: ["uri": link.uri])
-                    addTrackingArea(area); linkTracking.append(area)
+            // Keep the visible-page area alive across SwiftUI updates. Replacing
+            // a link's tracking area while hovered can lose its exit event.
+            if state?.hoverPreview == true || state?.nativePDFAnnotationTool != nil {
+                if linkTracking == nil {
+                    let area = NSTrackingArea(rect: .zero,
+                        options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+                        owner: self, userInfo: nil)
+                    addTrackingArea(area); linkTracking = area
                 }
-            } else { closePreview() }
+            } else if let area = linkTracking {
+                removeTrackingArea(area); linkTracking = nil
+            }
+            if let link = hoveredLink, !stillHovering(link) { closePreview() }
             super.updateTrackingAreas()
         }
         override func mouseEntered(with event: NSEvent) {
-            guard comment?.isShown != true, state?.hoverPreview == true, let uri = event.trackingArea?.userInfo?["uri"] as? String, let pages,
-                  let link = links.first(where: { $0.uri == uri }) else { return }
+            updateHover(at: event.locationInWindow)
+        }
+        private func previewLink(at windowPoint: CGPoint) -> RasterLink? {
+            guard comment?.isShown != true, state?.hoverPreview == true,
+                  state?.nativePDFAnnotationTool == nil else { return nil }
+            let point = convert(windowPoint, from: nil)
+            guard visibleRect.contains(point), let link = links.last(where: {
+                $0.bounds.applying(pageTransform).contains(point)
+            }), !["http", "https", "mailto", "ftp"].contains(URL(string: link.uri)?.scheme?.lowercased() ?? ""),
+                pages?.isPDF != true || link.uri.hasPrefix("#") else { return nil }
+            return link
+        }
+        private func stillHovering(_ link: RasterLink) -> Bool {
+            guard let window, window.isKeyWindow,
+                  let current = previewLink(at: window.mouseLocationOutsideOfEventStream) else { return false }
+            return current.uri == link.uri && current.rect == link.rect
+        }
+        private func updateHover(at windowPoint: CGPoint) {
+            if selections?.previewOwner !== self { selections?.previewOwner?.closePreview() }
+            guard window?.isKeyWindow == true, let link = previewLink(at: windowPoint), let pages else { closePreview(); return }
+            if hoveredLink?.uri == link.uri, hoveredLink?.rect == link.rect { return }
             closePreview()
+            hoveredLink = link; selections?.previewOwner = self
             let rect = link.bounds.applying(pageTransform)
             let sourcePage = page, style = pdfStyle, documentID = state?.document?.id
             previewTask = Task {
+                defer {
+                    if !Task.isCancelled {
+                        previewTask = nil
+                        if preview == nil { closePreview() }
+                    }
+                }
                 do {
                     try await Task.sleep(nanoseconds: 350_000_000)
-                    guard let image = try await pages.previewImage(uri, from: sourcePage, pdfStyle: style) else { return }
-                    guard !Task.isCancelled, let window, state?.document?.id == documentID else { return }
+                    guard !Task.isCancelled, stillHovering(link) else { return }
+                    guard let image = try await pages.previewImage(link.uri, from: sourcePage, pdfStyle: style) else { return }
+                    guard !Task.isCancelled, let window, state?.document?.id == documentID,
+                          selections?.previewOwner === self, stillHovering(link) else { return }
                     let size = CGSize(width: 320, height: min(440, 320 * CGFloat(image.height) / CGFloat(image.width)))
                     let view = NSImageView(frame: CGRect(origin: .zero, size: size)); view.imageScaling = .scaleProportionallyDown
                     view.image = NSImage(cgImage: image, size: .zero)
@@ -6004,7 +6063,8 @@ struct NativeReadingAccessibilitySnapshot {
         fileprivate func closePreview() {
             previewTask?.cancel(); previewTask = nil
             if let preview { preview.parent?.removeChildWindow(preview); preview.close() }
-            preview = nil
+            preview = nil; hoveredLink = nil
+            if selections?.previewOwner === self { selections?.previewOwner = nil }
         }
         @objc private func previewWindowChanged(_ notification: Notification) { closePreview() }
         override func mouseExited(with event: NSEvent) { closePreview() }
@@ -6082,7 +6142,8 @@ struct NativeReadingAccessibilitySnapshot {
             if let observer = scrollObserver { NotificationCenter.default.removeObserver(observer) }; scrollObserver = nil
             guard let window, let scroll = enclosingScrollView else { return }
             for name in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification,
-                         NSWindow.didResizeNotification] {
+                         NSWindow.didResizeNotification, NSWindow.willMoveNotification,
+                         NSWindow.didResignKeyNotification] {
                 NotificationCenter.default.addObserver(self, selector: #selector(previewWindowChanged(_:)), name: name, object: window)
             }
             if let state, case .pages(let current) = state.document?.content, current === pages {

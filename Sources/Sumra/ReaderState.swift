@@ -345,7 +345,7 @@ final class ReaderState: ObservableObject {
     @Published var findQuery = ""
     @Published private(set) var searchPageRange = ""
     private var pendingFind: Task<Void, Never>?
-    private var searchStartMarked = false
+    @Published private(set) var searchSessionActive = false
     @Published var searchCaseSensitive = false { didSet { if oldValue != searchCaseSensitive, !findQuery.isEmpty { findNext() } } }
     @Published var searchWholeWord = false { didSet { if oldValue != searchWholeWord, !findQuery.isEmpty { findNext() } } }
     @Published var logicalPageLabel: String?
@@ -803,10 +803,10 @@ extension ReaderState {
             pendingFind?.cancel(); pendingFind = nil
             findQuery = query
             // SearchAndDDE::MarkSearchStart: one return point per find session.
-            if selection { searchStartMarked = false }
-            if !query.isEmpty, !searchStartMarked {
+            if selection { searchSessionActive = false }
+            if !query.isEmpty, !searchSessionActive {
                 recordNavigation()
-                searchStartMarked = true
+                searchSessionActive = true
             }
             ReaderSearchHistory.shared.remember(query)
             action = .find(query, backwards: backwards, options: options ?? .init(caseSensitive: searchCaseSensitive, wholeWord: searchWholeWord,
@@ -1217,7 +1217,7 @@ extension ReaderState {
     }
 
     func showFindPanel() {
-        searchStartMarked = false
+        searchSessionActive = false
         showFind = true
         findFocusRevision &+= 1
         selectSidebar("search")
@@ -1243,7 +1243,7 @@ extension ReaderState {
     func closeSidebar() { selectSidebar("") }
 
     func closeFind() {
-        searchStartMarked = false
+        searchSessionActive = false
         pendingFind?.cancel(); pendingFind = nil
         showFind = false
         showSearchResults = false
@@ -2204,7 +2204,7 @@ private extension ReaderState {
         toolbarHoverVisible = false
         linkHintTask?.cancel(); linkHintTask = nil; linkDestinationHint = nil
         nativePassageTask?.cancel(); nativePassageTask = nil
-        searchStartMarked = false
+        searchSessionActive = false
         pendingFind?.cancel(); pendingFind = nil
         generatedContentsTask?.cancel(); generatedContentsTask = nil
         setAutoScroll(false)

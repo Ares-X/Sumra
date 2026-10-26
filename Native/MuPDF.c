@@ -2062,7 +2062,8 @@ static char *search_options_on_text(void *document, int chapter, int index, cons
         search = fz_new_search(d->ctx, needle, options);
         // MuPDF owns normalization and match quads. Its iterative API exposes
         // real characters for Sumatra's word-boundary check and cancellation.
-        fz_page *page = load_render_page(d, chapter, index, cookie);
+        if ((cookie && cookie->abort) || (cancelled && cancelled())) fz_throw(d->ctx, FZ_ERROR_ABORT, "Search cancelled");
+        fz_page *page = window ? NULL : load_render_page(d, chapter, index, cookie);
         // A negative flow candidate avoids extracting every glyph of an unseen
         // continuous chapter. Existing cached glyph text is already cheaper.
         if (!fz_search_needle_bytes(search) ||
@@ -2217,7 +2218,7 @@ API char *lf_search_pages_at(void *document, int chapter, int index, const char 
     fz_var(normalizer); fz_var(candidate); fz_var(chunker); fz_var(result);
     fz_try(d->ctx) { do {
         fz_page *owner_page = load_render_page(d, chapter, index, cookie);
-        if (!d->text_page && fz_is_document_reflowable(d->ctx, d->doc)) {
+        if (fz_is_document_reflowable(d->ctx, d->doc)) {
             candidate = page_search_candidate(d->ctx, needle);
             if (candidate && !fz_html_page_has_search_candidate(d->ctx, owner_page, candidate, cancelled, cookie)) {
                 result = strdup("{\"text\":\"\",\"matches\":[]}");

@@ -140,10 +140,9 @@ final class NativeLinkInteractionTests: XCTestCase {
         let first = try XCTUnwrap(window.childWindows?.first)
         state.hoverPreview = false
         try await wait(host, state) { !first.isVisible && first.parent == nil }
-        XCTAssertFalse(canvas.trackingAreas.contains { $0.userInfo?["uri"] != nil })
 
         state.hoverPreview = true
-        try await wait(host, state) { canvas.trackingAreas.contains { $0.userInfo?["uri"] != nil } }
+        host.layoutSubtreeIfNeeded()
         try enterLink(in: canvas)
         try await wait(host, state) { window.childWindows?.contains { $0.isVisible } == true }
         let second = try XCTUnwrap(window.childWindows?.first)
@@ -245,7 +244,7 @@ final class NativeLinkInteractionTests: XCTestCase {
             let screen = try XCTUnwrap(NSScreen.screens.first { $0.localizedName == display }, "Requested test display is unavailable")
             frame.origin = CGPoint(x: screen.visibleFrame.midX - frame.width / 2, y: screen.visibleFrame.midY - frame.height / 2)
         }
-        let window = NSWindow(contentRect: frame,
+        let window = LinkInteractionWindow(contentRect: frame,
             styleMask: .titled, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         window.makeKeyAndOrderFront(nil)
@@ -253,9 +252,13 @@ final class NativeLinkInteractionTests: XCTestCase {
     }
 
     private func enterLink(in canvas: RasterCanvas.Canvas) throws {
-        let event = LinkHoverEvent()
-        event.area = try XCTUnwrap(canvas.trackingAreas.first { $0.userInfo?["uri"] as? String == "#destination" })
-        canvas.mouseEntered(with: event)
+        let link = try XCTUnwrap(canvas.links.first { $0.uri == "#destination" })
+        let point = canvas.convert(CGPoint(x: link.bounds.midX, y: link.bounds.midY).applying(canvas.pageTransform), to: nil)
+        let window = try XCTUnwrap(canvas.window as? LinkInteractionWindow)
+        window.pointer = point
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        canvas.mouseMoved(with: event)
     }
 
     private func canvases(in view: NSView) -> [RasterCanvas.Canvas] {
@@ -278,8 +281,9 @@ final class NativeLinkInteractionTests: XCTestCase {
     }
 }
 
-private final class LinkHoverEvent: NSEvent {
-    var area: NSTrackingArea?
-    override var trackingArea: NSTrackingArea? { area }
+private final class LinkInteractionWindow: NSWindow {
+    var pointer = CGPoint(x: -1, y: -1)
+    override var isKeyWindow: Bool { true }
+    override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
 }
 #endif

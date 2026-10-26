@@ -71,7 +71,7 @@ final class NativePDFReaderMigrationTests: XCTestCase {
             XCTAssertTrue(condition(), state.error ?? "Reader interaction did not settle", line: line)
         }
         func linkCount(_ view: NSView) -> Int {
-            view.trackingAreas.filter { $0.userInfo?["uri"] != nil }.count + view.subviews.reduce(0) { $0 + linkCount($1) }
+            (view as? RasterCanvas.Canvas)?.links.count ?? view.subviews.reduce(0) { $0 + linkCount($1) }
         }
         func pageIsRendered(_ page: Int, in view: NSView) -> Bool {
             RasterReader.pageIsRendered(in: view, pages: pages, location: .init(page: page)) ||
