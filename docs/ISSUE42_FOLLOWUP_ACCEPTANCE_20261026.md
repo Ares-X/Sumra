@@ -1,23 +1,55 @@
 # Issue 42 follow-up acceptance — 2026-10-26
 
-**Status: final-engine local acceptance passed within the scopes below; signed
-release-candidate acceptance remains pending.** No PR, publication, or reporter
-reply has been sent in this round. The Release host was built with
-`Pages.swift` SHA256
-`8a950c7938c1a3ab54a7b58127fa701fc040bb357a4661a8422d7c76434d5fe4` and host
-UUID `5ABD1C26-DDC7-3728-8574-DCF06ACBA716`. QA host `5ABD1C26` was loaded
-with final engine SHA256
-`e6b9d81c0cd6c98510c6080605627f2b38b131426cd8fa00ee22166e0bf7074f`, UUID
-`B97A7588-7F8C-3294-AC5B-0554128B4026`, and is now quit. Local source, native,
-and GUI acceptance is complete at the boundaries documented here; current
-distribution is ad-hoc signed and verified. The signed release-candidate GUI
-check remains pending. The QA host and owned workers are quit. The official
-`/Applications/Sumra.app` remains 0.2.18. This record addresses
-[the latest feedback after 0.2.18](https://github.com/Ares-X/Sumra/issues/42#issuecomment-6406137843),
-confirmed unchanged in `build/perf-interaction-20261026/feedback/comments-latest-current.json`
-(06:34:35Z).
-The release candidate has not been published and no reporter reply has been
-sent.
+**Status: the signed 0.2.19 candidate passed the issue's bug-fix acceptance;
+0.2.19 is published and installed. Public download verification passed;
+the previous-version updater attempt failed during TLS.**
+[PR #46](https://github.com/Ares-X/Sumra/pull/46) was merged as
+`e39f2f03c7716aab85c1cf64505404307c03ce44`. The accepted app was built from
+`44c8c19ea81d1489a3f74f57592e5df13a63eb5d` by the
+[signed candidate workflow](https://github.com/Ares-X/Sumra/actions/runs/40293832740).
+Its host UUID is `E7EB07E9-FD52-3447-B5E0-797617506CCB`, engine SHA256
+`4caa65929fcccd0a9b3da64dea91ee8ca0830e7642af08c5736442372994ceb3`, and engine
+UUID `4A19310F-C4A8-3C08-85E4-F697C1A30D44`. Signature, bundle manifest and
+corresponding-source checks passed. All 413 inputs in the final 1,238-test
+source gate match the committed candidate source. The installed official app is 0.2.19 (21), and the original Alice FB2 was
+opened from that installed executable on the physical display.
+
+The exact signed app was exercised on the physical main display, then quit.
+Temporary candidate registration was removed, official registration and saved
+application preferences restored, and owned candidate providers stopped or
+observed exited. Evidence is under `build/release-0.2.19/`, headed by
+`signed-acceptance.json`, `candidate-downloads.json`, `candidate-identity.json`,
+`correspondence-check.json`, and `validation-source-binding.json`.
+The optional coverless EPUB thumbnail and dense-search performance goal remain
+unresolved; neither is included in the bug-fix pass.
+
+## Latest feedback cross-check
+
+The issue body and all three comments were fetched again on October 26. The
+reporter's last edit remains `2026-10-26T06:34:35Z`; there is no newer feedback
+in that snapshot. Exact responses are retained in
+`build/release-0.2.19/issue-latest.json` and `issue-comments-latest.json`.
+
+| Reported behavior | Local evidence and remaining acceptance |
+| --- | --- |
+| Preview intercepts first click; blue destination circles | Reporter confirms 0.2.18 fixed both. Signed-candidate physical single-click regression passed. |
+| AZW3 dead links and visible CSS | Reporter confirms both fixed. Signed original sample: all 8 live TOC links navigate; final page has no CSS. The image-only first page is not an interactive TOC. |
+| FB2/MOBI image peeking, normal and fullscreen | Signed original Alice books: FB2 7 normal + 5 fullscreen pages; MOBI 9 normal + 7 fullscreen pages visually checked. All illustrations intact, no empty first/last page. |
+| Link preview remains open; two previews in a spread | Six lifecycle tests plus signed-candidate 10/10 physical pointer steps pass, including repeated URI targets, departure during delay, and cross-page handoff. |
+| Blank cover/comic click then enlarge leaves blue outline | Signed cover on/off and comic blank-area click/enlarge cases pass. Cover-on and comic keyboard navigation also pass. |
+| Revealed toolbar has no background, especially in dark mode | Signed themed windowed/fullscreen dark captures pass; presentation has no grey stripe and Escape restores the reader. |
+| Fullscreen hidden toolbar leaves gap/shadow; hover causes movement | Signed dark fullscreen 330 frames and light windowed 345 frames have zero registered body movement and unchanged window geometry. This measures spatial stability, not application FPS. |
+| Always Hide removes native window buttons | Actual top-edge reveal exposes native Close/Zoom without reader tools; Zoom exits fullscreen. Minimize remains disabled by native fullscreen behavior. |
+| CBZ thumbnail placement; new thumbnails too wide | Natural-page canvas proportions replace the fixed landscape canvas; original landscape comic art retains its shape. Signed Finder recheck passed. |
+| CBR/MOBI/FB2/AZW3 extension recognition and Quick Look | Reporter confirms format compatibility improved; all six original extensions passed actual Space preview, including CBR page 2. Signed extension loading confirmed for both providers; all six Space previews and CBR page 2 pass. |
+| Generate a thumbnail for the coverless EPUB too | Unresolved optional enhancement. Normal installation, default-app selection, and explicit extension election still route it to Books. Space preview works. |
+
+The toolbar intentionally overlays the book on reveal, with an opaque themed
+background, so its appearance does not repaginate or move the reading position.
+This differs from the reporter's suggested push-down animation and should be
+explained in the reply. Dense full-count search remains a separate unmet
+performance goal: the final local GUI run took 16.921 seconds for 6,591 matches.
+Neither that goal nor the optional coverless EPUB thumbnail is marked solved.
 
 ## Candidate and source gate
 
@@ -151,8 +183,7 @@ focused Find regressions cover open/closed status geometry and queued reflow;
 the footer stays stable across open/close and F3 search-session state. Evidence:
 `shared-cookie-production.json`, `find-session-summary.json`, and
 `find-status-summary.json`. The latest 0.2.19 Release host is built and loaded
-with the final engine; its release source gate passed. Signed-release GUI
-validation remains pending.
+with the final engine; its release source gate passed. Signed-release GUI validation is recorded in the final acceptance section.
 
 A separate quiet dense-query measurement completed 6,591 results in 16.7045 s;
 the 4 ms yield variant took 16.2341 s. The experiment was rejected because it
@@ -170,20 +201,22 @@ improvement pair, not a universal performance claim. Dense-query wrap reached
 6591/6591 at chapter 1470:67, then 1/6591 at 1:1. Replacing `主` during a count
 with `女主天地合集` completed the new query at 1/25. Evidence:
 `hover-acceptance/final-dense-baseline.json`,
-`hover-acceptance/combined-dense-quiet.json`, `combined-dense-wrap*.json`, and
-`combined-replace-before-ax.json` / `combined-replace-after-ax.json`. Native
+`hover-acceptance/combined-dense-quiet.json`, `combined-dense-wrap*-ax.txt`, and
+`combined-replace-before-ax.txt` / `combined-replace-after-ax.txt`. Native
 window reuse is accepted for the tested oracle and suites; it does not establish
 that all hosted search latency is solved.
 
 ## Alice visual review
 
-On loaded QA host 5ABD with engine e6b, the supplied FB2 Alice book showed all
-illustrations intact across seven normal pages and five fullscreen pages. MOBI
-showed all four illustrations intact across nine normal and seven fullscreen
-pages, with no empty trailing page. The contact sheets were visually reviewed.
+On loaded QA host 5ABD with engine 24c, the supplied FB2 Alice book showed all
+illustrations intact across seven normal pages and five fullscreen pages. After
+loading final engine e6b, MOBI showed all four illustrations intact across nine
+normal and seven fullscreen pages, with no empty trailing page. The contact
+sheets were visually reviewed. The final native 14-case Alice checks cover both
+formats, but do not relabel the earlier FB2 GUI captures as final-engine captures.
 Evidence is under `build/perf-interaction-20261026/hover-acceptance/`
-(`combined-alice-mobi-normal-pages.json`,
-`combined-alice-mobi-fullscreen-pages.json`, `final-alice-fb2-pages.json`,
+(`combined-alice-mobi-pages.json`,
+`combined-alice-mobi-full-pages.json`, `final-alice-fb2-pages.json`,
 `final-alice-fb2-full-pages.json`, and the corresponding contact sheets).
 
 ## Quick Look and Finder
@@ -262,8 +295,10 @@ clicked.
 dismissal follows actual pointer and key-window lifecycle. Six
 `NativeLinkHoverLifecycleTests` and 10 existing related tests pass. Preliminary
 ten-step pointer evidence on host `7693773E` used the earlier engine and remains
-historical. On loaded host 5ABD with engine e6b, the final physical-hover run
-passed all 10 steps. While a preview was visible, a single click navigated from
+historical. On loaded host 5ABD with engine 24c, `physical-hover-final.json`
+passed all 10 steps. The Swift host is the same as the final local host, but
+this receipt is not a final-engine or signed-candidate observation. While a
+preview was visible, a single click navigated from
 1:1 to 3:1 without an extra click. Evidence:
 `build/perf-interaction-20261026/hover-acceptance/`
 (`lifecycle-final.log`, `physical-hover-final.json`, and
@@ -302,9 +337,75 @@ window-control checks, physical cover/comic blank-area checks, final link-hover
 actions, and the passing 1,238-test release gate are complete at their stated
 boundaries. An earlier broad gate failed on a high-volume fixture mismatch; a
 later gate found the compressed-FB2 empty-first-page case that is now fixed.
-The signed release-candidate GUI pass remains pending. One tested dense GUI run
+The signed release-candidate GUI pass is complete for the issue bug-fix scope. One tested dense GUI run
 improved 4.4% over its baseline; this does not establish a broad performance
 gain, and timings remain about 15–17 seconds for 6,591 results on this machine.
 EPUB thumbnail-provider selection and exact restoration of the earlier unset
-editor/shell roles remain unresolved. No publication or reporter reply is
-claimed here.
+editor/shell roles remain unresolved. Publication and reporter reply are recorded separately below.
+
+## Signed candidate acceptance
+
+The exact app and extension checks use host/engine identities in the opening
+status. Original sample image sequences, live AZW3 links, focus resizing,
+physical hover handoffs, toolbar motion and Finder previews were re-exercised.
+The `signed-search-lorem-ax.txt` smoke check counts all 24 matches and the
+previous-result action moves to the prior chapter. Full dense-result and
+replacement-query coverage retains the earlier source-matched evidence above.
+
+The initial AZW3 suspicion was falsified: its first page is a raster image that
+looks like a TOC; the actual live TOC is on the following page. Baseline 0.2.18
+and the candidate agree across four viewports. `signed-azw3-live-links.json`
+records all eight genuine links; the superseded false-positive receipt is
+retained rather than counted as a failure or hidden.
+
+Finder initially displayed only CBR metadata while temporary registration was
+incomplete. After normal Launch Services and extension registration, the exact
+candidate preview process loaded and rendered all six original file extensions.
+The accepted evidence is `signed-finder-contact.png` and
+`signed-finder-providers.txt`; the registration transition is not counted as
+successful preview evidence. Native fullscreen Close/Zoom are available on
+top-edge reveal; macOS disables Minimize there, and clicking Zoom exited.
+
+Runtime acceptance is on macOS 27.0.1 arm64. No application FPS claim is made
+from screen-capture frame rate. The screen-sharing badge can cover the native
+traffic-light pixels; their accessibility state and actual action were tested.
+
+## Publication and installation
+
+[Publication workflow](https://github.com/Ares-X/Sumra/actions/runs/40301775455)
+succeeded and published the accepted bytes as
+[0.2.19](https://github.com/Ares-X/Sumra/releases/tag/v0.2.19), retaining draft
+release ID 424019797 and all six asset IDs. Accepted manifest SHA256:
+`7784e21cb02dc059db7f38f70481925b5a2f8960ae5ca9b6421f3716e50d239e`.
+The workflow updated the feed without rebuilding the application.
+
+The real installed 0.2.18 updater was invoked and showed a retrieval error.
+Unified logs identify a TLS error. The initial claim that port 8089 had no
+listener was wrong: unprivileged `lsof` had no result, but TCP connected,
+HTTP CONNECT returned 200, and netstat attributed the listener to Clash's
+`verge-mihomo` PID 2289. Both HTTP and SOCKS proxy feed requests reproduced a
+TLS close; direct IPv4 returned HTTP 200 with bytes identical to the accepted
+appcast. The specific Clash rule or upstream cause is not established. No
+proxy setting was changed. This is a failed automatic-update attempt, not a
+passed update test.
+
+The exact published application was installed manually at `/Applications/Sumra.app`.
+All 140 files, five symlinks, modes, certificate and extension signatures match
+accepted provenance. Installed version 0.2.19 (21) was launched from that path
+and opened the original Alice FB2 on the physical display. The previous app is
+preserved locally. `manual-install.json`, `staged-official-identity.json`,
+`official-update-acceptance.json`, and `network-route-check.json` retain the
+installation and failed-updater evidence separately.
+
+Anonymous public verification completed for all six assets, including the full
+application and corresponding-source archive. IDs, sizes and SHA256 hashes
+match the accepted candidate; raw-main appcast bytes match, and the Ed25519
+update signature verifies. Initial transport failures and recovered ranges
+remain documented separately; the final receipt is
+`build/release-0.2.19/public-verification-direct/public-ranges-check.json`.
+
+The [reporter reply](https://github.com/Ares-X/Sumra/issues/42#issuecomment-6413187666)
+was posted after publication, installed-app loading and public verification.
+It describes the fixes and overlay behavior, explicitly leaves coverless EPUB
+thumbnail selection and dense-search speed unresolved, and asks for everyday
+book testing and remaining rough edges. Issue #42 remains open.
