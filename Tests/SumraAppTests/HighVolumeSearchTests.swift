@@ -76,7 +76,9 @@ final class HighVolumeSearchTests: XCTestCase {
         _ = state.applyChapterLayout(await pages.chapterLayout)
         state.showFindPanel()
         let host = NSHostingView(rootView: ReaderView(state: state))
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 650),
+        // The open Find panel reserves the 22-point search-session status row.
+        // Keep the reader viewport at the frozen oracle's 779x590 geometry.
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 672),
             styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer { state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close() }
@@ -174,6 +176,13 @@ final class HighVolumeSearchTests: XCTestCase {
         }
         // Include deferred NSTableView reconciliation after the final @Published setter.
         try await settle()
+        let updatedPageSize = await pages.layoutPageSize
+        let settledPageSize = try XCTUnwrap(updatedPageSize)
+        XCTAssertEqual(settledPageSize.width, requestedPageSize.width,
+            "Search publication must not change the measured reader width")
+        XCTAssertEqual(settledPageSize.height, requestedPageSize.height,
+            "Search publication must not change the measured reader height")
+        report["layoutAfterSearch"] = ["width": settledPageSize.width, "height": settledPageSize.height]
         pulse.stop(); countingObserver.cancel(); resultsObserver.cancel()
         report["mainActorPulse"] = pulse.report
         report["publications"] = publications

@@ -1,0 +1,310 @@
+# Issue 42 follow-up acceptance — 2026-10-26
+
+**Status: final-engine local acceptance passed within the scopes below; signed
+release-candidate acceptance remains pending.** No PR, publication, or reporter
+reply has been sent in this round. The Release host was built with
+`Pages.swift` SHA256
+`8a950c7938c1a3ab54a7b58127fa701fc040bb357a4661a8422d7c76434d5fe4` and host
+UUID `5ABD1C26-DDC7-3728-8574-DCF06ACBA716`. QA host `5ABD1C26` was loaded
+with final engine SHA256
+`e6b9d81c0cd6c98510c6080605627f2b38b131426cd8fa00ee22166e0bf7074f`, UUID
+`B97A7588-7F8C-3294-AC5B-0554128B4026`, and is now quit. Local source, native,
+and GUI acceptance is complete at the boundaries documented here; current
+distribution is ad-hoc signed and verified. The signed release-candidate GUI
+check remains pending. The QA host and owned workers are quit. The official
+`/Applications/Sumra.app` remains 0.2.18. This record addresses
+[the latest feedback after 0.2.18](https://github.com/Ares-X/Sumra/issues/42#issuecomment-6406137843),
+confirmed unchanged in `build/perf-interaction-20261026/feedback/comments-latest-current.json`
+(06:34:35Z).
+The release candidate has not been published and no reporter reply has been
+sent.
+
+## Candidate and source gate
+
+The earlier `perf/reader-interaction-20261026` candidate at source revision
+`30ceefe8` used host UUID
+`EA687099-462B-32CD-9BED-9776B500B688`; the native engine UUID is
+`BA514843-B483-30A2-A637-1D2FC21A0241`. Source native SHA256 is
+`fc490aeef537c70cfdcad2c39d2eaebe2a0c51833fa78d500cc4c216d3373e65`. Packaging
+changes the dylib signature/install name; UUID and packaging receipts bind the
+source engine to the app. This is an ad-hoc local build, not a notarized
+release. `/Applications/Sumra.app` remains the official 0.2.18.
+
+The earlier composed CB6 source gate at
+`build/perf-interaction-20261026/source-gate-final/source-gate.json` passed:
+1,229 tests, 0 failures, 0 skips. That includes 5 Quick Look, 128 Core, and
+1,096 app tests, plus packaging, localization, source parsing, and reader
+JavaScript syntax checks. The explicitly manual
+`FeedbackInteractionHarnessTests` suite was excluded and is not counted as
+automated coverage. All 410 source inputs remained unchanged during the gate;
+the receipt records its owned processes exited. This gate predates the current
+toolbar and Find changes, so it does not validate those edits. The earlier
+1,228 log-regex count missed one test line with a native prefix; the XCTest
+suite totals establish the corrected count of 1,229. A later broad run at
+`build/perf-interaction-20261026/source-gate-current/source-gate.json` attempted
+1,232 tests and reported 1,231 passed, 1 failed. The failure was
+`HighVolumeSearchTests.testHostedFullResultsPublicationAndReplacementRemainInteractive`:
+the failing attempt used a 650-point fixture height. The source comparison
+confirms that all 411 inputs match except this test fixture, and production
+source is identical to restored CB6. The fixture was corrected to 672 points,
+the intended height in current source, preserving the 779×590 search body.
+Five focused tests then passed against reverted CB6; the
+hosted high-volume check matched the established 100,144-result oracle with
+search geometry unchanged before and after, completing in 24.98 s. These older
+attempts are superseded by the passing combined gate below.
+
+A later noncanonical source-gate attempt was interrupted after 132 passes and
+one Quick Look assertion failed. The test required more than 100 sampled-ink
+pixels, but the source-authored FB2 title page contains only 44 while visibly
+rendering its title; the next page contains Chapter 1 and body text. The
+assertion is now based on nonzero visible ink, with page, navigation, byte
+preservation, and other oracles retained. This was not an alpha-channel or
+product-rendering failure. Do not count the interrupted run as a pass.
+
+## Native image and layout acceptance
+
+The final engine passed 187 authored-break layouts, 666 inline-image layouts,
+144 six-alignment public API cases, 16 actual generated-EPUB spread cases, 14
+Alice-specific checks, and all 72 patch replays. The earlier reporter-book
+results remain evidence for their named fixtures and layouts.
+
+Evidence: `build/perf-interaction-20261026/native-images/ALIGNMENT-ACCEPTANCE.md`,
+`aligned-summary.json`, and baseline/final geometry receipts.
+
+Expanded fixtures found a pre-existing authored `break-before` defect: both
+the prior candidate and installed engine ignored authored `div` breaks. The
+canonical engine includes the direct two-line cursor fix. A separate leading-
+margin defect was also exposed by an empty first page in a compressed FB2; the
+fix distinguishes margin-only blocks from content, height, padding, or border.
+The formerly failing input now has visible page-zero text. Evidence:
+`build/perf-interaction-20261026/authored-breaks/README.md`, `receipt.json`, and
+`leading-receipt.json`. These are distinct from the originally reported FB2/MOBI
+illustration clipping.
+
+Focused Swift checks passed (39 reader lifecycle and 3 Quick Look tests). The
+final release source gate passed 1,238 tests with 0 failures and 0 skips; all
+413 source inputs were unchanged, and engine SHA256
+`e6b9d81c0cd6c98510c6080605627f2b38b131426cd8fa00ee22166e0bf7074f` matched
+before and after. The manual interaction harness was excluded. The 25-book,
+4,942-comic-page corpus passed. Evidence:
+`build/perf-interaction-20261026/source-gate-release-final/source-gate.json`.
+Earlier `source-gate-canonical` and `source-gate-final-combined` runs, including
+the compressed-FB2 empty-page failure later fixed, remain historical.
+
+## B10 native search comparison
+
+On the 50 MB B10 EPUB, the native-library probe returned the same 25 ordered
+matches before and after, with pixel parity for initial, enlarged-font, and
+restored-font samples. Fresh-document search measured 5.265 s before and
+5.240 s after. Warm same-document search measured 5.295 s before and 5.299 s
+after. Cancellation returned the expected cancellation error, and the
+post-cancel render remained usable. This is a small fresh-search change with
+warm performance effectively unchanged, not a general search speedup. The
+book's recorded hash did not change. Evidence:
+`build/perf-interaction-20261026/final-B10-comparison.json` and
+`final-B10.json`.
+
+The dense-query native benchmark completed all 6,591 `女主` matches. Its
+complete ordered match hash equals a forced glyph-search oracle; an independent
+recovered-body count also found 6,591 exact occurrences. Native cancellation
+and recovery were checked. See
+`build/perf-interaction-20261026/native-benchmark/README.md` and
+`summary.json`. The 133.5 s forced-glyph run validates the oracle; it is not the
+normal candidate-path timing.
+
+The accepted window-reuse optimization passed all three native suites and the
+strong 6,591-result glyph oracle. Two paired runs reduced extraction calls from
+4,904 to 4,052. On final engine e6b, the fast path completed in 11.960 s and
+matched the full forced-glyph result order and geometry from the original 24c
+oracle, including positions hash
+`a6dc747a8f5f1a395326e7a1f75e35d0a13d3130bab96cc67f8505d8317244f2`; B10
+bytes, hash, and mtime were unchanged. Cancellation preserved its
+error cause, post-cancel rendering passed, and the worker exited. This native
+timing is not mounted-reader GUI latency. Evidence:
+`build/perf-interaction-20261026/window-search-reuse/combined-final-parity.json`
+and `combined-final-fast.json`.
+
+## Hosted search observations
+
+On the CB6 host, sparse B10 GUI search returned all 25 results in 6.380 s,
+with the first in 0.256 s. Dense `女主` returned all 6,591 results in 17.346 s,
+with the first in 0.346 s. During the dense count, View menu access at 4,202
+matches returned before 5,860 matches, about 1,204 ms for the combined tool
+and AX round trip; this is not pure click latency. Search used font 17,
+line-height 1.6, margin 32, and a 979×722 AX reader viewport. The earlier
+native probe used 736×536 and line-height 1.4, so those timings are not directly
+comparable. Native-owner profiling is ongoing; performance work is not complete.
+
+Cancel/replacement passed: replacing `主` while it showed three searching
+matches completed the new sparse query at 1/25. In that sparse 25-result
+search, wrap navigation showed 25/25 at chapter 1465:1, then 1/25 at 1:1; this
+was not the dense 6,591-result search. Evidence: `gui-sharedcookie-sparse*.json`,
+`gui-sharedcookie-dense*.json`, `gui-sharedcookie-replace*.json`, and
+`gui-sharedcookie-wrap-last*.json`; input timestamps and the menu round trip
+are in `gui-sharedcookie-sparse-input.json`,
+`gui-sharedcookie-dense-input.json`, and `gui-sharedcookie-dense-menu.json`.
+
+Separately, the shared-cookie production probe reduced isolated full-count
+Debug time from 19.390 s to 14.741 s (24%), with all 6,591 ordered matches
+identical. This is not GUI wall time. Four regression tests passed. Five
+focused Find regressions cover open/closed status geometry and queued reflow;
+the footer stays stable across open/close and F3 search-session state. Evidence:
+`shared-cookie-production.json`, `find-session-summary.json`, and
+`find-status-summary.json`. The latest 0.2.19 Release host is built and loaded
+with the final engine; its release source gate passed. Signed-release GUI
+validation remains pending.
+
+A separate quiet dense-query measurement completed 6,591 results in 16.7045 s;
+the 4 ms yield variant took 16.2341 s. The experiment was rejected because it
+did not provide a meaningful, consistent full-query improvement. No 4 ms code
+is retained. A native scalar experiment changed the count by only 0.8% and was
+also rejected. No safe parallel cloned-EPUB path was found within upstream
+ownership constraints. Dense-query optimization remains open; these
+measurements do not support a universal latency promise.
+
+The quiet GUI baseline on host 5ABD returned all 6,591 results in 17.701987 s
+from input to final state (15.969 s from the first `Searching… 0` status).
+The final-engine quiet GUI run took 16.921259 s from input to final state and
+15.230922 s from `Searching… 0` to completion. This is one 4.4% input-to-final
+improvement pair, not a universal performance claim. Dense-query wrap reached
+6591/6591 at chapter 1470:67, then 1/6591 at 1:1. Replacing `主` during a count
+with `女主天地合集` completed the new query at 1/25. Evidence:
+`hover-acceptance/final-dense-baseline.json`,
+`hover-acceptance/combined-dense-quiet.json`, `combined-dense-wrap*.json`, and
+`combined-replace-before-ax.json` / `combined-replace-after-ax.json`. Native
+window reuse is accepted for the tested oracle and suites; it does not establish
+that all hosted search latency is solved.
+
+## Alice visual review
+
+On loaded QA host 5ABD with engine e6b, the supplied FB2 Alice book showed all
+illustrations intact across seven normal pages and five fullscreen pages. MOBI
+showed all four illustrations intact across nine normal and seven fullscreen
+pages, with no empty trailing page. The contact sheets were visually reviewed.
+Evidence is under `build/perf-interaction-20261026/hover-acceptance/`
+(`combined-alice-mobi-normal-pages.json`,
+`combined-alice-mobi-fullscreen-pages.json`, `final-alice-fb2-pages.json`,
+`final-alice-fb2-full-pages.json`, and the corresponding contact sheets).
+
+## Quick Look and Finder
+
+The five Quick Look unit tests passed in the earlier source gate; they do not
+establish Finder's thumbnail-provider selection.
+
+Finder Space preview succeeded for all six tested formats through
+`SumraPreview`; CBR advanced to page 2 of 11. The coverless EPUB's Space preview
+shows its first page, but its Finder icon remains generic. A 0.2.19 candidate
+temporarily installed at the exact `/Applications/Sumra.app` URL still routed
+the coverless thumbnail request to `BooksThumbnail` and returned no thumbnail;
+the covered control returned 340×512 through Books. A second combined test with
+Sumra explicitly selected for all EPUB roles and its unique thumbnail extension
+elected also routed requests to Books. Reload and historical discovery checks
+retained this result. Provider selection remains unresolved, not a conditional
+pass.
+
+Both probes restored the official 0.2.18 app byte-for-byte, including symlinks;
+only its official preview and thumbnail extensions remain registered, and
+extension election is back to default. The current run restored all EPUB roles
+to Books and removed its own persistent override. An earlier experiment began
+with editor/shell roles unset, and their exact runtime restoration was not
+established; do not claim that original nil state was restored. Evidence:
+`build/perf-interaction-20261026/normal-install-probe/RESULT.json`,
+`normal-install-elected-probe/COMBINED-RESULT.md`,
+`normal-install-elected-probe/ROLE-CLEANUP-RESULT.md`, and the Finder images
+under `normal-install-probe/`.
+
+## Fullscreen and native window controls
+
+The CB6 host passed physical-main-display fullscreen toolbar cold-hide, reveal,
+retention, reversal, and native exit-action checks in Light. Dark motion also
+passed: 341 decoded frames, 51 constant window-frame samples, and zero
+body-position delta. The contact sheet shows an opaque black toolbar and no
+residual bar when hidden. These receipts establish spatial continuity and
+visible transitions, not app FPS. The purple macOS screen-sharing indicator
+covers traffic-light pixels, so the evidence uses AX state and actual native
+actions; it is not RGB proof of the button. Evidence:
+`candidate-identity-sharedcookie.json`, `sharedcookie-dark-full-motion.mov` and
+its JSON/analysis, and `sharedcookie-dark-full-contact.png`.
+
+Always Hide showed no bar at the y=73 pointer position; Always Show kept the
+bar while the body was visible; Escape from Presentation returned to normal
+with the bar. Native toolbar customization removed Navigation and retained
+reveal/hide behavior, then restored Open/Contents/Navigation ordering. Native
+AX Minimize produced `minimized=true` and an empty onscreen-window list;
+restore returned it to `false`. An initial CUA minimize attempt did nothing,
+so the validated action used a native helper's explicit AXPress. Closing
+removed the document window; Cmd-O opened another book. The sharing overlay
+remains the limit on pixel-level traffic-light claims. Evidence includes
+`sharedcookie-alwayshide-top.png`, `sharedcookie-alwaysshow-body.png`,
+`sharedcookie-presentation.png`, `customized-no-navigation.json`,
+`customized-restored.json`, `native-minimize-controls.json`,
+`native-minimized-actual.json`, and `final-native-close-reopen.json`.
+
+On loaded host 5ABD, Always Hide plus a top-edge hover exposed native Close and
+Zoom while reader tools stayed absent. AX reported fullscreen, Close and Zoom
+enabled, and Minimize present but disabled, as expected in fullscreen. A real
+Zoom click exited fullscreen; Always Show was then restored. The screen-sharing
+overlay obscures button pixels, so AX state and the actual action are the
+evidence, not pixel proof. Receipts: `final-alwayshide-top-ax.txt` and
+`final-alwayshide-controls.json`.
+
+## Link-preview hover lifecycle
+
+The latest reporter update describes a preview remaining open after pointer
+departure and, in a two-page spread, two previews remaining open at once. The
+reported stale blue-outline trigger is also specific: with Cover on Its Own
+enabled, click blank space next to the cover; with it disabled, click blank
+space in the same screen half as the cover. Blank comic space also triggers it.
+After enlarging the window, the outline remains until the image itself is
+clicked.
+
+`sharedRasterSelections` now has one weak owner for the visible canvas; preview
+dismissal follows actual pointer and key-window lifecycle. Six
+`NativeLinkHoverLifecycleTests` and 10 existing related tests pass. Preliminary
+ten-step pointer evidence on host `7693773E` used the earlier engine and remains
+historical. On loaded host 5ABD with engine e6b, the final physical-hover run
+passed all 10 steps. While a preview was visible, a single click navigated from
+1:1 to 3:1 without an extra click. Evidence:
+`build/perf-interaction-20261026/hover-acceptance/`
+(`lifecycle-final.log`, `physical-hover-final.json`, and
+`final-link-click-ax.txt`).
+
+On the main physical display, cover-on blank-click/enlarge plus keyboard Right
+to 2:1 and Left to 1:1 passed. Cover-off was also tested by clicking the actual
+left blank region (x=20, bitmap y=800), enlarging from 1200×840 to 1400×900, and
+checking keyboard navigation. Comic blank-click/enlarge and keyboard navigation
+2/11 to 1/11 also passed. The contact sheets were reviewed and show no residual
+outline. Evidence includes `final-cover-on-blank.png`,
+`final-cover-off-physical-blank.png`, `final-cover-off-physical-enlarged.png`,
+`final-comic-blank.png`, and `final-comic-enlarged.png`. Earlier off-mode input
+before moving the window is superseded by this physical-display run.
+
+## Coverage boundaries
+
+- Inline-image evidence includes the reported FB2/MOBI Alice books and layout
+  cases; it does not stand for every real-world ebook or image.
+- The reporter's cover-adjacent and comic blank-space resize trigger is
+  recorded above, alongside captures of the originally affected pages.
+- Toolbar checks cover physical cold entry, actual rendered transitions,
+  window/body geometry, the common toolbar modes, and customization. The
+  sharing indicator blocks direct pixel proof of traffic-light buttons, and
+  recordings do not measure app frame rate.
+- Quick Look unit tests and bitmap generation cannot establish Finder's
+  provider choice. The normal-install, default-app, and extension-election
+  probes all show Books retaining EPUB thumbnails despite working SumraPreview.
+- Earlier native search probes used different viewport and styling settings
+  from the mounted reader. The latest native oracle and hosted run used matching
+  979×722 reader geometry. Exact native matching is an oracle; it does not
+  replace GUI responsiveness checks.
+
+Native image checks, Alice pages, six-format Finder previews, fullscreen and
+window-control checks, physical cover/comic blank-area checks, final link-hover
+actions, and the passing 1,238-test release gate are complete at their stated
+boundaries. An earlier broad gate failed on a high-volume fixture mismatch; a
+later gate found the compressed-FB2 empty-first-page case that is now fixed.
+The signed release-candidate GUI pass remains pending. One tested dense GUI run
+improved 4.4% over its baseline; this does not establish a broad performance
+gain, and timings remain about 15–17 seconds for 6,591 results on this machine.
+EPUB thumbnail-provider selection and exact restoration of the earlier unset
+editor/shell roles remain unresolved. No publication or reporter reply is
+claimed here.

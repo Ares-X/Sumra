@@ -60,7 +60,7 @@ private final class FeedbackInteractionHarness: NSObject, NSWindowDelegate {
     }
     struct PointerReceipt: Codable {
         let kind: String, timestamp: TimeInterval, phase: String, windowNumber: Int, point: String
-        let sourceWindow: Bool, insideSourceLink: Bool?, trackingURI: String?
+        let sourceWindow: Bool, insideSourceLink: Bool?, sourceURI: String?
         var sampleTiming: String, pointingHand: Bool
     }
     struct Receipt: Codable {
@@ -68,7 +68,7 @@ private final class FeedbackInteractionHarness: NSObject, NSWindowDelegate {
         var processID = ProcessInfo.processInfo.processIdentifier
         var windowTitle = "Sumra Feedback Interaction Harness"
         var sourceLinkScreenRect: String?
-        var preparation = "Programmatic Canvas.mouseEntered; no synthetic mouse-down/up"
+        var preparation = "Programmatic Canvas.mouseMoved; no synthetic mouse-down/up"
         var physicalHoverRequested = false
         var physicalPointerEntryVerified = false
         var cursorFeedbackVerified = false
@@ -216,10 +216,10 @@ private final class FeedbackInteractionHarness: NSObject, NSWindowDelegate {
         receipt.downCount = 0; receipt.upCount = 0; receipt.events = []; receipt.rejections = []
         receipt.previewVisibleAtDown = nil; receipt.destinationPainted = false; receipt.previewClosedAfterNavigation = false
         receipt.previewAtArming = nil; receipt.physicalPointerEntryVerified = false; receipt.cursorFeedbackVerified = false; receipt.error = nil
-        receipt.preparation = physical ? "Physical pointer entry; no programmatic Canvas.mouseEntered" : "Programmatic Canvas.mouseEntered; no synthetic mouse-down/up"
+        receipt.preparation = physical ? "Physical pointer entry; no programmatic Canvas.mouseMoved" : "Programmatic Canvas.mouseMoved; no synthetic mouse-down/up"
         setPhase("preparing", physical ? "Resetting for physical hover; move outside the source link." : "Resetting and preparing hover; keep the pointer stationary.")
         // Let the production interaction update dismiss any previous preview.
-        // The physical branch never calls Canvas.mouseEntered itself.
+        // The physical branch never calls Canvas.mouseMoved itself.
         state.hoverPreview = !physical
         state.restore(sourcePosition)
         task = Task { [weak self] in
@@ -234,9 +234,10 @@ private final class FeedbackInteractionHarness: NSObject, NSWindowDelegate {
                     setPhase("hover-ready", "HOVER READY: move outside, then onto the source link; wait for the real preview.")
                     return
                 }
-                let event = FeedbackHoverEvent()
-                event.area = try XCTUnwrap(canvas.trackingAreas.first { $0.userInfo?["uri"] as? String == link.uri })
-                canvas.mouseEntered(with: event)
+                let point = canvas.convert(CGPoint(x: link.bounds.midX, y: link.bounds.midY).applying(canvas.pageTransform), to: nil)
+                let event = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [],
+                    timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+                canvas.mouseMoved(with: event)
                 let until = Date().addingTimeInterval(10)
                 while preview?.isVisible != true, Date() < until {
                     try Task.checkCancellation(); try await Task.sleep(nanoseconds: 10_000_000)
@@ -363,11 +364,11 @@ private final class FeedbackInteractionHarness: NSObject, NSWindowDelegate {
         let sample = PointerReceipt(kind: kind, timestamp: event.timestamp, phase: receipt.phase,
             windowNumber: event.windowNumber, point: NSStringFromPoint(event.locationInWindow),
             sourceWindow: event.window === window, insideSourceLink: event.window === window ? inside : nil,
-            trackingURI: event.type == .mouseEntered || event.type == .mouseExited ? event.trackingArea?.userInfo?["uri"] as? String : nil,
+            sourceURI: event.window === window && inside == true ? sourceLink?.uri : nil,
             sampleTiming: "beforeDispatch", pointingHand: NSCursor.current.isEqual(NSCursor.pointingHand))
         if physicalHoverMode, receipt.phase == "hover-ready" || receipt.phase == "armed",
-           event.type == .mouseEntered, sample.sourceWindow, sample.insideSourceLink == true,
-           sample.trackingURI == sourceLink?.uri {
+           [.mouseEntered, .mouseMoved].contains(event.type), sample.sourceWindow, sample.insideSourceLink == true,
+           sample.sourceURI == sourceLink?.uri {
             receipt.physicalPointerEntryVerified = true
         }
         receipt.pointerObservations.append(sample); pointerDirty = true
@@ -464,8 +465,4 @@ private final class FeedbackInteractionHarness: NSObject, NSWindowDelegate {
     }
 }
 
-private final class FeedbackHoverEvent: NSEvent {
-    var area: NSTrackingArea?
-    override var trackingArea: NSTrackingArea? { area }
-}
 #endif

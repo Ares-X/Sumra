@@ -876,24 +876,149 @@
  fz_html_box_has_boxes(fz_html_box *box)
 --- a/source/html/html-layout.c
 +++ b/source/html/html-layout.c
-@@ -517,7 +517,7 @@
- 			{
- 			default:
- 			case VA_BASELINE:
+@@ -386,31 +386,64 @@
+ }
+ 
+ 
++/* The baseline-relative image position is shared by line measurement and
++ * placement. Top/bottom images instead align to the completed line box. */
++static float image_baseline_offset(fz_html_tree *tree, fz_html_flow *node, float height)
++{
++	fz_html_box *box = fz_html_flow_box(tree, node);
++	float em = box->s.layout.em;
++	switch (box->style->vertical_align)
++	{
++	case VA_SUB: return -height + em / 5;
++	case VA_SUPER: return -height - em / 3;
++	case VA_MIDDLE: return -em * .25f - height * .5f;
++	case VA_TEXT_TOP: return -em * .8f;
++	case VA_TEXT_BOTTOM: return em * .2f - height;
++	case VA_PERCENT:
++	case VA_LENGTH:
++		return -height - fz_from_css_number(box->style->vertical_align_number, em,
++			fz_from_css_number_scale(box->style->line_height, em), 0);
++	default: return -height;
++	}
++}
++
++static void measure_node_extents(fz_html_tree *tree, fz_html_flow *node, float *ascent, float *descent)
++{
++	float height = fz_html_flow_measure_height(tree, node);
++	*ascent = *descent = 0;
++	if (node->type == FLOW_IMAGE)
++	{
++		int align = fz_html_flow_box(tree, node)->style->vertical_align;
++		if (align != VA_TOP && align != VA_BOTTOM)
++		{
++			float offset = image_baseline_offset(tree, node, height);
++			*ascent = -offset;
++			*descent = height + offset;
++		}
++	}
++	else if (node->type != FLOW_SBREAK && node->type != FLOW_BREAK && node->type != FLOW_ANCHOR)
++	{
++		/* Keep the existing text ascender/descender clamp. */
++		float size = fz_min(fz_html_flow_box(tree, node)->s.layout.em, height);
++		*ascent = size * .8f;
++		*descent = size * .2f;
++	}
++}
++
+ static float measure_line(fz_html_tree *tree, fz_html_flow *node, fz_html_flow *end, float *baseline)
+ {
+ 	float max_a = 0, max_d = 0, h = fz_html_flow_measure_height(tree, node);
+ 	while (node != end)
+ 	{
+-		float node_h = fz_html_flow_measure_height(tree, node);
+-		if (node->type == FLOW_IMAGE)
+-		{
+-			if (node_h > max_a)
+-				max_a = node_h;
+-		}
+-		else if (node->type != FLOW_SBREAK && node->type != FLOW_BREAK && node->type != FLOW_ANCHOR)
+-		{
+-			// Clamp ascender/descender to line-height size.
+-			// TODO: This is not entirely to spec, but close enough.
+-			float s = fz_min(fz_html_flow_box(tree, node)->s.layout.em, node_h);
+-			float a = s * 0.8f;
+-			float d = s * 0.2f;
+-			if (a > max_a) max_a = a;
+-			if (d > max_d) max_d = d;
+-		}
+-		if (node_h > h)
+-			h = node_h;
++		float ascent, descent;
++		measure_node_extents(tree, node, &ascent, &descent);
++		max_a = fz_max(max_a, ascent);
++		max_d = fz_max(max_d, descent);
++		h = fz_max(h, fz_html_flow_measure_height(tree, node));
+ 		node = fz_html_flow_next(tree, node);
+ 	}
++	/* Include the aligned image and text extents before page placement. */
++	h = fz_max(h, max_a + max_d);
+ 	*baseline = max_a + (h - max_a - max_d) / 2;
+ 	return h;
+ }
+@@ -513,45 +546,10 @@
+ 
+ 		if (node->type == FLOW_IMAGE)
+ 		{
+-			switch (fz_html_flow_box(tree, node)->style->vertical_align)
+-			{
+-			default:
+-			case VA_BASELINE:
 -				node->y = y + baseline - node->h;
-+				node->y = y + (baseline - node->h);
- 				break;
- 			case VA_SUB:
- 				node->y = y + baseline - node->h + fz_html_flow_box(tree, node)->s.layout.em / 5;
-@@ -605,6 +605,7 @@
+-				break;
+-			case VA_SUB:
+-				node->y = y + baseline - node->h + fz_html_flow_box(tree, node)->s.layout.em / 5;
+-				break;
+-			case VA_SUPER:
+-				node->y = y + baseline - node->h - fz_html_flow_box(tree, node)->s.layout.em / 3;
+-				break;
+-			case VA_MIDDLE:
+-				// middle of the element with the baseline plus half the x-height of the parent
+-				node->y = y + baseline - fz_html_flow_box(tree, node)->s.layout.em * 0.25f - node->h * 0.5f;
+-				break;
+-			case VA_TOP:
+-				node->y = y;
+-				break;
+-			case VA_TEXT_TOP:
+-				node->y = y + baseline - fz_html_flow_box(tree, node)->s.layout.em * 0.8f;
+-				break;
+-			case VA_BOTTOM:
+-				node->y = y + line_h - node->h;
+-				break;
+-			case VA_TEXT_BOTTOM:
+-				node->y = y + baseline + fz_html_flow_box(tree, node)->s.layout.em * 0.2f - node->h;
+-				break;
+-			case VA_PERCENT:
+-			case VA_LENGTH:
+-				node->y = y + baseline - node->h -
+-					fz_from_css_number(
+-						fz_html_flow_box(tree, node)->style->vertical_align_number,
+-						fz_html_flow_box(tree, node)->s.layout.em,
+-						fz_from_css_number_scale(fz_html_flow_box(tree, node)->style->line_height, fz_html_flow_box(tree, node)->s.layout.em),
+-						0
+-					);
+-				break;
+-			}
++			int align = fz_html_flow_box(tree, node)->style->vertical_align;
++			if (align == VA_TOP) node->y = y;
++			else if (align == VA_BOTTOM) node->y = y + line_h - node->h;
++			else node->y = y + (baseline + image_baseline_offset(tree, node, node->h));
+ 		}
+ 		else
+ 		{
+@@ -605,6 +603,8 @@
  	float page[4];
  	/* Keep the containing canvas for positioning without inserting page breaks. */
  	int no_pagination;
 +	float figure_image_height;
++	float content_bottom; /* Laid-out content, excluding enclosing margins. */
  	/* The ancestor trbl is the trbl for the last positioned
  	 * node we have walked though. Boxes with "absolute" positioning
  	 * will be positioned relative to this. Initially this will be the
-@@ -635,13 +636,87 @@
+@@ -635,13 +635,123 @@
  #define TRBLCPY(DST,SRC) \
  do { DST[T] = SRC[T] ; DST[R] = SRC[R]; DST[B] = SRC[B]; DST[L] = SRC[L]; } while (0)
  
@@ -966,6 +1091,42 @@
  	float page_h = ld->page[B] - ld->page[T];
  	float page_top = ld->page[T];
  	line_h = measure_line(tree, a, b, &baseline);
++	/* Fit an oversized mixed line using each image's actual alignment against
++	 * the other line members. Small images retain their authored alignment. */
++	if (!ld->no_pagination && page_h > 0 && line_h > page_h)
++	{
++		for (fz_html_flow *image = a; image != b; image = fz_html_flow_next(tree, image))
++		{
++			if (image->type != FLOW_IMAGE) continue;
++			float height = page_h;
++			int align = fz_html_flow_box(tree, image)->style->vertical_align;
++			if (align != VA_TOP && align != VA_BOTTOM)
++			{
++				float other_a = 0, other_d = 0;
++				for (fz_html_flow *other = a; other != b; other = fz_html_flow_next(tree, other))
++					if (other != image)
++					{
++						float ascent, descent;
++						measure_node_extents(tree, other, &ascent, &descent);
++						other_a = fz_max(other_a, ascent);
++						other_d = fz_max(other_d, descent);
++					}
++				float zero = image_baseline_offset(tree, image, 0);
++				float unit = image_baseline_offset(tree, image, 1);
++				float ascent_scale = zero - unit, descent_scale = 1 + unit - zero;
++				if (ascent_scale > 0) height = fz_min(height, (page_h - other_d + zero) / ascent_scale);
++				if (descent_scale > 0) height = fz_min(height, (page_h - other_a - zero) / descent_scale);
++			}
++			if (height > 0 && image->h > height)
++			{
++				float width = image->w * height / image->h;
++				line_w -= image->w - width;
++				image->w = width;
++				image->h = height;
++			}
++		}
++		line_h = measure_line(tree, a, b, &baseline);
++	}
 +	if (tree->image_page_sequence && !ld->no_pagination && page_h > 0)
 +		for (fz_html_flow *image = a; image != b; image = fz_html_flow_next(tree, image))
 +			if (image->type == FLOW_IMAGE)
@@ -981,7 +1142,7 @@
  	if (!ld->no_pagination && page_h > 0)
  	{
  		avail = page_h - fmodf(box->s.layout.b - page_top, page_h);
-@@ -666,6 +741,8 @@
+@@ -666,8 +776,11 @@
  			box->s.layout.b += avail;
  		}
  	}
@@ -989,8 +1150,11 @@
 +		baseline = (page_h + page_image->h) / 2 - fmodf(box->s.layout.b - page_top, page_h);
  	layout_line(tree, ctx, indent, page_w, line_w, align, a, b, box, baseline, line_h);
  	box->s.layout.b += line_h;
++	ld->content_bottom = fz_max(ld->content_bottom, box->s.layout.b);
  	if (box->s.layout.b > ld->used[B])
-@@ -958,7 +1035,7 @@
+ 		ld->used[B] = box->s.layout.b;
+ 	if (restart)
+@@ -958,7 +1071,7 @@
  	fz_html_restarter *restart = ld->restart;
  
  	float em = box->s.layout.em;
@@ -999,7 +1163,7 @@
  	align = top->style->text_align;
  	justify_align = TA_LEFT;
  
-@@ -1054,37 +1131,97 @@
+@@ -1054,37 +1167,97 @@
  		{
  			float xs = 1, ys = 1, s;
  			float aspect = 1;
@@ -1108,7 +1272,18 @@
  
  		}
  		else if (node->type == FLOW_ANCHOR)
-@@ -1400,6 +1537,10 @@
+@@ -1302,8 +1475,8 @@
+ 	else
+ 		side = 1 & (int)((*yp - page_top) / page_h);
+ 
+-	/* If we haven't used ANY of the page, then we might not need to do anything. */
+-	if (avail == page_h)
++	/* Leading block margins do not consume a page before its first content. */
++	if (avail == page_h || ld->content_bottom <= *yp + avail - page_h)
+ 	{
+ 		if (page_break == PB_ALWAYS)
+ 			return 0;
+@@ -1400,6 +1573,10 @@
  	const float *padding = box->u.block.padding;
  	float auto_w, auto_h;
  	float reference_w, reference_h;
@@ -1119,7 +1294,7 @@
  	fz_html_restarter *restart = ld->restart;
  	int eop = 0;
  
-@@ -1435,9 +1576,12 @@
+@@ -1435,9 +1612,12 @@
  		reference_h = containing[B] - containing[T];
  	}
  	pd->has_width = fz_css_number_defined_not_auto(box->style->width);
@@ -1135,7 +1310,7 @@
  
  	/* Adjust horizontally for Width and spacings */
  	auto_w = ld->bounds[R] - ld->bounds[L] - (margin[L] + margin[R] + border[L] + border[R] + padding[L] + padding[R]);
-@@ -1445,11 +1589,33 @@
+@@ -1445,11 +1625,33 @@
  	if (ignore_width)
  		ld->bounds[R] = ld->bounds[L] + auto_w;
  	else
@@ -1171,7 +1346,16 @@
  
  	/* So bounds and fixed are calculated as they should be for positioned: static */
  	ld->used[T] = ld->bounds[T];
-@@ -1483,10 +1649,10 @@
+@@ -1467,6 +1669,8 @@
+ 	{
+ 		if (box->style->position == POS_STATIC || box->style->position == POS_RELATIVE)
+ 		{
++			if (padding[T] + border[T] > 0)
++				ld->content_bottom = fz_max(ld->content_bottom, ld->bounds[T]);
+ 			if (pd->has_width && box->s.layout.w < pd->width)
+ 				box->s.layout.w = pd->width;
+ 			if (pd->has_height && box->s.layout.b - box->s.layout.y < pd->height)
+@@ -1483,10 +1687,10 @@
  	TRBLCPY(ld->ancestor, ld->bounds);
  
  	/* Calculate insets. */
@@ -1186,7 +1370,16 @@
  
  	switch (box->style->position)
  	{
-@@ -2941,6 +3107,25 @@
+@@ -1668,6 +1872,8 @@
+ 				box->s.layout.w = pd->width;
+ 			if (pd->has_height && box->s.layout.b - box->s.layout.y < pd->height)
+ 				box->s.layout.b = pd->height + box->s.layout.y;
++			if ((pd->has_height && pd->height > 0) || padding[B] + border[B] > 0)
++				ld->content_bottom = fz_max(ld->content_bottom, box->s.layout.b + padding[B] + border[B]);
+ 		}
+ 
+ 		ld->used[B] = advance_for_spacing(ctx, ld,
+@@ -2941,6 +3147,25 @@
  
  	Return 1 if we should restart at the next block, 0 otherwise.
  */
@@ -1212,7 +1405,7 @@
  static int layout_block(fz_html_tree *tree, fz_context *ctx, layout_data *ld, fz_html_box *box)
  {
  	fz_html_box *child;
-@@ -2950,8 +3135,25 @@
+@@ -2950,8 +3175,25 @@
  	float em = box->s.layout.em;
  	int eop = 0;
  	position_data position;
@@ -1238,7 +1431,16 @@
  
  	/* If restart is non-NULL, we are running in restartable mode. */
  	if (restart)
-@@ -3097,6 +3299,8 @@
+@@ -2984,6 +3226,8 @@
+ 
+ 	/* TODO: remove 'vertical' margin adjustments across automatic page breaks */
+ 	eop = layout_block_page_break(ctx, ld, &ld->used[B], style->page_break_before);
++	if (eop)
++		ld->bounds[T] = ld->used[B];
+ 
+ 
+ 	/* Cope with positioned blocks. */
+@@ -3097,6 +3341,8 @@
  			return 1;
  	}
  
@@ -1247,7 +1449,7 @@
  	return 0;
  }
  
-@@ -3104,7 +3308,7 @@
+@@ -3104,7 +3350,7 @@
  
  // Compute new em, padding, border, margin.
  // Also compute layout x and w.
@@ -1256,7 +1458,7 @@
  {
  	float top_em = top->s.layout.em;
  	float top_baseline = top->s.layout.baseline;
-@@ -3113,7 +3317,7 @@
+@@ -3113,7 +3359,7 @@
  	{
  		const fz_css_style *style = box->style;
  		box->compact_empty_prose = prose_spacing_paragraph_is_blank(tree, box);
@@ -1265,7 +1467,7 @@
  
  		if (style->vertical_align == VA_SUPER)
  			box->s.layout.baseline = top_baseline - top_em / 3;
-@@ -3128,29 +3332,29 @@
+@@ -3128,29 +3374,29 @@
  			float *border = box->u.block.border;
  			float *padding = box->u.block.padding;
  
@@ -1309,7 +1511,7 @@
  			}
  		}
  
-@@ -3169,7 +3373,7 @@
+@@ -3169,7 +3415,7 @@
  		}
  
  		if (box->down)
@@ -1318,7 +1520,7 @@
  
  		box = box->next;
  	}
-@@ -3245,7 +3449,7 @@
+@@ -3245,7 +3491,7 @@
  	}
  }
  
@@ -1327,7 +1529,7 @@
  {
  	while (box)
  	{
-@@ -3259,7 +3463,7 @@
+@@ -3259,7 +3505,7 @@
  				{
  					/* start with "native" size (only used for table width calculations) */
  					node->w = node->content.image->w * (no_pagination ? 1 : 72.0f / 96.0f);
@@ -1336,7 +1538,7 @@
  				}
  				else if (fz_html_flow_is_compact_space(tree, node))
  					measure_inline_space_w(tree, ctx, pool, node, hb_buf, cache);
-@@ -3269,7 +3473,7 @@
+@@ -3269,7 +3515,7 @@
  		}
  
  		if (box->down)
@@ -1345,7 +1547,15 @@
  
  		box = box->next;
  	}
-@@ -3584,15 +3788,16 @@
+@@ -3573,6 +3819,7 @@
+ 
+ 		ld.restart = restart;
+ 		ld.no_pagination = no_pagination;
++		ld.content_bottom = start_y;
+ 		ld.page[T] = start_y;
+ 		ld.page[R] = start_x + page_w;
+ 		ld.page[B] = start_y + page_h;
+@@ -3584,20 +3831,24 @@
  			restart->potential = NULL;
  
  		// Update em/margin/padding/border if necessary.
@@ -1365,7 +1575,15 @@
  			layout_collapse_margins(ctx, box->down, box);
  		}
  
-@@ -3622,8 +3827,12 @@
+ 		assert(box->type == BOX_BLOCK);
+ 		layout_block(tree, ctx, &ld, box);
++		/* A terminal forced break has no next page until content occupies it. */
++		if (!restart && !no_pagination)
++			box->s.layout.b = fz_min(box->s.layout.b, ld.content_bottom);
+ 	}
+ 	fz_always(ctx)
+ 	{
+@@ -3622,8 +3873,12 @@
  void
  fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em)
  {
@@ -1379,7 +1597,7 @@
  	{
  		if (!isfinite(html->meta_w) || !isfinite(html->meta_h) || html->meta_w <= 0 || html->meta_h <= 0)
  			fz_throw(ctx, FZ_ERROR_FORMAT, "fixed-layout EPUB requires positive viewport width and height");
-@@ -3652,12 +3861,12 @@
+@@ -3652,12 +3907,12 @@
  		html->page_margin[T] = html->page_margin[B] = 0;
  
  	html->page_w = w - html->page_margin[L] - html->page_margin[R];

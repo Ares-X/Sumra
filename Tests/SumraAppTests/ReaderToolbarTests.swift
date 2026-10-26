@@ -7,6 +7,43 @@ import SwiftUI
 
 @MainActor
 final class ReaderToolbarTests: XCTestCase {
+    func testPointerMovementPublishesOnlyToolbarTransitions() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/toolbar-pointer.txt"), content: .text("book"))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: 500),
+            styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); window.contentView = nil; window.close(); state.windowClosed() }
+        var publications = 0
+        let observation = state.objectWillChange.sink { publications += 1 }
+        defer { observation.cancel() }
+        for reducedMotion in [false, true] {
+            observer.reducedMotion = reducedMotion
+            for mode in ReaderToolbarDisplayMode.allCases {
+                state.toolbarDisplayMode = mode
+                let before = publications
+                for x in 0..<700 { observer.pointerMoved(to: NSPoint(x: CGFloat(x), y: 100)) }
+                XCTAssertEqual(publications, before, "Moving through the book without a toolbar transition must not invalidate the reader: \(mode), reduced motion \(reducedMotion)")
+            }
+        }
+        state.toolbarDisplayMode = .auto
+        observer.pointerMoved(to: NSPoint(x: 350, y: window.frame.height - 40))
+        XCTAssertTrue(state.toolbarHoverVisible)
+        XCTAssertEqual(state.toolbarHoverOpacity, 1)
+        let revealed = publications
+        for x in 0..<700 { observer.pointerMoved(to: NSPoint(x: CGFloat(x), y: window.frame.height - 40)) }
+        XCTAssertEqual(publications, revealed, "Moving across already visible controls must not republish them")
+        observer.pointerMoved(to: NSPoint(x: 350, y: 100))
+        XCTAssertFalse(state.toolbarHoverVisible)
+        XCTAssertEqual(state.toolbarHoverOpacity, 0)
+        XCTAssertGreaterThan(publications, revealed, "The real dismissal must still publish")
+        XCTAssertFalse(window.isVisible)
+    }
+
     func testHoverMotionCanReverseDuringGraceAndFadeWithoutBlinking() async throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
@@ -142,15 +179,19 @@ final class ReaderToolbarTests: XCTestCase {
 
         func apply() {
             observer.updateChrome()
-            // The ReaderView visibility modifier owns this native change.
-            toolbar.isVisible = state.toolbarShown
+            // Auto Hide leaves native chrome installed; its items/background
+            // fade while the document continues through the titlebar.
+            toolbar.isVisible = true
             observer.updateChrome()
             window.contentView?.layoutSubtreeIfNeeded()
         }
         let frame = window.frame
         for theme in ["light", "light-warm", "dark", "dracula", "gruvbox"] {
             state.theme = theme; apply()
-            XCTAssertFalse(toolbar.isVisible)
+            XCTAssertTrue(toolbar.isVisible)
+            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                XCTAssertTrue(try XCTUnwrap(window.standardWindowButton(type)).isHidden)
+            }
             XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
             XCTAssertTrue(window.titlebarAppearsTransparent)
             XCTAssertEqual(window.titleVisibility, .hidden)
@@ -163,6 +204,9 @@ final class ReaderToolbarTests: XCTestCase {
         observer.pointerMoved(to: NSPoint(x: 320, y: window.frame.height - 1))
         apply()
         XCTAssertTrue(toolbar.isVisible)
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            XCTAssertFalse(try XCTUnwrap(window.standardWindowButton(type)).isHidden)
+        }
         XCTAssertEqual(window.frame, frame, "Revealing must not resize or move the reader window")
         XCTAssertTrue(window.titlebarAppearsTransparent)
         XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
@@ -172,16 +216,85 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertTrue(state.toolbarHoverVisible, "Controls stay usable after entering the toolbar")
         observer.pointerMoved(to: NSPoint(x: 320, y: window.contentLayoutRect.midY))
         apply()
-        XCTAssertFalse(toolbar.isVisible)
+        XCTAssertTrue(toolbar.isVisible)
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            XCTAssertTrue(try XCTUnwrap(window.standardWindowButton(type)).isHidden)
+        }
         XCTAssertEqual(window.frame, frame, "Hiding must reclaim content space in the same window frame")
         XCTAssertEqual(try XCTUnwrap(window.contentView).frame.height, hiddenHeight, accuracy: 0.1)
 
         observer.detach()
         XCTAssertFalse(window.styleMask.contains(.fullSizeContentView))
         XCTAssertFalse(window.titlebarAppearsTransparent)
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            XCTAssertFalse(try XCTUnwrap(window.standardWindowButton(type)).isHidden)
+        }
         XCTAssertEqual(window.backgroundColor, originalBackground)
         XCTAssertEqual(window.acceptsMouseMovedEvents, originalMouseMoved)
         XCTAssertFalse(window.isVisible, "Geometry checks must leave the user's windows undisturbed")
+    }
+
+    func testDetachedToolbarSurvivesNavigationRemovalAndRestoresItsWindowWhenReattached() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/detached-toolbar.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .auto
+        let parent = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480),
+                              styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        let child = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 38),
+                             styleMask: .borderless, backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false; child.isReleasedWhenClosed = false
+        parent.addChildWindow(child, ordered: .above)
+        child.alphaValue = 0.8
+        let content = try XCTUnwrap(child.contentView)
+        content.alphaValue = 0.7
+        let field = NSTextField(string: "1")
+        child.contentView?.addSubview(field)
+        state.pageInputField = field; state.window = parent
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        parent.contentView?.addSubview(observer)
+        let closeButton = try XCTUnwrap(parent.standardWindowButton(.closeButton))
+        child.contentView?.addSubview(closeButton)
+        defer {
+            observer.detach(); parent.removeChildWindow(child); child.close(); parent.close(); state.windowClosed()
+        }
+        let parentFrame = parent.frame, childFrame = child.frame, parentAlpha = parent.alphaValue
+        var nativeAlpha: CGFloat = 0.8
+        func check(_ alpha: CGFloat, ignoresMouse: Bool) {
+            observer.updateChrome()
+            XCTAssertEqual(content.alphaValue, alpha, accuracy: 0.001)
+            XCTAssertEqual(child.alphaValue, nativeAlpha, accuracy: 0.001, "The fullscreen companion retains window-alpha ownership")
+            XCTAssertEqual(child.ignoresMouseEvents, ignoresMouse)
+            XCTAssertEqual(parent.frame, parentFrame); XCTAssertEqual(child.frame, childFrame)
+            XCTAssertEqual(parent.alphaValue, parentAlpha)
+            XCTAssertFalse(parent.ignoresMouseEvents)
+        }
+        check(0, ignoresMouse: true)
+        // The fullscreen companion writes window alpha after the entry event.
+        // Its later writes must leave the hidden toolbar content untouched.
+        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: parent)
+        child.alphaValue = 1
+        nativeAlpha = 1
+        check(0, ignoresMouse: true)
+        observer.pointerMoved(to: NSPoint(x: 320, y: parent.frame.height - 40))
+        check(1, ignoresMouse: false)
+        state.pageInputField = nil
+        field.removeFromSuperview()
+        check(1, ignoresMouse: false)
+        state.toolbarDisplayMode = .hidden
+        check(0, ignoresMouse: true)
+        state.toolbarDisplayMode = .shown
+        check(1, ignoresMouse: false)
+        state.presentation = true
+        check(0, ignoresMouse: true)
+        state.presentation = false
+        check(1, ignoresMouse: false)
+        state.toolbarDisplayMode = .auto
+        check(0, ignoresMouse: true)
+        parent.contentView?.addSubview(closeButton)
+        check(0.7, ignoresMouse: false)
+        XCTAssertFalse(parent.isVisible); XCTAssertFalse(child.isVisible)
     }
 
     func testThreeModesControlHoverAndPresentationWithoutChangingTheChoice() throws {

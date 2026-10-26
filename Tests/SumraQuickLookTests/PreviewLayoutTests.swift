@@ -33,23 +33,28 @@ final class PreviewLayoutTests: XCTestCase {
         source.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
         source.fill(CGRect(x: 0, y: 0, width: 120, height: 160))
         let image = try XCTUnwrap(source.makeImage())
+        let size = ThumbnailProvider.contextSize(for: image, maximum: CGSize(width: 200, height: 200))
+        XCTAssertEqual(size, CGSize(width: 150, height: 200), "Finder's document frame must follow the portrait page")
         for scale in [1, 2] {
-            let output = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 200 * scale, pixelsHigh: 200 * scale,
+            let output = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 150 * scale, pixelsHigh: 200 * scale,
                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                bytesPerRow: 800 * scale, bitsPerPixel: 32))
+                bytesPerRow: 600 * scale, bitsPerPixel: 32))
             NSGraphicsContext.saveGraphicsState()
             let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: output))
             context.cgContext.clear(CGRect(x: 0, y: 0, width: 200 * scale, height: 200 * scale))
             context.cgContext.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
             NSGraphicsContext.current = context
-            ThumbnailProvider.draw(image, in: CGSize(width: 200, height: 200))
+            ThumbnailProvider.draw(image, in: size)
             NSGraphicsContext.restoreGraphicsState()
             for y in [10, 100, 190] {
-                let color = try XCTUnwrap(output.colorAt(x: 100 * scale, y: y * scale)?.usingColorSpace(.deviceRGB))
+                let color = try XCTUnwrap(output.colorAt(x: 75 * scale, y: y * scale)?.usingColorSpace(.deviceRGB))
                 XCTAssertGreaterThan(color.redComponent, 0.9, "The complete thumbnail must occupy the host's point bounds at \(scale)x")
                 XCTAssertGreaterThan(color.alphaComponent, 0.9)
             }
-            XCTAssertLessThan(try XCTUnwrap(output.colorAt(x: 5 * scale, y: 100 * scale)).alphaComponent, 0.1)
+            for x in [5, 145] {
+                XCTAssertGreaterThan(try XCTUnwrap(output.colorAt(x: x * scale, y: 100 * scale)).alphaComponent, 0.9,
+                                     "The document canvas must not include artificial side margins")
+            }
         }
     }
 

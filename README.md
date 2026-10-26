@@ -65,7 +65,7 @@ Choose from five built-in reading themes, or save your own text, background and 
 
 Choose installed fonts from the reading **Font** menu or Settings. The **Aa** reading-settings button applies typography, colors and layout live; **Typography and CSS…** also accepts a family name, such as `Iowan Old Style`, including supplemental fonts macOS omits from its available-font list. Install your own font files with macOS Font Book first. **Light** uses pure white paper. For per-document text, background and link colors, open **View → Document Colors → Custom Document Colors…**. Color wells, RGB fields and an instant preview help you choose; **Use Theme** restores the theme palette.
 
-CHM files expose a separate **Index** tab when they contain a keyword index. EPUB and comic files also have Finder thumbnails and a paged Quick Look preview; macOS manages the bundled extensions. [Editor SyncTeX integration](docs/SYNCTEX.md) and [reading controls](docs/READER_CONTROLS.md) describe the available GUI workflows.
+CHM files expose a separate **Index** tab when they contain a keyword index. EPUB and comic files also support paged Quick Look previews and first-page thumbnails through Sumra's bundled extensions. For EPUB thumbnails, Finder may select Apple Books instead, leaving coverless books with a generic icon. [Editor SyncTeX integration](docs/SYNCTEX.md) and [reading controls](docs/READER_CONTROLS.md) describe the available GUI workflows.
 
 ## Supported formats
 

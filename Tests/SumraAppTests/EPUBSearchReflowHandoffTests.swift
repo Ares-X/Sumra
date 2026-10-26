@@ -46,6 +46,31 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
         }
         do { _ = try await cancelled.value; XCTFail("Cancelled counting must not publish a batch") }
         catch is CancellationError { }
+        let started = expectation(description: "Empty-page batch requested")
+        var completed = false
+        let interrupted = Task {
+            started.fulfill()
+            defer { completed = true }
+            return try await pages.nextChapterMatches("ABSENT_CHAPTER_QUERY", chapter: 0,
+                pageRange: 0..<count, options: .init(), maximum: 1000)
+        }
+        await fulfillment(of: [started], timeout: 1)
+        let text = try await pages.text(PageLocation(chapter: 0, page: 0))
+        XCTAssertFalse(text.isEmpty)
+        XCTAssertFalse(completed, "Reading must run while the empty-page scan is unfinished")
+        interrupted.cancel()
+        do { _ = try await interrupted.value; XCTFail("Cancellation during a batch must stop its scan") }
+        catch is CancellationError { }
+        // A cancelled batch's abort cookie must not poison the next operation.
+        // Multiple successful batches also exercise independent cookie lifetimes.
+        var recovered = [RasterMatch](), next = 0
+        while next < count {
+            let batch = try await pages.nextChapterMatches(query, chapter: 0,
+                pageRange: next..<count, options: .init(), maximum: 1000)
+            XCTAssertGreaterThan(batch.nextPage, next)
+            recovered += batch.matches; next = batch.nextPage
+        }
+        XCTAssertEqual(recovered, reference)
         withExtendedLifetime(directory) {}
     }
 

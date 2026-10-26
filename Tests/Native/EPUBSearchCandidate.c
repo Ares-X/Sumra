@@ -25,6 +25,15 @@ static char *search(SumraMuPDFDocument *d, const char *query, int flags, int64_t
     char *json = lf_search_options_at(d, 0, 0, query, flags, after, 1, NULL, error);
     check(json != NULL, error); return json;
 }
+static char *search_pages_without_candidate(SumraMuPDFDocument *d, int page, const char *query, int flags, char *error) {
+    // Layout is complete. For this call the field selects the physical-window
+    // glyph path without the finite HTML candidate.
+    int reflowable = d->doc->is_reflowable;
+    d->doc->is_reflowable = 0;
+    char *json = lf_search_pages_at(d, 0, page, query, flags, -1, -1, -1, NULL, NULL, error);
+    d->doc->is_reflowable = reflowable;
+    return json;
+}
 
 static int cancelled(void) { return 1; }
 static void *walking_cookie;
@@ -136,8 +145,8 @@ static void parsed_phrase_parity(const char *directory, const char *path) {
             }
             int pages = lf_chapter_pages(reference, 0, error);
             for (int page = 0; page < pages; ++page) {
-                char *text = lf_text_at(reference, 0, page, error); check(text != NULL, error); free(text);
-                char *b = lf_search_pages_at(reference, 0, page, cases[i].query, flags, -1, -1, -1, NULL, NULL, error);
+                lf_drop_render_page(reference);
+                char *b = search_pages_without_candidate(reference, page, cases[i].query, flags, error);
                 char *a = candidate ? lf_search_pages_at(fast, 0, page, cases[i].query, flags, -1, -1, -1, NULL, NULL, error)
                     : strdup("{\"text\":\"\",\"matches\":[]}");
                 if (!(a && b && !strcmp(a, b))) fprintf(stderr, "parsed case=%zu flags=%d page=%d candidate=%d\n", i, flags, page, candidate);

@@ -10,12 +10,19 @@ final class ThumbnailProvider: QLThumbnailProvider {
                 let book = try QuickLookBook(url: request.fileURL)
                 let page = try await book.image(maximum: CGSize(width: request.maximumSize.width * request.scale,
                                                                 height: request.maximumSize.height * request.scale))
-                handler(QLThumbnailReply(contextSize: request.maximumSize, currentContextDrawing: {
-                    Self.draw(page.image, in: request.maximumSize)
+                let size = Self.contextSize(for: page.image, maximum: request.maximumSize)
+                handler(QLThumbnailReply(contextSize: size, currentContextDrawing: {
+                    Self.draw(page.image, in: size)
                     return true
                 }), nil)
             } catch { handler(nil, error) }
         }
+    }
+
+    // Finder builds the document frame around this canvas. Use the page's
+    // proportions so a portrait page does not receive a square document frame.
+    static func contextSize(for image: CGImage, maximum: CGSize) -> CGSize {
+        QuickLookBook.fitted(CGSize(width: image.width, height: image.height), in: maximum).size
     }
 
     // AppKit draws in points and applies Quick Look's Retina scale. The raw

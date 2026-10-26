@@ -4,7 +4,6 @@
 #include <unistd.h>
 
 API void lf_close(SumraMuPDFDocument *);
-API char *lf_text_at(SumraMuPDFDocument *, int, int, char *);
 API int lf_chapter_pages(SumraMuPDFDocument *, int, char *);
 API int lf_relayout_css(SumraMuPDFDocument *, float, float, float, const char *, int, char *);
 static int failures;
@@ -30,6 +29,16 @@ static char *find(SumraMuPDFDocument *document, const char *query, int page, int
     char error[512] = {0};
     char *result = lf_search_pages_at(document, 0, page, query, flags, after, -1, last, NULL, NULL, error);
     check(result != NULL, error);
+    return result;
+}
+static char *find_without_candidate(SumraMuPDFDocument *document, const char *query, int page, int flags) {
+    // The document has already been laid out. For this call the field selects
+    // the physical-window search branch, so the reference performs real glyph
+    // extraction without using the finite HTML candidate.
+    int reflowable = document->doc->is_reflowable;
+    document->doc->is_reflowable = 0;
+    char *result = find(document, query, page, flags, -1, -1);
+    document->doc->is_reflowable = reflowable;
     return result;
 }
 static void finite_han_parity(const char *path) {
@@ -60,15 +69,12 @@ static void finite_han_parity(const char *path) {
             int count = 0;
             for (int page = 0; page < pages; ++page) {
                 lf_drop_render_page(fast);
-                // Pre-extracted owner glyphs bypass the candidate in the same
-                // physical-window API, retaining its complete seam behavior.
-                char *text = lf_text_at(reference, 0, page, error); check(text != NULL, error); free(text);
+                lf_drop_render_page(reference);
                 char *a = find(fast, cases[i].query, page, flags, -1, -1);
-                char *b = find(reference, cases[i].query, page, flags, -1, -1);
+                char *b = find_without_candidate(reference, cases[i].query, page, flags);
                 if (!(a && b && !strcmp(a, b))) fprintf(stderr, "finite case=%zu page=%d flags=%d\n", i, page, flags);
                 check(a && b && !strcmp(a, b), "finite ordered candidate must preserve exact glyph-window JSON");
                 count += occurrences(b, "\"start\":");
-                if (i == 0) check(fast->text_page == NULL, "unrelated Han must reject a common-first-rune page before shaping");
                 free(a); free(b);
             }
             if (!flags && cases[i].hits >= 0) {
@@ -78,6 +84,22 @@ static void finite_han_parity(const char *path) {
         }
         lf_close(fast); lf_close(reference);
     }
+}
+
+static void finite_cold_negative(const char *path) {
+    // The owner contains the necessary first rune but cannot match the full
+    // phrase, including through a trailing physical-page prefix.
+    SumraMuPDFDocument *document = open_body(path, "<div>甲丁乙丙丁</div>");
+    char error[512] = {0};
+    check(lf_chapter_pages(document, 0, error) == 1, "unrelated Han fixture must fit one physical page");
+    for (int flags = 0; flags < 8; ++flags) {
+        lf_drop_render_page(document);
+        char *result = find(document, "甲乙丙", 0, flags, -1, -1);
+        check(result && occurrences(result, "\"start\":") == 0 && document->text_page == NULL,
+            "cold unrelated Han owner must reject before glyph extraction");
+        free(result);
+    }
+    lf_close(document);
 }
 
 static void *walking_cookie;
@@ -148,6 +170,7 @@ int main(void) {
     check(occurrences(hit, "\"start\":") == 0, "an authored inline hyphen must remain significant");
     free(hit); lf_close(document);
     finite_han_parity(path);
+    finite_cold_negative(path);
     finite_candidate_cancellation(path);
     unlink(path);
     printf("cross-page phrase search: failures=%d\n", failures);

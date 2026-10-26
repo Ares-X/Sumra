@@ -21,6 +21,7 @@ struct ReaderView: View {
     var body: some View {
         let _ = language
         let _ = customThemes
+        let findStatusVisible = state.showFind || state.searchSessionActive
         VStack(spacing: 0) {
             if state.showFind && !findFloating && !state.presentation {
                 ReaderFindControls(state: state, floating: $findFloating, close: closeFind)
@@ -36,10 +37,10 @@ struct ReaderView: View {
             if state.speechRequested && !state.presentation { SpeechControls(state: state); Divider() }
             mainArea
 
-            if state.document != nil && !state.presentation && (!state.status.isEmpty || state.modified) {
+            if state.document != nil && !state.presentation && (findStatusVisible || !state.status.isEmpty || state.modified) {
                 Divider()
                 HStack {
-                    Text(state.status).lineLimit(1)
+                    Text(state.status.isEmpty && findStatusVisible ? state.searchCountText : state.status).lineLimit(1)
                     Spacer()
                     if state.modified { Text(L("Unsaved Changes")) }
                 }
@@ -66,8 +67,11 @@ struct ReaderView: View {
         }
         .onChange(of: state.cover) { UserDefaults.standard.set($0, forKey: "cover") }
         .toolbar(id: "reader") { toolbar }
-        .toolbar(state.toolbarShown ? .visible : .hidden, for: .windowToolbar)
-        .modifier(ReaderToolbarAppearance(overlaysContent: state.toolbarOverlaysContent))
+        // Fullscreen policy is chosen on entry. Keep document chrome installed
+        // across reader modes; its owned views/window control visible opacity.
+        .toolbar(state.hasDocument ? .visible : .hidden, for: .windowToolbar)
+        .modifier(ReaderToolbarAppearance(overlaysContent: state.toolbarOverlaysContent,
+            shown: state.toolbarShown, background: ReaderTheme.color(state.palette.background)))
         .onChange(of: reducedMotion) { _ in state.toolbarHoverVisible = false }
         .onChange(of: state.presentation) {
             state.toolbarHoverVisible = false
