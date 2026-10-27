@@ -727,3 +727,10 @@
 "Auto Hide" = "ซ่อนอัตโนมัติ";
 "Always Hide" = "ซ่อนเสมอ";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "ในโหมดซ่อนอัตโนมัติ เลื่อนตัวชี้ไปที่ด้านบนของหน้าต่างเพื่อแสดงแถบเครื่องมือ";
+
+/* Reading progress footer */
+"Reading Progress" = "ความคืบหน้าการอ่าน";
+"Line:" = "บรรทัด:";
+"File:" = "ไฟล์:";
+"Approximate progress by chapter" = "ความคืบหน้าโดยประมาณตามบท";
+"Progress in current file" = "ความคืบหน้าในไฟล์ปัจจุบัน";

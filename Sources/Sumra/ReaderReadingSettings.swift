@@ -106,7 +106,7 @@ import SumraCore
                 if let document = state.document { Text(document.url.lastPathComponent).font(.headline) }
                 Text(L("Changes appear in your document immediately.")).font(.caption).foregroundStyle(.secondary)
                 Picker(L("Theme"), selection: Binding(get: { state.theme }, set: { value in
-                    state.captureReflowPosition(); state.setTheme(value)
+                    state.setTheme(value)
                 })) {
                     ForEach(ReaderTheme.choices(selected: state.theme)) { theme in Text(theme.displayName).tag(theme.id) }
                 }

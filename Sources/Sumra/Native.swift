@@ -245,6 +245,7 @@ final class NativeFile {
     private let authenticationPassword: String
     private let pdfSource: PDFSource?
     private let sourceRevision: String
+    var searchSourceRevision: String { sourceRevision }
     private var htmlStyleSignature = ""
     private var legacyPaletteStyleSignature: String?
     private typealias MarkdownCancelled = @convention(c) () -> Int32
@@ -322,6 +323,10 @@ final class NativeFile {
         }
     }
 
+    struct PDFSourceChanged: LocalizedError {
+        var errorDescription: String? { "The PDF file changed while opening. Open it again." }
+    }
+
     // MuPDF reads streams lazily. Retaining an fd protects against replacement,
     // but only a private snapshot protects unread pages against in-place writes.
     // Reopened print documents share this owner until their final decoder closes.
@@ -335,7 +340,7 @@ final class NativeFile {
             let file = try FileHandle(forReadingFrom: source)
             defer { try? file.close() }
             guard let opened = FileVersion(descriptor: file.fileDescriptor), FileVersion(source) == opened else {
-                throw ReadError("The PDF file changed while opening. Open it again.")
+                throw PDFSourceChanged()
             }
             var attributes = stat()
             guard fstat(file.fileDescriptor, &attributes) == 0 else {
@@ -398,7 +403,7 @@ final class NativeFile {
             // its final write. Include ctime so equal-size writes restoring mtime
             // cannot pass. Later source edits do not affect captured bytes.
             guard FileVersion(descriptor: file.fileDescriptor) == opened, FileVersion(source) == opened else {
-                throw ReadError("The PDF file changed while opening. Open it again.")
+                throw PDFSourceChanged()
             }
             let captured: FileCheckpoint?
             if let streamedDigest, let version = FileVersion(snapshot) {
@@ -596,6 +601,21 @@ final class NativeFile {
         table.setPageCount(chapter: chapter, count: try warmChapter(chapter))
         chapterTable = table
         layoutChanged?(table)
+    }
+    func publishSearchChapterCounts(_ scanned: ChapterTable) throws {
+        guard var table = chapterTable else { throw ReadError("Document has no chapters") }
+        guard table.chapterCount == scanned.chapterCount else { throw ReadError("Document layout changed while searching") }
+        for chapter in 0..<table.chapterCount where scanned.isLaidOut(chapter) {
+            let count = scanned.pageCount(chapter)
+            guard !table.isLaidOut(chapter) || table.pageCount(chapter) == count else {
+                throw ReadError("Document layout changed while searching")
+            }
+            table.setPageCount(chapter: chapter, count: count)
+        }
+        if table != chapterTable {
+            chapterTable = table
+            layoutChanged?(table)
+        }
     }
     func publishWarmedChapters() throws {
         guard var table = chapterTable, !table.complete else { return }

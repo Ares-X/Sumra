@@ -317,9 +317,7 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
 
     func connect(_ state: ReaderState, canReuse: Bool) {
         guard state.window != nil else { return }
-        // A restoration payload can still be waiting for its .task even
-        // though its state has no document yet. Never replace that request.
-        if canReuse, state.document == nil, !state.busy { emptyReader = state }
+        if canReuse { emptyReader = state }
         openPendingFiles()
     }
 
@@ -337,14 +335,9 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let urls = pendingFiles
         pendingFiles.removeAll()
-        for url in urls {
-            if let state = emptyReader, state.window != nil, state.document == nil, !state.busy {
-                emptyReader = nil
-                state.open(url)
-                state.window?.makeKeyAndOrderFront(nil)
-            } else {
-                createWindow(WindowPayload(path: url.path))
-            }
+        if !urls.isEmpty {
+            ReaderWindows.open(urls, in: emptyReader, createWindow: createWindow)
+            emptyReader = nil
         }
         let requests = pendingSyncTeX
         pendingSyncTeX.removeAll()
@@ -540,10 +533,13 @@ enum ReaderWindows {
     static func open(_ urls: [URL], in state: ReaderState?, recordsHistory: Bool = true,
                      createWindow: (WindowPayload) -> Void) {
         for (index, url) in urls.enumerated() {
-            // A file picker can finish after its captured reader window closes.
-            if index == 0, let state, state.window != nil {
+            // Reuse Home, but preserve loaded books and pending opens, including
+            // restoration requests whose document has not loaded yet.
+            if index == 0, let state, state.window != nil,
+               state.document == nil, state.restoredPayload == nil, !state.busy {
                 if recordsHistory { state.open(url) }
                 else { state.openWithoutHistory(url) }
+                state.window?.makeKeyAndOrderFront(nil)
             } else {
                 createWindow(WindowPayload(path: url.path, recordsHistory: recordsHistory ? nil : false))
             }
@@ -935,7 +931,7 @@ struct DocumentFileBrowser: View {
                     Divider().frame(height: 16)
                     Button { self.folder = folder.deletingLastPathComponent() } label: { Image(systemName: "arrow.up") }
                         .help(L("Parent folder")).accessibilityLabel(L("Parent folder"))
-                    Button(L("Open Folder")) { state.open(folder); closeBrowser() }
+                    Button(L("Open Folder")) { openDocument(folder) }
                 }
                 Spacer()
                 if folder == nil {
@@ -1118,7 +1114,11 @@ struct DocumentFileBrowser: View {
     }
     private func open(_ url: URL) {
         if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { folder = url }
-        else { state.open(url); closeBrowser() }
+        else { openDocument(url) }
+    }
+    private func openDocument(_ url: URL) {
+        ReaderWindows.open([url], in: state) { state.createWindow?($0) }
+        closeBrowser()
     }
     private func closeBrowser() { if dismissOnOpen { dismiss() } }
 }

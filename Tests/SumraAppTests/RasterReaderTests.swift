@@ -84,7 +84,7 @@ final class RasterReaderTests: XCTestCase {
             host.layoutSubtreeIfNeeded()
             if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
         }
-        func wait(painting: Bool, _ condition: () -> Bool) async throws {
+        func wait(painting: Bool, line: UInt = #line, _ condition: () -> Bool) async throws {
             let deadline = Date().addingTimeInterval(10)
             repeat {
                 host.layoutSubtreeIfNeeded()
@@ -92,7 +92,7 @@ final class RasterReaderTests: XCTestCase {
                 if condition() { return }
                 try await Task.sleep(nanoseconds: 10_000_000)
             } while Date() < deadline && state.error == nil
-            XCTFail(state.error ?? "Markdown passage did not settle")
+            XCTFail(state.error ?? "Markdown passage did not settle: flow=\(flow), query=\(state.findQuery), target=\(state.selectedSearchTarget ?? "nil"), results=\(state.searchResults.count), counting=\(state.searchCounting), page=\(state.page), rendered=\(RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))), highlight=\(String(describing: RasterReader.highlightedMatch(in: state.readerFocusView)))", line: line)
         }
         try await wait(painting: true) {
             RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))

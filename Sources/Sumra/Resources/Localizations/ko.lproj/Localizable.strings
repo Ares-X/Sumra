@@ -727,3 +727,10 @@
 "Auto Hide" = "자동으로 가리기";
 "Always Hide" = "항상 가리기";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "자동으로 가리기 모드에서는 포인터를 윈도우 상단으로 이동하면 도구 막대가 표시됩니다.";
+
+/* Reading progress footer */
+"Reading Progress" = "읽기 진행 상황";
+"Line:" = "줄:";
+"File:" = "파일:";
+"Approximate progress by chapter" = "장별 대략적인 진행 상황";
+"Progress in current file" = "현재 파일의 진행 상황";

@@ -52,7 +52,7 @@ enum ReaderAction: Equatable {
     case copySelectionImage, saveSelection, printSelection, searchSelectionWithLens
     case speechHighlight(location: Int, length: Int)
     case readAloudFromTop, readAloudFromCursor, readAloudSelection
-    case page(Int), href(String), zoom(Double), fit(String), rotate(Int)
+    case page(Int), progress(Double), href(String), zoom(Double), fit(String), rotate(Int)
     case turnPages(Int, toBottom: Bool = false)
     case find(String, backwards: Bool = false, options: TextSearchOptions? = nil, fromSelection: Bool = false, inResults: Bool = false)
     case scroll(ReaderScrollDirection, ReaderScrollAmount, count: Int = 1), location(String)
@@ -212,7 +212,6 @@ struct ReadingPosition: Codable, Hashable {
     var fontSize: Double?
     var lineHeight: Double?
     var margin: Double?
-    var theme: String?
     var userCSS: String?
     var useDocumentCSS: Bool?
     var automaticLayout: Bool?
@@ -277,6 +276,7 @@ final class ReaderState: ObservableObject {
         didSet {
             if document != nil { restoredPayload = nil }
             if document?.id != oldValue?.id {
+                browserProgress = nil
                 pdfEditingEnabled = false; nativePDFInfo = nil; nativePDFSelection = nil; nativePDFAnnotationTool = nil
                 nativePDFSignatureSelection = nil
                 nativePDFFormEditor?.cancel(); nativePDFFormPage = nil; fitPresetRestore = nil
@@ -301,6 +301,7 @@ final class ReaderState: ObservableObject {
     private var linkHintTask: Task<Void, Never>?
     @Published var page = 0
     @Published var count = 0
+    @Published var browserProgress: Double?
     var chapterLayout: ChapterTable?
     private var nativePassageTask: Task<Void, Never>?
     @Published var zoom = 1.0
@@ -442,7 +443,7 @@ final class ReaderState: ObservableObject {
         didSet { if !toolbarHoverVisible, toolbarHoverOpacity != 0 { toolbarHoverOpacity = 0 } }
     }
     @Published var toolbarHoverOpacity = 0.0
-    var toolbarShown: Bool { hasDocument && ((!presentation && toolbarDisplayMode == .shown) || (toolbarDisplayMode == .auto && toolbarHoverVisible)) }
+    var toolbarShown: Bool { hasDocument && !presentation && (toolbarDisplayMode == .shown || (toolbarDisplayMode == .auto && toolbarHoverVisible)) }
     var toolbarOverlaysContent: Bool { hasDocument && (presentation || toolbarDisplayMode != .shown) }
     @Published var presentationBlank: String?
     @Published var laserPointer = false
@@ -662,7 +663,6 @@ extension ReaderState {
         position.fontSize = fontSize
         position.lineHeight = lineHeight
         position.margin = margin
-        position.theme = theme
         position.userCSS = userCSS
         position.useDocumentCSS = useDocumentCSS
         position.automaticLayout = automaticLayout
@@ -798,6 +798,12 @@ extension ReaderState {
     }
 
     func send(_ action: ReaderAction) {
+        // Input can queue behind an in-flight command without advancing its
+        // revision yet. It still terminates the current raster pinch now.
+        switch action {
+        case .page, .progress, .fit, .zoom: RasterPinchZoom.cancel(in: readerScrollView)
+        default: break
+        }
         var action = action
         if case .find(let query, let backwards, let options, let selection, let inResults) = action {
             pendingFind?.cancel(); pendingFind = nil
@@ -1514,11 +1520,16 @@ extension ReaderState {
         }
     }
 
-    func setZoom(_ value: Double) {
+    func setZoom(_ value: Double, preservingPosition: Bool = true) {
         guard value.isFinite else { return }
         zoom = ReadingZoom.clamp(value, limit: isNativeMarkdown ? configuredZoomMaximum : zoomLimit)
         if !isNativeMarkdown { fit = "custom" }
-        send(.zoom(zoom))
+        if preservingPosition { send(.zoom(zoom)) }
+    }
+
+    func magnifyMarkdown(_ value: Double, startingAt start: inout Double?) {
+        if start == nil { start = zoom }
+        setZoom((start ?? zoom) * value)
     }
 
     func setFit(_ value: String) {
@@ -1594,11 +1605,24 @@ extension ReaderState {
     }
 
     func setTheme(_ value: String) {
-        customTextColor = nil; customBackgroundColor = nil; customLinkColor = nil
-        theme = value
-        UserDefaults.standard.set(value, forKey: "theme")
-        if value != "system" { UserDefaults.standard.set(value, forKey: palette.dark ? "lastDarkTheme" : "lastLightTheme") }
-        if isText || isBrowser || reflowable { send(.style) }
+        Self.selectTheme(value, source: self)
+    }
+
+    static func selectTheme(_ value: String, source: ReaderState? = nil) {
+        let defaults = UserDefaults.standard
+        defaults.set(value, forKey: "theme")
+        if value != "system" {
+            let palette = ReaderTheme.resolve(value) ?? ReaderTheme.builtins[0]
+            defaults.set(value, forKey: palette.dark ? "lastDarkTheme" : "lastLightTheme")
+        }
+        var readers = ReaderWindows.states
+        if let source, !readers.contains(where: { $0 === source }) { readers.append(source) }
+        for reader in readers {
+            reader.captureReflowPosition()
+            reader.customTextColor = nil; reader.customBackgroundColor = nil; reader.customLinkColor = nil
+            reader.theme = value
+            if reader.isText || reader.isBrowser || reader.reflowable { reader.send(.style) }
+        }
     }
 
     func toggleLightDarkTheme() {
@@ -2198,6 +2222,8 @@ extension ReaderState {
 }
 
 private extension ReaderState {
+    static let fileReloadDebounce: UInt64 = 250_000_000
+
     // Only state owned by the outgoing document. Reading preferences, position,
     // presentation and navigation history have different close/reload semantics.
     func resetDocumentTransientState() {
@@ -2456,6 +2482,30 @@ private extension ReaderState {
                 busy = false
                 status = ""
                 loading = nil
+                if error is NativeFile.PDFSourceChanged, FileManager.default.fileExists(atPath: url.path) {
+                    // A compiler can replace the source while its snapshot is
+                    // copied. Keep the displayed document and opening intent;
+                    // retry after the same quiet interval as file observation.
+                    requestedPosition = openingPosition
+                    requestedHistory = openingHistory
+                    if document?.url == url { watchFile(url) }
+                    else { stopWatch() }
+                    status = "File changed on disk"
+                    reloadTask = Task {
+                        try? await Task.sleep(nanoseconds: Self.fileReloadDebounce)
+                        guard !Task.isCancelled, currentGeneration == generation, !busy else { return }
+                        guard editRevision == openingEditRevision || !modified else {
+                            if let displayedURL = document?.url { watchFile(displayedURL) }
+                            status = "File changed on disk; unsaved edits remain open"
+                            return
+                        }
+                        load(url, reloading: reloading, password: requestPassword, temporary: sourceTemporary,
+                             markdownRenderer: requestedRenderer,
+                             retainedMarkdownPreference: retainedMarkdownPreference,
+                             rememberMarkdownPreference: rememberMarkdownPreference)
+                    }
+                    return
+                }
                 if let required = error as? PasswordRequired {
                     requestedPosition = openingPosition
                     requestedHistory = openingHistory
@@ -2519,7 +2569,6 @@ private extension ReaderState {
         if let value = position.fontSize { fontSize = value }
         if let value = position.lineHeight { lineHeight = value }
         if let value = position.margin { margin = value }
-        if let value = position.theme { theme = value }
         if let value = position.userCSS { userCSS = value }
         if let value = position.useDocumentCSS { useDocumentCSS = value }
     }
@@ -2674,7 +2723,7 @@ private extension ReaderState {
                 return
             }
             self.reloadTask = Task {
-                try? await Task.sleep(nanoseconds: 250_000_000)
+                try? await Task.sleep(nanoseconds: Self.fileReloadDebounce)
                 guard !Task.isCancelled, !self.busy, self.document?.url == url else { return }
                 if event.contains(.delete) || event.contains(.rename) {
                     guard FileManager.default.fileExists(atPath: url.path) else {

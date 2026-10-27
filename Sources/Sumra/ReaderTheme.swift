@@ -15,7 +15,7 @@ struct ReaderTheme: Identifiable, Codable, Equatable {
         .init(id: "gruvbox", name: "Gruvbox", text: 0xebdbb2, background: 0x282828, link: 0x83a598),
     ]
 
-    // Retain saved document and preference IDs without offering retired presets.
+    // Retain saved preference IDs without offering retired presets.
     private static let legacy: [Self] = [
         .init(id: "dark-from-3-5", name: "Dark from 3.5", text: 0xbac9d0, background: 0x263238, link: 0x8aa3b0),
         .init(id: "charcoal", name: "Charcoal", text: 0xffffff, background: 0x2d2d30, link: 0x9999a0),

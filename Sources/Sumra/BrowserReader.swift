@@ -564,6 +564,7 @@ struct BrowserReader: NSViewRepresentable {
             switch command.action {
             case .turnPages(let count, _): payload = ["name": "turnPages", "count": count]
             case .page(let value): payload = ["name": "page", "number": value]
+            case .progress(let value): payload = ["name": "progress", "value": value]
             case .location(let value): payload = ["name": "location", "text": value]
             case .scroll(let direction, let amount, let count): payload = ["name": "scroll", "direction": direction.rawValue, "amount": amount.rawValue, "count": count]
             case .restore(let value):
@@ -987,6 +988,7 @@ struct BrowserReader: NSViewRepresentable {
             case "position":
                 if let page = body["page"] as? Int {
                     let count = body["count"] as? Int ?? 0, label = body["label"] as? String
+                    state.browserProgress = body["progress"] as? Double
                     if state.count != count { state.count = count }
                     if state.logicalPageLabel != label { state.logicalPageLabel = label }
                     var position = ReadingPosition(page: page, x: body["x"] as? Double, y: body["y"] as? Double, anchor: body["anchor"] as? String)

@@ -33,14 +33,11 @@ extension ReaderState {
                     name: editor.name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
                     text: editor.text.value!, background: editor.paper.value!, link: editor.link.value!)
                 try ReaderTheme.saveCustom(saved)
-                for reader in ReaderWindows.states where reader !== self && reader.theme == saved.id { reader.setTheme(saved.id) }
                 setTheme(saved.id)
             } else if response == .alertThirdButtonReturn, base.isCustom {
                 try ReaderTheme.deleteCustom(id: base.id)
                 let replacement = base.dark ? "dark" : "light"
-                for reader in ReaderWindows.states where reader !== self && reader.theme == base.id { reader.setTheme(replacement) }
-                if theme == base.id { setTheme(replacement) }
-                if UserDefaults.standard.string(forKey: "theme") == base.id { UserDefaults.standard.set(replacement, forKey: "theme") }
+                if UserDefaults.standard.string(forKey: "theme") == base.id { setTheme(replacement) }
                 for key in ["lastLightTheme", "lastDarkTheme"] where UserDefaults.standard.string(forKey: key) == base.id {
                     UserDefaults.standard.removeObject(forKey: key)
                 }

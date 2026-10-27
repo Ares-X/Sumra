@@ -13,6 +13,7 @@ struct ReaderView: View {
     @FocusState private var sidebarFocused: Bool
     @State private var initialNativeCanvas: (document: UUID, bounds: CGRect, position: ReadingPosition)?
     @State private var initialNativeViewport: (document: UUID, size: CGSize)?
+    @State private var fullscreenMenuInset: CGFloat = 0
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
@@ -37,6 +38,10 @@ struct ReaderView: View {
             if state.speechRequested && !state.presentation { SpeechControls(state: state); Divider() }
             mainArea
 
+            if state.hasDocument && !state.presentation {
+                ReaderProgressFooter(state: state).id(state.document?.id)
+            }
+
             if state.document != nil && !state.presentation && (findStatusVisible || !state.status.isEmpty || state.modified) {
                 Divider()
                 HStack {
@@ -50,9 +55,9 @@ struct ReaderView: View {
                 .padding(.vertical, 4)
             }
         }
+        .padding(.top, fullscreenMenuInset)
         .background(state.hasDocument ? Color(nsColor: ReaderTheme.color(state.palette.background)) : Color(nsColor: .windowBackgroundColor))
-        .ignoresSafeArea(.container, edges: state.toolbarOverlaysContent ? .top : [])
-        .background(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion))
+        .background(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion, fullscreenMenuInset: $fullscreenMenuInset))
         .preferredColorScheme(state.theme == "system" ? nil : state.palette.dark ? .dark : .light)
         .onChange(of: colorScheme) { _ in
             if state.theme == "system", state.isText || state.isBrowser || state.reflowable {
@@ -98,11 +103,8 @@ struct ReaderView: View {
         .sheet(isPresented: $state.showFiles) { DocumentFileBrowser(state: state, folder: state.document?.url.deletingLastPathComponent(), dismissOnOpen: true).frame(width: 620, height: 460) }
         .contextMenu { contextMenu }
         .dropDestination(for: URL.self) { urls, _ in
-            guard let first = urls.first else { return false }
-            state.open(first)
-            for url in urls.dropFirst() {
-                openWindow(id: "reader", value: WindowPayload(path: url.path))
-            }
+            guard !urls.isEmpty else { return false }
+            ReaderWindows.open(urls, in: state) { openWindow(id: "reader", value: $0) }
             return true
         }
         .alert(
@@ -136,25 +138,21 @@ struct ReaderView: View {
         ToolbarItem(id: "open", placement: .automatic, showsByDefault: true) {
             Button(action: openFiles) { Image(systemName: "folder") }
                 .help(L("Open Document")).accessibilityLabel(L("Open Document"))
-                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "contents", placement: .automatic, showsByDefault: true) {
             Button { state.showContents.toggle() } label: { Image(systemName: "sidebar.left") }
                 .disabled(!state.hasDocument).help(L("Toggle Contents")).accessibilityLabel(L("Toggle Contents"))
                 .foregroundStyle(state.showContents ? Color.accentColor : Color.primary)
                 .accessibilityValue(state.showContents ? L("On") : L("Off"))
-                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "print", placement: .automatic, showsByDefault: false) {
             toolbarButton(.print, symbol: "printer")
-                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "history", placement: .automatic, showsByDefault: false) {
             HStack(spacing: 4) {
                 toolbarButton(.back, symbol: "arrow.uturn.backward")
                 toolbarButton(.forward, symbol: "arrow.uturn.forward")
             }
-            .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "navigation", placement: .automatic, showsByDefault: true) {
             HStack(spacing: 6) {
@@ -166,7 +164,6 @@ struct ReaderView: View {
                     .monospacedDigit().foregroundStyle(.secondary)
                 toolbarButton(.next, symbol: "chevron.right")
             }.accessibilityElement(children: .contain)
-                .modifier(ReaderToolbarItemMotion(state: state))
         }
     }
 
@@ -178,7 +175,6 @@ struct ReaderView: View {
                 fitPresetButton(.fitPageSingle, symbol: "rectangle.portrait")
                 fitPresetButton(.fitWidthContinuous, symbol: "arrow.left.and.right")
             }
-            .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "zoom", placement: .automatic, showsByDefault: true) {
             HStack(spacing: 4) {
@@ -186,22 +182,18 @@ struct ReaderView: View {
                 zoomOptions.disabled(!state.hasDocument)
                 toolbarButton(.zoomIn, symbol: "plus.magnifyingglass")
             }.accessibilityElement(children: .contain)
-                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "layout", placement: .automatic, showsByDefault: true) {
             layoutOptions.disabled(!state.hasDocument)
-                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "readingSettings", placement: .automatic, showsByDefault: true) {
             Button(action: state.editTypography) { Label(L("Reading Settings"), systemImage: "textformat") }
                 .help(L("Reading Settings")).disabled(!state.hasDocument)
-                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "find", placement: .automatic, showsByDefault: true) {
             Button { state.showFindPanel() } label: { Image(systemName: "magnifyingglass") }
                 .disabled(!state.supportsSearch).help(L("Find")).accessibilityLabel(L("Find"))
                 .foregroundStyle(state.showFind ? Color.accentColor : Color.primary)
-                .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "edit", placement: .automatic, showsByDefault: true) {
             Button { ReaderMenuCommand.pdfEditing.run(state) } label: {
@@ -212,11 +204,9 @@ struct ReaderView: View {
             .foregroundStyle(state.pdfEditingEnabled ? Color.accentColor : Color.primary)
             .disabled(!ReaderMenuCommand.pdfEditing.enabled(state))
             .help(L(state.pdfEditingEnabled ? "Lock Editing" : "Enable Editing"))
-            .modifier(ReaderToolbarItemMotion(state: state))
         }
         ToolbarItem(id: "custom", placement: .automatic, showsByDefault: false) {
             ReaderToolbarButtons(state: state, open: openFiles)
-                .modifier(ReaderToolbarItemMotion(state: state))
         }
     }
 
@@ -461,7 +451,7 @@ struct ReaderView: View {
                 initialPosition: initialNativeCanvas?.document == document.id ? initialNativeCanvas?.position : nil)
                 .background(ReaderInitialViewport { size in
                     initialNativeViewport = (document.id, size)
-                }.ignoresSafeArea(.container, edges: state.toolbarOverlaysContent ? .top : []))
+                })
                 .task(id: initialNativeViewport?.document) {
                     guard let viewport = initialNativeViewport, viewport.document == document.id else { return }
                     let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,

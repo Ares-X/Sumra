@@ -720,3 +720,10 @@
 "Auto Hide" = "Автоматично приховувати";
 "Always Hide" = "Завжди приховувати";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "У режимі автоматичного приховування перемістіть вказівник до верхньої частини вікна, щоб показати панель інструментів.";
+
+/* Reading progress footer */
+"Reading Progress" = "Прогрес читання";
+"Line:" = "Рядок:";
+"File:" = "Файл:";
+"Approximate progress by chapter" = "Приблизний прогрес за розділами";
+"Progress in current file" = "Прогрес у поточному файлі";

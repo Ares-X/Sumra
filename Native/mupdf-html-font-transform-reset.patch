@@ -1,0 +1,11 @@
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -246,6 +246,8 @@ static int walk_string(string_walker *walker)
+ 		walker->scale = face->units_per_EM;
+ 		fterr = FT_Set_Char_Size(face, walker->scale, walker->scale, 72, 72);
+ 		if (fterr)
+ 			fz_throw(ctx, FZ_ERROR_LIBRARY, "freetype setting character size: %s", ft_error_string(fterr));
++		/* Rasterization leaves a transform on the shared face; shaping needs font units. */
++		FT_Set_Transform(face, NULL, NULL);
+ 
+ 		hb_buffer_clear_contents(walker->hb_buf);

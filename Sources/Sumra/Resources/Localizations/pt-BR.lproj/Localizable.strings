@@ -725,3 +725,10 @@
 "Auto Hide" = "Ocultar automaticamente";
 "Always Hide" = "Sempre ocultar";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "No modo de ocultação automática, mova o cursor até o topo da janela para mostrar a barra de ferramentas.";
+
+/* Reading progress footer */
+"Reading Progress" = "Progresso da leitura";
+"Line:" = "Linha:";
+"File:" = "Arquivo:";
+"Approximate progress by chapter" = "Progresso aproximado por capítulo";
+"Progress in current file" = "Progresso no arquivo atual";

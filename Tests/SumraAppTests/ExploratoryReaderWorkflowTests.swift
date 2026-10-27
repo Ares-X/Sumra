@@ -12,7 +12,7 @@ final class ExploratoryReaderWorkflowTests: XCTestCase {
         let file = directory.url.appendingPathComponent("fresh.md")
         try "# A new book\n\nThis book has never been opened.\n".write(to: file, atomically: true, encoding: .utf8)
         let defaults = UserDefaults.standard
-        let keys = ["formatDefaults", MarkdownRenderer.preferenceKey(for: file)]
+        let keys = ["formatDefaults", "theme", MarkdownRenderer.preferenceKey(for: file)]
         let previous = keys.map { defaults.object(forKey: $0) }
         let state = ReaderState(recordsHistory: false)
         defer {
@@ -24,9 +24,10 @@ final class ExploratoryReaderWorkflowTests: XCTestCase {
             pageLocalOffset: .init(point: CGPoint(x: 40, y: 80), bounds: CGRect(x: 0, y: 0, width: 100, height: 100)),
             anchor: "old-book", nativePassage: .init(source: .init(node: 317, offset: 0, part: 0), offsetX: 0, offsetY: 12,
                 sourceRevision: "previous-book", styleSignature: "previous-style"),
-            fit: "width", flow: "continuous", rotation: 90, font: "serif", fontSize: 24, theme: "dark", pdfCoordinateSpace: "fitz")
+            fit: "width", flow: "continuous", rotation: 90, font: "serif", fontSize: 24, pdfCoordinateSpace: "fitz")
         let json = String(decoding: try JSONEncoder().encode(["markdown": legacy]), as: UTF8.self)
         defaults.set(json, forKey: "formatDefaults")
+        defaults.set("dark", forKey: "theme")
         defaults.set(MarkdownRenderer.paged.rawValue, forKey: MarkdownRenderer.preferenceKey(for: file))
         state.openWithoutHistory(file)
         try await settle(state)
@@ -49,7 +50,7 @@ final class ExploratoryReaderWorkflowTests: XCTestCase {
         let text = (0..<100).map { "Paragraph \($0) has enough authored text to retain its source position across native reading modes.\n\n" }.joined()
         try text.write(to: first, atomically: true, encoding: .utf8)
         try text.write(to: second, atomically: true, encoding: .utf8)
-        let keys = ["formatDefaults", "disableHistory", MarkdownRenderer.preferenceKey(for: second)]
+        let keys = ["formatDefaults", "theme", "disableHistory", MarkdownRenderer.preferenceKey(for: second)]
         let defaults = UserDefaults.standard
         let previous = keys.map { defaults.object(forKey: $0) }
         let state = ReaderState(recordsHistory: false)
@@ -60,6 +61,7 @@ final class ExploratoryReaderWorkflowTests: XCTestCase {
             withExtendedLifetime(directory) {}
         }
         defaults.set("{}", forKey: "formatDefaults")
+        defaults.set("dark", forKey: "theme")
         defaults.set(true, forKey: "disableHistory")
         defaults.set(MarkdownRenderer.paged.rawValue, forKey: MarkdownRenderer.preferenceKey(for: second))
         let pages = try Pages(first, format: .markdown, deferReflowLayout: true)
@@ -76,7 +78,9 @@ final class ExploratoryReaderWorkflowTests: XCTestCase {
         XCTAssertNil(saved.nativePassage, "A format default must not carry the source book's semantic passage")
         XCTAssertNil(saved.scrollFraction, "The new book must begin at its own start")
         XCTAssertEqual(saved.fontSize, 19); XCTAssertEqual(saved.margin, 48)
-        XCTAssertEqual(saved.flow, "continuous"); XCTAssertEqual(saved.theme, "dark")
+        XCTAssertEqual(saved.flow, "continuous")
+        let savedValues = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(saved)) as? [String: Any])
+        XCTAssertNil(savedValues["theme"])
         other.openWithoutHistory(second)
         try await settle(other)
         XCTAssertNil(other.currentPosition.nativePassage)
@@ -123,7 +127,7 @@ final class ExploratoryReaderWorkflowTests: XCTestCase {
         try "Original text reader".write(to: text, atomically: true, encoding: .utf8)
         try "<html><body><p>Replacement HTML reader</p></body></html>".write(to: html, atomically: true, encoding: .utf8)
         let defaults = UserDefaults.standard
-        let keys = ["formatDefaults", "useFixedPageUI", "disableHistory"]
+        let keys = ["formatDefaults", "theme", "useFixedPageUI", "disableHistory"]
         let previous = keys.map { defaults.object(forKey: $0) }
         let state = ReaderState(recordsHistory: false)
         defer {
@@ -131,17 +135,18 @@ final class ExploratoryReaderWorkflowTests: XCTestCase {
             for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) }
             withExtendedLifetime(directory) {}
         }
-        let formats = ["text": ReadingPosition(fontSize: 21, theme: "dark"),
-                       "html": ReadingPosition(flow: "continuous", fontSize: 25, theme: "light")]
+        let formats = ["text": ReadingPosition(fontSize: 21),
+                       "html": ReadingPosition(flow: "continuous", fontSize: 25)]
         defaults.set(String(decoding: try JSONEncoder().encode(formats), as: UTF8.self), forKey: "formatDefaults")
+        defaults.set("dark", forKey: "theme")
         defaults.set(false, forKey: "useFixedPageUI"); defaults.set(true, forKey: "disableHistory")
         state.openWithoutHistory(text)
         try await settle(state)
         XCTAssertEqual(state.fontSize, 21); XCTAssertEqual(state.theme, "dark")
         state.showFindPanel(); state.updateFindQuery("Original")
-        state.openWithoutHistory(html, at: .init(x: 4, y: 90, fontSize: 29, theme: "sepia"))
-        state.openWithoutHistory(text, at: .init(x: 0, y: 12, fontSize: 23, theme: "light"))
-        state.openWithoutHistory(html, at: .init(x: 8, y: 150, fontSize: 27, theme: "dark"))
+        state.openWithoutHistory(html, at: .init(x: 4, y: 90, fontSize: 29))
+        state.openWithoutHistory(text, at: .init(x: 0, y: 12, fontSize: 23))
+        state.openWithoutHistory(html, at: .init(x: 8, y: 150, fontSize: 27))
         try await settle(state)
         XCTAssertEqual(state.document?.url, html)
         XCTAssertTrue(state.isBrowser)

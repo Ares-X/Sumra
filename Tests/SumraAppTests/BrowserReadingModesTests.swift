@@ -54,6 +54,35 @@ final class BrowserReadingModesTests: XCTestCase {
     }
 
     @MainActor
+    func testProgressSeeksCurrentFileAcrossContinuousPagedAndRTL() async throws {
+        let (view, coordinator, _) = try await reader()
+        for (flow, rtl) in [("continuous", false), ("paged", false), ("paged", true)] {
+            let result = try await evaluate("""
+                await window.leafCommand({name:'style',flow,rtl,spread:false});
+                const samples=[];
+                for(const value of [0,0.5,1]) {
+                    await window.leafCommand({name:'progress',value});
+                    const extent=flow==='paged'?document.documentElement.scrollWidth-innerWidth:document.documentElement.scrollHeight-innerHeight;
+                    const offset=flow==='paged'?scrollX*(rtl?-1:1):scrollY;
+                    samples.push(offset/extent);
+                }
+                return {samples};
+                """, view: view, arguments: ["flow": flow, "rtl": rtl])
+            let values = try XCTUnwrap(result["samples"] as? [Double])
+            XCTAssertEqual(values[0], 0, accuracy: 0.001)
+            XCTAssertEqual(values[1], 0.5, accuracy: 0.04)
+            XCTAssertEqual(values[2], 1, accuracy: 0.001)
+        }
+        // Position posts preserve file counts while reporting local scroll.
+        let deadline = Date().addingTimeInterval(2)
+        while coordinator.state.browserProgress != 1, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(coordinator.state.browserProgress ?? -1, 1, accuracy: 0.001)
+        XCTAssertEqual(coordinator.state.count, 1)
+    }
+
+    @MainActor
     func testMarkdownAndHTMLSwitchBetweenVerticalContinuousSingleAndSpreadWithoutReplacingDOM() async throws {
         for markdown in [false, true] {
             let (view, _, _) = try await reader(markdown: markdown)
