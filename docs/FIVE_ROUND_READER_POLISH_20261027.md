@@ -1,5 +1,8 @@
 # Five-round reader polish — 2026-10-27
 
+Final signed-app, publication and installed-update evidence is recorded in
+[the 0.2.21 release acceptance](RELEASE_0_2_21_ACCEPTANCE_20261027.md).
+
 The maintainer requested five rounds of interaction and performance work before
 publication. The starting public and installed version was 0.2.20. Unrelated
 AGENTS.md, Serena metadata and the Sumatra comparison document are preserved.

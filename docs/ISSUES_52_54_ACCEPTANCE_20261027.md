@@ -1,5 +1,8 @@
 # New issue follow-up — 2026-10-27
 
+Final delivery is recorded in
+[the 0.2.21 release acceptance](RELEASE_0_2_21_ACCEPTANCE_20261027.md).
+
 The maintainer requested that the newly opened issues be included before
 publication. The five-round changes were already merged in PR 56 at
 `926bc56517da675c354ba1e789f5781a072d1459`. Its draft-candidate Action
