@@ -1,5 +1,9 @@
 # Interaction and performance follow-up — 2026-10-27
 
+Publication, exact signed-app checks, real update/cold launch and issue replies
+are now recorded in [the 0.2.20 release acceptance](RELEASE_0_2_20_ACCEPTANCE_20261027.md).
+The remainder of this document retains the earlier local checkpoint's scope.
+
 This follows the [reader acceptance checkpoint](READER_ACCEPTANCE_20261027.md).
 The user authorized publication and issue replies on 2026-10-27 after this
 local acceptance checkpoint. Signed-candidate and delivery evidence is recorded
