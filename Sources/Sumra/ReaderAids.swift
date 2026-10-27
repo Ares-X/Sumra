@@ -254,6 +254,11 @@ extension ReaderState {
 
     private func bookmarkLocation(_ position: ReadingPosition, path: String) -> (PageLocation, Double, Double) {
         let format = Format.detect(path)
+        if format == .text {
+            // TextReader keeps the source line in page and the UTF-16 offset
+            // in anchor. Legacy line-only positions precede that line's anchors.
+            return (.init(page: position.page), Double(Int(position.anchor ?? "") ?? 0), 0)
+        }
         if (format == .markdown || format == .html), position.page == 0,
            position.anchor == nil, position.pageCount == nil {
             return (.init(page: 0), position.y ?? 0, position.x ?? 0)

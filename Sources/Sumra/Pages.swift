@@ -895,11 +895,9 @@ actor Pages {
         }
     }
     func progressPosition(_ progress: Double) throws -> ReadingPosition {
-        let coordinate = progress * Double(chapterLayout.chapterCount)
-        let chapter = min(Int(coordinate), chapterLayout.chapterCount - 1)
+        let chapter = chapterLayout.location(progress: progress).chapter
         try document.native?.ensureChapter(chapter)
-        let page = Int(((coordinate - Double(chapter)) * Double(chapterLayout.pageCount(chapter) - 1)).rounded())
-        return try position(.init(chapter: chapter, page: page))
+        return try position(chapterLayout.location(progress: progress))
     }
     func lastPosition() throws -> ReadingPosition {
         let chapter = chapterLayout.chapterCount - 1

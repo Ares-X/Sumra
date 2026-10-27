@@ -3,6 +3,45 @@ import XCTest
 @testable import SumraCore
 
 final class ChapterTableTests: XCTestCase {
+    func testChapterProgressRoundTripsEveryPageIncludingAdjacentFloatingPointValues() {
+        for counts in [[10, 7, 1, 1], [1, 1, 1, 1], [2, 3, 7, 1, 19], [11, 37, 101, 1009, 1], [1], [101]] {
+            var table = ChapterTable(chapters: counts.count)
+            for (chapter, count) in counts.enumerated() { table.setPageCount(chapter: chapter, count: count) }
+            var previous = -1.0
+            for chapter in counts.indices {
+                for page in 0..<counts[chapter] {
+                    let location = PageLocation(chapter: chapter, page: page), value = table.progress(for: location)
+                    XCTAssertGreaterThan(value, previous, "Distinct pages need distinct, ordered coordinates: \(counts), \(location)")
+                    XCTAssertEqual(table.location(progress: value), location)
+                    if value > 0 { XCTAssertEqual(table.location(progress: value.nextDown), location) }
+                    if value < 1 { XCTAssertEqual(table.location(progress: value.nextUp), location) }
+                    previous = value
+                }
+            }
+            XCTAssertEqual(table.progress(for: .init(chapter: 0, page: 0)), 0)
+            if table.totalPages > 1 {
+                XCTAssertEqual(table.progress(for: .init(chapter: counts.count - 1, page: counts.last! - 1)), 1)
+            }
+            XCTAssertEqual(table.location(progress: 0), .init(chapter: 0, page: 0))
+            XCTAssertEqual(table.location(progress: 1), .init(chapter: counts.count - 1, page: counts.last! - 1))
+        }
+    }
+
+    func testChapterProgressKeepsChapterBinsWhenOnlyTheTargetCountBecomesKnown() {
+        var table = ChapterTable(chapters: 4)
+        table.setPageCount(chapter: 0, count: 10)
+        table.setPageCount(chapter: 3, count: 1)
+        XCTAssertEqual(table.location(progress: 0.25.nextDown), .init(chapter: 0, page: 9))
+        XCTAssertEqual(table.location(progress: 0.25), .init(chapter: 1, page: 0))
+        XCTAssertEqual(table.location(progress: 0.25.nextUp), .init(chapter: 1, page: 0))
+        XCTAssertEqual(table.location(progress: 0.625), .init(chapter: 2, page: 0))
+        table.setPageCount(chapter: 2, count: 11)
+        XCTAssertEqual(table.location(progress: 0.625), .init(chapter: 2, page: 5))
+        XCTAssertEqual(table.progress(for: .init(chapter: 2, page: 5)), 0.625)
+        XCTAssertFalse(table.isLaidOut(1))
+        XCTAssertFalse(table.complete)
+    }
+
     func testGrowingEarlierChaptersOnlyChangesFlatPageNumbers() throws {
         var table = ChapterTable(chapters: 3)
         XCTAssertEqual(table.totalPages, 3)

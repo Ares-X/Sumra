@@ -21,6 +21,39 @@ final class NativeTabClosingTests: XCTestCase {
         }
     }
 
+    func testBulkCloseTraversesLoadedHomeAndDormantRestoredTabsWithoutLoadingTheRestoredFile() async throws {
+        let directory = try TemporaryDirectory()
+        func loaded(_ name: String) throws -> ReaderState {
+            let url = directory.url.appendingPathComponent(name)
+            try "Loaded text tab".write(to: url, atomically: true, encoding: .utf8)
+            let state = ReaderState(recordsHistory: false)
+            state.document = try ReadingDocument.open(url)
+            return state
+        }
+        let restoredURL = directory.url.appendingPathComponent("dormant.txt")
+        try "This restored text must remain unopened".write(to: restoredURL, atomically: true, encoding: .utf8)
+        var saved = WindowPayload(path: restoredURL.path, position: .init(page: 0, zoom: 1.4), recordsHistory: false)
+        saved.restoring = true; saved.active = false; saved.selected = false
+        let dormant = ReaderState(recordsHistory: false, restoring: saved)
+        let home = ReaderState(recordsHistory: false)
+        let fixture = try Tabs(states: [loaded("first.txt"), home, dormant, loaded("last.txt")], selected: 3)
+        defer { fixture.close(); withExtendedLifetime(directory) {} }
+        XCTAssertNil(home.document)
+        XCTAssertNil(home.restoredPayload)
+        XCTAssertNil(dormant.document)
+        XCTAssertEqual(dormant.restoredPayload?.position, saved.position)
+        XCTAssertEqual(dormant.generation, 0)
+
+        fixture.states[3].closeTabs("all")
+        try await waitFor { fixture.closed.count == 4 }
+        XCTAssertEqual(fixture.approvals.map(\.requests), [1, 1, 1, 1], "Each kind of tab must use its real ReaderCloseGuard approval")
+        XCTAssertTrue(fixture.states.allSatisfy { $0.isWindowClosed && $0.document == nil && $0.window == nil })
+        XCTAssertNil(dormant.restoredPayload)
+        XCTAssertFalse(dormant.busy)
+        XCTAssertEqual(dormant.generation, 1, "Only closing may advance the dormant reader's generation; no parser may start")
+        XCTAssertTrue(fixture.states.allSatisfy { $0.error == nil })
+    }
+
     func testBulkCloseStopsWhenNativeDelegateRejectsTheNextTab() async throws {
         let fixture = try Tabs(count: 3, selected: 2)
         defer { fixture.close() }
@@ -141,13 +174,18 @@ final class NativeTabClosingTests: XCTestCase {
         var closed = Set<Int>()
         private var observations = [NSObjectProtocol]()
 
-        init(count: Int, selected: Int) throws {
-            _ = NSApplication.shared
-            states = (0..<count).map { index in
+        convenience init(count: Int, selected: Int) throws {
+            let states = (0..<count).map { index in
                 let state = ReaderState(recordsHistory: false)
                 state.document = ReadingDocument(url: URL(fileURLWithPath: "/tab-close-\(UUID().uuidString)-\(index).txt"), content: .text("Open tab \(index)"))
                 return state
             }
+            try self.init(states: states, selected: selected)
+        }
+
+        init(states: [ReaderState], selected: Int) throws {
+            _ = NSApplication.shared
+            self.states = states
             let identifier = "Sumra-Tab-Close-" + UUID().uuidString
             windows = states.map { state in
                 let window = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 640, height: 480),

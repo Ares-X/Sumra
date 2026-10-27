@@ -46,6 +46,14 @@ one seek on release; the chapter/page label keeps the current position until the
 seek completes. Keyboard and accessibility increments also scroll within the
 canvas. Returning to paged reading restores physical page or approximate chapter
 progress. Saved passages and Back retain their source position through reflow.
+Approximate paged chapter progress gives each known page a distinct position;
+chapter endings do not alias the next chapter's beginning. Clicking the current
+position preserves navigation history, and a one-page final chapter reaches
+100%. Unread chapter counts remain unresolved until that chapter is needed.
+
+TXT bookmarks use their existing UTF-16 character anchors to order positions
+within a wrapped source line. Previous/Next Bookmark visits each position and
+wraps in reading order; older line-only bookmarks remain supported.
 
 In the compatible browser reader, a new Find starts at the reading viewport in
 the requested direction. Paged and right-to-left layouts use the same source

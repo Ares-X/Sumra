@@ -28,7 +28,7 @@ struct ReaderProgress {
         case .file(_, _, let progress): return progress ?? 0
         case .continuous(let progress, _): return progress ?? 0
         case .chapters(let table, let location):
-            return (Double(location.chapter) + fraction(location.page, table.pageCount(location.chapter))) / Double(table.chapterCount)
+            return table.progress(for: location)
         }
     }
     var step: Double {
@@ -57,7 +57,7 @@ struct ReaderProgress {
         case .file(let file, let count, _): return "\(L("File:")) \(file + 1) / \(count)"
         case .continuous(_, let current): return ReaderProgress(position: current).label()
         case .chapters(let table, let current):
-            let location = preview.map { chapterLocation($0, table) } ?? current
+            let location = preview.map { table.location(progress: $0) } ?? current
             let count = table.isLaidOut(location.chapter) ? String(table.pageCount(location.chapter)) : "—"
             let page = preview != nil && !table.isLaidOut(location.chapter) ? "—" : String(location.page + 1)
             return "\(L("Chapter:")) \(location.chapter + 1) / \(table.chapterCount) · \(L("Page:")) \(page) / \(count)"
@@ -70,9 +70,9 @@ struct ReaderProgress {
             case .pages(_, let count), .lines(_, let count):
                 displayed = fraction(index(preview, count) - 1, count)
             case .chapters(let table, _):
-                let target = chapterLocation(preview, table)
+                let target = table.location(progress: preview)
                 if table.isLaidOut(target.chapter) {
-                    displayed = (Double(target.chapter) + fraction(target.page, table.pageCount(target.chapter))) / Double(table.chapterCount)
+                    displayed = table.progress(for: target)
                 }
             case .file, .continuous: break
             }
@@ -92,12 +92,6 @@ struct ReaderProgress {
         }
     }
     private func index(_ value: Double, _ count: Int) -> Int { Int((value * Double(max(0, count - 1))).rounded()) + 1 }
-    private func chapterLocation(_ value: Double, _ table: ChapterTable) -> PageLocation {
-        let coordinate = value * Double(table.chapterCount)
-        let chapter = min(Int(coordinate), table.chapterCount - 1)
-        let local = coordinate - Double(chapter)
-        return .init(chapter: chapter, page: Int((local * Double(table.pageCount(chapter) - 1)).rounded()))
-    }
     func action(at value: Double) -> ReaderAction? {
         switch position {
         case .pages(let current, let count), .lines(let current, let count):
@@ -106,7 +100,7 @@ struct ReaderProgress {
         case .file(_, _, let current): return current == value ? nil : .progress(value)
         case .continuous(let current, _): return current == value ? nil : .progress(value)
         case .chapters(let table, let current):
-            let target = chapterLocation(value, table)
+            let target = table.location(progress: value)
             return table.isLaidOut(target.chapter) && target == current ? nil : .progress(value)
         }
     }

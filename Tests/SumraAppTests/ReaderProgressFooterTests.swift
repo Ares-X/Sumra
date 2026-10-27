@@ -169,6 +169,107 @@ final class ReaderProgressFooterTests: XCTestCase {
         XCTAssertEqual(table.totalPages, 13, "Preview must leave unseen chapter counts unresolved")
     }
 
+    func testChapterBoundaryValuesRoundTripWithoutNavigationAndReachSinglePageTail() {
+        var table = ChapterTable(chapters: 4)
+        table.setPageCount(chapter: 0, count: 10)
+        table.setPageCount(chapter: 1, count: 7)
+        table.setPageCount(chapter: 3, count: 1)
+        var previous: Double?
+        for chapter in [0, 1, 3] {
+            for page in 0..<table.pageCount(chapter) {
+                let current = ReaderProgress(position: .chapters(table, .init(chapter: chapter, page: page)))
+                XCTAssertNil(current.action(at: current.value), "Chapter \(chapter), page \(page) must survive its own displayed coordinate")
+                XCTAssertEqual(current.label(at: current.value), current.label())
+                XCTAssertEqual(current.percentage(at: current.value), current.percentage())
+                if let previous { XCTAssertGreaterThan(current.value, previous, "Adjacent pages must not share a progress value") }
+                previous = current.value
+            }
+        }
+        let first = ReaderProgress(position: .chapters(table, .init(chapter: 0, page: 0)))
+        let last = ReaderProgress(position: .chapters(table, .init(chapter: 3, page: 0)))
+        XCTAssertEqual(first.value, 0)
+        XCTAssertEqual(last.value, 1)
+        XCTAssertEqual(last.percentage(), "≈ 100%")
+        XCTAssertNil(last.action(at: 1))
+        XCTAssertFalse(table.isLaidOut(2), "Progress calculations must not resolve a placeholder chapter")
+    }
+
+    @MainActor
+    func testChapterEndSliderNoOpPreservesPositionAndForwardHistory() async throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = try nativePDFReadingFixture(pageCount: 20)
+        state.reflowable = true; state.flow = "paged"
+        var table = ChapterTable(chapters: 4)
+        table.setPageCount(chapter: 0, count: 10); table.setPageCount(chapter: 1, count: 7)
+        state.chapterLayout = table; state.count = table.totalPages
+        state.updatePosition(.init(page: 9, anchor: table.bookmark(.init(chapter: 0, page: 9))))
+        state.recordNavigation()
+        state.updatePosition(.init(page: 10, anchor: table.bookmark(.init(chapter: 1, page: 0))))
+        state.navigateHistory(-1)
+        // This footer-only host has no renderer to acknowledge a restore.
+        state.didHandleCommand(state.command.revision)
+        let host = NSHostingView(rootView: ReaderProgressFooter(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: ReaderProgressFooter.height),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); window.contentView = nil; window.close() }
+        func slider(in view: NSView) -> ReaderProgressSliderControl? {
+            if let slider = view as? ReaderProgressSliderControl { return slider }
+            return view.subviews.lazy.compactMap { slider(in: $0) }.first
+        }
+        func settle() async throws {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            host.layoutSubtreeIfNeeded()
+        }
+        try await settle()
+        XCTAssertEqual(state.page, 9)
+        XCTAssertTrue(state.canNavigateForward)
+        let control = try XCTUnwrap(slider(in: host)), revision = state.command.revision, position = state.currentPosition
+        control.began?(); control.ended?()
+        try await settle()
+        XCTAssertEqual(state.command.revision, revision)
+        XCTAssertEqual(state.currentPosition, position)
+        XCTAssertTrue(state.canNavigateForward, "A no-op must not truncate the forward branch")
+        control.changed?(state.readingProgress.value)
+        try await settle()
+        XCTAssertEqual(state.command.revision, revision)
+        XCTAssertTrue(state.canNavigateForward)
+    }
+
+    @MainActor
+    func testNativeChapterBoundarySeekMatchesPreviewAndSinglePageTailWithoutFullLayout() async throws {
+        let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("chapter-boundaries.md")
+        defer { withExtendedLifetime(directory) {} }
+        let long = String(repeating: "A paragraph keeps this chapter long enough for multiple pages.\n\n", count: 100)
+        try ("# First\n\n" + long + "# Unread\n\n" + long + "# Another unread\n\n" + long + "# Last\n\nA short final chapter.\n")
+            .write(to: input, atomically: true, encoding: .utf8)
+        let original = try Data(contentsOf: input), pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                     pageSize: CGSize(width: 420, height: 595))
+        _ = try await pages.bounds(PageLocation(chapter: 0, page: 0))
+        let ending = try await pages.progressPosition(1)
+        let table = await pages.chapterLayout
+        let last = try XCTUnwrap(ending.anchor.flatMap(ChapterTable.bookmarkLocation)).location
+        XCTAssertGreaterThan(table.chapterCount, 3)
+        XCTAssertEqual(table.pageCount(last.chapter), 1)
+        XCTAssertFalse(table.complete)
+        for location in [PageLocation(chapter: 0, page: 0), .init(chapter: 0, page: table.pageCount(0) - 1), last] {
+            let progress = ReaderProgress(position: .chapters(table, location))
+            let destination = try await pages.progressPosition(progress.value)
+            let target = try XCTUnwrap(destination.anchor.flatMap(ChapterTable.bookmarkLocation)).location
+            XCTAssertEqual(target, location)
+            let committed = ReaderProgress(position: .chapters(await pages.chapterLayout, target))
+            XCTAssertEqual(progress.label(at: progress.value), committed.label())
+            XCTAssertEqual(progress.percentage(at: progress.value), committed.percentage())
+            if location == last { XCTAssertEqual(committed.value, 1) }
+        }
+        let final = await pages.chapterLayout
+        XCTAssertFalse(final.isLaidOut(1)); XCTAssertFalse(final.isLaidOut(2))
+        XCTAssertFalse(final.complete)
+        XCTAssertEqual(try Data(contentsOf: input), original)
+    }
+
     func testSeekWithinCurrentPositionDoesNotNavigate() {
         let page = ReaderProgress(position: .pages(5, 11))
         XCTAssertNil(page.action(at: 0.5))
@@ -252,7 +353,7 @@ final class ReaderProgressFooterTests: XCTestCase {
         let middle = try XCTUnwrap(restored.anchor.flatMap(ChapterTable.bookmarkLocation)).location
         XCTAssertEqual(middle.chapter, table.chapterCount / 2)
         var updated = await pages.chapterLayout
-        XCTAssertEqual(middle.page, Int(((0.6 * Double(table.chapterCount) - Double(middle.chapter)) * Double(updated.pageCount(middle.chapter) - 1)).rounded()))
+        XCTAssertEqual(middle, updated.location(progress: target), "The resolved chapter count owns the actual local target")
         XCTAssertGreaterThan(middle.page, 0)
         XCTAssertTrue(updated.isLaidOut(middle.chapter))
         XCTAssertFalse(updated.complete)
