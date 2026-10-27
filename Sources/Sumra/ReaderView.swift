@@ -392,12 +392,17 @@ struct ReaderView: View {
         if let document = state.document {
             switch document.content {
             case .pages:
-                ScrollView {
-                    LazyVStack {
-                        ForEach(0..<state.count, id: \.self) { index in
-                            PageThumbnail(state: state, index: index)
-                        }
-                    }.padding(8)
+                ScrollViewReader { scroll in
+                    ScrollView {
+                        LazyVStack {
+                            ForEach(0..<state.count, id: \.self) { index in
+                                PageThumbnail(state: state, index: index).id(index)
+                            }
+                        }.padding(8)
+                    }
+                    .onAppear { scroll.scrollTo(state.page, anchor: .center) }
+                    .onChange(of: state.page) { page in scroll.scrollTo(page, anchor: .center) }
+                    .onChange(of: document.id) { _ in scroll.scrollTo(state.page, anchor: .center) }
                 }
             default: Text(L("This document has no page thumbnails")).foregroundStyle(.secondary)
             }
@@ -1049,10 +1054,8 @@ struct ReaderPagePreview: View {
             var image: NSImage?
             switch document.content {
             case .pages(let pages):
-                if let rendered = try? await pages.image(location, width: 128, priority: .init(visible: false)), !Task.isCancelled {
-                    if let oriented = try? RasterLayout.image(rendered, bounds: CGRect(x: 0, y: 0, width: rendered.width, height: rendered.height), crop: nil, rotation: rotation) {
-                        image = NSImage(cgImage: oriented, size: .zero)
-                    }
+                if let rendered = try? await pages.previewImage(location, size: CGSize(width: 128, height: 160), rotation: rotation), !Task.isCancelled {
+                    image = NSImage(cgImage: rendered, size: .zero)
                 }
             default: image = nil
             }

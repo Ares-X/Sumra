@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check contributor generation
-        run: python3 -m unittest discover -s tests -p 'test_community_contributors.py'
+        run: python3 -m unittest discover -s Tests -p 'test_community_contributors.py'
 
   update:
     if: github.event_name != 'pull_request' && (github.event_name != 'pull_request_target' || github.event.pull_request.merged == true)
@@ -41,7 +41,7 @@ jobs:
           # Never check out or execute the PR head with the updater's write token.
           ref: main
       - name: Run contributor tests
-        run: python3 -m unittest discover -s tests -p 'test_community_contributors.py'
+        run: python3 -m unittest discover -s Tests -p 'test_community_contributors.py'
       - name: Update README acknowledgments
         env:
           GITHUB_TOKEN: ${{ github.token }}

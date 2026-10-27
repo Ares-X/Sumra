@@ -2,11 +2,88 @@
 import AppKit
 import PDFKit
 import SumraCore
+import SwiftUI
 import XCTest
 @testable import Sumra
 
 @MainActor
 final class FileIdentityTests: XCTestCase {
+    func testBookmarkWindowRequestOpensTheOriginalFile() async throws {
+        try await checkBookmarkWindowRequest(.unchanged)
+    }
+
+    func testBookmarkWindowRequestFollowsMovedOriginalWhenItsOldNameIsReused() async throws {
+        try await checkBookmarkWindowRequest(.moved)
+    }
+
+    func testBookmarkWindowRequestDoesNotAdoptReplacementAfterOriginalWasDeleted() async throws {
+        try await checkBookmarkWindowRequest(.deleted)
+    }
+
+    private enum BookmarkOriginalState { case unchanged, moved, deleted }
+
+    private func checkBookmarkWindowRequest(_ originalState: BookmarkOriginalState) async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let original = directory.url.appendingPathComponent("original.txt")
+        let moved = directory.url.appendingPathComponent("moved.txt")
+        try "Original bookmarked content".write(to: original, atomically: true, encoding: .utf8)
+        let saved = ReaderBookmark(title: "Saved passage", path: original.path, position: .init(page: 0, zoom: 1.75),
+            fileBookmark: try XCTUnwrap(DocumentFileIdentity.bookmark(for: original)))
+        let expectedURL: URL?
+        switch originalState {
+        case .unchanged:
+            expectedURL = original
+        case .moved, .deleted:
+            try FileManager.default.moveItem(at: original, to: moved)
+            if case .deleted = originalState {
+                try FileManager.default.removeItem(at: moved)
+                expectedURL = nil
+            } else { expectedURL = moved }
+            try "Different replacement content".write(to: original, atomically: true, encoding: .utf8)
+        }
+
+        let request = WindowPayload(bookmark: saved)
+        let bookmark = try XCTUnwrap(request.bookmarkRequest)
+        XCTAssertEqual(bookmark.id, saved.id)
+        XCTAssertEqual(bookmark.fileBookmark, saved.fileBookmark)
+        XCTAssertEqual(bookmark.position, saved.position)
+        XCTAssertEqual(request.path, original.path)
+        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "disableHistory")
+        defaults.set(true, forKey: "disableHistory")
+        let previousCapture = ScreenshotHotkey.capture
+        let application = ReaderApplicationDelegate()
+        var payload = request
+        let host = NSHostingView(rootView: ReaderWindow(payload: Binding(get: { payload }, set: { payload = $0 }),
+                                                       application: application))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 760, height: 500),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer {
+            (window.delegate as? ReaderCloseGuard)?.state?.windowClosed()
+            window.contentView = nil; window.close()
+            ScreenshotHotkey.capture = previousCapture
+            defaults.set(previous, forKey: "disableHistory")
+            withExtendedLifetime((directory, application)) {}
+        }
+        host.layoutSubtreeIfNeeded()
+        try await waitFor { (window.delegate as? ReaderCloseGuard)?.state != nil }
+        let state = try XCTUnwrap((window.delegate as? ReaderCloseGuard)?.state)
+        if let expectedURL {
+            try await waitFor { state.document != nil && !state.busy }
+            XCTAssertEqual(state.document?.url, expectedURL)
+            XCTAssertNil(state.missingFile)
+            XCTAssertEqual(state.zoom, 1.75)
+            if case .text(let text) = state.document?.content { XCTAssertEqual(text, "Original bookmarked content") }
+            else { XCTFail("Expected the original bookmarked text file") }
+        } else {
+            try await waitFor { state.missingFile != nil && !state.busy }
+            XCTAssertNil(state.document, "An unavailable bookmark must offer relocation instead of adopting the old pathname's replacement")
+            XCTAssertEqual(state.missingFile, original)
+        }
+        XCTAssertNil(payload.bookmarkRequest, "The reader scene must consume the identity-aware request once")
+    }
+
     func testBookmarkFollowsMovedOriginalWhenItsOldNameHasBeenReused() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }

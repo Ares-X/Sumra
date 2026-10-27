@@ -30,6 +30,8 @@ struct WindowPayload: Codable, Hashable {
     var recordsHistory: Bool?
     var tabColor: UInt32?
     var fileBookmark: Data?
+    // A new bookmark window uses the same identity-aware opening as the sidebar.
+    var bookmarkRequest: ReaderBookmark?
     var selected: Bool?
     var active: Bool?
     // Startup metadata only; the native tab group owns order after restoration.
@@ -62,6 +64,12 @@ struct WindowPayload: Codable, Hashable {
         self.tabWith = tabWith
         self.temporary = temporary
         self.recordsHistory = recordsHistory
+    }
+
+    init(bookmark: ReaderBookmark) {
+        self.init(path: bookmark.path, position: bookmark.position)
+        fileBookmark = bookmark.fileBookmark
+        bookmarkRequest = bookmark
     }
 }
 
@@ -119,6 +127,11 @@ struct ReaderWindow: View {
             .task(id: payload.path) {
                 if payload.restoring {
                     if payload.active == true { state.activateRestoredDocument() }
+                    return
+                }
+                if let bookmark = payload.bookmarkRequest {
+                    payload.bookmarkRequest = nil
+                    state.openBookmark(bookmark)
                     return
                 }
                 guard !state.busy,
@@ -260,21 +273,31 @@ final class ReaderCloseGuard: NSObject, NSWindowDelegate, NSUserInterfaceValidat
         return (previous as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item) ?? true
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard let state else { return previous?.windowShouldClose?(sender) ?? true }
-        guard !closePending else { return false }
+        guard state != nil else { return previous?.windowShouldClose?(sender) ?? true }
+        close(sender) { _ in }
+        return false
+    }
+    func close(_ sender: NSWindow, completion: @escaping (Bool) -> Void) {
+        guard let state else {
+            let allowed = previous?.windowShouldClose?(sender) ?? true
+            if allowed { sender.close() }
+            completion(allowed)
+            return
+        }
+        guard !closePending else { completion(false); return }
         closePending = true
         let documentID = state.document?.id, generation = state.generation
         Task { [weak self] in
-            guard let self else { return }
+            guard let self else { completion(false); return }
             defer { closePending = false }
             guard await state.confirmClose(),
                   previous?.windowShouldClose?(sender) ?? true,
-                  state.document?.id == documentID, state.generation == generation else { return }
+                  state.document?.id == documentID, state.generation == generation else { completion(false); return }
             // close() completes the approved request without recursively asking
             // windowShouldClose again, and still sends the normal willClose event.
             sender.close()
+            completion(true)
         }
-        return false
     }
     override func responds(to selector: Selector!) -> Bool {
         super.responds(to: selector) || previous?.responds(to: selector) == true
@@ -1005,6 +1028,8 @@ struct DocumentFileBrowser: View {
             refreshHistory(force: true)
         }
         .task(id: folder) {
+            query = ""
+            selected = nil
             entries = []
             guard let folder else { entries = []; return }
             do {
@@ -1144,7 +1169,7 @@ private struct ReaderFileSearchInput: NSViewRepresentable {
         context.coordinator.parent = self
         field.placeholderString = L("Search files")
         field.setAccessibilityLabel(L("Search files"))
-        if field.currentEditor() == nil, field.stringValue != text { field.stringValue = text }
+        if (field.currentEditor() as? NSTextView)?.hasMarkedText() != true, field.stringValue != text { field.stringValue = text }
         context.coordinator.updateFocus(field)
     }
     static func dismantleNSView(_ field: SearchField, coordinator: Coordinator) {
@@ -1330,10 +1355,17 @@ extension ReaderState {
         guard let window else { return }
         let tabs = window.tabbedWindows ?? [window]
         guard let index = tabs.firstIndex(of: window) else { return }
-        for (offset, tab) in tabs.enumerated() where subset == "all" || subset == "other" && tab !== window || subset == "left" && offset < index || subset == "right" && offset > index {
-            let state = (tab.delegate as? ReaderCloseGuard)?.state
-            tab.performClose(nil)
-            if state?.document != nil { break } // User cancelled this tab's close.
+        let targets = tabs.enumerated().filter { offset, tab in
+            subset == "all" || subset == "other" && tab !== window || subset == "left" && offset < index || subset == "right" && offset > index
+        }.map(\.element)
+        Task {
+            for tab in targets {
+                guard let closeGuard = tab.delegate as? ReaderCloseGuard else { return }
+                let closed = await withCheckedContinuation { continuation in
+                    closeGuard.close(tab) { continuation.resume(returning: $0) }
+                }
+                if !closed { return }
+            }
         }
     }
     func saveTabGroup() {

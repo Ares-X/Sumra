@@ -37,7 +37,7 @@ the run and remains visible in its logs.
 ## Local validation
 
 ```sh
-python3 -B -m unittest discover -s tests -p 'test_community_contributors.py' -v
+python3 -B -m unittest discover -s Tests -p 'test_community_contributors.py' -v
 ```
 
 The tests use offline fixtures and temporary README copies; no token is needed.

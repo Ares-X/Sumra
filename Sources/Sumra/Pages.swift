@@ -1463,11 +1463,41 @@ actor Pages {
         guard try !isPDF || pdfNative().pdfInfo()?.permissions.copy == true else { return nil }
         return try document.native?.embeddedImage(page, at: point)
     }
+    nonisolated func previewImage(_ location: PageLocation, size: CGSize, rotation: Int = 0,
+                                  pdfStyle: PDFColors.Style? = nil) async throws -> CGImage {
+        try await renderQueue.perform(priority: .init(visible: false)) {
+            try await self.renderPreview(location, size: size, rotation: rotation, y: nil, pdfStyle: pdfStyle)
+        }
+    }
+    private func renderPreview(_ location: PageLocation, size: CGSize, rotation: Int, y: Double?,
+                               pdfStyle: PDFColors.Style?) async throws -> CGImage {
+        let page = try index(location)
+        let width = Int(rotation % 180 == 0 ? size.width : size.height)
+        let region: CGRect?
+        if document.native?.reflowable == true, document.style?.pageSize.height == 0 {
+            // A continuous page can be an entire book. Preview only the part
+            // that fits its UI, using the same indexed region path as reading.
+            let bounds = try document.bounds(page), scale = CGFloat(width) / bounds.width
+            let fullHeight = ceil(bounds.height * scale)
+            let height = min(fullHeight, rotation % 180 == 0 ? size.height : size.width)
+            let top = floor(min(max(0, (CGFloat(y ?? Double(bounds.minY)) - bounds.minY) * scale), fullHeight - height))
+            region = CGRect(x: 0, y: top, width: CGFloat(width), height: height)
+        } else { region = nil }
+        let request = try document.prepareImage(page, width: width, region: region, pdfStyle: pdfStyle)
+        let image = try await self.image(request, priority: .init(visible: false))
+        return try RasterLayout.image(image, bounds: CGRect(x: 0, y: 0, width: image.width, height: image.height),
+                                      crop: nil, rotation: rotation)
+    }
     func previewImage(_ href: String, from sourcePage: Int, pdfStyle: PDFColors.Style? = nil) async throws -> CGImage? {
-        let page: Int
-        if document.format == .djvu, href == "#+1" || href == "#-1" { page = min(max(0, sourcePage + (href == "#+1" ? 1 : -1)), document.count-1) }
-        else { guard let target = try document.native?.resolve(href) else { return nil }; page = target.page }
-        return try await image(page, width: 640, pdfStyle: pdfStyle)
+        let target: ReadingPosition
+        if document.format == .djvu, href == "#+1" || href == "#-1" {
+            target = ReadingPosition(page: min(max(0, sourcePage + (href == "#+1" ? 1 : -1)), document.count-1))
+        } else { guard let resolved = try document.native?.resolve(href) else { return nil }; target = resolved }
+        let location = chapterLayout.location(page: target.page) ?? PageLocation(page: target.page)
+        return try await renderQueue.perform(priority: .init(visible: false)) {
+            try await self.renderPreview(location, size: CGSize(width: 640, height: 880), rotation: 0,
+                                         y: target.y, pdfStyle: pdfStyle)
+        }
     }
     func selection(_ page: Int, from a: CGPoint, to b: CGPoint, mode: Int32 = 0) async throws -> RasterSelection {
         let cancellation = try renderCancellation(page)
@@ -2361,8 +2391,9 @@ enum RasterTextPosition {
 private struct RasterScrollRequest: Equatable {
     var position: ReadingPosition
     var toBottom = false
-    init(_ position: ReadingPosition, toBottom: Bool = false) {
-        self.position = position; self.toBottom = toBottom
+    var progress: Double?
+    init(_ position: ReadingPosition, toBottom: Bool = false, progress: Double? = nil) {
+        self.position = position; self.toBottom = toBottom; self.progress = progress
     }
 }
 
@@ -3481,6 +3512,12 @@ private struct ReaderKeyboardFocus: ViewModifier {
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
             }
         case .progress(let progress):
+            if state.continuousReflow {
+                cancelNavigation()
+                selections.clear(state); state.selectedText = ""
+                scrollRequest = .init(state.currentPosition, progress: progress)
+                break
+            }
             acknowledge = false
             navigationTask?.cancel()
             navigationTask = Task {
@@ -4098,8 +4135,8 @@ private struct WindowScale: NSViewRepresentable {
                     geometry = preparedGeometry
                     canvas.frame = CGRect(origin: .zero, size: preparedGeometry.canvas)
                 } else { relayout() }
-                if let saved { go(to: saved) }
-            } else if let pending { go(to: pending) }
+                if let saved { go(to: saved, progress: value.request?.progress) }
+            } else if let pending { go(to: pending, progress: value.request?.progress) }
             // Live resize uses the frozen layout until the drag ends. Replacing
             // its hosting roots on every clip-size update needlessly repaints
             // that same canvas and restarts SwiftUI reconciliation.
@@ -4173,9 +4210,13 @@ private struct WindowScale: NSViewRepresentable {
                         let scale = min(contentScale, ReadingZoom.maximumCanvasExtent / Double(max(size.width, size.height)))
                         sizes[index] = CGSize(width: size.width * scale, height: size.height * scale)
                     } else {
+                        let facing = owner.pages.isPDF && key.spread ? row.first(where: { $0 != index }).map {
+                            RasterLayout.FacingPage(bounds: boxes[$0], content: measured[locations[$0]]?.content, before: $0 < index)
+                        } : nil
                         sizes[index] = RasterLayout.size(page: boxes[index].size, viewport: key.viewport,
                             columns: owner.pages.isPDF && key.spread ? 2 : row.count, rotation: key.rotation, fit: key.fit, zoom: key.zoom,
-                            content: value?.content, limit: key.limit, uniformWidth: key.uniform ? value?.referenceWidth : nil, origin: boxes[index].origin, continuous: key.continuousReflow)
+                            content: value?.content, limit: key.limit, uniformWidth: key.uniform ? value?.referenceWidth : nil, origin: boxes[index].origin,
+                            facing: facing, rtl: key.rtl, continuous: key.continuousReflow)
                     }
                 }
             }
@@ -4216,8 +4257,15 @@ private struct WindowScale: NSViewRepresentable {
             return ReadingPosition(page: owner.state.pageNumber(location), scrollFraction: fraction, x: Double(point.x), y: Double(point.y),
                 anchor: owner.state.reflowable ? owner.state.chapterLayout?.bookmark(location) : nil)
         }
-        private func go(to position: ReadingPosition) {
+        private func go(to position: ReadingPosition, progress: Double? = nil) {
             guard let owner, let key, let geometry, geometry.pageCount > 0 else { return }
+            if key.continuousReflow, let progress {
+                var bounds = contentView.bounds
+                bounds.origin.y = canvas.bounds.minY + max(0, canvas.bounds.height - bounds.height) * progress
+                contentView.scroll(to: contentView.constrainBoundsRect(bounds).origin)
+                reflectScrolledClipView(contentView)
+                return
+            }
             let index = position.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
                 .map { owner.state.pageNumber($0) } ?? position.page
             guard (0..<geometry.pageCount).contains(index), let frame = geometry.frame(page: index) else { return }
@@ -4283,7 +4331,7 @@ private struct WindowScale: NSViewRepresentable {
             var visibleIDs = Set(needed.map { location($0.index) })
             // A source destination can extend beyond an unseen chapter's
             // estimated height. Measure its row before consuming the jump.
-            if let request = owner.request?.position {
+            if owner.request?.progress == nil, let request = owner.request?.position {
                 let target = request.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
                     .map { owner.state.pageNumber($0) } ?? request.page
                 if (0..<geometry.pageCount).contains(target) {
@@ -4340,9 +4388,11 @@ private struct WindowScale: NSViewRepresentable {
         private func page(at index: Int, columns: Int) -> RasterPage {
             let owner = owner!, key = key!, location = location(index)
             let frame = geometry!.frame(page: index)!
+            let row = PageRows.range(page: index, count: key.count, spread: key.spread, cover: key.cover, landscape: key.landscape)
             return RasterPage(state: owner.state, pages: owner.pages, index: index, location: location,
                     viewport: key.viewport, scale: owner.scale, continuousReflow: key.continuousReflow,
-                    columns: owner.pages.isPDF && key.spread ? 2 : columns, facingPage: nil,
+                    columns: owner.pages.isPDF && key.spread ? 2 : columns,
+                    facingPage: owner.pages.isPDF && key.spread ? row.first { $0 != index } : nil,
                     match: owner.match?.contains(index) == true ? owner.match : nil, scrollRequest: owner.$request,
                     cancelNavigation: owner.cancelNavigation, selections: owner.selections,
                     estimate: measured[location]?.bounds ?? key.estimate, updateEstimate: owner.updateEstimate,
@@ -4436,9 +4486,15 @@ private struct WindowScale: NSViewRepresentable {
                let frame = geometry.frame(page: index) {
                 let box = key.trim ? value.content ?? value.bounds : value.bounds
                 let row = PageRows.range(page: index, count: key.count, spread: key.spread, cover: key.cover, landscape: key.landscape)
+                let facing = owner.pages.isPDF && key.spread ? row.first(where: { $0 != index }).map { peer in
+                    let measured = measured[self.location(peer)]
+                    let bounds = key.trim ? measured?.content ?? measured?.bounds ?? self.box(peer) : measured?.bounds ?? self.box(peer)
+                    return RasterLayout.FacingPage(bounds: bounds, content: measured?.content, before: peer < index)
+                } : nil
                 let size = RasterLayout.size(page: box.size, viewport: key.viewport, columns: owner.pages.isPDF && key.spread ? 2 : row.count,
                     rotation: key.rotation, fit: key.fit, zoom: key.zoom, content: value.content,
-                    limit: key.limit, uniformWidth: key.uniform ? value.referenceWidth : nil, origin: box.origin, continuous: key.continuousReflow)
+                    limit: key.limit, uniformWidth: key.uniform ? value.referenceWidth : nil, origin: box.origin,
+                    facing: facing, rtl: key.rtl, continuous: key.continuousReflow)
                 // Equal-sized pages share the known media box. Rendering one
                 // must not rebuild tens of thousands of unchanged page frames.
                 var changedUniformBounds = false
@@ -4453,7 +4509,7 @@ private struct WindowScale: NSViewRepresentable {
             if explicitNaturalScroller { configure(owner, remeasure: true); return }
             arranging = true
             relayout()
-            if let saved { go(to: saved) }
+            if let saved { go(to: saved, progress: owner.request?.progress) }
             updateCells(refresh: true)
             arranging = false
             schedulePosition()
@@ -4494,8 +4550,13 @@ private struct WindowScale: NSViewRepresentable {
                 let size = self.contentView.safeAreaRect.size
                 if size.width > 0, size.height > 0 { owner.didResizeViewport(size) }
                 if let request = owner.request?.position {
-                    let location = request.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
-                        ?? owner.state.pageLocation(request.page)
+                    let location: PageLocation
+                    if owner.request?.progress != nil, let geometry = self.geometry {
+                        location = self.location(geometry.range(row: self.row(at: self.contentView.bounds.minY)).lowerBound)
+                    } else {
+                        location = request.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
+                            ?? owner.state.pageLocation(request.page)
+                    }
                     guard self.measured[location] != nil else { return }
                     if let key = self.key, ReadingZoom.usesContent(key.fit) {
                         let row = PageRows.range(page: owner.state.pageNumber(location), count: key.count,

@@ -481,8 +481,9 @@
         searchAbort?.abort()
         config.searchComplete = false
         post('results', { items: [], complete: false }); post('status', { message: 'Searching…' })
+        const start = origin || readingCaret()
         return await scanAll(generation, options,
-            finder.start(options.text, options.matchCase, options.matchWholeWords, generation, -1, true), origin, command.backwards)
+            finder.start(options.text, options.matchCase, options.matchWholeWords, generation, -1, true, start, command.backwards), origin, command.backwards)
     }
     const clearFind = (publish = true) => {
         ++searchGeneration; searchKey = ''; searchOptions = null; hits = []; selected = -1; currentMatch = -1; scan = null
