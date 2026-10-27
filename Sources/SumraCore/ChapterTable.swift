@@ -64,6 +64,18 @@ public struct ChapterTable: Equatable, Sendable {
         guard counts.indices.contains(location.chapter) else { return nil }
         return (location.chapter == 0 ? 0 : ends[location.chapter - 1]) + min(max(0, location.page), counts[location.chapter] - 1)
     }
+    /// Approximate progress gives each chapter equal space. Page-bin centers
+    /// keep adjacent chapter endpoints distinct; the book's endpoints stay 0/1.
+    public func progress(for location: PageLocation) -> Double {
+        if location.chapter == 0, location.page == 0 { return 0 }
+        if location.chapter == chapterCount - 1, location.page == pageCount(location.chapter) - 1 { return 1 }
+        return (Double(location.chapter) + (Double(location.page) + 0.5) / Double(pageCount(location.chapter))) / Double(chapterCount)
+    }
+    public func location(progress: Double) -> PageLocation {
+        let coordinate = progress * Double(chapterCount)
+        let chapter = min(Int(coordinate), chapterCount - 1), count = pageCount(chapter)
+        return .init(chapter: chapter, page: min(Int((coordinate - Double(chapter)) * Double(count)), count - 1))
+    }
     public func bookmark(_ location: PageLocation) -> String {
         let position = "\(location.chapter):\(location.page)"
         // An unresolved navigation target has no saved pagination to scale.
