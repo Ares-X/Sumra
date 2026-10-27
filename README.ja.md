@@ -111,6 +111,18 @@ Sumra は GUI アプリケーションです。ファイルを開く操作、文
 
 README は英語、簡体字中国語、繁体字中国語、日本語で読めます。内容の基準として [README.md](README.md) を参照し、セクションの順序を揃えてください。共通情報が変わった場合は、他の言語版も更新してください。すべての言語版で同じスクリーンショットを使い、技術文書へリンクしています。
 
+<!-- community-contributors:start -->
+## コミュニティ貢献者
+
+Issue の報告、コードの提供、レビューを通じて Sumra を改善してくださる皆さんに感謝します。この一覧は対象の GitHub Issue とマージ済み Pull Request から自動更新されます。
+
+| 貢献者 | 貢献内容 |
+| --- | --- |
+| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Sumra/issues/31) [Issue #42](https://github.com/Ares-X/Sumra/issues/42) |
+| <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [Issue #48](https://github.com/Ares-X/Sumra/issues/48) |
+
+<!-- community-contributors:end -->
+
 ## ライセンスと謝辞
 
 Sumra の新規コードは **[AGPL-3.0-or-later](LICENSE)** でライセンスされています。上流から取り込んだコンポーネントと移植したコンポーネントは、それぞれのライセンスと著作権表示を引き継ぎます。出典、バージョン、ライセンスは [THIRD_PARTY.md](THIRD_PARTY.md) を参照してください。

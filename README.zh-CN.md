@@ -113,6 +113,18 @@ Sumra 是图形应用，文件打开、文档工具与打印均通过界面操�
 
 README 提供英文、简体中文、繁体中文和日语版本。以 [README.md](README.md) 为内容参考，保持章节顺序一致；公共信息变化时同步更新其他版本。各语言共用截图，并链接到技术文档。
 
+<!-- community-contributors:start -->
+## 社区贡献者
+
+感谢通过问题反馈、代码和评审帮助改进 Sumra 的每一位贡献者。此名单根据符合条件的 GitHub Issue 和已合并的 Pull Request 自动更新。
+
+| 贡献者 | 贡献记录 |
+| --- | --- |
+| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [问题 #31](https://github.com/Ares-X/Sumra/issues/31) [问题 #42](https://github.com/Ares-X/Sumra/issues/42) |
+| <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [问题 #48](https://github.com/Ares-X/Sumra/issues/48) |
+
+<!-- community-contributors:end -->
+
 ## 许可与致谢
 
 新编写的 Sumra 代码采用 **[AGPL-3.0-or-later](LICENSE)**。上游与移植组件保留各自的许可及版权声明；来源、版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
