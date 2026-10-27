@@ -1,5 +1,8 @@
 # Reader acceptance — 2026-10-27
 
+The subsequent [0.2.20 release acceptance](RELEASE_0_2_20_ACCEPTANCE_20261027.md)
+records completed publication, official installation and issue replies.
+
 For the subsequent interaction/performance round, see
 [the follow-up record](INTERACTION_POLISH_20261027.md). The executable and visual
 receipts below identify this earlier checkpoint specifically.
