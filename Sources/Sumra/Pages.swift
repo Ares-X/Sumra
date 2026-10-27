@@ -175,7 +175,20 @@ private actor RasterSearchProjection {
     }
 }
 
-fileprivate struct RasterStyle: Equatable {
+actor ChapterSearchQueue {
+    private var nextOffset: Int
+    private let lastOffset: Int
+    init(firstOffset: Int, lastOffset: Int) {
+        nextOffset = firstOffset; self.lastOffset = lastOffset
+    }
+    func next() -> Int? {
+        guard nextOffset <= lastOffset else { return nil }
+        defer { nextOffset += 1 }
+        return nextOffset
+    }
+}
+
+fileprivate struct RasterStyle: Equatable, Sendable {
     let fontSize: Double, lineHeight: Double, margin: Double
     let font: String, theme: String
     var userCSS = ""
@@ -880,6 +893,13 @@ actor Pages {
             guard value != location else { return nil }
             location = value
         }
+    }
+    func progressPosition(_ progress: Double) throws -> ReadingPosition {
+        let coordinate = progress * Double(chapterLayout.chapterCount)
+        let chapter = min(Int(coordinate), chapterLayout.chapterCount - 1)
+        try document.native?.ensureChapter(chapter)
+        let page = Int(((coordinate - Double(chapter)) * Double(chapterLayout.pageCount(chapter) - 1)).rounded())
+        return try position(.init(chapter: chapter, page: page))
     }
     func lastPosition() throws -> ReadingPosition {
         let chapter = chapterLayout.chapterCount - 1
@@ -1655,6 +1675,67 @@ actor Pages {
             return ([], pageRange.upperBound, chapterLayout)
         } onCancel: { cancellation?.cancel() }
     }
+    struct ChapterSearchWorkerResult: Sendable {
+        let matches: [RasterMatch]
+        let chapterTable: ChapterTable
+        let sourceRevision: String
+        let layoutRevision: Int
+    }
+    func chapterSearchWorker(_ query: String, options: TextSearchOptions, start: PageLocation,
+                             queue: ChapterSearchQueue, excludingChapters: Set<Int>) -> Task<ChapterSearchWorkerResult, Error>? {
+        // MuPDF contexts are document-local. The reader keeps its context for
+        // navigation while this temporary document scans the other chapters.
+        guard let native = document.native, native.engine == .mupdf, native.reflowable,
+              !isMarkdown, let style = document.style else { return nil }
+        let url = document.url, chapters = chapterLayout.chapterCount
+        let sourceRevision = native.searchSourceRevision
+        let revision = layoutRevision
+        return Task.detached(priority: .utility) {
+            let file = try NativeFile(url, engine: .mupdf, deferReflowLayout: true, deferMarkdownMetadata: true)
+            guard file.searchSourceRevision == sourceRevision else {
+                throw ReadError("The document changed while searching. Open it again.")
+            }
+            _ = try file.relayout(fontSize: style.fontSize * style.textZoom, lineHeight: style.lineHeight,
+                font: style.font, theme: style.theme, userCSS: style.userCSS,
+                useDocumentCSS: style.useDocumentCSS, pageMargins: style.pageMargins, pageSize: style.pageSize)
+            let cancellation = try NativeRenderCancellation()
+            return try await withTaskCancellationHandler {
+                var matches = [RasterMatch]()
+                while let offset = await queue.next() {
+                    try Task.checkCancellation()
+                    let chapter = (start.chapter + offset) % chapters
+                    if excludingChapters.contains(chapter) { continue }
+                    if try !file.chapterMayMatch(query, chapter: chapter, options: options, cancellation: cancellation) { continue }
+                    try file.ensureChapter(chapter)
+                    let count = file.chapterTable!.pageCount(chapter)
+                    let lower = offset == 0 ? start.page : 0
+                    let upper = offset == chapters ? start.page : count
+                    for page in lower..<upper {
+                        try Task.checkCancellation()
+                        let location = PageLocation(chapter: chapter, page: page)
+                        let found = try file.matches(query, page: file.page(location), options: options,
+                            cancellation: cancellation)
+                        matches.append(contentsOf: found)
+                        await Task.yield()
+                    }
+                }
+                try Task.checkCancellation()
+                return ChapterSearchWorkerResult(matches: matches, chapterTable: file.chapterTable!,
+                    sourceRevision: sourceRevision, layoutRevision: revision)
+            } onCancel: { cancellation.cancel() }
+        }
+    }
+    func integrateChapterSearchWorker(_ result: ChapterSearchWorkerResult) throws -> ChapterTable {
+        try Task.checkCancellation()
+        guard layoutRevision == result.layoutRevision,
+              let native = document.native, native.searchSourceRevision == result.sourceRevision else {
+            throw CancellationError()
+        }
+        // The reader's table assigns final flat page numbers; worker hits keep
+        // their chapter/page locations through the projection step.
+        try native.publishSearchChapterCounts(result.chapterTable)
+        return chapterLayout
+    }
     func markdownDocumentMatches(_ query: String, options: TextSearchOptions, startPage: Int,
                                  after: NativeSourceAnchor? = nil, backwards: Bool = false,
                                  counting: Bool = false, maximum: Int? = 1, inclusive: Bool = false) async throws -> [RasterMatch] {
@@ -1734,7 +1815,7 @@ actor Pages {
     func restore(_ position: ReadingPosition, userCSS: String? = nil, theme: String? = nil, viewport: CGSize? = nil) throws -> ReadingPosition {
         try Task.checkCancellation()
         if let current = document.style {
-            let theme = theme ?? (position.theme == "system" ? current.theme : position.theme ?? current.theme)
+            let theme = theme ?? current.theme
             _ = try relayout(fontSize: position.fontSize ?? current.fontSize, lineHeight: position.lineHeight ?? current.lineHeight,
                              margin: position.margin ?? current.margin, font: position.font ?? current.font, theme: theme,
                              userCSS: userCSS ?? position.userCSS ?? current.userCSS, useDocumentCSS: position.useDocumentCSS ?? current.useDocumentCSS,
@@ -2331,7 +2412,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
     let initialBounds: CGRect?
     let initialPosition: ReadingPosition?
     @State private var scale: CGFloat = 2
-    @State private var pinchStart: Double?
+    @State private var markdownPinchStart: Double?
     @State private var viewport = CGSize.zero
     @State private var viewportFrame = CGSize.zero
     @State private var liveResizeViewport: CGSize?
@@ -2464,14 +2545,16 @@ private struct ReaderKeyboardFocus: ViewModifier {
                 @unknown default: break
                 }
             }
+
+            // Markdown changes its text layout rather than its canvas scale.
+            // Keep that semantic zoom in its existing SwiftUI gesture owner.
             .gesture(MagnificationGesture().onChanged { value in
-                if pinchStart == nil { pinchStart = state.zoom }
-                state.setZoom((pinchStart ?? state.zoom) * Double(value))
-            }.onEnded { _ in pinchStart = nil })
+                state.magnifyMarkdown(Double(value), startingAt: &markdownPinchStart)
+            }.onEnded { _ in markdownPinchStart = nil }, including: state.isNativeMarkdown ? .all : .none)
+
         }
-        // GeometryReader must measure the overlay viewport itself. Ignoring
-        // only the outer ReaderView leaves its proposed height tied to chrome.
-        .ignoresSafeArea(.container, edges: state.toolbarOverlaysContent ? .top : [])
+        // Initial preparation and mounted pagination respect the same native
+        // safe area, independent of reader chrome visibility.
         .onChange(of: reflowPageSize) { _ in resizeReflow() }
         .onChange(of: initialBounds) { bounds in
             if let bounds { estimatedBounds = bounds }
@@ -2660,6 +2743,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
         }
     }
     private func cancelNavigation() {
+        RasterPinchZoom.cancel(in: state.readerScrollView)
         navigationTask?.cancel()
         scrollRequest = nil
         state.discardNativePassage()
@@ -2831,35 +2915,49 @@ private struct ReaderKeyboardFocus: ViewModifier {
                 }
                 if await pages.hasChapters, options.allowedPages == nil {
                     let chapters = await pages.chapterLayout.chapterCount
-                    for offset in 0...chapters {
+                    let queue = ChapterSearchQueue(firstOffset: 1, lastOffset: chapters)
+                    let worker = await pages.chapterSearchWorker(query, options: options, start: startLocation,
+                        queue: queue, excludingChapters: excludingChapters)
+                    defer { worker?.cancel() }
+                    var offset = 0
+                    while offset <= chapters {
                         try Task.checkCancellation()
                         let chapter = (startLocation.chapter + offset) % chapters
                         // The immediately preceding find already proved these
                         // chapters negative for this query and layout.
-                        if excludingChapters.contains(chapter) { continue }
-                        if try await pages.searchChapterMayMatch(query, chapter: chapter, options: options) == false {
-                            await Task.yield(); continue
-                        }
-                        let count = try await pages.searchPageCount(chapter)
-                        guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
-                        let lower = offset == 0 ? startLocation.page : 0
-                        let upper = offset == chapters ? startLocation.page : count
-                        var page = lower
-                        while page < upper {
-                            let batch = try await pages.nextChapterMatches(query, chapter: chapter,
-                                pageRange: page..<upper, options: options)
+                        if !excludingChapters.contains(chapter),
+                           try await pages.searchChapterMayMatch(query, chapter: chapter, options: options) {
+                            let count = try await pages.searchPageCount(chapter)
                             guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
-                            let found = batch.matches
-                            if !found.isEmpty { try await applyLayout(batch.layout) }
-                            all += found
-                            if (offset == 0 && batch.nextPage == lower + 1 && !all.isEmpty) ||
-                                (published == 0 ? all.count >= 16 : all.count - published >= 100 && Date().timeIntervalSince(lastPublication) >= 0.5) {
-                                try await publishSearchMatches(all); published = all.count; lastPublication = Date()
+                            let lower = offset == 0 ? startLocation.page : 0
+                            let upper = offset == chapters ? startLocation.page : count
+                            var page = lower
+                            while page < upper {
+                                let batch = try await pages.nextChapterMatches(query, chapter: chapter,
+                                    pageRange: page..<upper, options: options)
+                                guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
+                                let found = batch.matches
+                                if !found.isEmpty { try await applyLayout(batch.layout) }
+                                all += found
+                                if (offset == 0 && batch.nextPage == lower + 1 && !all.isEmpty) ||
+                                    (published == 0 ? all.count >= 16 : all.count - published >= 100 && Date().timeIntervalSince(lastPublication) >= 0.5) {
+                                    try await publishSearchMatches(all); published = all.count; lastPublication = Date()
+                                }
+                                page = batch.nextPage
+                                await Task.yield()
                             }
-                            page = batch.nextPage
-                            await Task.yield()
                         }
                         await Task.yield()
+                        offset = worker == nil ? offset + 1 : (await queue.next() ?? chapters + 1)
+                    }
+                    if let worker {
+                        let result = try await withTaskCancellationHandler {
+                            try await worker.value
+                        } onCancel: { worker.cancel() }
+                        guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
+                        all += result.matches
+                        let table = try await pages.integrateChapterSearchWorker(result)
+                        try await applyLayout(table)
                     }
                     let table = await pages.chapterLayout
                     guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
@@ -2904,6 +3002,17 @@ private struct ReaderKeyboardFocus: ViewModifier {
             }
         }
     }
+    private func finishFindWithoutMatch(complete: Bool) {
+        selectedMatch = nil; state.selectedSearchTarget = nil
+        if !searchCountStarted {
+            // An unfiltered, wrapped ebook find already proved the complete
+            // count is zero. Cursor/selection misses do not prove that; editable
+            // PDFs also keep their existing search behavior after mutations.
+            searchCountStarted = complete && state.reflowable
+            state.searchCounting = false
+        }
+        searchStatus()
+    }
     private func find(_ query: String, backwards: Bool, options: TextSearchOptions, fromSelection: Bool, inResults: Bool) {
         guard !query.isEmpty else { clearSearch(); return }
         NativeReadingPerformance.mark("find-request", pages: pages, revision: state.renderRevision, page: state.page)
@@ -2938,6 +3047,9 @@ private struct ReaderKeyboardFocus: ViewModifier {
             reflowFindIntent = intent
             findTask = nil; findIntent = nil
             return
+        }
+        if sameSearch, state.reflowable, searchCountStarted, !state.searchCounting, searchMatches.isEmpty {
+            searchStatus(); return
         }
         findIntent = intent
         let documentID = state.document?.id, generation = searchGeneration
@@ -2984,9 +3096,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     if let match {
                         show(match)
                     } else {
-                        selectedMatch = nil; state.selectedSearchTarget = nil
-                        if !searchCountStarted { state.searchCounting = false }
-                        searchStatus()
+                        finishFindWithoutMatch(complete: selected.isEmpty && previousMatch == nil)
                     }
                     return
                 }
@@ -3033,13 +3143,12 @@ private struct ReaderKeyboardFocus: ViewModifier {
                         }
                         await Task.yield()
                     }
+                    guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
                     if let match {
                         show(match)
                         if !searchCountStarted { countMatches(query, options: options, start: match.page, excludingChapters: negativeChapters) }
                     } else {
-                        selectedMatch = nil; state.selectedSearchTarget = nil
-                        if !searchCountStarted { state.searchCounting = false }
-                        searchStatus()
+                        finishFindWithoutMatch(complete: selected.isEmpty && previousMatch == nil)
                     }
                     return
                 }
@@ -3071,9 +3180,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                 } else {
                     // The completed, wrapped find already proved there are no
                     // matches in the allowed pages; counting would scan twice.
-                    selectedMatch = nil; state.selectedSearchTarget = nil
-                    if !searchCountStarted { state.searchCounting = false }
-                    searchStatus()
+                    finishFindWithoutMatch(complete: selected.isEmpty && previousMatch == nil)
                 }
             } catch let error as CancellationError {
                 guard !Task.isCancelled, documentID == state.document?.id, generation == searchGeneration else { return }
@@ -3373,6 +3480,24 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     scrollRequest = .init(position, toBottom: pageOffset == nil && toBottom)
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
             }
+        case .progress(let progress):
+            acknowledge = false
+            navigationTask?.cancel()
+            navigationTask = Task {
+                defer { state.didHandleCommand(command.revision) }
+                do {
+                    var restored = try await pages.progressPosition(progress)
+                    if !state.continuousReflow, state.spread, !state.presentation {
+                        restored = try await pages.prepareFacingPages(restored, cover: state.cover)
+                    }
+                    guard !Task.isCancelled, documentID == state.document?.id else { return }
+                    let table = await pages.chapterLayout
+                    guard !Task.isCancelled, documentID == state.document?.id else { return }
+                    try await applyLayout(table)
+                    selections.clear(state); state.selectedText = ""
+                    state.updatePosition(restored); scrollRequest = .init(state.currentPosition)
+                } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
+            }
         case .location(let input):
             if input == "last" {
                 acknowledge = false
@@ -3653,6 +3778,109 @@ private struct ReaderKeyboardFocus: ViewModifier {
         }
     }
     private var background: Color { state.resolvedTheme == "dark" ? Color(nsColor: NSColor(white: 0.06, alpha: 1)) : .white }
+}
+
+// AppKit owns the gesture location and clip geometry. Percentage zoom must
+// preserve that page point, rather than issuing asynchronous top-left restores
+// for every trackpad sample.
+@MainActor final class RasterPinchZoom: NSMagnificationGestureRecognizer {
+    private struct Anchor {
+        let document: UUID?
+        let commandRevision: Int
+        let location: PageLocation
+        let source: CGPoint
+        let viewport: CGPoint
+        let zoom: Double
+        let scale: Double
+    }
+    private weak var readerState: ReaderState?
+    private var anchor: Anchor?
+    private var ending = false
+
+    static func attach(to scroll: NSScrollView, state: ReaderState) {
+        if state.isNativeMarkdown {
+            for gesture in scroll.gestureRecognizers where gesture is RasterPinchZoom { scroll.removeGestureRecognizer(gesture) }
+            return
+        }
+        if let gesture = scroll.gestureRecognizers.compactMap({ $0 as? RasterPinchZoom }).first {
+            gesture.readerState = state
+            return
+        }
+        let gesture = RasterPinchZoom(target: nil, action: nil)
+        gesture.target = gesture; gesture.action = #selector(changed(_:))
+        gesture.readerState = state
+        scroll.addGestureRecognizer(gesture)
+    }
+    static func cancel(in scroll: NSScrollView?) {
+        guard let gesture = scroll?.gestureRecognizers.compactMap({ $0 as? RasterPinchZoom }).first else { return }
+        gesture.anchor = nil; gesture.ending = true
+    }
+    private static func canvases(in view: NSView) -> [RasterCanvas.Canvas] {
+        if let canvas = view as? RasterCanvas.Canvas { return [canvas] }
+        return view.subviews.flatMap { canvases(in: $0) }
+    }
+    @objc private func changed(_ gesture: NSMagnificationGestureRecognizer) {
+        guard let scroll = view as? NSScrollView else { return }
+        handle(phase: gesture.state, magnification: gesture.magnification, location: gesture.location(in: scroll.contentView))
+    }
+    // Shared by the native recognizer and hosted-reader regression tests.
+    func handle(phase: NSGestureRecognizer.State, magnification: CGFloat, location: CGPoint) {
+        guard let scroll = view as? NSScrollView, let state = readerState,
+              let document = scroll.documentView else { return }
+        if phase == .began {
+            let clip = scroll.contentView
+            let candidates = Self.canvases(in: document)
+            let canvas = candidates.min { left, right in
+                func distance(_ canvas: RasterCanvas.Canvas) -> CGFloat {
+                    let point = canvas.convert(location, from: clip)
+                    return hypot(max(canvas.bounds.minX-point.x, 0, point.x-canvas.bounds.maxX),
+                                 max(canvas.bounds.minY-point.y, 0, point.y-canvas.bounds.maxY))
+                }
+                return distance(left) < distance(right)
+            }
+            guard let canvas else { return }
+            canvas.cancelNavigation?()
+            let transform = canvas.pageTransform
+            let scale = Double(hypot(transform.a, transform.b))
+            anchor = Anchor(document: state.document?.id, commandRevision: state.command.revision, location: canvas.location,
+                source: canvas.convert(location, from: clip).applying(transform.inverted()),
+                viewport: CGPoint(x: location.x-clip.bounds.minX, y: location.y-clip.bounds.minY),
+                zoom: scale/canvas.zoomNormalization, scale: scale)
+            ending = false
+        }
+        guard !ending else { return }
+        guard let anchor, anchor.document == state.document?.id, anchor.commandRevision == state.command.revision else {
+            self.anchor = nil; ending = true; return
+        }
+        if phase == .failed { self.anchor = nil; ending = true; return }
+        if phase == .began { return }
+        if phase == .cancelled { ending = true; Self.restore(in: scroll); return }
+        state.setZoom(anchor.zoom * Double(1 + magnification), preservingPosition: false)
+        ending = phase == .ended
+        Self.restore(in: scroll)
+    }
+    static func restore(in scroll: NSScrollView, finishing: Bool = false) {
+        guard let gesture = scroll.gestureRecognizers.compactMap({ $0 as? RasterPinchZoom }).first,
+              let anchor = gesture.anchor, let state = gesture.readerState,
+              anchor.document == state.document?.id, anchor.commandRevision == state.command.revision, let document = scroll.documentView,
+              let canvas = canvases(in: document).first(where: { $0.location == anchor.location }),
+              abs(canvas.bounds.width-canvas.lastDisplaySize.width) <= 0.5,
+              abs(canvas.bounds.height-canvas.lastDisplaySize.height) <= 0.5 else { return }
+        // A representable update can precede its frame change. Restore only
+        // the geometry for the current sample, including its clamped scale.
+        // SwiftUI rounds each page frame to backing pixels. Match the
+        // requested display size, then anchor with the actual rounded transform.
+        let sourceWidth = canvas.rotation % 180 == 0 ? canvas.visibleBounds.width : canvas.visibleBounds.height
+        let configuredScale = Double(canvas.lastDisplaySize.width / sourceWidth)
+        guard abs(configuredScale-anchor.scale * state.zoom/anchor.zoom) < 0.0001 else { return }
+        let clip = scroll.contentView
+        let point = canvas.convert(anchor.source.applying(canvas.pageTransform), to: clip)
+        var bounds = clip.bounds
+        bounds.origin = CGPoint(x: point.x-anchor.viewport.x, y: point.y-anchor.viewport.y)
+        clip.scroll(to: clip.constrainBoundsRect(bounds).origin)
+        scroll.reflectScrolledClipView(clip)
+        if finishing, gesture.ending { gesture.anchor = nil }
+    }
 }
 
 private struct WindowScale: NSViewRepresentable {
@@ -4364,7 +4592,7 @@ private struct WindowScale: NSViewRepresentable {
     var body: some View {
         let visible = state.trimEmptyMargins && !continuousReflow ? content ?? bounds : bounds
         let size = displaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, content: content, limit: state.zoomLimit, uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin, facing: facing, rtl: state.rtl, continuous: continuousReflow)
-        RasterCanvas(state: state, pages: pages, page: index, location: location, image: image, imageCollection: imageCollection, readingReady: renderedID == renderID && (image != nil || continuousReflow), pixelWidth: pixelWidth, tileResolution: renderedID == renderID ? tileResolution : 0, pdfStyle: renderedStyle, imageBounds: imageBounds, pageBoxes: pageBoxes, contentBounds: content, pageBounds: bounds, visibleBounds: visible, links: links, pdfAnnotations: pdfAnnotations, pdfLinks: pdfLinks, match: match, rotation: state.rotation, request: $scrollRequest, cancelNavigation: cancelNavigation, displaySize: size, focus: index == state.page ? RasterLayout.contentFocus(bounds: visible, content: content, display: size, rotation: state.rotation, mode: state.fit, facing: facing, rtl: state.rtl) : nil, selections: selections, didResizeViewport: didResizeViewport, didPaint: didRender, didPaintMatch: didPaintMatch, viewportTileSize: viewportTileSize, finitePrediction: finitePrediction, predictionID: renderID, renderPredictedPage: finitePrediction.map { prediction in { _ = try await renderResult(prediction, preheating: true) } })
+        RasterCanvas(state: state, pages: pages, page: index, location: location, image: image, imageCollection: imageCollection, readingReady: renderedID == renderID && (image != nil || continuousReflow), pixelWidth: pixelWidth, tileResolution: renderedID == renderID ? tileResolution : 0, pdfStyle: renderedStyle, imageBounds: imageBounds, pageBoxes: pageBoxes, contentBounds: content, pageBounds: bounds, visibleBounds: visible, links: links, pdfAnnotations: pdfAnnotations, pdfLinks: pdfLinks, match: match, rotation: state.rotation, request: $scrollRequest, cancelNavigation: cancelNavigation, displaySize: size, zoomNormalization: ReadingZoom.pageScale(zoom: 1, referenceWidth: Double(referenceWidth ?? 0), pageWidth: Double(state.rotation % 180 == 0 ? visible.width : visible.height), uniform: state.uniformPageWidth && !continuousReflow), focus: index == state.page ? RasterLayout.contentFocus(bounds: visible, content: content, display: size, rotation: state.rotation, mode: state.fit, facing: facing, rtl: state.rtl) : nil, selections: selections, didResizeViewport: didResizeViewport, didPaint: didRender, didPaintMatch: didPaintMatch, viewportTileSize: viewportTileSize, finitePrediction: finitePrediction, predictionID: renderID, renderPredictedPage: finitePrediction.map { prediction in { _ = try await renderResult(prediction, preheating: true) } })
             .frame(width: size.width, height: size.height)
             .task(id: state.renderRevision) {
                 guard pages.isPDF else { return }
@@ -4590,6 +4818,7 @@ struct NativeReadingAccessibilitySnapshot {
     @Binding fileprivate var request: RasterScrollRequest?
     let cancelNavigation: () -> Void
     let displaySize: CGSize
+    let zoomNormalization: Double
     let focus: CGRect?
     @ObservedObject fileprivate var selections: RasterSelections
     let didResizeViewport: ((CGSize) -> Void)?
@@ -4625,6 +4854,7 @@ struct NativeReadingAccessibilitySnapshot {
         if view.location != location || (focus != nil && (view.lastDisplaySize != displaySize || view.lastFocus != focus || view.rotation != rotation)) {
             view.lastRequest = nil
         }
+        view.zoomNormalization = zoomNormalization
         view.lastDisplaySize = displaySize; view.lastFocus = focus
         view.state = state; view.pages = pages; view.page = page; view.location = location; view.image = image; view.pageBounds = pageBounds
         view.imageCollection = imageCollection
@@ -4646,6 +4876,7 @@ struct NativeReadingAccessibilitySnapshot {
         if view.bounds.width > 0, view.bounds.height > 0 { selections.visibleBounds[location] = view.visibleRect.applying(view.pageTransform.inverted()) }
         if let scroll = view.enclosingScrollView, case .pages(let current) = state.document?.content, current === pages {
             state.readerScrollView = scroll
+            RasterPinchZoom.attach(to: scroll, state: state)
             let documentID = state.document?.id
             if pages.isPDF {
                 state.nativePDFInverseSearchPosition = { [weak scroll, weak state] in
@@ -4871,6 +5102,7 @@ struct NativeReadingAccessibilitySnapshot {
         var renderRevision = 0 {
             didSet { if renderRevision != oldValue { traceFirstPaint = true } }
         }
+        var zoomNormalization = 1.0
         var lastDisplaySize = CGSize.zero
         var lastFocus: CGRect?
         var keyboardActive = false
@@ -6079,10 +6311,17 @@ struct NativeReadingAccessibilitySnapshot {
             if let canvas = view as? Canvas { canvas.scrolled() }
             for child in view.subviews { recordPosition(in: child) }
         }
+        override func viewWillDraw() {
+            super.viewWillDraw()
+            // Facing-page containers can place their sibling after this page's
+            // layout callback. Finish anchoring the complete row before paint.
+            if let scroll = enclosingScrollView { RasterPinchZoom.restore(in: scroll) }
+        }
         override func layout() {
             super.layout()
             if window?.inLiveResize == true { cancelFinitePrediction() }
             if let field = formWidget { formEditor?.updateFrame(field.bounds.applying(pageTransform)) }
+            if let scroll = enclosingScrollView { RasterPinchZoom.restore(in: scroll) }
             schedulePosition()
         }
         private func applyBottomRequest() {
@@ -6134,6 +6373,7 @@ struct NativeReadingAccessibilitySnapshot {
                     if size.width > 0, size.height > 0 { self.didResizeViewport?(size) }
                 }
                 self.applyBottomRequest()
+                if let scroll = self.enclosingScrollView { RasterPinchZoom.restore(in: scroll, finishing: true) }
                 self.scrolled()
             }
         }
@@ -6148,6 +6388,7 @@ struct NativeReadingAccessibilitySnapshot {
             }
             if let state, case .pages(let current) = state.document?.content, current === pages {
                 state.readerScrollView = scroll
+                RasterPinchZoom.attach(to: scroll, state: state)
                 if !(scroll is RasterViewport.Scroll) { ReaderScrollbars.apply(to: scroll, mode: state.scrollbarMode) }
             }
             scroll.contentView.postsBoundsChangedNotifications = true

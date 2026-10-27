@@ -204,7 +204,7 @@ final class LegacyBookTests: XCTestCase {
             "junk<img src='kindle:embed:03'><img src='kindle:embed:01'><img src='kindle:embed:03'></body></html>"
         let content = try XCTUnwrap(LegacyText.mobiContent(book(text: [Data(html.utf8)], length: html.utf8.count, compression: 1,
             resources: [image(), image(marker: 66), image(marker: 67)])))
-        XCTAssertEqual(String(decoding: content.html, as: UTF8.self), "<!doctype html><html><body><img src=\"00003\"><div style=\"page-break-before:always\"></div><img src=\"00001\"><div style=\"page-break-before:always\"></div><img src=\"00003\"></body></html>")
+        XCTAssertEqual(String(decoding: content.html, as: UTF8.self), "<!doctype html><html><body><div data-sumra-image-page=\"yes\"><img src=\"00003\"></div><div style=\"page-break-before:always\"></div><div data-sumra-image-page=\"yes\"><img src=\"00001\"></div><div style=\"page-break-before:always\"></div><div data-sumra-image-page=\"yes\"><img src=\"00003\"></div></body></html>")
     }
 
     func testMobiRecoversMinorityFailuresWithoutImageFallback() throws {
@@ -271,7 +271,7 @@ final class LegacyBookTests: XCTestCase {
         input.replaceSubrange((first + 244)..<(first + 268), with: exth)
         let content = try XCTUnwrap(LegacyText.mobiContent(input))
         let html = String(decoding: content.html, as: UTF8.self)
-        XCTAssertEqual(html, "<!doctype html><html><body><img src=\"00001\"><div style=\"page-break-before:always\"></div><img src=\"00003\"><div style=\"page-break-before:always\"></div><img src=\"00004\"></body></html>")
+        XCTAssertEqual(html, "<!doctype html><html><body><div data-sumra-image-page=\"yes\"><img src=\"00001\"></div><div style=\"page-break-before:always\"></div><div data-sumra-image-page=\"yes\"><img src=\"00003\"></div><div style=\"page-break-before:always\"></div><div data-sumra-image-page=\"yes\"><img src=\"00004\"></div></body></html>")
         XCTAssertEqual(Set(content.resources.keys), ["00001", "00002", "00003", "00004"])
     }
 

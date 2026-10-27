@@ -53,7 +53,10 @@ struct SettingsView:View{
             if ReaderLocalization.isPartial(language) {
                 Text(L("Untranslated interface text is shown in English.")).font(.caption).foregroundStyle(.secondary)
             }
-            Picker(L("Default theme"),selection:$theme){Text(L("System")).tag("system");ForEach(ReaderTheme.all) { Text($0.displayName).tag($0.id) }}
+            Picker(L("Theme"), selection: Binding(get: { theme }, set: { ReaderState.selectTheme($0) })) {
+                Text(L("System")).tag("system")
+                ForEach(ReaderTheme.all) { Text($0.displayName).tag($0.id) }
+            }
             Picker(L("Default fit"),selection:$fit) { ForEach(ReadingZoom.fitTitles.keys.sorted(), id: \.self) { Text(L(ReadingZoom.fitTitles[$0]!)).tag($0) } }
             TextField(L("Zoom levels (%)"), text: $zoomLevels)
                 .foregroundStyle((try? ReadingZoom.parseLevels(zoomLevels)) != nil ? Color.primary : .red)
@@ -133,6 +136,7 @@ struct SettingsView:View{
         ReaderToolbarSettings().tabItem { Text(L("Toolbar")) }
         AdvancedSettings().tabItem { Text(L("Advanced")) }
     }.id(language).padding().frame(width: 500, height: 540)
+        .preferredColorScheme(theme == "system" ? nil : (ReaderTheme.resolve(theme) ?? ReaderTheme.builtins[0]).dark ? .dark : .light)
         .onChange(of: zoomLevels) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: zoomIncrement) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: scrollbarMode) { _ in ReaderPreferences.applyScrollbarDefaults() }
@@ -312,11 +316,9 @@ enum ReaderPreferences {
                     UserDefaults.standard.set(replacement(id), forKey: key)
                 }
             }
-            for state in ReaderWindows.states where state.theme.hasPrefix("custom-") {
-                if !customThemes.contains(where: { $0.id == state.theme }) { state.theme = replacement(state.theme) }
-                state.objectWillChange.send()
-                if state.isText || state.isBrowser || state.reflowable { state.send(.style) }
-            }
+        }
+        if values["theme"] != nil || values["customThemes"] != nil {
+            ReaderState.selectTheme(UserDefaults.standard.string(forKey: "theme") ?? ReaderTheme.builtins[0].id)
         }
         if let icon = values["appIcon"] as? String { AppIcon.apply(icon) }
         NSWindow.allowsAutomaticWindowTabbing = !UserDefaults.standard.bool(forKey: "disableTabs")

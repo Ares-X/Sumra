@@ -727,3 +727,10 @@
 "Auto Hide" = "Ukrywaj automatycznie";
 "Always Hide" = "Zawsze ukrywaj";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "W trybie automatycznego ukrywania przesuń wskaźnik na górę okna, aby pokazać pasek narzędzi.";
+
+/* Reading progress footer */
+"Reading Progress" = "Postęp czytania";
+"Line:" = "Wiersz:";
+"File:" = "Plik:";
+"Approximate progress by chapter" = "Przybliżony postęp według rozdziału";
+"Progress in current file" = "Postęp w bieżącym pliku";

@@ -1,0 +1,610 @@
+--- a/source/html/html-imp.h
++++ b/source/html/html-imp.h
+@@ -315,6 +315,8 @@
+ 	unsigned int colspan : 10; /* Needs to be able to represent 1-1000 */
+ 	unsigned int white_space : 3;
+ 	unsigned int compact_prose_spacing : 1;
++	unsigned int title_authored_margin : 1;
++	unsigned int title_default_margin : 4; /* FB2 title spacing supplied by the default stylesheet. */
+ 	unsigned int vertical_align : 4;
+ 	unsigned int page_break_inside : 3;
+ 	unsigned int page_break_before : 3;
+@@ -386,6 +388,7 @@
+ 	int fixed_layout;
+ 	float layout_w, layout_h, layout_em;
+ 	float page_margin[4];
++	fz_rect title_page_bounds; /* Intrinsic semantic title canvas; pagination remains unchanged. */
+ 	fz_html_metadata metadata;
+ 	uint32_t source_nodes;
+ };
+@@ -547,6 +550,7 @@
+ 	unsigned int compact_empty_prose : 1;
+ 	unsigned int inline_block : 1;
+ 	unsigned int single_image : 1;
++	unsigned int image_title_page : 1; /* Explicit legacy cover or semantic FB2 title section. */
+ 
+ 	// to indicate when an inline formatting context has been finished (when interrupted by a block level block)
+ 	unsigned int stop : 1;
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -249,6 +249,9 @@
+ struct genstate
+ {
+ 	int is_epub_cover;
++	fz_xml *fb2_title_page;
++	fz_xml *generated_title_page;
++	fz_css_rule *title_default_last;
+ 	fz_pool *pool;
+ 	fz_html_tree *tree;
+ 	fz_html_font_set *set;
+@@ -982,6 +985,8 @@
+ 	box->markup_dir = g->markup_dir;
+ 	box->heading = 0;
+ 	box->list_item = 0;
++	box->image_title_page = type == BOX_BLOCK && node &&
++		(node == g->fb2_title_page || fz_xml_att_eq(node, "data-sumra-image-page", "yes"));
+ 
+ #ifdef DEBUG_HTML_SEQ
+ 	{
+@@ -1696,6 +1701,34 @@
+ 	g->depth--;
+ }
+ 
++/* Keep publisher margins, even when they equal the defaults numerically. */
++static int title_default_value(struct genstate *g, fz_css_value *value)
++{
++	if (!value) return 0;
++	for (fz_css_rule *rule = g->css->rule; rule; rule = rule->next)
++	{
++		for (fz_css_property *property = rule->declaration; property; property = property->next)
++			for (fz_css_value *v = property->value; v; v = v->next)
++				if (v == value) return 1;
++		if (rule == g->title_default_last) break;
++	}
++	return 0;
++}
++
++static void title_margin_origins(struct genstate *g, fz_css_style *style, fz_css_match *match, int default_insets)
++{
++	static const int margins[] = { PRO_MARGIN_TOP, PRO_MARGIN_RIGHT, PRO_MARGIN_BOTTOM, PRO_MARGIN_LEFT };
++	for (int side = 0; side < 4; ++side)
++		if (match->value[margins[side]])
++		{
++			if (title_default_value(g, match->value[margins[side]]))
++			{
++				if (default_insets) style->title_default_margin |= 1 << side;
++			}
++			else style->title_authored_margin = 1;
++		}
++}
++
+ static void gen2_children(fz_context *ctx, struct genstate *g, fz_html_box *root_box, fz_xml *root_node, fz_css_match *root_match)
+ {
+ 	fz_xml *node;
+@@ -1723,6 +1756,14 @@
+ 		{
+ 			fz_match_css(ctx, &match, root_match, g->css, node, FZ_CSS_PSEUDO_NONE, g->publisher_css);
+ 			fz_apply_css_style(ctx, g->set, &style, &match);
++			if ((g->generated_title_page || g->fb2_title_page) && !strcmp(tag, "body"))
++				title_margin_origins(g, &style, &match, 0);
++			for (fz_xml *ancestor = node; ancestor && (g->fb2_title_page || g->generated_title_page); ancestor = fz_xml_up(ancestor))
++				if (ancestor == g->fb2_title_page || ancestor == g->generated_title_page)
++				{
++					title_margin_origins(g, &style, &match, ancestor == g->fb2_title_page);
++					break;
++				}
+ 			apply_attributes_as_styles(ctx, &style, node);
+ 			display = fz_get_css_match_display(&match);
+ 			if (tag[0]=='b' && tag[1]=='r' && tag[2]==0)
+@@ -2439,6 +2480,64 @@
+ 	return total;
+ }
+ 
++/* A first FB2 section is a title page only when its picture is standalone
++ * and its remaining text is explicitly title/author or emphasized text.
++ * Ordinary prose, including a paragraph containing an inline icon, fails. */
++static int fb2_title_content(fz_xml *node, int title_text, int *images, int *text)
++{
++	for (; node; node = fz_xml_next(node))
++	{
++		const char *value = fz_xml_text(node), *tag = fz_xml_tag(node);
++		if (value)
++		{
++			for (const unsigned char *p = (const unsigned char *)value; *p; ++p)
++				if (*p > 32) { if (!title_text) return 0; *text = 1; }
++			continue;
++		}
++		if (fz_xml_att(node, "width") || fz_xml_att(node, "height")) return 0;
++		if (tag && !strcmp(tag, "image")) ++*images;
++		else if (tag && (!strcmp(tag, "p") || !strcmp(tag, "title") ||
++			!strcmp(tag, "subtitle") || !strcmp(tag, "text-author") ||
++			!strcmp(tag, "strong") || !strcmp(tag, "emphasis") ||
++			!strcmp(tag, "a") || !strcmp(tag, "empty-line")))
++		{
++			int child_images = 0, child_text = 0;
++			int semantic = title_text || !strcmp(tag, "title") || !strcmp(tag, "subtitle") ||
++				!strcmp(tag, "text-author") || !strcmp(tag, "strong");
++			if (!fb2_title_content(fz_xml_down(node), semantic, &child_images, &child_text) ||
++				(!strcmp(tag, "p") && child_images && child_text)) return 0;
++			*images += child_images;
++			*text |= child_text;
++		}
++		else return 0;
++	}
++	return 1;
++}
++
++static fz_xml *fb2_title_page(fz_xml *root)
++{
++	fz_xml *book = fz_xml_find(root, "FictionBook");
++	fz_xml *info = fz_xml_find_down(fz_xml_find_down(book, "description"), "title-info");
++	fz_xml *cover = fz_xml_find_down(info, "coverpage");
++	fz_xml *body = fz_xml_find_down(book, "body"), *section;
++	int images = 0, text = 0;
++	if (cover && fb2_title_content(fz_xml_down(cover), 0, &images, &text) && images == 1)
++		return cover;
++	if (cover) return NULL;
++	section = fz_xml_down(body);
++	while (section && fz_xml_text(section))
++	{
++		for (const unsigned char *p = (const unsigned char *)fz_xml_text(section); *p; ++p)
++			if (*p > 32) return NULL;
++		section = fz_xml_next(section);
++	}
++	images = text = 0;
++	if (fz_xml_is_tag(section, "section") &&
++		fb2_title_content(fz_xml_down(section), 0, &images, &text) && images == 1)
++		return section;
++	return NULL;
++}
++
+ static int page_image_maximum(fz_css_number number)
+ {
+ 	return number.unit == N_AUTO || (number.unit == N_PERCENT && number.value == 100);
+@@ -2449,6 +2548,34 @@
+ 	float scale;
+ 	return box->style->height.unit == N_AUTO ||
+ 		(box->style->height.unit == N_PERCENT && !fz_html_height_reference(box, &scale));
++}
++
++static int page_image_auto_size(fz_html_box *box)
++{
++	return box->style->width.unit == N_AUTO && page_image_auto_height(box) &&
++		box->style->position == POS_STATIC && page_image_maximum(box->style->max_width) &&
++		page_image_maximum(box->style->max_height);
++}
++
++/* A reader title page must not override an author's image or container size. */
++static int title_page_auto_sizes(fz_html_box *box)
++{
++	for (; box; box = box->next)
++	{
++		if (!page_image_auto_size(box)) return 0;
++		if (box->down && !title_page_auto_sizes(box->down)) return 0;
++	}
++	return 1;
++}
++
++static void validate_title_pages(fz_html_box *box)
++{
++	for (; box; box = box->next)
++	{
++		if (box->image_title_page && (!page_image_auto_size(box) || !title_page_auto_sizes(box->down)))
++			box->image_title_page = 0;
++		validate_title_pages(box->down);
++	}
+ }
+ 
+ /* Independent image paragraphs with effective-auto dimensions are page art.
+@@ -2457,10 +2584,7 @@
+ {
+ 	for (; box; box = box->next)
+ 	{
+-		if (box->style->width.unit != N_AUTO || !page_image_auto_height(box) ||
+-			box->style->position != POS_STATIC || !page_image_maximum(box->style->max_width) ||
+-			!page_image_maximum(box->style->max_height))
+-			return 0;
++		if (!page_image_auto_size(box)) return 0;
+ 		if (box->type == BOX_FLOW)
+ 		{
+ 			int count = 0;
+@@ -2577,6 +2701,7 @@
+ 		memset(metadata, 0, sizeof(*metadata));
+ 
+ 	root = fz_xml_root(g.xml);
++	g.generated_title_page = fz_xml_find_dfs(root, "div", "data-sumra-image-page", "yes");
+ 	if (flavor == FZ_HTML_FLAVOR_EPUB_COVER && normalize_epub_cover(ctx, root))
+ 	{
+ 		g.is_epub_cover = 1;
+@@ -2595,9 +2720,12 @@
+ 		{
+ 			g.is_fb2 = 1;
+ 			fz_parse_css(ctx, g.css, fb2_default_css, "<default:fb2>");
++			g.title_default_last = g.css->rule;
++			while (g.title_default_last->next) g.title_default_last = g.title_default_last->next;
+ 			if (publisher_css)
+ 				fb2_load_css(ctx, g.set, g.zip, g.base_uri, g.css, root);
+ 			g.images = load_fb2_images(ctx, root);
++			g.fb2_title_page = fb2_title_page(root);
+ 		}
+ 		else
+ 		{
+@@ -2614,6 +2742,8 @@
+ 			/* Our markdown overrides count as the publisher_css for md files. */
+ 			if (flavor == FZ_HTML_FLAVOR_MARKDOWN && publisher_css)
+ 				fz_parse_css(ctx, g.css, markdown_publisher_css, "<default:markdown>");
++			g.title_default_last = g.css->rule;
++			while (g.title_default_last->next) g.title_default_last = g.title_default_last->next;
+ 			if (publisher_css)
+ 				html_load_css(ctx, g.set, g.zip, g.base_uri, g.css, root);
+ 		}
+@@ -2674,6 +2804,7 @@
+ 
+ 		fz_match_css_at_page(ctx, &root_match, g.css);
+ 		fz_apply_css_style(ctx, g.set, &style, &root_match);
++		if (g.fb2_title_page || g.generated_title_page) title_margin_origins(&g, &style, &root_match, 0);
+ 
+ 		g.pool = tree->pool;
+ 		g.tree = tree;
+@@ -2695,11 +2826,13 @@
+ 		// Create document node (html).
+ 		fz_match_css(ctx, &match, &root_match, g.css, root, FZ_CSS_PSEUDO_NONE, publisher_css);
+ 		fz_apply_css_style(ctx, g.set, &style, &match);
++		if (g.fb2_title_page || g.generated_title_page) title_margin_origins(&g, &style, &match, g.is_fb2);
+ 		display = fz_get_css_match_display(&match);
+ 		gen2_tag(ctx, &g, tree->root, root, &match, display, &style);
+ 
+ 		detect_directionality(tree, ctx, g.pool, tree->root);
+ 		mark_single_image_boxes(tree, tree->root);
++		validate_title_pages(tree->root);
+ 		if (!g.is_epub_cover && (flavor == FZ_HTML_FLAVOR_EPUB_REFLOW || flavor == FZ_HTML_FLAVOR_EPUB_COVER || flavor == FZ_HTML_FLAVOR_EPUB_FIRST))
+ 		{
+ 			int images = 0;
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -606,6 +606,8 @@
+ 	/* Keep the containing canvas for positioning without inserting page breaks. */
+ 	int no_pagination;
+ 	float figure_image_height;
++	fz_html_flow *figure_measure;
++	int image_title_page;
+ 	float content_bottom; /* Laid-out content, excluding enclosing margins. */
+ 	/* The ancestor trbl is the trbl for the last positioned
+ 	 * node we have walked though. Boxes with "absolute" positioning
+@@ -706,6 +708,15 @@
+ 	float page_h = ld->page[B] - ld->page[T];
+ 	float page_top = ld->page[T];
+ 	line_h = measure_line(tree, a, b, &baseline);
++	if (ld->figure_measure)
++		for (fz_html_flow *node = a; node != b; node = fz_html_flow_next(tree, node))
++			if (node == ld->figure_measure)
++			{
++				/* Whitespace around the standalone picture is part of its line,
++				 * rather than an additional caption line when measuring at zero. */
++				line_h = baseline = 0;
++				break;
++			}
+ 	/* Fit an oversized mixed line using each image's actual alignment against
+ 	 * the other line members. Small images retain their authored alignment. */
+ 	if (!ld->no_pagination && page_h > 0 && line_h > page_h)
+@@ -1075,6 +1086,7 @@
+ 	float em = box->s.layout.em;
+ 	indent = box->is_first_flow ? layout_css_number(ld, top->style->text_indent, em, ld->bounds[R] - ld->bounds[L], 0) : 0;
+ 	align = top->style->text_align;
++	if (ld->image_title_page) { align = TA_CENTER; indent = 0; }
+ 	justify_align = TA_LEFT;
+ 
+ 	if (box->markup_dir == FZ_BIDI_RTL)
+@@ -1167,6 +1179,13 @@
+ 
+ 		if (node->type == FLOW_IMAGE)
+ 		{
++			/* Measure title captions directly. Subtracting a large raster height
++			 * afterward loses precision and can move the last caption off-page. */
++			if (node == ld->figure_measure)
++			{
++				node->w = node->h = 0;
++				continue;
++			}
+ 			float xs = 1, ys = 1, s;
+ 			float aspect = 1;
+ 			fz_html_box *image_box = fz_html_flow_box(tree, node);
+@@ -1213,7 +1232,7 @@
+ 			if (!ld->no_pagination)
+ 				max_h = image_page_height(ld, top);
+ 			if (ld->figure_image_height > 0)
+-				max_h = fz_min(max_h, ld->figure_image_height);
++				max_h = ld->image_title_page ? ld->figure_image_height : fz_min(max_h, ld->figure_image_height);
+ 
+ 			/* Authored maxima apply independently of page fitting, including zero
+ 			 * and continuous reading. Percentage max-height needs a definite
+@@ -1240,7 +1259,7 @@
+ 			if (!ld->no_pagination && max_h > 0 && node->h > max_h)
+ 				ys = fz_min(ys, max_h / node->h);
+ 			s = fz_min(xs, ys);
+-			if (tree->image_page_sequence && !ld->no_pagination && max_h > 0)
++			if ((tree->image_page_sequence || ld->image_title_page) && !ld->no_pagination && max_h > 0)
+ 			{
+ 				/* Keep the limiting edge exact, so multiplication rounding
+ 				 * cannot wrap the image away from its preceding anchor. */
+@@ -3178,22 +3197,54 @@
+ 	int eop = 0;
+ 	position_data position;
+ 	float previous_figure_height = ld->figure_image_height;
++	int previous_title_page = ld->image_title_page;
++	int title_page = 0;
++	int title_canvas = 0;
++	float title_bounds[4];
+ 
+ 	assert(fz_html_box_has_boxes(box));
+ 
+-	if (!ld->no_pagination && !restart && style->page_break_inside == PB_AVOID && previous_figure_height == 0)
++	if (!ld->no_pagination && !restart && (style->page_break_inside == PB_AVOID || box->image_title_page) && previous_figure_height == 0)
+ 	{
+ 		fz_html_flow *image = NULL;
+ 		if (figure_image(tree, box->down, &image) && image)
+ 		{
++			if (box->image_title_page)
++			{
++				TRBLCPY(title_bounds, ld->bounds);
++				/* A semantic title uses the page canvas once. The default book
++				 * container's extra insets still apply to ordinary chapters. */
++				for (fz_html_box *ancestor = box->up; ancestor; ancestor = ancestor->up)
++					for (int side = 0; side < 4; ++side)
++						if (ancestor->style->title_default_margin & (1 << side))
++						{
++							float inset = layout_css_number(ld, ancestor->style->margin[side],
++								ancestor->s.layout.em, ancestor->s.layout.w, 0);
++							ld->bounds[side] += (side == T || side == L) ? -inset : inset;
++						}
++				title_canvas = 1;
++			}
+ 			/* Measure the unbroken figure, including the caption's actual
+ 			 * wrapped lines, before assigning the image its page budget. */
+ 			layout_data measure = *ld;
+ 			measure.no_pagination = 1;
++			measure.image_title_page = box->image_title_page;
++			measure.figure_measure = box->image_title_page ? image : NULL;
+ 			layout_block(tree, ctx, &measure, box);
+ 			float non_image = measure.used[B] - ld->bounds[T] - image->h;
+ 			float available = ld->bounds[B] - ld->bounds[T] - non_image;
+-			if (available > 0) ld->figure_image_height = available;
++			if (available > 0)
++			{
++				/* Caption subtraction and subsequent line additions can round in
++				 * opposite directions. Keep the fitted figure inside its page. */
++				ld->figure_image_height = box->image_title_page ? nextafterf(available, 0) : available;
++				if (box->image_title_page) title_page = ld->image_title_page = 1;
++			}
++			else if (title_canvas)
++			{
++				TRBLCPY(ld->bounds, title_bounds);
++				title_canvas = 0;
++			}
+ 		}
+ 	}
+ 
+@@ -3335,8 +3386,21 @@
+ 		ld->used[B] += delta;
+ 	}
+ 
+-	if (layout_block_page_break(ctx, ld, &ld->used[B], style->page_break_after))
++	if (title_page)
+ 	{
++		/* Keep title, picture and author together, centering the complete group
++		 * when the viewport's width leaves unused vertical space. */
++		float shift = (position.bounds[B] - ld->used[B]) / 2;
++		if (shift > 0)
++		{
++			shift_box_contents(tree, box, 0, shift);
++			ld->used[B] += shift;
++			ld->content_bottom = fz_max(ld->content_bottom, box->s.layout.b);
++		}
++	}
++	if (title_canvas) TRBLCPY(ld->bounds, title_bounds);
++	if (layout_block_page_break(ctx, ld, &ld->used[B], title_page ? PB_ALWAYS : style->page_break_after))
++	{
+ 		/* Tricky. We need to restart, but our restart marker should be on
+ 		 * the NEXT one. */
+ 		if (SHOULD_STOP_FOR_RESTART(restart))
+@@ -3344,6 +3408,7 @@
+ 	}
+ 
+ 	ld->figure_image_height = previous_figure_height;
++	ld->image_title_page = previous_title_page;
+ 
+ 	return 0;
+ }
+@@ -3380,6 +3445,16 @@
+ 			margin[R] = layout_css_number(ld, style->margin[R], em, top_w, 0);
+ 			margin[B] = layout_css_number(ld, style->margin[B], em, top_w, 0);
+ 			margin[L] = layout_css_number(ld, style->margin[L], em, top_w, 0);
++			/* Title art already has the reader's page and book insets. Repeated
++			 * default paragraph/image margins must not consume its page budget. */
++			if (style->title_default_margin && ld->page[B] > ld->page[T])
++				for (fz_html_box *ancestor = box; ancestor; ancestor = ancestor->up)
++					if (ancestor->image_title_page)
++					{
++						for (int side = 0; side < 4; ++side)
++							if (style->title_default_margin & (1 << side)) margin[side] = 0;
++						break;
++					}
+ 			if (box->compact_empty_prose)
+ 				margin[T] = margin[B] = 0;
+ 
+@@ -3551,7 +3626,7 @@
+ 	return 0;
+ }
+ 
+-static void layout_collapse_margin_with_children(fz_context *ctx, fz_html_box *here)
++static void layout_collapse_margin_with_children(fz_context *ctx, fz_html_box *here, int paginated)
+ {
+ 	fz_html_box *child, *first, *last = NULL;
+ 
+@@ -3565,7 +3640,7 @@
+ 				first = child;
+ 			last = child;
+ 		}
+-		layout_collapse_margin_with_children(ctx, child);
++		layout_collapse_margin_with_children(ctx, child, paginated);
+ 	}
+ 
+ 	if (here->style->position == POS_FIXED || here->style->position == POS_ABSOLUTE)
+@@ -3573,7 +3648,7 @@
+ 
+ 	if (is_layout_box(here))
+ 	{
+-		if (first && is_layout_box(first))
++		if (first && is_layout_box(first) && (!paginated || !first->image_title_page))
+ 		{
+ 			if (first->u.block.border[T] == 0 && first->u.block.padding[T] == 0)
+ 			{
+@@ -3583,7 +3658,7 @@
+ 			}
+ 		}
+ 
+-		if (last && is_layout_box(last))
++		if (last && is_layout_box(last) && (!paginated || !last->image_title_page))
+ 		{
+ 			if (last->u.block.border[T] == 0 && last->u.block.padding[T] == 0)
+ 			{
+@@ -3595,21 +3670,23 @@
+ 	}
+ }
+ 
+-static void layout_collapse_margin_with_siblings(fz_context *ctx, fz_html_box *here)
++static void layout_collapse_margin_with_siblings(fz_context *ctx, fz_html_box *here, int paginated)
+ {
+ 	fz_html_box *prev = NULL;
+ 
+ 	while (here)
+ 	{
+ 		if (here->down)
+-			layout_collapse_margin_with_siblings(ctx, here->down);
++			layout_collapse_margin_with_siblings(ctx, here->down, paginated);
+ 
+ 		if (!here->compact_empty_prose && here->style->position != POS_ABSOLUTE && here->style->position != POS_FIXED)
+ 		{
+ 			if (prev && is_layout_box(prev) && is_layout_box(here))
+ 			{
+ 				float m = fz_max(prev->u.block.margin[B], here->u.block.margin[T]);
+-				prev->u.block.margin[B] = m;
++				/* A forced title-page break already separates the next chapter.
++				 * Its opening margin must not shrink the preceding picture. */
++				if (!paginated || !prev->image_title_page) prev->u.block.margin[B] = m;
+ 				here->u.block.margin[T] = 0;
+ 			}
+ 			prev = here;
+@@ -3636,7 +3713,7 @@
+ 	}
+ }
+ 
+-static void layout_collapse_margins(fz_context *ctx, fz_html_box *box, fz_html_box *top)
++static void layout_collapse_margins(fz_context *ctx, fz_html_box *box, fz_html_box *top, int paginated)
+ {
+ 	// Vertical margins are collapsed in these cases:
+ 	// 1) Adjacent siblings
+@@ -3644,8 +3721,8 @@
+ 	// 3) Empty blocks
+ 
+ 	layout_collapse_margin_with_self(ctx, box);
+-	layout_collapse_margin_with_children(ctx, box);
+-	layout_collapse_margin_with_siblings(ctx, box);
++	layout_collapse_margin_with_children(ctx, box, paginated);
++	layout_collapse_margin_with_siblings(ctx, box, paginated);
+ }
+ 
+ /* SText's horizontal quads use font ascender/descender, which can extend
+@@ -3843,7 +3920,7 @@
+ 			layout_update_styles(tree, ctx, &ld, box->down, box);
+ 			width_cache = fz_calloc(ctx, WIDTH_CACHE_SIZE, sizeof(*width_cache));
+ 			layout_update_widths(tree, ctx, tree->pool, box->down, box, &ld, ld.hb_buf, no_pagination, width_cache);
+-			layout_collapse_margins(ctx, box->down, box);
++			layout_collapse_margins(ctx, box->down, box, !no_pagination);
+ 		}
+ 
+ 		assert(box->type == BOX_BLOCK);
+@@ -3872,6 +3949,63 @@
+ 	restartable_layout_html(ctx, tree, start_x, start_y, page_w, page_h, em, restart, 0);
+ }
+ 
++static fz_html_box *find_image_title_page(fz_html_box *box)
++{
++	for (; box; box = box->next)
++	{
++		if (box->image_title_page)
++			return box;
++		fz_html_box *title = find_image_title_page(box->down);
++		if (title) return title;
++	}
++	return NULL;
++}
++
++static int title_page_intrinsic_geometry(const fz_css_style *style)
++{
++	return !style->title_authored_margin && !style->padding[T].value && !style->padding[R].value &&
++		!style->padding[B].value && !style->padding[L].value && !style->border_style_0 &&
++		!style->border_style_1 && !style->border_style_2 && !style->border_style_3;
++}
++
++static int title_page_content_bounds(fz_html_tree *tree, fz_html_box *box, fz_rect *bounds)
++{
++	for (; box; box = box->next)
++	{
++		const fz_css_style *style = box->style;
++		/* Authored spacing, borders and child panels retain their complete page. */
++		if (!title_page_intrinsic_geometry(style) || style->background_color.a)
++			return 0;
++		if (box->type == BOX_FLOW)
++			for (fz_html_flow *flow = box->u.flow.head; flow; flow = fz_html_flow_next(tree, flow))
++			{
++				if (fz_html_flow_box(tree, flow)->style->title_authored_margin) return 0;
++				if (fz_html_flow_box(tree, flow)->style->visibility != V_VISIBLE) continue;
++				if (flow->type == FLOW_IMAGE)
++					*bounds = fz_union_rect(*bounds, fz_make_rect(flow->x, flow->y, flow->x + flow->w, flow->y + flow->h));
++				else if (flow->type == FLOW_WORD || (flow->type == FLOW_SHYPHEN && flow->breaks_line))
++					*bounds = fz_union_rect(*bounds, fz_make_rect(flow->x, box->s.layout.text_y0,
++						flow->x + flow->w, box->s.layout.text_y1));
++			}
++		if (box->down && !title_page_content_bounds(tree, box->down, bounds)) return 0;
++	}
++	return 1;
++}
++
++static void update_title_page_bounds(fz_html *html)
++{
++	html->title_page_bounds = fz_empty_rect;
++
++	fz_html_box *title = find_image_title_page(html->tree.root);
++	if (!title || title->s.layout.y < 0 || title->s.layout.b > html->page_h) return;
++	for (fz_html_box *ancestor = title; ancestor; ancestor = ancestor->up)
++		if (!title_page_intrinsic_geometry(ancestor->style)) return;
++	if (title->style->background_color.a) return;
++	fz_rect bounds = fz_empty_rect;
++	if (title_page_content_bounds(&html->tree, title->down, &bounds))
++		html->title_page_bounds = fz_translate_rect(bounds, html->page_margin[L], html->page_margin[T]);
++}
++
+ void
+ fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em)
+ {
+@@ -3928,6 +4062,8 @@
+ 
+ 	restartable_layout_html(ctx, &html->tree, 0, 0, html->page_w, html->page_h, em, NULL, html->fixed_layout);
+ 	update_draw_groups(ctx, &html->tree, html->tree.root, 1);
++	if (h > 0) update_title_page_bounds(html);
++	else html->title_page_bounds = fz_empty_rect;
+ 
+ 	if (h == 0)
+ 		/* An empty chapter has one empty text line as its natural canvas. */
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -232,6 +232,8 @@
+ 	html_page *page = (html_page*)page_;
+ 	html_document *doc = page->doc;
+ 	fz_rect bbox;
++	if (page->number == 0 && !fz_is_empty_rect(page->html->title_page_bounds))
++		return page->html->title_page_bounds;
+ 	bbox.x0 = 0;
+ 	bbox.y0 = 0;
+ 	bbox.x1 = page->html->page_w + page->html->page_margin[L] + page->html->page_margin[R];

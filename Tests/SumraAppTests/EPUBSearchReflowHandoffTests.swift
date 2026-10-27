@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import Combine
 import SumraCore
 import SwiftUI
 import XCTest
@@ -7,6 +8,109 @@ import XCTest
 
 @MainActor
 final class EPUBSearchReflowHandoffTests: XCTestCase {
+    func testTwoChapterWorkersClaimEveryOffsetOnce() async {
+        let queue = ChapterSearchQueue(firstOffset: 1, lastOffset: 1_471)
+        let claim: @Sendable () async -> [Int] = {
+            var offsets = [Int]()
+            while let offset = await queue.next() {
+                offsets.append(offset)
+                await Task.yield()
+            }
+            return offsets
+        }
+        let first = Task.detached { await claim() }
+        let second = Task.detached { await claim() }
+        let firstOffsets = await first.value
+        let secondOffsets = await second.value
+        let offsets = firstOffsets + secondOffsets
+        XCTAssertEqual(offsets.count, 1_471)
+        XCTAssertEqual(offsets.sorted(), Array(1...1_471))
+    }
+
+    func testIndependentChapterCountRetainsSourceAndReaderLocations() async throws {
+        guard FileManager.default.fileExists(atPath: try NativeFile.libraryURL(for: .mupdf).path) else {
+            throw XCTSkip("MuPDF is required for EPUB search")
+        }
+        let directory = try TemporaryDirectory(), query = "REFLOW_HANDOFF_NEEDLE"
+        let input = try fixture(in: directory.url, query: query)
+        let pages = try Pages(input, format: .book, deferReflowLayout: true)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32,
+            font: "system", theme: "light", pageSize: CGSize(width: 620, height: 400))
+        let chapters = await pages.chapterLayout.chapterCount
+        XCTAssertEqual(chapters, 14)
+        let queue = ChapterSearchQueue(firstOffset: 7, lastOffset: chapters)
+        let possibleWorker = await pages.chapterSearchWorker(query, options: .init(),
+            start: PageLocation(chapter: 0, page: 0), queue: queue, excludingChapters: [])
+        let worker = try XCTUnwrap(possibleWorker)
+        let result = try await worker.value
+        let table = try await pages.integrateChapterSearchWorker(result)
+        XCTAssertEqual(result.matches.count, 4)
+        XCTAssertEqual(Set(result.matches.compactMap(\.location?.chapter)), [13])
+        XCTAssertTrue(result.chapterTable.isLaidOut(13))
+        XCTAssertTrue(table.isLaidOut(13))
+        var reference = [RasterMatch]()
+        for page in 0..<table.pageCount(13) {
+            reference += try await pages.matches(query, location: PageLocation(chapter: 13, page: page))
+        }
+        XCTAssertEqual(result.matches.map(\.source), reference.map(\.source))
+        XCTAssertEqual(result.matches.map(\.location), reference.map(\.location))
+        XCTAssertEqual(result.matches.map(\.index), reference.map(\.index))
+        XCTAssertEqual(result.matches.map(\.rects), reference.map(\.rects))
+        _ = try await pages.relayout(fontSize: 23, lineHeight: 1.6, margin: 32,
+            font: "system", theme: "light", pageSize: CGSize(width: 420, height: 300))
+        do {
+            _ = try await pages.integrateChapterSearchWorker(result)
+            XCTFail("Results from the preceding layout cannot repopulate the new chapter table")
+        } catch is CancellationError { }
+        withExtendedLifetime(directory) {}
+    }
+
+    func testWorkerOwnedSpineSeamRetainsBothFragmentPages() async throws {
+        let directory = try TemporaryDirectory()
+        let base = directory.url
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
+        var files = [
+            "mimetype": "application/epub+zip",
+            "META-INF/container.xml": "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>"
+        ]
+        var manifest = "", spine = ""
+        for chapter in 0..<4 {
+            let name = "chapter\(chapter).xhtml"
+            manifest += "<item id='c\(chapter)' href='\(name)' media-type='application/xhtml+xml'/>"
+            spine += "<itemref idref='c\(chapter)'/>"
+            let text = chapter == 2 ? "普通" : chapter == 3 ? "汉字" : "Opening passage"
+            files[name] = "<html xmlns='http://www.w3.org/1999/xhtml'><body><p>\(text)</p></body></html>"
+        }
+        files["content.opf"] = "<package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata/><manifest>\(manifest)</manifest><spine>\(spine)</spine></package>"
+        for (name, contents) in files {
+            try contents.write(to: base.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        let zip = Process(); zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.currentDirectoryURL = base; zip.arguments = ["-q", "-0", "seam.epub"] + files.keys.sorted()
+        try runSumraProcess(zip)
+        XCTAssertEqual(zip.terminationStatus, 0)
+        let pages = try Pages(base.appendingPathComponent("seam.epub"), format: .book, deferReflowLayout: true)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.2, margin: 16,
+            font: "system", theme: "light", pageSize: CGSize(width: 260, height: 180))
+        let queue = ChapterSearchQueue(firstOffset: 2, lastOffset: 4)
+        let possibleWorker = await pages.chapterSearchWorker("普通 汉字", options: .init(),
+            start: PageLocation(chapter: 0, page: 0), queue: queue, excludingChapters: [])
+        let result = try await XCTUnwrap(possibleWorker).value
+        let hit = try XCTUnwrap(result.matches.first)
+        XCTAssertEqual(result.matches.count, 1)
+        XCTAssertEqual(hit.fragments?.compactMap { $0.location?.chapter }, [2, 3])
+        let table = try await pages.integrateChapterSearchWorker(result)
+        XCTAssertTrue(table.isLaidOut(2))
+        XCTAssertTrue(table.isLaidOut(3))
+        for fragment in try XCTUnwrap(hit.fragments) {
+            XCTAssertEqual(fragment.page, table.page(for: try XCTUnwrap(fragment.location)))
+        }
+        let original = try await pages.matches("普通 汉字", location: PageLocation(chapter: 2, page: 0))
+        XCTAssertEqual(result.matches.map(\.source), original.map(\.source))
+        XCTAssertEqual(result.matches.map(\.fragments), original.map(\.fragments))
+        withExtendedLifetime(directory) {}
+    }
+
     func testChapterCountingSkipsEmptyPagesAndRetainsMatchLocations() async throws {
         let directory = try TemporaryDirectory(), query = "LATE_CHAPTER_MATCH"
         let input = try singleChapterFixture(in: directory.url, query: query)
@@ -77,6 +181,180 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
     func testFindWithoutFindPanelSelectsAMatchAfterQueuedReflow() async throws {
         for chapterCount in [1, 14] {
             try await verifyFindAfterQueuedReflow(chapterCount: chapterCount)
+        }
+    }
+
+    func testCompletedNegativeFindIsReusedUntilSearchChanges() async throws {
+        for chapterCount in [1, 14] {
+            _ = NSApplication.shared
+            let directory = try TemporaryDirectory(), token = "NEGATIVE_FIND_LIFECYCLE"
+            let input = try chapterCount == 1 ? singleChapterFixture(in: directory.url, query: token)
+                : fixture(in: directory.url, query: token)
+            let pages = try Pages(input, format: chapterCount == 1 ? .mupdf : .book, deferReflowLayout: true)
+            let state = ReaderState(recordsHistory: false)
+            state.flow = "paged"; state.spread = false; state.cover = false
+            state.fit = "page"; state.zoom = 1; state.automaticLayout = false
+            state.fontSize = 17; state.lineHeight = 1.4; state.margin = 32
+            state.font = "system"; state.theme = "light"; state.pageMargins = nil
+            state.userCSS = ""; state.useDocumentCSS = true; state.scrollbarMode = "hidden"
+            state.trimEmptyMargins = false; state.uniformPageWidth = false; state.freePan = false
+            state.landscapeAsSpread = false; state.rtl = false
+            _ = try await pages.relayout(fontSize: state.fontSize, lineHeight: state.lineHeight,
+                margin: state.margin, font: state.font, theme: state.resolvedTheme,
+                userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 620, height: 400))
+            state.document = ReadingDocument(url: input, content: .pages(pages))
+            state.reflowable = true; state.searchable = true
+            _ = state.applyChapterLayout(await pages.chapterLayout)
+            let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 620, height: 400),
+                styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            defer {
+                state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+                withExtendedLifetime(directory) {}
+            }
+            func wait(_ reason: String, _ condition: () -> Bool) async throws {
+                let deadline = Date().addingTimeInterval(15)
+                repeat {
+                    host.layoutSubtreeIfNeeded()
+                    if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                        host.cacheDisplay(in: host.bounds, to: bitmap)
+                    }
+                    if let error = state.error { throw ReadError(error) }
+                    if condition() { return }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                } while Date() < deadline
+                throw ReadError("\(reason): \(state.searchCountText)")
+            }
+            try await wait("Initial reader") {
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages,
+                    location: state.pageLocation(state.page))
+            }
+            var countingStarts = 0
+            let subscription = state.$searchCounting.sink { if $0 { countingStarts += 1 } }
+            defer { subscription.cancel() }
+            var options = TextSearchOptions(); options.caseSensitive = true
+            let query = token.lowercased()
+            state.send(.find(query, options: options))
+            try await wait("Definitive negative find") { countingStarts > 0 && !state.searchCounting }
+            XCTAssertTrue(state.searchResults.isEmpty)
+            let completedStarts = countingStarts
+            state.send(.find(query, backwards: true, options: options))
+            let repeatedRevision = state.command.revision
+            state.send(.none)
+            try await wait("Repeated negative command handled") { state.command.revision > repeatedRevision && state.command.action == .none }
+            XCTAssertEqual(countingStarts, completedStarts, "An unchanged completed zero must not restart document scanning")
+            options.caseSensitive = false
+            state.send(.find(query, options: options))
+            try await wait("Changed options must invalidate the negative result") {
+                state.searchResults.count == 4 && !state.searchCounting
+            }
+            options.allowedPages = IndexSet()
+            state.send(.find(query, options: options))
+            try await wait("Empty page restriction") { state.searchResults.isEmpty && !state.searchCounting }
+            options.allowedPages = nil
+            state.send(.find(query, options: options))
+            try await wait("Changed allowed pages must invalidate the negative result") {
+                state.searchResults.count == 4 && !state.searchCounting
+            }
+            state.send(.find("ENTIRELY_ABSENT_QUERY"))
+            try await wait("Replacement negative query") { state.searchResults.isEmpty && !state.searchCounting }
+            let beforeReflow = countingStarts, revision = state.renderRevision
+            state.fontSize = 20; state.send(.style)
+            try await wait("Reflow must invalidate the negative result") {
+                state.renderRevision > revision && countingStarts > beforeReflow && !state.searchCounting
+            }
+            // Closing or cancelling search retires the preceding proof. The
+            // next identical request must perform its own complete traversal.
+            state.send(.toc)
+            let clearRevision = state.command.revision
+            state.send(.none)
+            try await wait("Search cleared") { state.command.revision > clearRevision && state.command.action == .none }
+            let beforeClear = countingStarts
+            state.send(.find("ENTIRELY_ABSENT_QUERY"))
+            try await wait("Cleared negative search must run again") { countingStarts > beforeClear && !state.searchCounting }
+            state.send(.find("CANCELLED_ABSENT_QUERY")); state.send(.toc)
+            state.send(.find(query, options: options))
+            try await wait("Cancelled work cannot suppress its replacement") {
+                state.searchResults.count == 4 && !state.searchCounting
+            }
+        }
+    }
+
+    func testMarkdownNegativeFindKeepsSelectionFilterSeparate() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), token = "SELECTED_NEEDLE"
+        let input = directory.url.appendingPathComponent("selection.md")
+        try Array(repeating: token, count: 4).joined(separator: " ").write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .mupdf, deferReflowLayout: true)
+        let state = ReaderState(recordsHistory: false)
+        state.flow = "paged"; state.spread = false; state.cover = false
+        state.fit = "page"; state.zoom = 1; state.automaticLayout = false
+        state.fontSize = 17; state.lineHeight = 1.4; state.margin = 32
+        state.font = "system"; state.theme = "light"; state.pageMargins = nil
+        state.userCSS = ""; state.useDocumentCSS = true; state.scrollbarMode = "hidden"
+        _ = try await pages.relayout(fontSize: state.fontSize, lineHeight: state.lineHeight,
+            margin: state.margin, font: state.font, theme: state.resolvedTheme,
+            userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 620, height: 400))
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.reflowable = true; state.searchable = true
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 620, height: 400),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer {
+            state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+            withExtendedLifetime(directory) {}
+        }
+        func wait(_ reason: String, _ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(15)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                }
+                if let error = state.error { throw ReadError(error) }
+                if condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline
+            throw ReadError("\(reason): \(state.searchCountText)")
+        }
+        try await wait("Initial Markdown reader") {
+            RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages,
+                location: state.pageLocation(state.page))
+        }
+        var starts = 0
+        let subscription = state.$searchCounting.sink { if $0 { starts += 1 } }
+        defer { subscription.cancel() }
+        state.send(.find("UNAUTHORED_MARKDOWN_NEEDLE"))
+        try await wait("Definitive Markdown zero") { starts > 0 && !state.searchCounting }
+        let completedStarts = starts
+        state.send(.find("UNAUTHORED_MARKDOWN_NEEDLE", backwards: true))
+        let revision = state.command.revision
+        state.send(.none)
+        try await wait("Repeated Markdown negative handled") { state.command.revision > revision && state.command.action == .none }
+        XCTAssertEqual(starts, completedStarts)
+        state.send(.toc); state.send(.selectAll)
+        try await wait("Select every authored match") { state.selectedText.components(separatedBy: token).count == 5 }
+        let selectedMissStarts = starts
+        state.send(.find("SELECTED_ABSENT_QUERY", fromSelection: true))
+        try await wait("Selected absent query completes") {
+            starts > selectedMissStarts && !state.searchCounting && state.searchResults.isEmpty
+        }
+        let filteredMissStarts = starts
+        state.send(.find("SELECTED_ABSENT_QUERY"))
+        try await wait("A selection-filtered miss must not suppress the complete unfiltered find") {
+            starts > filteredMissStarts && !state.searchCounting && state.searchResults.isEmpty
+        }
+        let selectionStarts = starts
+        state.send(.find(token, fromSelection: true))
+        try await wait("Selection-based find wraps through authored matches") {
+            starts > selectionStarts && state.searchResults.count == 4 && !state.searchCounting
+        }
+        state.send(.find(token))
+        try await wait("Unfiltered find must still select and count real matches") {
+            state.searchResults.count == 4 && !state.searchCounting && state.selectedSearchTarget != nil
         }
     }
 

@@ -4,6 +4,10 @@ import XCTest
 @testable import Sumra
 
 final class HTMLDrawIndexTests: XCTestCase {
+    func testHTMLShapingClearsRasterTransform() throws {
+        try runNativeFixture("HTMLFontTransform")
+    }
+
     func testHTMLAuthoredWordSpacingOverridesGeometricInference() throws {
         try runNativeFixture("HTMLAuthoredSpacing")
     }
@@ -39,6 +43,7 @@ final class HTMLDrawIndexTests: XCTestCase {
         compiler.executableURL = URL(fileURLWithPath: "/usr/bin/cc")
         compiler.arguments = ["-Os", "-mmacosx-version-min=13.0", "-I" + include.path,
             "-I" + root.appendingPathComponent("build/deps/mupdf/source/html").path,
+            "-I" + root.appendingPathComponent("build/deps/mupdf/thirdparty/freetype/include").path,
             root.appendingPathComponent("Tests/Native/\(name).c").path,
             archive.path, root.appendingPathComponent("build/mupdf/libmupdf-third.a").path,
             "-lm", "-lpthread", "-lz", "-framework", "CoreFoundation", "-framework", "CoreText",

@@ -1565,7 +1565,7 @@ final class MarkupReaderTests: XCTestCase {
         state.navigate(.href("leaf://book/entry/B.md"))
         try await completeCurrentCommand(state, coordinator, view)
         state.restore(.init(page: 0, x: 0, y: 430, anchor: "leaf://book/entry/A.md",
-                            zoom: 1.3, fontSize: 23, theme: "light", userCSS: "p { letter-spacing:3px }"))
+                            zoom: 1.3, fontSize: 23, userCSS: "p { letter-spacing:3px }"))
         state.hoverPreview = false
         try await completeCurrentCommand(state, coordinator, view)
         let restored = try await evaluate("""

@@ -1,8 +1,21 @@
 # Issue 42 follow-up acceptance — 2026-10-26
 
-**Status: the signed 0.2.19 candidate passed the issue's bug-fix acceptance;
+Current local follow-up: [October 27 reader acceptance](READER_ACCEPTANCE_20261027.md),
+including final title/native safe areas, bottom progress and issue 48 PDF reload.
+The subsequent [interaction/performance round](INTERACTION_POLISH_20261027.md)
+records progress feedback refinements and repeated negative-query optimization.
+
+**Status: the signed 0.2.19 candidate passed the previously reported bug-fix acceptance;
 0.2.19 is published and installed. Public download verification passed;
-the previous-version updater attempt failed during TLS.**
+the complete 0.2.18 → 0.2.19 updater workflow passed after the user restored
+the proxy connection. Later feedback added title-page sizing, global themes,
+file-opening behavior, and native tabs remaining visible over the book. Local
+0.2.20 corrections passed a 1,262-test integrated source checkpoint. Subsequent
+toolbar and FB2 title-spacing refinements passed their affected checks. The
+October 27 revision and its remaining acceptance boundaries are recorded below;
+the earlier gates do not validate later source changes. Personal acceptance,
+signed acceptance and publication remain pending. The earlier TLS failure is
+retained below.**
 [PR #46](https://github.com/Ares-X/Sumra/pull/46) was merged as
 `e39f2f03c7716aab85c1cf64505404307c03ce44`. The accepted app was built from
 `44c8c19ea81d1489a3f74f57592e5df13a63eb5d` by the
@@ -23,12 +36,29 @@ observed exited. Evidence is under `build/release-0.2.19/`, headed by
 The optional coverless EPUB thumbnail and dense-search performance goal remain
 unresolved; neither is included in the bug-fix pass.
 
+A later search-optimization experiment exposed an additional limitation in
+0.2.19: prior bitmap rendering can leave a transform on a shared font face and
+change later HTML pagination. The 6,591 logical occurrences and source anchors
+remain the same, but their page assignments and rectangles can differ between
+rendering histories. The recorded position checks below did not cover that
+comparison. A follow-up native correction now produces identical full-book
+search geometry with no prior rendering, with the first or middle page rendered,
+and with differently primed search workers. That correction is not part of the
+published 0.2.19 bytes; application integration and acceptance remain separate.
+
 ## Latest feedback cross-check
 
-The issue body and all three comments were fetched again on October 26. The
-reporter's last edit remains `2026-10-26T06:34:35Z`; there is no newer feedback
-in that snapshot. Exact responses are retained in
-`build/release-0.2.19/issue-latest.json` and `issue-comments-latest.json`.
+The issue still had nine comments at the 21:35 local-time cross-check. The [earlier reporter reply](https://github.com/Ares-X/Sumra/issues/42#issuecomment-6415229740)
+was created at `2026-10-26T11:46:52Z` and edited at `11:47:33Z`. It confirms
+that the clipping, empty page, stuck previews, resize outline, toolbar overlay,
+native fullscreen controls and thumbnail proportions are fixed, and adds the
+three follow-up items below. A [further reply at 12:34 UTC](https://github.com/Ares-X/Sumra/issues/42#issuecomment-6416106998)
+shows native tabs remaining visible above a hidden toolbar and asks for unified
+visibility with opaque reveal. The maintainer also reproduced image movement
+during a trackpad pinch on Alice MOBI. Both are in the current scope.
+The earlier three-comment snapshot remains in
+`build/release-0.2.19/issue-latest.json` and `issue-comments-latest.json` as
+historical evidence.
 
 | Reported behavior | Local evidence and remaining acceptance |
 | --- | --- |
@@ -43,13 +73,140 @@ in that snapshot. Exact responses are retained in
 | CBZ thumbnail placement; new thumbnails too wide | Natural-page canvas proportions replace the fixed landscape canvas; original landscape comic art retains its shape. Signed Finder recheck passed. |
 | CBR/MOBI/FB2/AZW3 extension recognition and Quick Look | Reporter confirms format compatibility improved; all six original extensions passed actual Space preview, including CBR page 2. Signed extension loading confirmed for both providers; all six Space previews and CBR page 2 pass. |
 | Generate a thumbnail for the coverless EPUB too | Unresolved optional enhancement. Normal installation, default-app selection, and explicit extension election still route it to Books. Space preview works. |
+| First FB2/MOBI image remains small and off-center as the canvas grows | Local 0.2.20 title-page correction; original-book normal/fullscreen screenshots visually checked, including narrow/short layouts and MOBI spreads. Personal review then rejected excess FB2 whitespace. The further spacing correction and final loaded-app screenshots are recorded below; personal and signed acceptance remain pending. |
+| Theme changes should apply to every window and not be restored per book | Global owner replaces per-book theme restore; focused tests pass. Actual open MOBI and FB2 tabs both adopted a dark theme change. Signed acceptance pending. |
+| File → Open should reuse an empty welcome window or open a new window | Shared ordinary-open routing corrected; 40 lifecycle tests pass. GUI opening reused the welcome window, then retained FB2 and created a second native-tab reader for MOBI. Signed acceptance pending. |
+| Native tabs remain visible and transparent when toolbar is hidden | Local correction links native accessory visibility to toolbar mode and paints an opaque theme background. 21 toolbar tests pass, including native overflow, shared-companion ownership and borderless-window cases. Both bars responded to real hover on the physical M27Q display. User acceptance is required before replying to the reporter. |
+| Trackpad pinch moves images around the page | Final shared raster-reader anchor correction is included in the frozen gate. Six focused tests pass across 13 hosted paths, including original Alice FB2/MOBI and representative PDF/comic/reflow layouts, with 0.0-point drift in constrained painted samples. Physical trackpad acceptance remains pending. |
 
-The toolbar intentionally overlays the book on reveal, with an opaque themed
-background, so its appearance does not repaginate or move the reading position.
-This differs from the reporter's suggested push-down animation and should be
-explained in the reply. Dense full-count search remains a separate unmet
-performance goal: the final local GUI run took 16.921 seconds for 6,591 matches.
+The reporter accepted the earlier overlay behavior, but the maintainer's later
+personal review rejected controls covering the title. The current policy keeps
+stable native toolbar/tab space in every mode, plus system-menu space in
+fullscreen. Reveal changes visibility without repaginating or moving the book.
+Dense full-count search remains a separate unmet
+performance goal: 0.2.19 took 16.921 seconds for 6,591 matches; local 0.2.20
+search work completed in 9.44 seconds normally and 13.33 seconds including a resize restart.
+See the [search follow-up report](SEARCH_FOLLOWUP_ACCEPTANCE_20261026.md).
 Neither that goal nor the optional coverless EPUB thumbnail is marked solved.
+
+## Local 0.2.20 integrated checkpoint
+
+The integrated frozen gate at
+`build/perf-followup-20261026/source-gate-complete/source-gate.json` passed
+1,262 tests with zero failures/skips. All 419 inputs and native engine SHA256
+`203171083c375425d457bd476534c27fc995f3daff5c34f79a89b8463dee2e4a`
+stayed unchanged. The 25-book and 4,942-comic-page corpus, localization audit
+and packaging checks passed. Swift tests took 640.284 seconds; the complete
+gate took 648.851 seconds. The manual interaction harness was excluded.
+This includes the final pinch anchor, native-tab shared ownership and borderless
+accessory correction, and supersedes the earlier 1,242-test search checkpoint
+for current source coverage.
+
+Earlier integrated attempts found stale localization coverage, then two obsolete
+exact-HTML assertions and a borderless AppKit titlebar-accessory `NSException`.
+Those failures were corrected before the final frozen pass; they are retained
+as validation history. Focused toolbar and Core legacy-book checks passed
+20 and 25 tests respectively in
+`build/perf-followup-20261026/native-tabs-and-legacy-books-final-20261026.log`.
+The exact old shared-companion implementation fails four assertions with the
+corrected fixture in `native-tabs-shared-companion-before-fix-final-fixture-20261026.log`
+in that directory. Focused pinch evidence is `pinch-final-tests.log`: 6/6 tests,
+13 hosted paths, 0.0-point drift in constrained painted samples. Hosted input
+does not establish a physical trackpad workflow.
+
+The local bundle is 0.2.20 (22), about 33 MB, and ad-hoc signed.
+Original Alice FB2/MOBI images were visually checked in normal, fullscreen,
+narrow, short and double-page layouts. Main-display obstruction was resolved
+with the user's help; subsequent interaction used the physical M27Q display.
+The final pre-overflow build's real fullscreen recording contains 358 decoded
+frames, visible toolbar/tab transitions, unchanged window bounds and a single
+body-registration shift of (0, 0). This is spatial continuity evidence, not an
+app-FPS measurement. The windowed recording had no visible chrome transition
+and is not counted as hover acceptance.
+
+A subsequent 560×720 visual check found AppKit's native overflow chevron still
+visible while the toolbar was hidden. The correction fades/hides the complete
+native toolbar view, found through its public accessibility role, while retaining
+the installed toolbar and viewport. Lookup skips the document-content subtree.
+The new regression failed nine assertions before the fix (including the hidden
+overflow intercepting hits). All 21 toolbar tests then passed; after bounding the
+lookup, the three affected overflow/book-viewport/shared-companion tests passed
+again. Logs are `overflow-before.log`, `overflow-after.log` and
+`overflow-bounded-lookup.log` under `build/perf-followup-20261026/`.
+The 1,262-test gate precedes this final toolbar-only refinement; it must not be
+represented as a rerun against that refinement.
+
+The original MOBI rabbit image explicitly specifies `align="baseline"`,
+`width="320"` and `height="480"` in a paragraph containing prose. Narrow-window
+screenshots therefore retain words next to the bottom of the illustration.
+This authored inline layout is recorded for the user's visual review and is
+not described as image drift or silently rewritten as a standalone figure.
+
+The earlier local user-acceptance build SHA256 was
+`fc0ca29bada6a8c4b450786dfc3d8a5db77ff3a6ca6206ddf1f9d0d0b082fe38`.
+Strict local signature verification passed. Its final fullscreen capture has
+367 frames, visible tab/toolbar transitions, unchanged window bounds and
+(0, 0) body-registration shifts. Final narrow-window captures confirm the
+native overflow control disappears and returns with the toolbar. Actual normal,
+narrow and short FB2 and normal/narrow MOBI images are retained in
+`visual-0.2.20/accept-*.png`; `user-acceptance-handoff.json` binds them to this
+loaded build. The screenshot report is `visual-0.2.20/USER_ACCEPTANCE.md`.
+The book is left open for personal acceptance. These are local, not distributed
+signed-candidate, results.
+
+The user requested personal acceptance and screenshots before any reply to the
+issue reporter. No 0.2.20 publication or reporter reply has occurred. Signed
+candidate acceptance and physical trackpad input remain distinct from the
+local build, visual captures and hosted gesture-handler tests.
+
+## FB2 whitespace revision after personal review
+
+The user rejected the remaining FB2 title-page whitespace. The title measurement
+had retained normal paragraph indentation/alignment and redundant default root,
+paragraph and picture margins. It could also reserve a following chapter's
+collapsed margin. The corrected measurement uses final title alignment, measures
+caption space without the original image height, and reclaims only default-origin
+title spacing. Explicit publisher/user margins remain authoritative, including
+overrides with values equal to the default. The paginated title boundary keeps
+authored paragraph margins separate; ordinary body layout and continuous flow
+are unchanged. One inward float rounding step keeps an exact-fit author line
+on the same page.
+
+Native 17-point rendering of the original Alice FB2 at 560×720 increases image
+height from 488.8 to 577.2 points (39.4% more area); at 1000×800 it increases from
+589.2 to 657.2 points (24.4% more area). These are renderer measurements, not
+window-screenshot pixel measurements. The title, author and complete artwork
+remain together with the source aspect ratio. Width-limited title groups remain
+centered. All 59 ordinary body pages across six viewports have identical text,
+image bounds, Alice search results and search rectangles before and after.
+The four original illustrations each occur once.
+
+The final focused title suite passed 6/6 tests, including exact available-space
+fitting, overflowing captions, explicit margins and default-equivalent overrides.
+After the release-configuration app rebuild, the combined title, ebook image,
+authored EPUB, viewport reflow, pinch and toolbar suites passed **57 tests with
+zero failures in 40.91 seconds**. All 74 native patches replay cleanly across
+44 touched source files and match the applied source. The earlier 1,262-test
+gate was not rerun against this subsequent revision.
+
+The rebuilt local 0.2.20 app was quit/relaunched and loaded the new engine from
+`dist/Sumra.app` (PID 71443); strict deep signature verification passed. Executable
+SHA256 is `83c9dc73901c8404486f85256c1327c62c5a8f0a0a17bf7647622334e0c5d4ba`,
+bundled engine SHA256 is
+`0c26235b9421a8d7c1529c6294b794d143342eaca824519fe02aa4e6cb0490b8`, and the
+pre-bundle engine SHA256 is
+`25d3fc0ca9b75458b11b7e7452888f3bce112886ff7e8e389d816a0c7d538e4d`.
+Actual original-book screenshots were visually inspected at normal 1000×800,
+narrow 560×720, short 1200×466 and fullscreen 2560×1440 sizes on the physical
+M27Q display. Title, complete art and author fit in each. A physical-screen
+hover comparison shows a changed toolbar region and identical pixels below
+the top 64 pixels; this is an endpoint stability check, not animation-FPS proof.
+
+Evidence is under `build/fb2-whitespace-20261026/`: `receipt.json`,
+`affected-suite.log`, `patch-replay.log`, `gui-fb2-*.png`,
+`screen-hover-comparison.json` and `USER_ACCEPTANCE.md`. These FB2 screenshots
+supersede the earlier FB2 handoff images. The corrected FB2 is left open for
+personal acceptance. No 0.2.20 release or reporter reply has been made.
 
 ## Candidate and source gate
 
@@ -60,7 +217,8 @@ The earlier `perf/reader-interaction-20261026` candidate at source revision
 `fc490aeef537c70cfdcad2c39d2eaebe2a0c51833fa78d500cc4c216d3373e65`. Packaging
 changes the dylib signature/install name; UUID and packaging receipts bind the
 source engine to the app. This is an ad-hoc local build, not a notarized
-release. `/Applications/Sumra.app` remains the official 0.2.18.
+release. At that earlier checkpoint `/Applications/Sumra.app` was the official
+0.2.18; the current installed version is recorded above.
 
 The earlier composed CB6 source gate at
 `build/perf-interaction-20261026/source-gate-final/source-gate.json` passed:
@@ -385,9 +543,9 @@ listener was wrong: unprivileged `lsof` had no result, but TCP connected,
 HTTP CONNECT returned 200, and netstat attributed the listener to Clash's
 `verge-mihomo` PID 2289. Both HTTP and SOCKS proxy feed requests reproduced a
 TLS close; direct IPv4 returned HTTP 200 with bytes identical to the accepted
-appcast. The specific Clash rule or upstream cause is not established. No
-proxy setting was changed. This is a failed automatic-update attempt, not a
-passed update test.
+appcast. A subsequent Clash log identified the Github group's upstream
+connection timeout for the update host. No proxy setting was changed by the
+test. This initial automatic-update attempt failed.
 
 The exact published application was installed manually at `/Applications/Sumra.app`.
 All 140 files, five symlinks, modes, certificate and extension signatures match
@@ -396,6 +554,22 @@ and opened the original Alice FB2 on the physical display. The previous app is
 preserved locally. `manual-install.json`, `staged-official-identity.json`,
 `official-update-acceptance.json`, and `network-route-check.json` retain the
 installation and failed-updater evidence separately.
+
+After the user reported that Clash had recovered, the installed 0.2.19
+successfully checked the feed and reported that it was current. The preserved
+official 0.2.18 was then temporarily installed at `/Applications/Sumra.app` for
+the complete upgrade test. Its Help → Check for Updates action offered 0.2.19;
+Install Update downloaded the archive, and Install and Relaunch installed and
+launched 0.2.19 (21) from the same path. All 140 files, five symlinks, 91
+directories and recorded modes match the published provenance; deep, strict
+signature verification passed. Both Quick Look extensions registered the new
+version at the official app path, and the relaunched app opened the original
+Alice FB2. No proxy configuration was changed. Evidence:
+`build/perf-followup-20261026/official-update-recovered.json`,
+`restored-proxy-feed.json`, `updater-offer-ax.txt`, and
+`updater-download-progress-ax.txt`. This successful retry supplements the
+retained failed attempt; it is an observed Sparkle installation, not a manual
+copy counted as an update.
 
 Anonymous public verification completed for all six assets, including the full
 application and corresponding-source archive. IDs, sizes and SHA256 hashes

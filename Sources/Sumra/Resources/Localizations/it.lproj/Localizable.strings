@@ -725,3 +725,10 @@
 "Auto Hide" = "Nascondi automaticamente";
 "Always Hide" = "Nascondi sempre";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "In modalità Nascondi automaticamente, sposta il puntatore nella parte superiore della finestra per mostrare la barra strumenti.";
+
+/* Reading progress footer */
+"Reading Progress" = "Avanzamento della lettura";
+"Line:" = "Riga:";
+"File:" = "File:";
+"Approximate progress by chapter" = "Avanzamento approssimativo per capitolo";
+"Progress in current file" = "Avanzamento nel file attuale";

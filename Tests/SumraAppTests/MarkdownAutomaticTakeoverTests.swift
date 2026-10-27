@@ -14,7 +14,6 @@ final class MarkdownAutomaticTakeoverTests: XCTestCase {
         XCTAssertEqual(destination.fontSize, 19)
         XCTAssertEqual(destination.lineHeight, 2)
         XCTAssertEqual(destination.margin, 48)
-        XCTAssertEqual(destination.theme, "dark")
         XCTAssertEqual(destination.userCSS, "p { text-align: left; }")
         XCTAssertEqual(destination.useDocumentCSS, false)
         XCTAssertEqual(destination.automaticLayout, false)
@@ -25,6 +24,7 @@ final class MarkdownAutomaticTakeoverTests: XCTestCase {
         XCTAssertNil(destination.anchor)
         XCTAssertNil(destination.markdownPassage)
         let state = ReaderState(recordsHistory: false)
+        state.theme = "dark"
         state.zoom = 1; state.fit = "page"; state.flow = "paged"
         state.apply(destination)
         XCTAssertEqual(state.zoom, 6)
@@ -38,7 +38,7 @@ final class MarkdownAutomaticTakeoverTests: XCTestCase {
         let native = NativePassage(source: .init(node: 7, offset: 3, part: 0), offsetX: 2, offsetY: 4,
                                    sourceRevision: "owned-source", styleSignature: "owned-style")
         let saved = ReadingPosition(page: 42, pageCount: 100, x: 12, y: 34, anchor: "native-location", nativePassage: native,
-                                    markdownRenderer: .paged, zoom: 1.25, fit: "page", fontSize: 15, theme: "light")
+                                    markdownRenderer: .paged, zoom: 1.25, fit: "page", fontSize: 15)
         let destination = ReaderState.markdownRendererDestination(.paged, saved: saved, readingSettings: currentSettings())
         XCTAssertEqual(destination.page, 42)
         XCTAssertEqual(destination.pageCount, 100)
@@ -48,11 +48,10 @@ final class MarkdownAutomaticTakeoverTests: XCTestCase {
         XCTAssertEqual(destination.nativePassage, native)
         XCTAssertEqual(destination.zoom, 6)
         XCTAssertEqual(destination.fontSize, 19)
-        XCTAssertEqual(destination.theme, "dark")
     }
 
     func testExplicitSwitchRetainsSavedModesIndependentSettings() {
-        let saved = ReadingPosition(page: 42, x: 12, y: 34, markdownRenderer: .paged, zoom: 1.25, fit: "page", fontSize: 15, theme: "light")
+        let saved = ReadingPosition(page: 42, x: 12, y: 34, markdownRenderer: .paged, zoom: 1.25, fit: "page", fontSize: 15)
         let destination = ReaderState.markdownRendererDestination(.paged, saved: saved)
         XCTAssertEqual(destination, saved)
     }
@@ -61,7 +60,7 @@ final class MarkdownAutomaticTakeoverTests: XCTestCase {
         ReadingPosition(page: 0, x: 0, y: 230, anchor: "browser-url",
             markdownPassage: .init(path: [0], offset: 3, top: 12, text: "Generated heading", end: false),
             markdownRenderer: .compatible, zoom: 6, fit: "width", flow: "continuous", font: "serif", fontSize: 19,
-            lineHeight: 2, margin: 48, theme: "dark", userCSS: "p { text-align: left; }", useDocumentCSS: false,
+            lineHeight: 2, margin: 48, userCSS: "p { text-align: left; }", useDocumentCSS: false,
             automaticLayout: false, scrollbarMode: "shown")
     }
 }

@@ -720,3 +720,10 @@
 "Auto Hide" = "Sembunyikan Secara Automatik";
 "Always Hide" = "Sentiasa Sembunyikan";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "Dalam mod sembunyi automatik, gerakkan penuding ke bahagian atas tetingkap untuk menunjukkan bar alat.";
+
+/* Reading progress footer */
+"Reading Progress" = "Kemajuan bacaan";
+"Line:" = "Baris:";
+"File:" = "Fail:";
+"Approximate progress by chapter" = "Anggaran kemajuan mengikut bab";
+"Progress in current file" = "Kemajuan dalam fail semasa";

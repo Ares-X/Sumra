@@ -879,7 +879,11 @@ struct CommandPalette: View {
                 Item(id: "tab:\(reader.window?.windowNumber ?? index)", title: reader.document?.url.lastPathComponent ?? L("Home"), detail: reader.positionLabel) { reader.window?.makeKeyAndOrderFront(nil) }
             }
         case "#":
-            items = ReaderFiles.recent.map { url in Item(id: "file:" + url.path, title: url.lastPathComponent, detail: url.deletingLastPathComponent().path) { state.open(url) } }
+            items = ReaderFiles.recent.map { url in
+                Item(id: "file:" + url.path, title: url.lastPathComponent, detail: url.deletingLastPathComponent().path) {
+                    ReaderWindows.open([url], in: state) { state.createWindow?($0) }
+                }
+            }
         case "$":
             items = state.bookmarks.map { bookmark in Item(id: "bookmark:" + bookmark.id.uuidString, title: bookmark.title, detail: URL(fileURLWithPath: bookmark.path).lastPathComponent) { state.openBookmark(bookmark) } }
         case "%":

@@ -97,7 +97,7 @@ final class ReaderLifecycleTests: XCTestCase {
     }
 
     @MainActor
-    func testFilePickerReusesLiveWindowAndCancellationKeepsItsDocument() async throws {
+    func testOrdinaryOpenReusesHomeAndPreservesAnOpenBook() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard, previous = defaults.object(forKey: "disableHistory")
         let history = defaults.object(forKey: "documentOpenHistory")
@@ -129,15 +129,42 @@ final class ReaderLifecycleTests: XCTestCase {
         ReaderWindows.open([], in: state) { created.append($0) }
         XCTAssertEqual(state.document?.id, id)
         XCTAssertEqual(created.count, 1)
+
+        ReaderWindows.open(urls, in: state) { created.append($0) }
+        XCTAssertEqual(state.document?.id, id, "Opening more files must preserve the book already being read")
+        XCTAssertFalse(state.busy)
+        XCTAssertEqual(created.map(\.path), [urls[1].path, urls[0].path, urls[1].path])
         defaults.set(false, forKey: "disableHistory")
         ReaderWindows.open([urls[1]], in: state, recordsHistory: false) { created.append($0) }
-        let privateDeadline = Date().addingTimeInterval(3)
-        while state.document?.url != urls[1], state.error == nil, Date() < privateDeadline {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
-        XCTAssertEqual(state.document?.url, urls[1])
+        XCTAssertEqual(state.document?.id, id)
         XCTAssertFalse(state.recordsDocumentHistory)
-        XCTAssertEqual(created.count, 1)
+        XCTAssertEqual(created.count, 4)
+        XCTAssertEqual(created.last?.path, urls[1].path)
+        XCTAssertEqual(created.last?.recordsHistory, false)
+    }
+
+    @MainActor
+    func testOrdinaryOpenPreservesLoadingAndRestoringReaders() {
+        _ = NSApplication.shared
+        let pendingURL = URL(fileURLWithPath: "/pending.txt")
+        let urls = ["/first.txt", "/second.txt"].map { URL(fileURLWithPath: $0) }
+        for restoring in [false, true] {
+            let state = ReaderState(restoring: restoring ? WindowPayload(path: pendingURL.path) : nil)
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: 400),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            state.window = window
+            state.busy = !restoring
+            defer { state.windowClosed(); window.close() }
+            var created = [WindowPayload]()
+            let generation = state.generation
+            ReaderWindows.open(urls, in: state) { created.append($0) }
+            XCTAssertEqual(created.map(\.path), urls.map(\.path))
+            XCTAssertNil(state.document)
+            XCTAssertEqual(state.generation, generation, "An ordinary open must not cancel a pending document load")
+            XCTAssertEqual(state.busy, !restoring)
+            XCTAssertEqual(state.restoredPayload?.path, restoring ? pendingURL.path : nil)
+        }
     }
 
     @MainActor

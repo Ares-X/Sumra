@@ -725,3 +725,10 @@
 "Auto Hide" = "Tự động ẩn";
 "Always Hide" = "Luôn ẩn";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "Ở chế độ tự động ẩn, di chuyển con trỏ lên đầu cửa sổ để hiện thanh công cụ.";
+
+/* Reading progress footer */
+"Reading Progress" = "Tiến độ đọc";
+"Line:" = "Dòng:";
+"File:" = "Tệp:";
+"Approximate progress by chapter" = "Tiến độ ước tính theo chương";
+"Progress in current file" = "Tiến độ trong tệp hiện tại";

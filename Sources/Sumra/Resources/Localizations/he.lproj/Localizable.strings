@@ -727,3 +727,10 @@
 "Auto Hide" = "הסתר אוטומטית";
 "Always Hide" = "הסתר תמיד";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "במצב הסתרה אוטומטית, העבירו את המצביע לראש החלון כדי להציג את סרגל הכלים.";
+
+/* Reading progress footer */
+"Reading Progress" = "התקדמות הקריאה";
+"Line:" = "שורה:";
+"File:" = "קובץ:";
+"Approximate progress by chapter" = "התקדמות משוערת לפי פרק";
+"Progress in current file" = "התקדמות בקובץ הנוכחי";

@@ -43,7 +43,7 @@ struct ReaderToolbarDisplayPicker: View {
 }
 
 // SwiftUI owns toolbar items and visibility. AppKit preserves window geometry,
-// extends reading through the unused titlebar, and tracks native chrome.
+// reserves fullscreen menu space, and tracks native chrome.
 struct ReaderToolbarAppearance: ViewModifier {
     var overlaysContent: Bool
     var shown: Bool
@@ -65,10 +65,12 @@ struct ReaderToolbarAppearance: ViewModifier {
 @MainActor struct ReaderToolbarWindow: NSViewRepresentable {
     @ObservedObject var state: ReaderState
     var reducedMotion = ReaderMotion.reducedMotion
+    @Binding var fullscreenMenuInset: CGFloat
 
     func makeNSView(context: Context) -> Host { Host() }
     func updateNSView(_ view: Host, context: Context) {
         view.state = state; view.reducedMotion = reducedMotion
+        view.fullscreenMenuInset = $fullscreenMenuInset
         view.updateChrome()
     }
     static func dismantleNSView(_ view: Host, coordinator: ()) { view.detach() }
@@ -76,8 +78,11 @@ struct ReaderToolbarAppearance: ViewModifier {
     @MainActor final class Host: NSView {
         private static let hoverEntryDepth: CGFloat = 48
         private static let hoverRetentionDepth: CGFloat = 96
+        private static let chromeOwners = NSMapTable<NSView, Host>.weakToWeakObjects()
         weak var state: ReaderState?
         var reducedMotion = ReaderMotion.reducedMotion
+        var fullscreenMenuInset: Binding<CGFloat>?
+        private var reservedMenuHeight: CGFloat = 0
         private weak var parent: NSWindow?
         private var monitor: Any?
         private var tracking: NSTrackingArea?
@@ -90,6 +95,9 @@ struct ReaderToolbarAppearance: ViewModifier {
         private weak var toolbarContent: NSView?
         private var originalToolbarChrome: (contentAlpha: CGFloat, ignoresMouse: Bool)?
         private var toolbarOpacity: CGFloat?
+        private var titlebarViews: [(view: NSView, alpha: CGFloat, hidden: Bool, layered: Bool, background: CGColor?)] = []
+        private var accessoryOpacity: CGFloat?
+        private weak var accessoryContentOwner: NSView?
         private var original: (fullSize: Bool, transparent: Bool, title: NSWindow.TitleVisibility,
                                separator: NSTitlebarSeparatorStyle, background: NSColor, mouseMoved: Bool)?
 
@@ -136,7 +144,25 @@ struct ReaderToolbarAppearance: ViewModifier {
         }
 
         func updateChrome() {
+            updateChrome(revealingNativeControls: parent?.styleMask.contains(.fullScreen) == true && NSMenu.menuBarVisible())
+        }
+
+        func updateChrome(revealingNativeControls systemChrome: Bool) {
             guard let parent, let original, let state else { return }
+            // Fullscreen's toolbar companion moves below the revealed menu.
+            // Reserve that native menu height throughout fullscreen so revealing
+            // either surface cannot cover or move the reading content.
+            let menuHeight = parent.styleMask.contains(.fullScreen) ? NSApp.mainMenu?.menuBarHeight ?? 0 : 0
+            if reservedMenuHeight != menuHeight {
+                reservedMenuHeight = menuHeight
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.fullscreenMenuInset?.wrappedValue = self.reservedMenuHeight
+                }
+            }
+            // Fullscreen native tabs share their companion chrome. Only the
+            // selected document may write that surface's current appearance.
+            if let selected = parent.tabGroup?.selectedWindow, selected !== parent { return }
             if !state.toolbarHoverVisible {
                 hoverDismiss?.cancel(); hoverDismiss = nil
             }
@@ -160,7 +186,8 @@ struct ReaderToolbarAppearance: ViewModifier {
             // Temporary hover controls overlay the book. Its viewport must not
             // reflow every time the pointer enters or leaves the toolbar.
             let hidden = state.toolbarOverlaysContent
-            let systemChrome = parent.styleMask.contains(.fullScreen) && NSMenu.menuBarVisible()
+            let readerHidden = state.hasDocument && !state.toolbarShown
+            let readerOpacity: CGFloat = readerHidden ? 0 : hidden ? state.toolbarHoverOpacity : 1
             let frame = parent.frame
             // SwiftUI owns toolbar visibility. Preserve the frame around its
             // native setter and the titlebar changes owned here.
@@ -178,29 +205,96 @@ struct ReaderToolbarAppearance: ViewModifier {
             if parent.titlebarSeparatorStyle != separator { parent.titlebarSeparatorStyle = separator }
             if parent.backgroundColor != background { parent.backgroundColor = background }
             for (type, originallyHidden) in originalButtonHidden {
-                let hideButton = originallyHidden || (hidden && !state.toolbarShown && !systemChrome)
+                let hideButton = originallyHidden || (readerHidden && !systemChrome)
                 if let button = parent.standardWindowButton(type), button.isHidden != hideButton { button.isHidden = hideButton }
             }
-            updateToolbarWindow(systemChrome: systemChrome)
+            // Native menu reveal restores traffic lights and their companion,
+            // while the reader tools and tabs retain their own visibility.
+            updateToolbarWindow(opacity: systemChrome ? 1 : readerOpacity)
+            updateTitlebarViews(opacity: readerOpacity, hidden: readerHidden,
+                                opacityOwner: systemChrome ? nil : toolbarContent)
             if parent.frame != frame { parent.setFrame(frame, display: false) }
         }
 
-        private func updateToolbarWindow(systemChrome: Bool) {
+        private func updateTitlebarViews(opacity: CGFloat, hidden readerHidden: Bool, opacityOwner: NSView?) {
+            guard let parent, let state else { return }
+            let accessories = parent.styleMask.contains(.titled) ? parent.titlebarAccessoryViewControllers.map(\.view) : []
+            var views = accessories
+            let readerContent = parent.contentView
+            func nativeToolbar(in view: NSView) -> NSView? {
+                // Native window chrome lives outside the document's subtree.
+                if view === readerContent { return nil }
+                if view.accessibilityRole() == .toolbar { return view }
+                return view.subviews.lazy.compactMap { nativeToolbar(in: $0) }.first
+            }
+            // Fade the native toolbar owner, including AppKit's overflow
+            // control. Keep its installed layout and the native tab height.
+            if let root = toolbarContent ?? readerContent?.superview,
+               let toolbar = nativeToolbar(in: root) { views.append(toolbar) }
+            let removed = titlebarViews.filter { entry in !views.contains { $0 === entry.view } }
+            for entry in removed where Self.chromeOwners.object(forKey: entry.view) === self {
+                entry.view.alphaValue = entry.alpha
+                entry.view.isHidden = entry.hidden
+                entry.view.layer?.backgroundColor = entry.background
+                entry.view.wantsLayer = entry.layered
+                Self.chromeOwners.removeObject(forKey: entry.view)
+            }
+            titlebarViews.removeAll { entry in !views.contains { $0 === entry.view } }
+            var added = false
+            for view in views where Self.chromeOwners.object(forKey: view) !== self {
+                let previous = Self.chromeOwners.object(forKey: view)?.titlebarViews.first { $0.view === view }
+                    ?? titlebarViews.first { $0.view === view }
+                    ?? (view, view.alphaValue, view.isHidden, view.wantsLayer, view.layer?.backgroundColor)
+                titlebarViews.removeAll { $0.view === view }
+                titlebarViews.append(previous)
+                Self.chromeOwners.setObject(self, forKey: view)
+                added = true
+            }
+            let background = ReaderTheme.color(state.palette.background).cgColor
+            for entry in titlebarViews {
+                // Native tab material must not expose text through the revealed
+                // controls. Paint only the accessory's own public bounds.
+                if accessories.contains(where: { $0 === entry.view }) {
+                    if !entry.view.wantsLayer { entry.view.wantsLayer = true }
+                    if entry.view.layer?.backgroundColor != background { entry.view.layer?.backgroundColor = background }
+                }
+                let fadesHere = opacityOwner.map { !entry.view.isDescendant(of: $0) } ?? true
+                let hidden = entry.hidden || (fadesHere && readerHidden)
+                if entry.view.isHidden != hidden { entry.view.isHidden = hidden }
+            }
+            if accessoryOpacity != opacity || accessoryContentOwner !== opacityOwner || added {
+                let animate = accessoryOpacity != nil && !reducedMotion && !added
+                accessoryOpacity = opacity
+                accessoryContentOwner = opacityOwner
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = animate ? (opacity > 0 ? ReaderMotion.revealDuration : ReaderMotion.dismissDuration) : 0
+                    context.timingFunction = opacity > 0 ? ReaderMotion.timingFunction : CAMediaTimingFunction(name: .easeOut)
+                    for entry in titlebarViews {
+                        let fadesHere = opacityOwner.map { !entry.view.isDescendant(of: $0) } ?? true
+                        entry.view.animator().alphaValue = entry.alpha * (fadesHere ? opacity : 1)
+                    }
+                }
+            }
+        }
+
+        private func updateToolbarWindow(opacity: CGFloat) {
             guard let parent, let state else { return }
             // AppKit moves this native window control into its fullscreen
             // chrome, independently of the user's toolbar item customization.
             let owner = parent.standardWindowButton(.closeButton)?.window
             let detached = owner !== parent ? owner : nil
             let content = detached?.contentView
-            if toolbarWindow !== detached || toolbarContent !== content {
+            let ownershipChanged = content.map { Self.chromeOwners.object(forKey: $0) !== self } ?? false
+            if toolbarWindow !== detached || toolbarContent !== content || ownershipChanged {
+                let previous = content.flatMap { Self.chromeOwners.object(forKey: $0)?.originalToolbarChrome }
                 restoreToolbarWindow()
                 toolbarWindow = detached; toolbarContent = content
                 if let detached, let content {
-                    originalToolbarChrome = (content.alphaValue, detached.ignoresMouseEvents)
+                    originalToolbarChrome = previous ?? (content.alphaValue, detached.ignoresMouseEvents)
+                    Self.chromeOwners.setObject(self, forKey: content)
                 }
             }
             guard let toolbarWindow, let toolbarContent, let originalToolbarChrome else { return }
-            let opacity: CGFloat = systemChrome ? 1 : state.toolbarOverlaysContent ? state.toolbarHoverOpacity : 1
             let ignoresMouse = opacity == 0 || originalToolbarChrome.ignoresMouse
             if toolbarWindow.ignoresMouseEvents != ignoresMouse { toolbarWindow.ignoresMouseEvents = ignoresMouse }
             if toolbarOpacity != opacity {
@@ -217,21 +311,21 @@ struct ReaderToolbarAppearance: ViewModifier {
         }
 
         private func restoreToolbarWindow() {
-            if let toolbarWindow, let originalToolbarChrome {
-                if let toolbarContent {
-                    NSAnimationContext.runAnimationGroup { context in
-                        context.duration = 0
-                        toolbarContent.animator().alphaValue = originalToolbarChrome.contentAlpha
-                    }
+            if let toolbarWindow, let toolbarContent, let originalToolbarChrome,
+               Self.chromeOwners.object(forKey: toolbarContent) === self {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    toolbarContent.animator().alphaValue = originalToolbarChrome.contentAlpha
                 }
                 toolbarWindow.ignoresMouseEvents = originalToolbarChrome.ignoresMouse
+                Self.chromeOwners.removeObject(forKey: toolbarContent)
             }
             toolbarWindow = nil; toolbarContent = nil; originalToolbarChrome = nil; toolbarOpacity = nil
         }
 
         func pointerMoved(to point: NSPoint) {
             guard let parent, let state else { return }
-            guard state.toolbarDisplayMode == .auto, state.hasDocument else {
+            guard !state.presentation, state.toolbarDisplayMode == .auto, state.hasDocument else {
                 setHoverVisible(false, immediately: true)
                 return
             }
@@ -298,6 +392,14 @@ struct ReaderToolbarAppearance: ViewModifier {
             toolbarObservation?.invalidate(); toolbarObservation = nil
             observedToolbar = nil; visibilityFrame = nil
             restoreToolbarWindow()
+            for entry in titlebarViews where Self.chromeOwners.object(forKey: entry.view) === self {
+                entry.view.alphaValue = entry.alpha
+                entry.view.isHidden = entry.hidden
+                entry.view.layer?.backgroundColor = entry.background
+                entry.view.wantsLayer = entry.layered
+                Self.chromeOwners.removeObject(forKey: entry.view)
+            }
+            titlebarViews.removeAll(); accessoryOpacity = nil; accessoryContentOwner = nil
             if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil
             if let tracking { parent?.contentView?.removeTrackingArea(tracking) }; tracking = nil
             if let parent, let original {
@@ -314,19 +416,6 @@ struct ReaderToolbarAppearance: ViewModifier {
             }
             parent = nil; original = nil; originalButtonHidden.removeAll()
         }
-    }
-}
-
-@MainActor struct ReaderToolbarItemMotion: ViewModifier {
-    @ObservedObject var state: ReaderState
-    private var detached: Bool {
-        guard let parent = state.window, let window = parent.standardWindowButton(.closeButton)?.window else { return false }
-        return window !== parent
-    }
-    func body(content: Content) -> some View {
-        content
-            .opacity(state.toolbarOverlaysContent ? (detached ? (state.toolbarHoverVisible ? 1 : 0) : state.toolbarHoverOpacity) : 1)
-            .accessibilityHidden(state.toolbarOverlaysContent && state.toolbarHoverOpacity == 0)
     }
 }
 

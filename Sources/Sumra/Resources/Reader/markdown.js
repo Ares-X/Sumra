@@ -38,6 +38,8 @@
     const pageDirection = () => rtl ? -1 : 1
     const pageExtent = () => Math.max(0, document.documentElement.scrollWidth - innerWidth)
     const pageOffset = () => paged() ? scrollX * pageDirection() : scrollY
+    const readingExtent = () => paged() ? pageExtent() : Math.max(0, document.documentElement.scrollHeight - innerHeight)
+    const readingProgress = () => readingExtent() > 0 ? Math.max(0, Math.min(1, pageOffset() / readingExtent())) : 0
     const scrollEnd = (x = scrollX) => paged()
         ? scrollTo({left: pageExtent() * pageDirection(), top: 0, behavior: 'instant'})
         : scrollTo({left: x, top: document.documentElement.scrollHeight, behavior: 'instant'})
@@ -355,7 +357,7 @@
         snapPage()
         rememberReadingViewport()
         post('position', { page: currentPage, count: pages.length, label: String(currentPage + 1),
-            anchor: pageURL(), x: window.scrollX, y: window.scrollY, markdownPassage: savedReadingPassage() })
+            anchor: pageURL(), x: window.scrollX, y: window.scrollY, progress: readingProgress(), markdownPassage: savedReadingPassage() })
         // System WebKit saturates its root layout coordinates at this extent.
         // Automatic Markdown reading can reopen through the paged reader;
         // an explicit compatibility choice remains under the user's control.
@@ -1033,7 +1035,7 @@
         // Let the existing native readiness/error owner finish activation.
         if (command.name === 'activate') return await activate(command)
         try {
-        if (['turnPages', 'scroll', 'page', 'location', 'href', 'restore', 'find'].includes(command.name)) readingViewport = null
+        if (['turnPages', 'scroll', 'page', 'progress', 'location', 'href', 'restore', 'find'].includes(command.name)) readingViewport = null
         const focused = ['copy', 'speechHighlight'].includes(command.name)
             || command.name === 'readAloud' && (!command.source || command.source === 'selection') ? selectionReader() : focusedReader()
         if (focused && ['copy', 'selectAll', 'selectCurrentPage', 'readAloud', 'speechHighlight'].includes(command.name)) return await focused.leafCommand(command)
@@ -1044,6 +1046,12 @@
         case 'turnPages': return turnPages(command.count)
         case 'scroll': return scroll(command)
         case 'page': return navigatePage(command.number)
+        case 'progress': {
+            const offset = Math.max(0, Math.min(1, command.value)) * readingExtent()
+            if (paged()) scrollTo({left: Math.round(offset / innerWidth) * innerWidth * pageDirection(), top: 0, behavior: 'instant'})
+            else scrollTo({left: 0, top: offset, behavior: 'instant'})
+            reportPosition(); break
+        }
         case 'location': {
             if (command.text === 'first') { if (currentPage === 0) scrollTo(0, 0); else return navigatePage(0); reportPosition(); break }
             if (command.text === 'last') { if (currentPage === pages.length - 1) scrollEnd(0); else { const url = new URL(pages.at(-1)); url.hash = 'sumra-end'; return go(url) }; reportPosition(); break }

@@ -140,7 +140,7 @@ public enum LegacyText{
                 if retained.count >= 2 { pages = retained }
             }
         }
-        func page(_ index: Int) -> String { "<img src=\"\(imageName(index))\">" }
+        func page(_ index: Int) -> String { "<div data-sumra-image-page=\"yes\"><img src=\"\(imageName(index))\"></div>" }
         let pageBreak = "<div style=\"page-break-before:always\"></div>"
         if !pages.isEmpty {
             if images[cover] != nil { pages.insert(cover, at: 0) }

@@ -731,3 +731,10 @@
 "Auto Hide" = "自動的に隠す";
 "Always Hide" = "常に隠す";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "自動的に隠すモードでは、ポインタをウインドウの上部に移動するとツールバーが表示されます。";
+
+/* Reading progress footer */
+"Reading Progress" = "読書の進捗";
+"Line:" = "行:";
+"File:" = "ファイル:";
+"Approximate progress by chapter" = "章ごとのおおよその進捗";
+"Progress in current file" = "現在のファイルの進捗";
