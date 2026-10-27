@@ -8,6 +8,83 @@ import XCTest
 @testable import Sumra
 
 final class ReaderPreviewExportTests: XCTestCase {
+    func testNaturalChapterPreviewsHaveBoundedPixelsAcrossAllRotations() async throws {
+        let engine = try NativeFile.libraryURL(for: .mupdf)
+        guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF is required") }
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let paragraphs = (0..<300).map { "Paragraph \($0). " + String(repeating: "Readable preview text. ", count: 8) }
+        for format in [Format.html, .markdown] {
+            let input = directory.url.appendingPathComponent(format == .html ? "long.html" : "long.md")
+            let source = format == .html ? "<html><body>" + paragraphs.map { "<p>\($0)</p>" }.joined() + "</body></html>"
+                : paragraphs.joined(separator: "\n\n")
+            try source.write(to: input, atomically: true, encoding: .utf8)
+            let original = try Data(contentsOf: input)
+            let pages = try Pages(input, format: format)
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 20, font: "serif", theme: "light",
+                                         pageSize: CGSize(width: 480, height: 0))
+            let location = PageLocation(page: 0), bounds = try await pages.bounds(location)
+            XCTAssertGreaterThan(bounds.height, 10_000)
+            let revision = await pages.layoutRevision, table = await pages.chapterLayout
+            for rotation in [0, 90, 180, 270] {
+                let start = ContinuousClock.now
+                let image = try await pages.previewImage(location, size: CGSize(width: 128, height: 160), rotation: rotation)
+                print("PREVIEW \(format) rotation=\(rotation) pixels=\(image.width)x\(image.height) bytes=\(image.bytesPerRow * image.height) elapsed=\(start.duration(to: .now))")
+                XCTAssertLessThanOrEqual(image.width, 128)
+                XCTAssertLessThanOrEqual(image.height, 160)
+                XCTAssertLessThanOrEqual(image.bytesPerRow * image.height, 128 * 160 * 4)
+            }
+            let finalRevision = await pages.layoutRevision, finalTable = await pages.chapterLayout
+            XCTAssertEqual(finalRevision, revision)
+            XCTAssertEqual(finalTable.totalPages, table.totalPages)
+            XCTAssertEqual(try Data(contentsOf: input), original)
+        }
+    }
+
+    func testNaturalLinkPreviewShowsItsDestinationWithoutRenderingTheWholeChapter() async throws {
+        let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("link.html")
+        defer { withExtendedLifetime(directory) {} }
+        let paragraphs = String(repeating: "<p>Ordinary text before the destination with enough content for continuous scrolling.</p>", count: 250)
+        try ("<html><body><a href='#destination'>Target</a>" + paragraphs +
+             "<div id='destination' style='height:500pt;background-color:#ff0000!important'>Preview destination</div>" + paragraphs + "</body></html>")
+            .write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .html)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 0, font: "serif", theme: "light",
+                                     userCSS: "#destination{background-color:#ff0000!important}",
+                                     pageSize: CGSize(width: 480, height: 0))
+        let links = try await pages.links(0)
+        let href = try XCTUnwrap(links.first?.uri)
+        let destination = try await pages.resolve(href)
+        XCTAssertGreaterThan(try XCTUnwrap(destination?.y), 10_000)
+        let before = await pages.layoutPosition
+        let start = ContinuousClock.now
+        let rendered = try await pages.previewImage(href, from: 0)
+        let image = try XCTUnwrap(rendered)
+        print("LINK_PREVIEW pixels=\(image.width)x\(image.height) bytes=\(image.bytesPerRow * image.height) elapsed=\(start.duration(to: .now))")
+        XCTAssertLessThanOrEqual(image.width, 640)
+        XCTAssertLessThanOrEqual(image.height, 880)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        let color = try XCTUnwrap(bitmap.colorAt(x: image.width / 2, y: 50)?.usingColorSpace(.deviceRGB))
+        XCTAssertGreaterThan(color.redComponent, color.greenComponent + 0.5,
+                             "The preview must show the red link destination rather than the white chapter start")
+        XCTAssertGreaterThan(color.redComponent, color.blueComponent + 0.5)
+        let after = await pages.layoutPosition
+        XCTAssertEqual(after.page, before.page); XCTAssertEqual(after.y, before.y)
+    }
+
+    @MainActor
+    func testFinitePagePreviewKeepsTheWholePageAndViewerRotation() async throws {
+        let reading = try nativePDFReadingFixture()
+        guard case .pages(let pages) = reading.content else { return XCTFail("Expected native PDF") }
+        for rotation in [0, 90, 180, 270] {
+            let image = try await pages.previewImage(PageLocation(page: 0), size: CGSize(width: 128, height: 160), rotation: rotation)
+            let raw = try await pages.image(0, width: rotation % 180 == 0 ? 128 : 160)
+            let expected = try RasterLayout.image(raw, bounds: CGRect(x: 0, y: 0, width: raw.width, height: raw.height), crop: nil, rotation: rotation)
+            XCTAssertEqual(image.width, expected.width); XCTAssertEqual(image.height, expected.height)
+            XCTAssertEqual(try XCTUnwrap(image.dataProvider?.data) as Data, try XCTUnwrap(expected.dataProvider?.data) as Data)
+        }
+    }
+
     @MainActor
     func testThumbnailFollowsItsPageWhenEarlierChapterCountsChange() async throws {
         let engine = try NativeFile.libraryURL(for: .mupdf)

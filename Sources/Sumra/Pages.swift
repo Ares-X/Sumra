@@ -1463,11 +1463,41 @@ actor Pages {
         guard try !isPDF || pdfNative().pdfInfo()?.permissions.copy == true else { return nil }
         return try document.native?.embeddedImage(page, at: point)
     }
+    nonisolated func previewImage(_ location: PageLocation, size: CGSize, rotation: Int = 0,
+                                  pdfStyle: PDFColors.Style? = nil) async throws -> CGImage {
+        try await renderQueue.perform(priority: .init(visible: false)) {
+            try await self.renderPreview(location, size: size, rotation: rotation, y: nil, pdfStyle: pdfStyle)
+        }
+    }
+    private func renderPreview(_ location: PageLocation, size: CGSize, rotation: Int, y: Double?,
+                               pdfStyle: PDFColors.Style?) async throws -> CGImage {
+        let page = try index(location)
+        let width = Int(rotation % 180 == 0 ? size.width : size.height)
+        let region: CGRect?
+        if document.native?.reflowable == true, document.style?.pageSize.height == 0 {
+            // A continuous page can be an entire book. Preview only the part
+            // that fits its UI, using the same indexed region path as reading.
+            let bounds = try document.bounds(page), scale = CGFloat(width) / bounds.width
+            let fullHeight = ceil(bounds.height * scale)
+            let height = min(fullHeight, rotation % 180 == 0 ? size.height : size.width)
+            let top = floor(min(max(0, (CGFloat(y ?? Double(bounds.minY)) - bounds.minY) * scale), fullHeight - height))
+            region = CGRect(x: 0, y: top, width: CGFloat(width), height: height)
+        } else { region = nil }
+        let request = try document.prepareImage(page, width: width, region: region, pdfStyle: pdfStyle)
+        let image = try await self.image(request, priority: .init(visible: false))
+        return try RasterLayout.image(image, bounds: CGRect(x: 0, y: 0, width: image.width, height: image.height),
+                                      crop: nil, rotation: rotation)
+    }
     func previewImage(_ href: String, from sourcePage: Int, pdfStyle: PDFColors.Style? = nil) async throws -> CGImage? {
-        let page: Int
-        if document.format == .djvu, href == "#+1" || href == "#-1" { page = min(max(0, sourcePage + (href == "#+1" ? 1 : -1)), document.count-1) }
-        else { guard let target = try document.native?.resolve(href) else { return nil }; page = target.page }
-        return try await image(page, width: 640, pdfStyle: pdfStyle)
+        let target: ReadingPosition
+        if document.format == .djvu, href == "#+1" || href == "#-1" {
+            target = ReadingPosition(page: min(max(0, sourcePage + (href == "#+1" ? 1 : -1)), document.count-1))
+        } else { guard let resolved = try document.native?.resolve(href) else { return nil }; target = resolved }
+        let location = chapterLayout.location(page: target.page) ?? PageLocation(page: target.page)
+        return try await renderQueue.perform(priority: .init(visible: false)) {
+            try await self.renderPreview(location, size: CGSize(width: 640, height: 880), rotation: 0,
+                                         y: target.y, pdfStyle: pdfStyle)
+        }
     }
     func selection(_ page: Int, from a: CGPoint, to b: CGPoint, mode: Int32 = 0) async throws -> RasterSelection {
         let cancellation = try renderCancellation(page)

@@ -54,6 +54,37 @@ final class BrowserReadingModesTests: XCTestCase {
     }
 
     @MainActor
+    func testInitialFindDirectionsUseViewportOriginAcrossContinuousPagedAndRTL() async throws {
+        let paragraphs = (0..<61).map { index in
+            let text = [10, 30, 50].contains(index) ? "needle \(index)" : "Reading passage \(index)"
+            return "<p id='passage\(index)' style='min-height:100px;break-before:column;break-inside:avoid'>\(text)</p>"
+        }.joined()
+        let (view, _, _) = try await reader(html: "<!doctype html><meta charset=utf-8>" + paragraphs)
+        for flow in ["continuous", "paged"] {
+            for rtl in [false, true] {
+                let result = try await evaluate("""
+                    await window.leafCommand({name:'style',flow,rtl,spread:false});
+                    const selected=[];
+                    for (const passage of [40,0,60]) {
+                        for (const backwards of [true,false]) {
+                            await window.leafCommand({name:'toc'});
+                            await window.leafCommand({name:'restore',position:{page:0,
+                                anchor:location.href.split('#')[0]+'#passage'+passage}});
+                            await window.leafCommand({name:'find',text:'needle',backwards});
+                            const range=window.__sumatraFind.currentRange();
+                            selected.push(range?.startContainer.parentElement.closest('p')?.id ?? null);
+                        }
+                    }
+                    return {selected};
+                    """, view: view, arguments: ["flow": flow, "rtl": rtl])
+                XCTAssertEqual(result["selected"] as? [String],
+                    ["passage30", "passage50", "passage50", "passage10", "passage50", "passage10"],
+                    "flow=\(flow), rtl=\(rtl): Initial Find must start at the reading viewport and wrap in its requested direction")
+            }
+        }
+    }
+
+    @MainActor
     func testProgressSeeksCurrentFileAcrossContinuousPagedAndRTL() async throws {
         let (view, coordinator, _) = try await reader()
         for (flow, rtl) in [("continuous", false), ("paged", false), ("paged", true)] {

@@ -33,6 +33,14 @@ Back restores the recorded reading viewport. Hover previews remain passive,
 so the first click follows the source link. Previews fit the available space
 above or below that link, scaling down on short or narrow displays while keeping
 the source link visible.
+In continuous reflowable books, previews draw only their visible area; internal
+link previews begin at the destination within the chapter. Opening Page
+Thumbnails reveals the current page, and navigation keeps that thumbnail in view.
+Fixed pages retain their complete preview and viewer rotation.
+
+In the compatible browser reader, a new Find starts at the reading viewport in
+the requested direction. Paged and right-to-left layouts use the same source
+order and wrap at the beginning or end of the document.
 
 Settings → Keyboard Shortcuts supports command search, recording an actual key
 combination, conflict feedback, and resetting one command. Custom Toolbar Buttons

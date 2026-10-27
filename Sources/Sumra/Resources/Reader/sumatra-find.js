@@ -269,8 +269,9 @@ function setCur(i) {
   }
 }
 // initIdx >= 0: make that match current (used when jumping to a match on a
-// freshly loaded page); otherwise the first match at/below the viewport top
-async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
+// freshly loaded page); otherwise search from the captured reading/selection
+// origin. DOM order remains correct across paged columns in either direction.
+async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets, origin, backwards) {
   gen = g;
   clearHighlights();
   if (!term) { post(); return; }
@@ -279,8 +280,10 @@ async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
   var canHighlight = !!(window.CSS && CSS.highlights && window.Highlight);
   var all = canHighlight ? new Highlight() : null;
   var snippets = collectSnippets ? [] : null;
-  var found = [], first = -1;
-  var geometryCache = initIdx < 0 && window.leafFindRangeRect ? new WeakMap() : null;
+  var found = [], first = -1, previous = -1;
+  var anchor = origin ? origin.cloneRange() : null;
+  if (anchor) { anchor.collapse(!!backwards); }
+  var geometryCache = initIdx < 0 && !anchor && window.leafFindRangeRect ? new WeakMap() : null;
   var completed = await scanText(document.body, term, matchCase, wholeWord, true, !!collectSnippets, g, function(st, en, snippet) {
     var r = document.createRange();
     try {
@@ -288,9 +291,12 @@ async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
       r.setEnd(en[0], en[1]);
       found.push(r);
       if (all) { all.add(r); }
-      if (first < 0) {
-        var index = found.length - 1;
+      var index = found.length - 1;
+      if (initIdx < 0 && backwards) {
+        if (anchor && r.compareBoundaryPoints(Range.END_TO_END, anchor) <= 0) { previous = index; }
+      } else if (first < 0) {
         var visible = initIdx >= 0 ? index === initIdx
+          : anchor ? r.compareBoundaryPoints(Range.START_TO_START, anchor) >= 0
           : (window.leafFindRangeRect ? window.leafFindRangeRect(r, geometryCache) : r.getBoundingClientRect()).bottom >= 0;
         if (visible) {
           first = index;
@@ -317,7 +323,9 @@ async function start(term, matchCase, wholeWord, g, initIdx, collectSnippets) {
       CSS.highlights.set("sumatra-find-cur", curHl);
     }
   }
-  if (matches.length > 0 && first < 0) {
+  if (initIdx < 0 && backwards) {
+    if (previous >= 0) { setCur(previous); }
+  } else if (matches.length > 0 && first < 0 && (!anchor || initIdx >= 0)) {
     setCur(initIdx >= 0 ? Math.min(initIdx, matches.length - 1) : 0);
   }
   post();
