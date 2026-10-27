@@ -118,7 +118,7 @@ The README is available in English, Simplified Chinese, Traditional Chinese and 
 <!-- community-contributors:start -->
 ## Community contributors
 
-Thanks to everyone improving Sumra through issue reports, code, and reviews. This list is automatically generated from eligible GitHub issues and merged pull requests.
+Thanks to everyone improving Sumra through issue reports, code, and reviews. This list is automatically generated from eligible GitHub issues and merged pull requests. See the [recognition rules](docs/COMMUNITY_CONTRIBUTORS.md).
 
 | Contributor | Contributions |
 | --- | --- |

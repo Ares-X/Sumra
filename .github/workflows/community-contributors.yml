@@ -4,9 +4,10 @@ on:
   issues:
     types: [opened, reopened, labeled, unlabeled, closed]
   pull_request:
-    types: [opened, reopened, synchronize, closed]
-  pull_request_review:
-    types: [submitted, dismissed]
+    types: [opened, reopened, synchronize]
+  # Fork PR events have a read-only token. Only run the updater on trusted main.
+  pull_request_target:
+    types: [closed, labeled, unlabeled]
   schedule:
     - cron: '23 3 * * *'
   workflow_dispatch:
@@ -20,7 +21,7 @@ concurrency:
 
 jobs:
   check:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,13 +29,16 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_community_contributors.py'
 
   update:
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    if: github.event_name != 'pull_request' && (github.event_name != 'pull_request_target' || github.event.pull_request.merged == true)
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Never check out or execute the PR head with the updater's write token.
           ref: main
       - name: Run contributor tests
         run: python3 -m unittest discover -s tests -p 'test_community_contributors.py'

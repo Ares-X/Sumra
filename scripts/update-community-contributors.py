@@ -17,28 +17,32 @@ LANGUAGES = {
     "README.md": (
         "Community contributors",
         "Thanks to everyone improving Sumra through issue reports, code, and reviews. "
-        "This list is automatically generated from eligible GitHub issues and merged pull requests.",
+        "This list is automatically generated from eligible GitHub issues and merged pull requests. "
+        "See the [recognition rules](docs/COMMUNITY_CONTRIBUTORS.md).",
         "Contributor", "Contributions", "Issue", "PR", "Review",
         "No community contributors yet.", "License and acknowledgments",
     ),
     "README.zh-CN.md": (
         "社区贡献者",
         "感谢通过问题反馈、代码和评审帮助改进 Sumra 的每一位贡献者。"
-        "此名单根据符合条件的 GitHub Issue 和已合并的 Pull Request 自动更新。",
+        "此名单根据符合条件的 GitHub Issue 和已合并的 Pull Request 自动更新。"
+        "详见[计入规则](docs/COMMUNITY_CONTRIBUTORS.md)。",
         "贡献者", "贡献记录", "问题", "PR", "评审",
         "暂无社区贡献者。", "许可与致谢",
     ),
     "README.zh-TW.md": (
         "社群貢獻者",
         "感謝透過問題回報、程式碼與審查協助改進 Sumra 的每一位貢獻者。"
-        "此名單依符合條件的 GitHub Issue 與已合併的 Pull Request 自動更新。",
+        "此名單依符合條件的 GitHub Issue 與已合併的 Pull Request 自動更新。"
+        "詳見[列入規則](docs/COMMUNITY_CONTRIBUTORS.md)。",
         "貢獻者", "貢獻紀錄", "問題", "PR", "審查",
         "目前尚無社群貢獻者。", "授權與致謝",
     ),
     "README.ja.md": (
         "コミュニティ貢献者",
         "Issue の報告、コードの提供、レビューを通じて Sumra を改善してくださる皆さんに感謝します。"
-        "この一覧は対象の GitHub Issue とマージ済み Pull Request から自動更新されます。",
+        "この一覧は対象の GitHub Issue とマージ済み Pull Request から自動更新されます。"
+        "[掲載ルール](docs/COMMUNITY_CONTRIBUTORS.md)をご覧ください。",
         "貢献者", "貢献内容", "Issue", "PR", "レビュー",
         "コミュニティ貢献者はまだいません。", "ライセンスと謝辞",
     ),

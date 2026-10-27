@@ -116,7 +116,7 @@ README 提供英文、简体中文、繁体中文和日语版本。以 [README.m
 <!-- community-contributors:start -->
 ## 社区贡献者
 
-感谢通过问题反馈、代码和评审帮助改进 Sumra 的每一位贡献者。此名单根据符合条件的 GitHub Issue 和已合并的 Pull Request 自动更新。
+感谢通过问题反馈、代码和评审帮助改进 Sumra 的每一位贡献者。此名单根据符合条件的 GitHub Issue 和已合并的 Pull Request 自动更新。详见[计入规则](docs/COMMUNITY_CONTRIBUTORS.md)。
 
 | 贡献者 | 贡献记录 |
 | --- | --- |

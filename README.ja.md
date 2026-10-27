@@ -114,7 +114,7 @@ README は英語、簡体字中国語、繁体字中国語、日本語で読め�
 <!-- community-contributors:start -->
 ## コミュニティ貢献者
 
-Issue の報告、コードの提供、レビューを通じて Sumra を改善してくださる皆さんに感謝します。この一覧は対象の GitHub Issue とマージ済み Pull Request から自動更新されます。
+Issue の報告、コードの提供、レビューを通じて Sumra を改善してくださる皆さんに感謝します。この一覧は対象の GitHub Issue とマージ済み Pull Request から自動更新されます。[掲載ルール](docs/COMMUNITY_CONTRIBUTORS.md)をご覧ください。
 
 | 貢献者 | 貢献内容 |
 | --- | --- |
