@@ -38,6 +38,15 @@ link previews begin at the destination within the chapter. Opening Page
 Thumbnails reveals the current page, and navigation keeps that thumbnail in view.
 Fixed pages retain their complete preview and viewer rotation.
 
+The bottom progress control follows the renderer's position. Native continuous
+books use the actual scroll position within the current canvas, including long
+single chapters. Unread chapters still have estimated heights, so their progress
+keeps the approximate `≈` marker. Dragging previews the percentage and commits
+one seek on release; the chapter/page label keeps the current position until the
+seek completes. Keyboard and accessibility increments also scroll within the
+canvas. Returning to paged reading restores physical page or approximate chapter
+progress. Saved passages and Back retain their source position through reflow.
+
 In the compatible browser reader, a new Find starts at the reading viewport in
 the requested direction. Paged and right-to-left layouts use the same source
 order and wrap at the beginning or end of the document.

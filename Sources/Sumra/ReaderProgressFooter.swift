@@ -2,11 +2,20 @@
 import SwiftUI
 import SumraCore
 
+/// Pixel scrolling updates the footer without rebuilding the reader surface.
+@MainActor final class ReaderScrollProgress: ObservableObject {
+    @Published private(set) var fraction: Double?
+    func update(_ value: Double?) {
+        if fraction != value { fraction = value }
+    }
+}
+
 /// Counts keep their renderer's meaning: physical pages, source lines, or files.
 struct ReaderProgress {
     enum Position {
         case pages(Int, Int), lines(Int, Int), file(Int, Int, Double?)
         case chapters(ChapterTable, PageLocation)
+        indirect case continuous(Double?, Position)
     }
     let position: Position
 
@@ -17,6 +26,7 @@ struct ReaderProgress {
         switch position {
         case .pages(let page, let count), .lines(let page, let count): return fraction(page, count)
         case .file(_, _, let progress): return progress ?? 0
+        case .continuous(let progress, _): return progress ?? 0
         case .chapters(let table, let location):
             return (Double(location.chapter) + fraction(location.page, table.pageCount(location.chapter))) / Double(table.chapterCount)
         }
@@ -24,7 +34,7 @@ struct ReaderProgress {
     var step: Double {
         switch position {
         case .pages(_, let count), .lines(_, let count): return 1 / Double(max(1, count - 1))
-        case .file: return 0.01
+        case .file, .continuous: return 0.01
         case .chapters(let table, _): return 1 / Double(table.chapterCount)
         }
     }
@@ -32,6 +42,7 @@ struct ReaderProgress {
         switch position {
         case .pages(_, let count), .lines(_, let count): return count > 1
         case .file(_, _, let progress): return progress != nil
+        case .continuous(let progress, _): return progress != nil
         case .chapters(let table, _): return table.chapterCount > 1 || table.pageCount(0) > 1
         }
     }
@@ -44,6 +55,7 @@ struct ReaderProgress {
             guard count > 0 else { return "\(L("Line:")) — / —" }
             return "\(L("Line:")) \(preview.map { index($0, count) } ?? line + 1) / \(count)"
         case .file(let file, let count, _): return "\(L("File:")) \(file + 1) / \(count)"
+        case .continuous(_, let current): return ReaderProgress(position: current).label()
         case .chapters(let table, let current):
             let location = preview.map { chapterLocation($0, table) } ?? current
             let count = table.isLaidOut(location.chapter) ? String(table.pageCount(location.chapter)) : "—"
@@ -62,13 +74,13 @@ struct ReaderProgress {
                 if table.isLaidOut(target.chapter) {
                     displayed = (Double(target.chapter) + fraction(target.page, table.pageCount(target.chapter))) / Double(table.chapterCount)
                 }
-            case .file: break
+            case .file, .continuous: break
             }
         }
         let percent = Int((displayed * 100).rounded())
         switch position {
-        case .chapters: return "≈ \(percent)%"
-        case .file(_, _, nil), .pages(_, 0), .lines(_, 0): return "—"
+        case .chapters, .continuous(.some(_), .chapters(_, _)): return "≈ \(percent)%"
+        case .file(_, _, nil), .continuous(nil, _), .pages(_, 0), .lines(_, 0): return "—"
         default: return "\(percent)%"
         }
     }
@@ -92,6 +104,7 @@ struct ReaderProgress {
             let target = index(value, count) - 1
             return target == current ? nil : .page(target)
         case .file(_, _, let current): return current == value ? nil : .progress(value)
+        case .continuous(let current, _): return current == value ? nil : .progress(value)
         case .chapters(let table, let current):
             let target = chapterLocation(value, table)
             return table.isLaidOut(target.chapter) && target == current ? nil : .progress(value)
@@ -103,11 +116,12 @@ extension ReaderState {
     var readingProgress: ReaderProgress {
         if isBrowser { return .init(position: .file(page, count, browserProgress)) }
         if isText { return .init(position: .lines(page, count)) }
+        let position: ReaderProgress.Position
         if reflowable, let table = chapterLayout, !table.complete {
             let location = location.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location } ?? pageLocation(page)
-            return .init(position: .chapters(table, location))
-        }
-        return .init(position: .pages(page, count))
+            position = .chapters(table, location)
+        } else { position = .pages(page, count) }
+        return .init(position: continuousReflow ? .continuous(scrollProgress.fraction, position) : position)
     }
 }
 
@@ -125,11 +139,17 @@ struct ReaderProgressDrag {
 struct ReaderProgressFooter: View {
     static let height: CGFloat = 30
     @ObservedObject var state: ReaderState
+    @ObservedObject private var scrollProgress: ReaderScrollProgress
     @State private var hovered = false
     @State private var focused = false
     @State private var drag: ReaderProgressDrag?
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     private var shown: Bool { hovered || focused || drag != nil }
+
+    init(state: ReaderState) {
+        self.state = state
+        scrollProgress = state.scrollProgress
+    }
 
     var body: some View {
         let progress = state.readingProgress

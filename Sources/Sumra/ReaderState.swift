@@ -277,6 +277,7 @@ final class ReaderState: ObservableObject {
             if document != nil { restoredPayload = nil }
             if document?.id != oldValue?.id {
                 browserProgress = nil
+                scrollProgress.update(nil)
                 pdfEditingEnabled = false; nativePDFInfo = nil; nativePDFSelection = nil; nativePDFAnnotationTool = nil
                 nativePDFSignatureSelection = nil
                 nativePDFFormEditor?.cancel(); nativePDFFormPage = nil; fitPresetRestore = nil
@@ -382,7 +383,10 @@ final class ReaderState: ObservableObject {
     @Published var reflowable = false
     @Published var searchable = false
     @Published var renderRevision = 0
-    var location = ReadingPosition()
+    let scrollProgress = ReaderScrollProgress()
+    var location = ReadingPosition() {
+        didSet { scrollProgress.update(location.scrollFraction) }
+    }
     var pendingReflowPosition: ReadingPosition?
     @Published var selectedText = ""
     @Published var searchResults: [ContentsItem] = [] {

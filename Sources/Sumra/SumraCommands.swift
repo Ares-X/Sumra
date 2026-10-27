@@ -12,7 +12,8 @@ final class ReaderUndoCommands: ObservableObject {
     private var pdfState: ReaderState? {
         guard let window = NSApp.keyWindow,
               (window.firstResponder as? NSTextView)?.isEditable != true else { return nil }
-        return ReaderWindows.states.first { $0.window === window && $0.nativePDF != nil }
+        let documentWindow = window.parent ?? window
+        return ReaderWindows.states.first { $0.window === documentWindow && $0.nativePDF != nil }
     }
 
     func update() {

@@ -1019,6 +1019,102 @@ final class RasterReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testPDFMixedFacingPagesKeepPhysicalScaleAcrossPagedAndContinuousModes() async throws {
+        try requireMuPDF()
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("mixed-facing-modes.pdf")
+        var media = CGRect(x: 0, y: 0, width: 400, height: 800)
+        let writer = try XCTUnwrap(CGContext(input as CFURL, mediaBox: &media, nil))
+        for _ in 0..<4 {
+            writer.beginPDFPage(nil); writer.setFillColor(CGColor(gray: 0.3, alpha: 1))
+            writer.fill(media.insetBy(dx: 20, dy: 20)); writer.endPDFPage()
+        }
+        writer.closePDF()
+        let pdf = try XCTUnwrap(PDFDocument(url: input))
+        for index in [0, 2] {
+            let page = try XCTUnwrap(pdf.page(at: index))
+            page.setBounds(CGRect(x: 0, y: 0, width: 200, height: 400), for: .mediaBox)
+            page.setBounds(CGRect(x: 0, y: 0, width: 200, height: 400), for: .cropBox)
+        }
+        try XCTUnwrap(pdf.dataRepresentation()).write(to: input)
+        let original = try Data(contentsOf: input), pages = try Pages(input, format: .pdf)
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .pages(pages)); state.count = 4
+        state.flow = "paged"; state.fit = "page"; state.spread = true; state.cover = false
+        state.rotation = 0; state.rtl = false; state.automaticLayout = false
+        state.uniformPageWidth = false; state.freePan = false; state.trimEmptyMargins = false
+        state.landscapeAsSpread = false; state.scrollbarMode = "hidden"; state.showFitContentArea = false
+        state.engineeringEnhance = "off"
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        let defaults = UserDefaults.standard, previousFit = defaults.object(forKey: "fit"), previousFlow = defaults.object(forKey: "flow")
+        defer {
+            state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+            if let previousFit { defaults.set(previousFit, forKey: "fit") } else { defaults.removeObject(forKey: "fit") }
+            if let previousFlow { defaults.set(previousFlow, forKey: "flow") } else { defaults.removeObject(forKey: "flow") }
+            withExtendedLifetime(directory) {}
+        }
+        func canvases(_ view: NSView) -> [RasterCanvas.Canvas] {
+            (view as? RasterCanvas.Canvas).map { [$0] } ?? view.subviews.flatMap(canvases)
+        }
+        func waitForScale(_ fit: String, flow: String, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(4)
+            let tolerance = 1 / window.backingScaleFactor
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                let visible = canvases(host).filter { $0.page < 2 && $0.readingReady }
+                if let first = visible.first(where: { $0.page == 0 }),
+                   let second = visible.first(where: { $0.page == 1 }),
+                   let viewport = state.readerScrollView?.contentView.bounds.size {
+                    let rotated = state.rotation % 180 != 0
+                    let small = rotated ? CGSize(width: 400, height: 200) : CGSize(width: 200, height: 400)
+                    let large = rotated ? CGSize(width: 800, height: 400) : CGSize(width: 400, height: 800)
+                    let scale = fit == "width" ? (viewport.width - 4) / (2 * large.width)
+                        : min((viewport.width - 4) / (2 * large.width), viewport.height / large.height)
+                    let expectedFirst = fit == "actual" ? small : CGSize(width: small.width * scale, height: small.height * scale)
+                    let expectedSecond = fit == "actual" ? small : CGSize(width: large.width * scale, height: large.height * scale)
+                    if state.flow == flow, state.command.action == .none,
+                       abs(first.bounds.width - expectedFirst.width) <= tolerance,
+                       abs(first.bounds.height - expectedFirst.height) <= tolerance,
+                       abs(second.bounds.width - expectedSecond.width) <= tolerance,
+                       abs(second.bounds.height - expectedSecond.height) <= tolerance {
+                        let firstX = first.convert(.zero, to: host).x, secondX = second.convert(.zero, to: host).x
+                        XCTAssertEqual(firstX > secondX, state.rtl, line: line)
+                        return
+                    }
+                }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail("Mixed facing \(fit), \(flow), RTL=\(state.rtl): \(canvases(host).map { ($0.page, $0.bounds.size) }), \(state.error ?? "no error")", line: line)
+            throw CancellationError()
+        }
+        for fit in ["page", "width"] {
+            state.setFit(fit); state.send(.none)
+            for rtl in [false, true] {
+                state.rtl = rtl
+                for flow in ["paged", "continuous", "paged"] {
+                    window.makeFirstResponder(nil)
+                    state.setFlow(flow); state.send(.page(0)); state.send(.none)
+                    try await waitForScale(fit, flow: flow)
+                }
+            }
+        }
+        state.uniformPageWidth = true; state.setFit("actual"); state.send(.none)
+        for rotation in [0, 90] {
+            state.rotation = rotation
+            for flow in ["paged", "continuous", "paged"] {
+                window.makeFirstResponder(nil)
+                state.setFlow(flow); state.send(.page(0)); state.send(.none)
+                try await waitForScale("actual", flow: flow)
+            }
+        }
+        XCTAssertNil(state.error)
+        XCTAssertEqual(try Data(contentsOf: input), original)
+    }
+
+    @MainActor
     func testPDFMixedCropFacingPagesShareFitScaleAndKeepUniformRTLGeometry() async throws {
         try requireMuPDF()
         _ = NSApplication.shared

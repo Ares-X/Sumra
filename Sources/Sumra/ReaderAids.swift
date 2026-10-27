@@ -677,7 +677,7 @@ struct BookmarkBrowser: View {
         VStack {
             TextField(L("Search Bookmarks"), text: $query).textFieldStyle(.roundedBorder)
             List(items) { bookmark in
-                Button { openWindow(id: "reader", value: WindowPayload(path: bookmark.path, position: bookmark.position)) } label: {
+                Button { openWindow(id: "reader", value: WindowPayload(bookmark: bookmark)) } label: {
                     VStack(alignment: .leading) {
                         Text(bookmark.title)
                         Text(URL(fileURLWithPath: bookmark.path).lastPathComponent).font(.caption).foregroundStyle(.secondary)
