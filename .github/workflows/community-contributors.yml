@@ -1,0 +1,59 @@
+name: Community contributors
+
+on:
+  issues:
+    types: [opened, reopened, labeled, unlabeled, closed]
+  pull_request:
+    types: [opened, reopened, synchronize]
+  # Fork PR events have a read-only token. Only run the updater on trusted main.
+  pull_request_target:
+    types: [closed, labeled, unlabeled]
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sumra-community-contributors
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check contributor generation
+        run: python3 -m unittest discover -s tests -p 'test_community_contributors.py'
+
+  update:
+    if: github.event_name != 'pull_request' && (github.event_name != 'pull_request_target' || github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Never check out or execute the PR head with the updater's write token.
+          ref: main
+      - name: Run contributor tests
+        run: python3 -m unittest discover -s tests -p 'test_community_contributors.py'
+      - name: Update README acknowledgments
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/update-community-contributors.py
+      - name: Commit changed README files
+        run: |
+          if git diff --quiet -- README.md README.zh-CN.md README.zh-TW.md README.ja.md; then
+            echo 'Contributor list is already up to date.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md README.zh-CN.md README.zh-TW.md README.ja.md
+          git commit -m 'docs: update community contributors'
+          git push origin HEAD:main

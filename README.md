@@ -115,6 +115,18 @@ Choose among 25 common interface language/region options in Settings. The manage
 
 The README is available in English, Simplified Chinese, Traditional Chinese and Japanese. Use [README.md](README.md) as the content reference, keep the same section order, and update the other versions when shared information changes. All versions reuse the same screenshots and link to the technical documentation.
 
+<!-- community-contributors:start -->
+## Community contributors
+
+Thanks to everyone improving Sumra through issue reports, code, and reviews. This list is automatically generated from eligible GitHub issues and merged pull requests. See the [recognition rules](docs/COMMUNITY_CONTRIBUTORS.md).
+
+| Contributor | Contributions |
+| --- | --- |
+| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Sumra/issues/31) [Issue #42](https://github.com/Ares-X/Sumra/issues/42) |
+| <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [Issue #48](https://github.com/Ares-X/Sumra/issues/48) |
+
+<!-- community-contributors:end -->
+
 ## License and acknowledgments
 
 New Sumra code is licensed under **[AGPL-3.0-or-later](LICENSE)**. Upstream and ported components retain their own licenses and copyright notices; see [THIRD_PARTY.md](THIRD_PARTY.md) for sources, versions and licenses.
