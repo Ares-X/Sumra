@@ -5,13 +5,202 @@ import XCTest
 @testable import Sumra
 
 final class MarkdownLazyChapterTests: XCTestCase {
-    private func open(_ text: String, in directory: TemporaryDirectory) throws -> NativeFile {
-        let input = directory.url.appendingPathComponent("Lazy.md")
+    private func open(_ text: String, in directory: TemporaryDirectory, name: String = "Lazy.md") throws -> NativeFile {
+        let input = directory.url.appendingPathComponent(name)
         try text.write(to: input, atomically: true, encoding: .utf8)
         let file = try NativeFile(input, engine: .mupdf, deferReflowLayout: true, deferMarkdownMetadata: true)
         _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light",
                               pageSize: CGSize(width: 620, height: 0))
         return file
+    }
+
+    func testLeadingHeadingRunsStayWithTheirFirstBodyWithoutWarmingLaterSections() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let file = try open("# Collection\n\n### Banner\n\n## First\n\nalpha\n\n## Second\n\n### Part\n\n## Third\n\nbeta\n\n## Last\n\ngamma\n", in: directory)
+        XCTAssertEqual(file.chapterTable?.chapterCount, 3)
+        let first = try XCTUnwrap(file.text(0))
+        XCTAssertTrue(first.contains("Collection"))
+        XCTAssertTrue(first.contains("Banner"))
+        XCTAssertTrue(first.contains("First"))
+        XCTAssertTrue(first.contains("alpha"))
+        XCTAssertFalse(first.contains("beta"))
+        XCTAssertEqual(file.chapterTable?.isLaidOut(1), false)
+        let outline = try file.outline()
+        XCTAssertEqual(outline.map(\.title), ["Collection", "Banner", "First", "Second", "Part", "Third", "Last"])
+        XCTAssertEqual(outline.map(\.chapter), [0, 0, 0, 1, 1, 1, 2])
+        XCTAssertEqual(file.chapterTable?.isLaidOut(2), false)
+        let second = try XCTUnwrap(file.resolve("#third"))
+        XCTAssertEqual(try file.location(second.page).chapter, 1)
+        XCTAssertTrue(try XCTUnwrap(file.text(second.page)).contains("beta"))
+        let matches = try file.markdownDocumentMatches("alpha Second", options: .init(), startPage: 0)
+        XCTAssertEqual(matches.first?.fragments?.compactMap { $0.location?.chapter }, [0, 1])
+        let all = try (0..<file.count).map { try file.text($0) ?? "" }.joined(separator: "\n")
+        for marker in ["Collection", "Banner", "First", "alpha", "Second", "Part", "Third", "beta", "Last", "gamma"] {
+            XCTAssertEqual(all.components(separatedBy: marker).count - 1, 1, marker)
+        }
+    }
+
+    func testShippedSectionPassageFixturesMigrateExactGlyphsAndRemainStableThroughReflow() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let text = "# Collection\n\n### Banner\n\n## First\n\nalpha\n\n## Second\n\n### Part\n\n## Third\n\nbeta\n\n## Last\n\ngamma\n"
+        let file = try open(text, in: directory)
+        // Captured from the shipped 0.2.21 engine before changing its section
+        // index: chapter/local flow node/word. Include removed and shifted sections.
+        let fixtures = [(0, 1, "Collection"), (0, 2, "Banner"), (1, 1, "First"), (1, 2, "alpha"),
+                        (2, 1, "Second"), (2, 2, "Part"), (3, 1, "Third"), (3, 2, "beta"), (4, 2, "gamma")]
+        var restoredPassages = [NativePassage]()
+        for (oldChapter, oldNode, word) in fixtures {
+            let hit = try XCTUnwrap(file.markdownDocumentMatches(word, options: .init(), startPage: 0).first, word)
+            let source = try XCTUnwrap(hit.source, word)
+            let target = try XCTUnwrap(file.position(for: source), word)
+            let current = try XCTUnwrap(target.nativePassage, word)
+            let json: [String: Any] = ["source": [oldNode, 0, 0, oldChapter], "offsetX": 3.25, "offsetY": 4.5,
+                "sourceRevision": current.sourceRevision, "styleSignature": current.styleSignature, "chapter": oldChapter]
+            let old = try JSONDecoder().decode(NativePassage.self, from: JSONSerialization.data(withJSONObject: json))
+            XCTAssertNil(old.markdownSections)
+            let restored = try XCTUnwrap(file.position(for: old), word)
+            XCTAssertEqual(restored.nativePassage?.source, source, word)
+            XCTAssertEqual(restored.nativePassage?.markdownSections, 2, word)
+            XCTAssertEqual(try XCTUnwrap(restored.x), try XCTUnwrap(target.x) + 3.25, accuracy: 0.001, word)
+            XCTAssertEqual(try XCTUnwrap(restored.y), try XCTUnwrap(target.y) + 4.5, accuracy: 0.001, word)
+            restoredPassages.append(try XCTUnwrap(restored.nativePassage))
+        }
+        _ = try file.relayout(fontSize: 28, lineHeight: 1.6, font: "system", theme: "light",
+                              pageSize: CGSize(width: 420, height: 360))
+        for current in restoredPassages {
+            let reopened = try JSONDecoder().decode(NativePassage.self, from: JSONEncoder().encode(current))
+            let restored = try XCTUnwrap(file.position(for: reopened))
+            XCTAssertEqual(restored.nativePassage?.source, current.source)
+            XCTAssertEqual(restored.nativePassage?.offsetX, current.offsetX)
+            XCTAssertEqual(restored.nativePassage?.offsetY, current.offsetY)
+        }
+        XCTAssertEqual(try String(contentsOf: directory.url.appendingPathComponent("Lazy.md"), encoding: .utf8), text)
+    }
+
+    func testLegacyPageBookmarkKeepsItsPixelOffsetInsideTheMergedChapterAndPreferences() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let file = try open("# Collection\n\n## First\n\nalpha\n\n## Last\n\ngamma\n", in: directory)
+        let oldSection = try open("## First\n\nalpha\n", in: directory, name: "OldSection.md")
+        let oldHeading = try XCTUnwrap(oldSection.position(for: .init(node: 1, offset: 0, part: 0, chapter: 0)))
+        let heading = try XCTUnwrap(file.markdownDocumentMatches("First", options: .init(), startPage: 0).first?.source)
+        let expected = try XCTUnwrap(file.position(for: heading))
+        var old = ReadingPosition(page: 1, x: oldHeading.x, y: try XCTUnwrap(oldHeading.y) + 7, anchor: "1:0:1")
+        old.fontSize = 19; old.lineHeight = 1.7; old.zoom = 1.2; old.flow = "continuous"; old.scrollFraction = 0.35
+        let restored = try file.migratedMarkdownPosition(old)
+        XCTAssertEqual(try file.location(restored.page).chapter, 0)
+        XCTAssertEqual(try XCTUnwrap(restored.y), try XCTUnwrap(expected.y) + 7, accuracy: 0.01)
+        XCTAssertNotEqual(restored.y, old.y)
+        XCTAssertEqual(restored.nativePassage?.source, heading)
+        XCTAssertEqual(restored.fontSize, old.fontSize); XCTAssertEqual(restored.lineHeight, old.lineHeight)
+        XCTAssertEqual(restored.zoom, old.zoom); XCTAssertEqual(restored.flow, old.flow)
+        XCTAssertEqual(restored.scrollFraction, old.scrollFraction)
+        XCTAssertTrue(try XCTUnwrap(restored.anchor).hasPrefix("md2:"))
+        XCTAssertEqual(try file.migratedMarkdownPosition(restored), restored)
+        let last = try file.migratedMarkdownPosition(ReadingPosition(page: 2, anchor: "2:0:1"))
+        XCTAssertEqual(try file.location(last.page).chapter, 1)
+        XCTAssertTrue(try XCTUnwrap(file.text(last.page)).contains("gamma"))
+    }
+
+    func testMultiPageLegacyBookmarkRestoresTheSameBodyGlyphThroughViewportReflow() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let section = "## First\n\n" + (0..<80).map { "Paragraph\($0) carries authored body words across several finite pages.\n\n" }.joined()
+        let file = try open("# Collection\n\n" + section + "## Last\n\ngamma\n", in: directory)
+        let oldSection = try open(section, in: directory, name: "OldSection.md")
+        for document in [file, oldSection] {
+            _ = try document.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light",
+                                      pageSize: CGSize(width: 420, height: 360))
+        }
+        let oldCount = oldSection.count
+        XCTAssertGreaterThan(oldCount, 4)
+        let oldPage = 3
+        let glyph = try XCTUnwrap(oldSection.words(oldPage).first { $0.source != nil && !$0.text.allSatisfy(\.isWhitespace) })
+        let source = try XCTUnwrap(glyph.source)
+        // The merged prefix contributes Collection's single flow node.
+        let expectedSource = NativeSourceAnchor(node: source.node + 1, offset: source.offset, part: source.part, chapter: 0)
+        let expected = try XCTUnwrap(file.position(for: expectedSource))
+        let legacy = ReadingPosition(page: oldPage + 1, x: Double(glyph.bounds.minX), y: Double(glyph.bounds.minY) + 2,
+                                     anchor: "1:\(oldPage):\(oldCount)")
+        let restored = try file.migratedMarkdownPosition(legacy)
+        XCTAssertEqual(restored.nativePassage?.source, expectedSource)
+        XCTAssertEqual(try XCTUnwrap(restored.y), try XCTUnwrap(expected.y) + 2, accuracy: 0.01)
+        let passage = try XCTUnwrap(restored.nativePassage)
+        _ = try file.relayout(fontSize: 24, lineHeight: 1.8, font: "system", theme: "light",
+                              pageSize: CGSize(width: 700, height: 0))
+        let reflowed = try XCTUnwrap(file.position(for: passage))
+        XCTAssertEqual(reflowed.nativePassage?.source, expectedSource)
+        XCTAssertEqual(reflowed.nativePassage?.offsetY, passage.offsetY)
+        let around = try XCTUnwrap(file.text(reflowed.page))
+        XCTAssertTrue(around.contains("Paragraph"))
+    }
+
+    func testSingleMergedChapterRestoresShippedAnchorsAndHonorsExplicitPageBreaks() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let file = try open("# Collection\n\n## First\n\nalpha\n", in: directory)
+        XCTAssertEqual(file.chapterTable?.chapterCount, 1)
+        XCTAssertTrue(try XCTUnwrap(file.text(0)).contains("alpha"))
+        let hit = try XCTUnwrap(file.markdownDocumentMatches("alpha", options: .init(), startPage: 0).first?.source)
+        let current = try XCTUnwrap(file.position(for: hit)?.nativePassage)
+        let old = NativePassage(source: .init(node: 2, offset: 0, part: 0, chapter: 1), offsetX: 0, offsetY: 0,
+            sourceRevision: current.sourceRevision, styleSignature: current.styleSignature, chapter: 1)
+        XCTAssertEqual(try file.position(for: old)?.nativePassage?.source, hit)
+        XCTAssertEqual(try file.location(try file.migratedMarkdownPosition(.init(anchor: "1:0:1")).page).chapter, 0)
+        _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light",
+                              userCSS: "h2{page-break-before:always;}", pageSize: CGSize(width: 620, height: 500))
+        XCTAssertGreaterThan(file.count, 1)
+        XCTAssertFalse(try XCTUnwrap(file.text(0)).contains("alpha"))
+        XCTAssertTrue(try (1..<file.count).map { try file.text($0) ?? "" }.joined().contains("alpha"))
+    }
+
+    func testPagesRestoresLegacyPassagesBookmarksAndFacingTargetsBeforeIndexingCurrentChapters() async throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = directory.url.appendingPathComponent("Restore.md")
+        try "# Collection\n\n## First\n\nalpha\n\n## Last\n\ngamma\n".write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                    pageSize: CGSize(width: 620, height: 0))
+        let old = ReadingPosition(page: 2, anchor: "2:0:1")
+        let captured = try await pages.capturePassage(old, theme: "light", userCSS: "")
+        XCTAssertEqual(captured?.source.chapter, 1)
+        XCTAssertEqual(captured?.markdownSections, 2)
+        let restored = try await pages.restore(old)
+        XCTAssertEqual(captured?.source, restored.nativePassage?.source)
+        XCTAssertEqual(ChapterTable.bookmarkLocation(try XCTUnwrap(restored.anchor))?.location.chapter, 1)
+        XCTAssertEqual(restored.nativePassage?.markdownSections, 2)
+        let facing = try await pages.prepareFacingPages(old, cover: false)
+        XCTAssertEqual(ChapterTable.bookmarkLocation(try XCTUnwrap(facing.anchor))?.location.chapter, 1)
+        _ = try await pages.relayout(fontSize: 23, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                                    pageSize: CGSize(width: 420, height: 360), readingPosition: old)
+        let reflowed = await pages.layoutPosition
+        XCTAssertEqual(reflowed.nativePassage?.source.chapter, 1)
+        let text = try await pages.text(PageLocation(chapter: 1, page: 0))
+        XCTAssertTrue(text.contains("gamma"))
+    }
+
+    @MainActor
+    func testVersionedMarkdownBookmarksKeepTheCurrentPageLabelAndUserChapterInput() async throws {
+        let state = ReaderState(recordsHistory: false)
+        defer { state.windowClosed() }
+        state.reflowable = true
+        var table = ChapterTable(chapters: 3, bookmarkScheme: "md2")
+        table.setPageCount(chapter: 1, count: 4)
+        _ = state.applyChapterLayout(table)
+        state.updatePosition(.init(page: 2, anchor: "md2:1:1:4"))
+        XCTAssertEqual(state.pageLabel, "2:2")
+        XCTAssertEqual(ReaderState.chapterInput("md2:1:1", offset: 1), "2:2")
+        XCTAssertEqual(ReaderState.chapterInput("1:1:4", offset: 1), "2:2")
+        XCTAssertEqual(ReaderState.chapterInput("2:2", offset: -1), "1:1")
+        XCTAssertNil(ReaderState.chapterInput("md2:2:2", offset: -1))
+        XCTAssertNil(ReaderState.chapterInput("0:2", offset: -1))
+        XCTAssertNil(ReaderState.chapterInput("2147483648:2", offset: -1))
+        state.go("2:2")
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(state.command.action, .location("2:2"))
     }
 
     func testRecoveredHTMLSectionsKeepRawSpansAndTOCDoesNotWarmUnseenChapters() throws {

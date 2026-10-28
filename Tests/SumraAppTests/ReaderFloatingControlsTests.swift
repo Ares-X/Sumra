@@ -35,28 +35,32 @@ import SumraCore
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
         }
-        func assertNativeChrome() throws {
+        func assertHomeChrome() throws {
             XCTAssertFalse(state.hasDocument)
             XCTAssertFalse(state.usesFloatingChrome)
+            XCTAssertTrue(state.usesCustomChrome)
             XCTAssertTrue(state.immersiveControls)
-            XCTAssertTrue(groups(in: host).isEmpty, "Home and initial opening must not mount reading controls")
-            XCTAssertTrue(try XCTUnwrap(window.toolbar).isVisible)
-            let nativeToolbar = try XCTUnwrap(toolbar(in: try XCTUnwrap(host.superview)))
-            XCTAssertFalse(nativeToolbar.isHiddenOrHasHiddenAncestor)
-            XCTAssertGreaterThan(nativeToolbar.alphaValue, 0)
+            let homeButtons = try XCTUnwrap(groups(in: host).first)
+            XCTAssertEqual(groups(in: host).count, 1, "Home has one fixed header, without a reading overlay")
+            XCTAssertEqual(homeButtons.convert(homeButtons.bounds, to: host).minX, 16, accuracy: 1)
+            XCTAssertTrue(try XCTUnwrap(window.toolbar).isVisible,
+                          "Keep the installed native layout while its chrome is hidden")
+            if let nativeToolbar = toolbar(in: try XCTUnwrap(host.superview)) {
+                XCTAssertTrue(nativeToolbar.isHiddenOrHasHiddenAncestor || nativeToolbar.alphaValue == 0)
+            }
             XCTAssertEqual(nativeButtons.count, 3)
             for button in nativeButtons {
-                XCTAssertFalse(button.isHiddenOrHasHiddenAncestor)
+                XCTAssertTrue(button.isHiddenOrHasHiddenAncestor || button.superview?.alphaValue == 0)
                 XCTAssertEqual(button.alphaValue, 1)
                 XCTAssertTrue(button.isEnabled)
             }
             XCTAssertTrue(window.validateUserInterfaceItem(NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")))
         }
         try await settle()
-        try assertNativeChrome()
+        try assertHomeChrome()
         state.busy = true
         try await settle()
-        try assertNativeChrome()
+        try assertHomeChrome()
         state.busy = false
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/welcome-reading-boundary.txt"), content: .text("Reading content."))
         try await settle()
@@ -70,7 +74,7 @@ import SumraCore
         let deadline = Date().addingTimeInterval(2)
         while state.hasDocument, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
         try await settle()
-        try assertNativeChrome()
+        try assertHomeChrome()
         XCTAssertFalse(window.isKeyWindow)
     }
 
@@ -214,8 +218,8 @@ import SumraCore
                 return frame
             }
             let mediumFrame = frameInHost()
-            XCTAssertEqual(mediumFrame.minY + 16, 48, accuracy: 1,
-                           "Medium's page margin and outer clearance together leave only a 2-point gap below the 46-point toolbar")
+            XCTAssertEqual(mediumFrame.minY + 16, 54, accuracy: 1,
+                           "Medium's page margin and outer clearance together leave a 2-point gap below the inset toolbar")
             XCTAssertEqual(host.bounds.height - mediumFrame.maxY + 16, 34, accuracy: 1,
                            "The progress bar must not add a second full page margin")
             state.toolbarHoverVisible = true; state.toolbarHoverOpacity = 1
@@ -225,13 +229,13 @@ import SumraCore
             state.applyMarginPreset(.wide)
             try await settle()
             let wideFrame = frameInHost()
-            XCTAssertEqual(wideFrame.minY + 24, 56, accuracy: 1,
+            XCTAssertEqual(wideFrame.minY + 24, 62, accuracy: 1,
                            "Wide must reserve the toolbar and a small gap once, not stack both margins")
             XCTAssertEqual(host.bounds.height - wideFrame.maxY + 24, 40, accuracy: 1)
             state.pageMargins = nil
             try await settle()
             let publisherFrame = frameInHost()
-            XCTAssertEqual(publisherFrame.minY, 56, accuracy: 1,
+            XCTAssertEqual(publisherFrame.minY, 62, accuracy: 1,
                            "Unknown publisher margins must not be inferred from the legacy scalar")
             XCTAssertEqual(host.bounds.height - publisherFrame.maxY, 40, accuracy: 1)
             state.applyMarginPreset(.medium)

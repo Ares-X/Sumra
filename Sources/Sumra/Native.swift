@@ -50,12 +50,13 @@ struct NativePassage: Codable, Hashable {
     let offsetX: Double, offsetY: Double
     let sourceRevision: String, styleSignature: String
     let chapter: Int
+    let markdownSections: Int?
 
-    init(source: NativeSourceAnchor, offsetX: Double, offsetY: Double, sourceRevision: String, styleSignature: String, chapter: Int = 0) {
+    init(source: NativeSourceAnchor, offsetX: Double, offsetY: Double, sourceRevision: String, styleSignature: String, chapter: Int = 0, markdownSections: Int? = nil) {
         self.source = source; self.offsetX = offsetX; self.offsetY = offsetY
-        self.sourceRevision = sourceRevision; self.styleSignature = styleSignature; self.chapter = chapter
+        self.sourceRevision = sourceRevision; self.styleSignature = styleSignature; self.chapter = chapter; self.markdownSections = markdownSections
     }
-    private enum CodingKeys: String, CodingKey { case source, offsetX, offsetY, sourceRevision, styleSignature, chapter }
+    private enum CodingKeys: String, CodingKey { case source, offsetX, offsetY, sourceRevision, styleSignature, chapter, markdownSections }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         source = try values.decode(NativeSourceAnchor.self, forKey: .source)
@@ -63,6 +64,7 @@ struct NativePassage: Codable, Hashable {
         sourceRevision = try values.decode(String.self, forKey: .sourceRevision)
         styleSignature = try values.decode(String.self, forKey: .styleSignature)
         chapter = try values.decodeIfPresent(Int.self, forKey: .chapter) ?? 0
+        markdownSections = try values.decodeIfPresent(Int.self, forKey: .markdownSections)
     }
 }
 struct RasterSelection: Decodable {
@@ -509,7 +511,7 @@ final class NativeFile {
                 let chapterPages = try required("lf_chapter_pages", CountChapter.self)
                 let n = Int(chapters(document, &error))
                 guard n > 0 else { throw Self.failure(error, "Cannot read chapters") }
-                var value = ChapterTable(chapters: n)
+                var value = ChapterTable(chapters: n, bookmarkScheme: isMarkdown ? "md2" : nil)
                 for chapter in 0..<n {
                     let pages = Int(chapterPages(document, Int32(chapter), &error))
                     guard pages >= 0 else { throw Self.failure(error, "Cannot count chapter pages") }
@@ -1075,7 +1077,7 @@ final class NativeFile {
         resolvedDestinations.removeAll()
         let n = try chapterCount()
         if chapterTable?.chapterCount == n { chapterTable?.reset() }
-        else { chapterTable = ChapterTable(chapters: n) }
+        else { chapterTable = ChapterTable(chapters: n, bookmarkScheme: isMarkdown ? "md2" : nil) }
         if !lazyChapters || n == 1 { try publishWarmedChapters() }
         else if let chapterTable { layoutChanged?(chapterTable) }
         return self.count
@@ -1520,7 +1522,7 @@ final class NativeFile {
         let source = isMarkdown ? NativeSourceAnchor(node: value.source.node, offset: value.source.offset,
             part: value.source.part, chapter: location.chapter) : value.source
         return NativePassage(source: source, offsetX: Double(point.x-rect.minX), offsetY: Double(point.y-rect.minY),
-                             sourceRevision: sourceRevision, styleSignature: htmlStyleSignature, chapter: location.chapter)
+                             sourceRevision: sourceRevision, styleSignature: htmlStyleSignature, chapter: location.chapter, markdownSections: isMarkdown ? 2 : nil)
     }
     func position(for passage: NativePassage) throws -> ReadingPosition? {
         guard engine == .mupdf, reflowable, !sourceRevision.isEmpty,
@@ -1544,6 +1546,12 @@ final class NativeFile {
             struct Migrated: Decodable { let chapter: Int; let source: NativeSourceAnchor }
             guard let migrated = try decode(migrate(document, anchor.node, anchor.offset, anchor.part, &error), error: error, as: Migrated?.self) else { return nil }
             chapter = migrated.chapter; anchor = migrated.source
+        } else if isMarkdown, passage.markdownSections != 2 {
+            typealias Migrate = @convention(c) (UnsafeMutableRawPointer, Int32, UInt32, UInt32, UInt32, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+            guard let migrate = symbol("lf_markdown_section_anchor", Migrate.self) else { throw ReadError("Incompatible MuPDF engine: lf_markdown_section_anchor") }
+            struct Migrated: Decodable { let chapter: Int; let source: NativeSourceAnchor }
+            guard let migrated = try decode(migrate(document, Int32(anchor.chapter ?? chapter), anchor.node, anchor.offset, anchor.part, &error), error: error, as: Migrated?.self) else { return nil }
+            chapter = migrated.chapter; anchor = migrated.source
         }
         guard let value = try decode(fn(document, Int32(chapter), anchor.node, anchor.offset, anchor.part, &error), error: error, as: Result?.self) else { return nil }
         let location = PageLocation(chapter: chapter, page: value.page)
@@ -1554,7 +1562,7 @@ final class NativeFile {
         // Normalize just those records at their original viewport point.
         let canonical = value.whitespace == true ? try self.passage(page, at: CGPoint(x: x, y: y))
             : NativePassage(source: anchor, offsetX: passage.offsetX, offsetY: passage.offsetY,
-                            sourceRevision: sourceRevision, styleSignature: htmlStyleSignature, chapter: chapter)
+                            sourceRevision: sourceRevision, styleSignature: htmlStyleSignature, chapter: chapter, markdownSections: isMarkdown ? 2 : nil)
         let position = ReadingPosition(page: page, x: x, y: y,
                                        anchor: try self.anchor(page), nativePassage: canonical)
         passagePosition = (passage, location, position)
@@ -1598,14 +1606,43 @@ final class NativeFile {
     }
     func position(for source: NativeSourceAnchor) throws -> ReadingPosition? {
         try position(for: NativePassage(source: source, offsetX: 0, offsetY: 0, sourceRevision: sourceRevision,
-            styleSignature: htmlStyleSignature, chapter: source.chapter ?? 0))
+            styleSignature: htmlStyleSignature, chapter: source.chapter ?? 0, markdownSections: isMarkdown ? 2 : nil))
     }
     func anchor(_ page: Int) throws -> String? {
         guard reflowable else { return nil }
         let location = try preparedLocation(page)
         return chapterTable?.bookmark(location)
     }
+    // Normalize a persisted record before any consumer indexes the current
+    // chapter table. Copy the record so its reading preferences remain intact.
+    func migratedMarkdownPosition(_ position: ReadingPosition) throws -> ReadingPosition {
+        guard isMarkdown else { return position }
+        var migrated = position
+        if let passage = position.nativePassage, passage.markdownSections != 2,
+           let target = try self.position(for: passage) {
+            migrated.page = target.page; migrated.x = target.x; migrated.y = target.y
+            migrated.anchor = target.anchor; migrated.nativePassage = target.nativePassage
+            return migrated
+        }
+        guard let anchor = position.anchor, !anchor.hasPrefix("md2:"),
+              let saved = ChapterTable.bookmarkLocation(anchor) else { return position }
+        typealias Migrate = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, Int32, UnsafeMutablePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+        guard let migrate = symbol("lf_markdown_section_bookmark", Migrate.self) else { throw ReadError("Incompatible MuPDF engine: lf_markdown_section_bookmark") }
+        var error = [CChar](repeating: 0, count: 512)
+        struct Result: Decodable { let chapter: Int; let page: Int; let yOffset: Double }
+        guard let value = try decode(migrate(document, Int32(saved.location.chapter), Int32(saved.location.page), Int32(saved.count), &error), error: error, as: Result?.self) else { return position }
+        let location = PageLocation(chapter: value.chapter, page: value.page)
+        migrated.page = try page(location)
+        migrated.y = (position.y ?? 0) + value.yOffset
+        migrated.anchor = try self.anchor(migrated.page)
+        migrated.nativePassage = try passage(migrated.page, at: CGPoint(x: migrated.x ?? 0, y: migrated.y ?? 0))
+        return migrated
+    }
     func page(for anchor: String) throws -> Int? {
+        if isMarkdown, !anchor.hasPrefix("md2:"), ChapterTable.bookmarkLocation(anchor) != nil {
+            let migrated = try migratedMarkdownPosition(ReadingPosition(anchor: anchor))
+            return migrated.anchor?.hasPrefix("md2:") == true ? migrated.page : nil
+        }
         guard reflowable, let saved = ChapterTable.bookmarkLocation(anchor), let table = chapterTable else { return nil }
         let chapter = min(saved.location.chapter, table.chapterCount - 1)
         try ensureChapter(chapter)

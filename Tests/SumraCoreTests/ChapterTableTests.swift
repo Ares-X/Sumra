@@ -3,6 +3,19 @@ import XCTest
 @testable import SumraCore
 
 final class ChapterTableTests: XCTestCase {
+    func testMarkdownSectionSchemeVersionsEveryBookmarkAndKeepsLegacyDecoding() throws {
+        var table = ChapterTable(chapters: 3, bookmarkScheme: "md2")
+        XCTAssertEqual(table.bookmark(.init(chapter: 1, page: 0)), "md2:1:0")
+        table.setPageCount(chapter: 1, count: 4)
+        XCTAssertEqual(table.bookmark(.init(chapter: 1, page: 2)), "md2:1:2:4")
+        let current = try XCTUnwrap(ChapterTable.bookmarkLocation("md2:1:2:4"))
+        let old = try XCTUnwrap(ChapterTable.bookmarkLocation("1:2:4"))
+        XCTAssertEqual(current.location, old.location); XCTAssertEqual(current.count, old.count)
+        table.reset()
+        XCTAssertEqual(table.bookmark(.init(chapter: 1, page: 0)), "md2:1:0")
+        XCTAssertNil(ChapterTable.bookmarkLocation("md3:1:0"))
+    }
+
     func testChapterProgressRoundTripsEveryPageIncludingAdjacentFloatingPointValues() {
         for counts in [[10, 7, 1, 1], [1, 1, 1, 1], [2, 3, 7, 1, 19], [11, 37, 101, 1009, 1], [1], [101]] {
             var table = ChapterTable(chapters: counts.count)

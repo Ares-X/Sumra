@@ -112,6 +112,8 @@ API char *lf_markdown_search_step(void *session, size_t source_budget, int (*can
 API void lf_markdown_search_drop(void *session);
 API int lf_is_markdown(void *document);
 API char *lf_markdown_legacy_anchor(void *document, uint32_t node, uint32_t offset, uint32_t part, char *error);
+API char *lf_markdown_section_anchor(void *document, int chapter, uint32_t node, uint32_t offset, uint32_t part, char *error);
+API char *lf_markdown_section_bookmark(void *document, int chapter, int page, int count, char *error);
 
 // HTML/Markdown source anchors are session-local flow-node identities. Null JSON
 // means no visible source glyph; PDF and other handlers do not expose anchors.

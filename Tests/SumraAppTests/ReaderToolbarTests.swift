@@ -164,49 +164,6 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertFalse(window.isVisible)
     }
 
-    func testBlankWelcomeTabKeepsNativeTabsVisibleAndInstalled() async throws {
-        _ = NSApplication.shared
-        let states = (0..<2).map { index in
-            let state = ReaderState(recordsHistory: false)
-            if index == 0 { state.document = ReadingDocument(url: URL(fileURLWithPath: "/welcome-tab.txt"), content: .text("book")) }
-            state.immersiveControls = false; state.toolbarDisplayMode = .auto
-            return state
-        }
-        let windows = states.enumerated().map { index, state in
-            let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 600),
-                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
-            window.toolbar = NSToolbar(identifier: "welcome-tab-\(index)")
-            window.contentView = NSHostingView(rootView: ReaderView(state: state))
-            return window
-        }
-        defer {
-            for window in windows { window.contentView = nil; window.close() }
-            for state in states { state.windowClosed() }
-        }
-        windows[0].addTabbedWindow(windows[1], ordered: .above)
-        let group = try XCTUnwrap(windows[0].tabGroup)
-        for index in [1, 0, 1] {
-            let window = windows[index]
-            group.selectedWindow = window
-            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
-            for _ in 0..<10 {
-                window.contentView?.layoutSubtreeIfNeeded()
-                try await Task.sleep(nanoseconds: 10_000_000)
-            }
-            XCTAssertTrue(try XCTUnwrap(window.toolbar).isVisible,
-                          "Welcome keeps native chrome installed so a blank tab remains part of its tab group")
-            XCTAssertTrue(group.isTabBarVisible)
-            if index == 1 {
-                let tabs = window.titlebarAccessoryViewControllers.map(\.view)
-                XCTAssertFalse(tabs.isEmpty)
-                for view in tabs { XCTAssertFalse(view.isHidden); XCTAssertEqual(view.alphaValue, 1, accuracy: 0.001) }
-                XCTAssertEqual(window.titleVisibility, .visible)
-            }
-        }
-        for window in windows { XCTAssertEqual(window.alphaValue, 0); XCTAssertTrue(window.ignoresMouseEvents) }
-    }
-
     func testAutoHideRevealsWindowTitleWithItsControls() throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
@@ -971,6 +928,137 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertTrue(companion.ignoresMouseEvents)
     }
 
+    func testFloatingFullscreenKeepsNativeCompanionHiddenWhenMenuAndFactoryLookupChange() throws {
+        final class FullscreenWindow: NSWindow {
+            var fullscreen = false
+            var factoryClose: NSButton?
+            override var styleMask: NSWindow.StyleMask {
+                get { fullscreen ? super.styleMask.union(.fullScreen) : super.styleMask }
+                set { super.styleMask = newValue }
+            }
+            override func standardWindowButton(_ type: NSWindow.ButtonType) -> NSButton? {
+                if type == .closeButton, let factoryClose { return factoryClose }
+                return super.standardWindowButton(type)
+            }
+        }
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/floating-fullscreen-companion.txt"), content: .text("book"))
+        state.immersiveControls = true; state.toolbarDisplayMode = .shown
+        let parent = FullscreenWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        let companion = NSWindow(contentRect: CGRect(x: 2000, y: 600, width: 700, height: 70),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false; companion.isReleasedWhenClosed = false
+        parent.addChildWindow(companion, ordered: .above)
+        let content = try XCTUnwrap(companion.contentView)
+        let nativeClose = try XCTUnwrap(parent.standardWindowButton(.closeButton))
+        content.addSubview(nativeClose)
+        parent.fullscreen = true
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        parent.contentView?.addSubview(observer)
+        defer {
+            observer.detach(); parent.contentView = nil
+            parent.removeChildWindow(companion); companion.close()
+            parent.fullscreen = false; parent.close(); state.windowClosed()
+        }
+        let frame = parent.frame, layout = parent.contentLayoutRect
+        func checkHidden() {
+            for menuVisible in [false, true, false] {
+                observer.updateChrome(revealingNativeControls: menuVisible)
+                XCTAssertEqual(content.alphaValue, 0, accuracy: 0.001,
+                               "Native fullscreen chrome must not cover floating buttons when the system menu appears")
+                XCTAssertTrue(companion.ignoresMouseEvents,
+                              "An invisible native companion must not intercept the floating controls")
+                XCTAssertEqual(parent.frame, frame); XCTAssertEqual(parent.contentLayoutRect, layout)
+            }
+        }
+        checkHidden()
+        let factory = try XCTUnwrap(NSWindow.standardWindowButton(.closeButton, for: parent.styleMask))
+        factory.target = parent; factory.action = #selector(NSWindow.performClose(_:))
+        parent.contentView?.addSubview(factory)
+        parent.factoryClose = factory
+        checkHidden()
+        XCTAssertFalse(factory.isHiddenOrHasHiddenAncestor)
+        XCTAssertTrue(factory.target === parent)
+        XCTAssertEqual(factory.action, #selector(NSWindow.performClose(_:)))
+        parent.fullscreen = false
+        observer.updateChrome(revealingNativeControls: false)
+        observer.detach()
+        XCTAssertEqual(content.alphaValue, 1, accuracy: 0.001,
+                       "Releasing floating chrome must restore the detached native owner's original appearance")
+        XCTAssertFalse(companion.ignoresMouseEvents)
+    }
+
+    func testFirstFullscreenCompanionIsFoundThroughPreviouslyCapturedNativeControls() throws {
+        final class FullscreenWindow: NSWindow {
+            var fullscreen = false
+            var factoryClose: NSButton?
+            override var styleMask: NSWindow.StyleMask {
+                get { fullscreen ? super.styleMask.union(.fullScreen) : super.styleMask }
+                set { super.styleMask = newValue.subtracting(.fullScreen) }
+            }
+            override func standardWindowButton(_ type: NSWindow.ButtonType) -> NSButton? {
+                if type == .closeButton, let factoryClose { return factoryClose }
+                return super.standardWindowButton(type)
+            }
+        }
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/first-fullscreen-companion.txt"), content: .text("book"))
+        state.immersiveControls = true; state.toolbarDisplayMode = .shown
+        let parent = FullscreenWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false; parent.alphaValue = 0
+        let readerContent = try XCTUnwrap(parent.contentView)
+        let nativeClose = try XCTUnwrap(parent.standardWindowButton(.closeButton))
+        let nativeControls = try XCTUnwrap(nativeClose.superview)
+        let nativeSuperview = try XCTUnwrap(nativeControls.superview)
+        let nativeFrame = nativeControls.frame
+        XCTAssertFalse(nativeControls.isDescendant(of: readerContent))
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        readerContent.addSubview(observer)
+        observer.updateChrome(revealingNativeControls: false)
+        XCTAssertTrue(nativeControls.isHidden,
+                      "Normal-window custom chrome first captures and hides the real native controls")
+
+        // No companion existed when the host captured the native container.
+        // Fullscreen now moves that same public NSView into a new child window,
+        // but standardWindowButton already resolves to a content factory button.
+        let companion = NSWindow(contentRect: CGRect(x: 2000, y: 600, width: 700, height: 70),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        companion.isReleasedWhenClosed = false; companion.alphaValue = 0
+        let companionContent = try XCTUnwrap(companion.contentView)
+        companionContent.addSubview(nativeControls)
+        parent.addChildWindow(companion, ordered: .above)
+        let controls = ReaderFloatingWindowButtons.Buttons(frame: CGRect(x: 16, y: 16, width: 54, height: 20))
+        readerContent.addSubview(controls)
+        parent.factoryClose = try XCTUnwrap(controls.subviews.compactMap { $0 as? NSButton }.first {
+            $0.tag == Int(NSWindow.ButtonType.closeButton.rawValue)
+        })
+        parent.fullscreen = true
+        defer {
+            observer.detach(); controls.removeFromSuperview()
+            parent.factoryClose = nil; parent.fullscreen = false
+            nativeSuperview.addSubview(nativeControls); nativeControls.frame = nativeFrame
+            parent.removeChildWindow(companion); companion.close()
+            parent.contentView = nil; parent.close(); state.windowClosed()
+        }
+        XCTAssertTrue(nativeControls.window === companion)
+        XCTAssertTrue(parent.standardWindowButton(.closeButton)?.window === parent)
+        observer.updateChrome(revealingNativeControls: true)
+        XCTAssertEqual(companionContent.alphaValue, 0, accuracy: 0.001,
+                       "First companion discovery must follow the previously captured native container despite factory lookup")
+        XCTAssertTrue(companion.ignoresMouseEvents,
+                      "A newly discovered companion must not intercept floating controls")
+        XCTAssertEqual(readerContent.alphaValue, 1)
+        XCTAssertFalse(controls.isHiddenOrHasHiddenAncestor)
+        XCTAssertTrue(parent.factoryClose?.target === parent)
+        XCTAssertTrue(parent.factoryClose?.isEnabled == true)
+    }
+
     func testThreeModesControlHoverAndPresentationWithoutChangingTheChoice() throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
@@ -990,7 +1078,8 @@ final class ReaderToolbarTests: XCTestCase {
                 XCTAssertEqual(state.toolbarShown, mode == .shown && !presentation)
                 XCTAssertEqual(state.toolbarOverlaysContent, mode != .shown || presentation)
                 observer.pointerMoved(to: top)
-                XCTAssertEqual(state.toolbarHoverVisible, mode == .auto && !presentation)
+                XCTAssertEqual(state.toolbarHoverVisible,
+                    !presentation && (mode == .auto || (mode == .hidden && state.usesFloatingChrome)))
                 XCTAssertEqual(state.toolbarShown, !presentation && (mode == .auto || mode == .shown))
                 XCTAssertEqual(state.toolbarDisplayMode, mode)
                 observer.pointerMoved(to: NSPoint(x: top.x, y: window.frame.height + 1))
@@ -1144,6 +1233,55 @@ final class ReaderToolbarTests: XCTestCase {
         let detachedFrame = window.frame
         toolbar.isVisible = false
         XCTAssertNotEqual(window.frame, detachedFrame, "Detaching must return native toolbar sizing to its window")
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testHoverHandlesWindowlessMouseMovesInScreenCoordinatesOnlyForTheKeyReader() throws {
+        _ = NSApplication.shared
+        final class DocumentWindow: NSWindow {
+            var receivesPointer = true
+            override var isKeyWindow: Bool { receivesPointer }
+        }
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/toolbar-windowless-mouse.txt"), content: .text("book"))
+        state.immersiveControls = true; state.toolbarDisplayMode = .auto
+        let window = DocumentWindow(contentRect: CGRect(x: 2000, y: 180, width: 640, height: 480),
+            styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let observer = ReaderToolbarWindow.Host()
+        observer.reducedMotion = true; observer.state = state
+        window.contentView?.addSubview(observer)
+        defer {
+            observer.detach(); observer.removeFromSuperview()
+            window.close(); state.windowClosed()
+        }
+        func event(at point: NSPoint) throws -> NSEvent {
+            let screen = window.convertPoint(toScreen: point)
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: screen, modifierFlags: [],
+                timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+            XCTAssertNil(event.window,
+                         "A legitimate mouse-moved event may have no associated NSWindow")
+            XCTAssertEqual(event.locationInWindow, screen,
+                           "For a windowless mouse event AppKit exposes the location in screen coordinates")
+            return event
+        }
+        let top = NSPoint(x: window.frame.width / 2, y: window.frame.height - 20)
+        let body = NSPoint(x: window.frame.width / 2, y: window.frame.height / 2)
+        let outside = NSPoint(x: -12, y: top.y)
+        state.toolbarHoverVisible = false
+        observer.handleMouseMoved(try event(at: top))
+        XCTAssertTrue(state.toolbarHoverVisible,
+                      "Windowless screen movement into the key reader's top strip must reveal controls")
+        observer.handleMouseMoved(try event(at: body))
+        XCTAssertFalse(state.toolbarHoverVisible,
+                       "Windowless screen movement back into the body must dismiss controls")
+        observer.handleMouseMoved(try event(at: outside))
+        XCTAssertFalse(state.toolbarHoverVisible,
+                       "Screen movement outside the reader must not reveal its controls")
+        window.receivesPointer = false
+        observer.handleMouseMoved(try event(at: top))
+        XCTAssertFalse(state.toolbarHoverVisible,
+                       "A reader that is not key must not reveal controls for a windowless event")
         XCTAssertFalse(window.isVisible)
     }
 

@@ -289,6 +289,11 @@ extension ReaderState {
     }
 
     private func bookmarkPrecedes(_ first: ReadingPosition, _ second: ReadingPosition, path: String, semantic: Bool) -> Bool {
+        if Format.detect(path) == .markdown, let a = first.nativePassage, let b = second.nativePassage,
+           a.markdownSections == 2, b.markdownSections == 2,
+           a.sourceRevision == b.sourceRevision, a.styleSignature == b.styleSignature {
+            return a.source < b.source
+        }
         if semantic, let a = first.markdownPassage, let b = second.markdownPassage {
             if a.end != b.end { return !a.end }
             if !a.end {
@@ -309,6 +314,11 @@ extension ReaderState {
         let current = bookmarkLocation(position, path: path)
         if let existing = bookmarks.first(where: {
             guard $0.path == path else { return false }
+            if Format.detect(path) == .markdown, let a = $0.position.nativePassage, let b = position.nativePassage,
+               a.markdownSections == 2, b.markdownSections == 2,
+               a.sourceRevision == b.sourceRevision, a.styleSignature == b.styleSignature {
+                return a.source == b.source
+            }
             if Format.detect(path) == .markdown, let a = $0.position.markdownPassage, let b = position.markdownPassage {
                 return a.end == b.end && (a.end || a.path == b.path && a.offset == b.offset) && bookmarkHorizontal($0.position) == bookmarkHorizontal(position)
             }

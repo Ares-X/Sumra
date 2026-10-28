@@ -809,8 +809,38 @@ actor Pages {
     func position(_ location: PageLocation, x: Double? = nil, y: Double? = nil, passage: NativePassage? = nil, viewport: CGSize? = nil) throws -> ReadingPosition {
         try position(page: index(location), x: x, y: y, passage: passage, viewport: viewport)
     }
+    // The load owner calls this before publishing a deferred Markdown reader.
+    // Each old bookmark keeps its own parsing/typography settings; bookmarks
+    // sharing one style reuse its layout, with no second document or DOM copy.
+    func migratedMarkdownBookmarks(_ positions: [ReadingPosition], fontSize: Double, lineHeight: Double,
+                                   margin: Double, font: String, theme: String, userCSS: String,
+                                   useDocumentCSS: Bool, pageMargins: PageMargins?, textZoom: Double) throws -> [ReadingPosition] {
+        guard isMarkdown, let native = document.native else { return positions }
+        var groups = [(style: RasterStyle, indices: [Int])]()
+        for (index, position) in positions.enumerated() {
+            guard position.markdownRenderer != .compatible, position.markdownPassage == nil else { continue }
+            let oldSource = position.nativePassage.map { $0.markdownSections != 2 } ?? false
+            let oldBookmark = position.anchor.map { !$0.hasPrefix("md2:") && ChapterTable.bookmarkLocation($0) != nil } ?? false
+            guard oldSource || oldBookmark else { continue }
+            let style = RasterStyle(fontSize: position.fontSize ?? fontSize, lineHeight: position.lineHeight ?? lineHeight,
+                margin: position.margin ?? margin, font: position.font ?? font, theme: theme,
+                userCSS: position.userCSS ?? userCSS, useDocumentCSS: position.useDocumentCSS ?? useDocumentCSS,
+                pageMargins: position.margin != nil || position.pageMargins != nil ? position.pageMargins : pageMargins,
+                textZoom: position.zoom ?? textZoom)
+            if let group = groups.firstIndex(where: { $0.style == style }) { groups[group].indices.append(index) }
+            else { groups.append((style, [index])) }
+        }
+        var migrated = positions
+        for group in groups {
+            try Task.checkCancellation()
+            if group.style != document.style { _ = try document.relayout(group.style) }
+            for index in group.indices { migrated[index] = try native.migratedMarkdownPosition(positions[index]) }
+        }
+        return migrated
+    }
     func prepareFacingPages(_ position: ReadingPosition, cover: Bool) throws -> ReadingPosition {
         guard document.native?.reflowable == true else { return position }
+        var position = try document.native?.migratedMarkdownPosition(position) ?? position
         let location = position.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
             ?? chapterLayout.location(page: position.page) ?? PageLocation(page: position.page)
         _ = try index(location)
@@ -826,7 +856,6 @@ actor Pages {
         if let last = table.location(page: row.upperBound - 1), last.chapter > location.chapter {
             try document.native?.ensureChapter(last.chapter)
         }
-        var position = position
         position.page = try index(location)
         position.anchor = chapterLayout.bookmark(location)
         return position
@@ -839,6 +868,9 @@ actor Pages {
             useDocumentCSS: position.useDocumentCSS ?? current.useDocumentCSS,
             pageMargins: position.pageMargins ?? current.pageMargins, textZoom: isMarkdown ? position.zoom ?? current.textZoom : 1, pageSize: current.pageSize)
         guard expected == current else { return nil }
+        let migrated = try document.native?.migratedMarkdownPosition(position) ?? position
+        if migrated != position, let passage = migrated.nativePassage { return passage }
+        let position = migrated
         let page = try position.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }.map(index) ?? position.page
         return try document.native?.passage(page, at: CGPoint(x: position.x ?? 0, y: position.y ?? 0), in: region)
     }
@@ -1852,6 +1884,7 @@ actor Pages {
                              pageMargins: position.margin != nil || position.pageMargins != nil ? position.pageMargins : current.pageMargins,
                              textZoom: isMarkdown ? position.zoom ?? current.textZoom : 1, viewport: viewport)
         }
+        let position = try document.native?.migratedMarkdownPosition(position) ?? position
         if let passage = position.nativePassage, let target = try document.native?.position(for: passage) {
             return try self.position(page: target.page, x: target.x, y: target.y, passage: target.nativePassage, viewport: viewport)
         }
@@ -1914,6 +1947,7 @@ actor Pages {
         NativeReadingPerformance.mark("layout-entry", pages: self, revision: layoutRevision, size: style.pageSize)
         defer { NativeReadingPerformance.mark("layout-return", pages: self, revision: layoutRevision, started: started, size: style.pageSize) }
         if let readingPosition {
+            let readingPosition = try document.native?.migratedMarkdownPosition(readingPosition) ?? readingPosition
             let location = readingPosition.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
                 ?? chapterLayout.location(page: readingPosition.page) ?? PageLocation(page: readingPosition.page)
             _ = try position(location, x: readingPosition.x, y: readingPosition.y, passage: readingPosition.nativePassage, viewport: viewport)
@@ -2769,7 +2803,6 @@ private struct ReaderKeyboardFocus: ViewModifier {
             if let document = state.readerScrollView?.documentView { RasterCanvas.Canvas.recordPosition(in: document) }
         }) else { return }
         selectedMatch = selectedMatch.map(projectSearchMatch)
-        state.selectedSearchTarget = selectedMatch.map { "raster-search:\($0.page):\($0.index)" }
         // Capture this handoff before suspension; a later user scroll must not
         // be replaced when background result remapping finishes.
         replaceScrollRequest(.init(state.currentPosition))
@@ -2778,7 +2811,12 @@ private struct ReaderKeyboardFocus: ViewModifier {
         if !searchMatches.isEmpty, searchProjectedPages.contains(where: { location, page in
             (table.page(for: location) ?? location.page) != page
         }) {
+            // Keep the published selection in the same page-number projection
+            // as the visible results until the actor prepares their replacement.
+            // The publication owner updates both without an intervening await.
             try await publishSearchMatches(nil, mustCommit: false)
+        } else {
+            state.selectedSearchTarget = selectedMatch.map { "raster-search:\($0.page):\($0.index)" }
         }
     }
     private var scrollRequestBinding: Binding<RasterScrollRequest?> {
@@ -3598,7 +3636,10 @@ private struct ReaderKeyboardFocus: ViewModifier {
                         state.updatePosition(restored); replaceScrollRequest(.init(state.currentPosition))
                     } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
                 }
-            } else if let anchor = ReaderState.chapterInput(input, offset: -1) { state.navigate(.restore(.init(anchor: anchor))) }
+            } else if let anchor = ReaderState.chapterInput(input, offset: -1), let saved = ChapterTable.bookmarkLocation(anchor) {
+                let current = state.chapterLayout.map { $0.bookmarkScheme == nil ? anchor : $0.bookmark(saved.location) } ?? anchor
+                state.navigate(.restore(.init(anchor: current)))
+            }
         case .scroll(let direction, let amount, let count):
             guard count != 0 else { return }
             cancelNavigation()
@@ -4761,6 +4802,14 @@ private struct WindowScale: NSViewRepresentable {
         let size = displaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, content: content, limit: state.zoomLimit, uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin, facing: facing, rtl: state.rtl, continuous: continuousReflow)
         RasterCanvas(state: state, pages: pages, page: index, location: location, image: image, imageCollection: imageCollection, readingReady: renderedID == renderID && (image != nil || continuousReflow), pixelWidth: pixelWidth, tileResolution: renderedID == renderID ? tileResolution : 0, pdfStyle: renderedStyle, imageBounds: imageBounds, pageBoxes: pageBoxes, contentBounds: content, pageBounds: bounds, visibleBounds: visible, links: links, pdfAnnotations: pdfAnnotations, pdfLinks: pdfLinks, match: match, rotation: state.rotation, request: $scrollRequest, cancelNavigation: cancelNavigation, displaySize: size, zoomNormalization: ReadingZoom.pageScale(zoom: 1, referenceWidth: Double(referenceWidth ?? 0), pageWidth: Double(state.rotation % 180 == 0 ? visible.width : visible.height), uniform: state.uniformPageWidth && !continuousReflow), focus: index == state.page ? RasterLayout.contentFocus(bounds: visible, content: content, display: size, rotation: state.rotation, mode: state.fit, facing: facing, rtl: state.rtl) : nil, selections: selections, didResizeViewport: didResizeViewport, didPaint: didRender, didPaintMatch: didPaintMatch, viewportTileSize: viewportTileSize, finitePrediction: finitePrediction, predictionID: renderID, renderPredictedPage: finitePrediction.map { prediction in { _ = try await renderResult(prediction, preheating: true) } })
             .frame(width: size.width, height: size.height)
+            .overlay {
+                if image == nil && !continuousReflow {
+                    ProgressView().controlSize(.small)
+                        .accessibilityLabel(L("Loading…"))
+                        .accessibilityIdentifier("reader-page-loading")
+                        .allowsHitTesting(false)
+                }
+            }
             .task(id: state.renderRevision) {
                 guard pages.isPDF else { return }
                 let documentID = state.document?.id, revision = state.renderRevision

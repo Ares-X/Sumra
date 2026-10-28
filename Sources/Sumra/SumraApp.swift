@@ -3,6 +3,9 @@ import SwiftUI
 import SumraCore
 import UniformTypeIdentifiers
 import WebKit
+import OSLog
+
+private let documentOpenLog = Logger(subsystem: "com.leaf.reader", category: "document-open")
 
 struct WindowPayload: Codable, Hashable {
     var id = UUID()
@@ -89,8 +92,8 @@ struct ReaderWindow: View {
     }
 
     private var windowTitle: String {
-        guard let url = state.document?.url ?? state.restoredPayload?.path.map({ URL(fileURLWithPath: $0) }) else { return "Sumra" }
-        return (fullPathTitle ? url.path : url.lastPathComponent) + (pageInTitle && state.count > 0 ? " — " + state.positionLabel : "")
+        guard let path = state.document?.url.path ?? state.restoredPayload?.path ?? payload.path else { return "Sumra" }
+        return (fullPathTitle ? path : URL(fileURLWithPath: path).lastPathComponent) + (pageInTitle && state.count > 0 ? " — " + state.positionLabel : "")
     }
 
     var body: some View {
@@ -103,12 +106,14 @@ struct ReaderWindow: View {
             .frame(minWidth: 560, minHeight: state.hasDocument ? 400 : 500)
             .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
             .navigationTitle(windowTitle)
-            .background(WindowTabs(state: state, tabWith: payload.tabWith, identifier: payload.tabIdentifier) {
+            .background(WindowTabs(state: state, tabWith: payload.tabWith, identifier: payload.tabIdentifier, openingPath: payload.path) {
+                documentOpenLog.notice("scene-ready payload=\(payload.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
                 application.connect(state, canReuse: payload.path == nil)
                 if payload.restoring, let window = state.window { ReaderWindows.restoredWindowReady(window, payload: payload) }
             })
             .focusedSceneObject(state)
             .onAppear {
+                documentOpenLog.notice("scene-appeared payload=\(payload.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
                 state.tabColor = payload.tabColor
                 let opener = openWindow
                 state.createWindow = { [opener] in opener(id: "reader", value: $0) }
@@ -161,10 +166,11 @@ struct ReaderWindow: View {
     }
 }
 
-private struct WindowTabs: NSViewRepresentable {
+struct WindowTabs: NSViewRepresentable {
     @ObservedObject var state: ReaderState
     let tabWith: Int?
     let identifier: String?
+    let openingPath: String?
     let onWindowReady: () -> Void
 
     func makeNSView(context: Context) -> HostView {
@@ -172,12 +178,14 @@ private struct WindowTabs: NSViewRepresentable {
         view.state = state
         view.tabWith = tabWith
         view.groupIdentifier = identifier
+        view.openingPath = openingPath
         view.onWindowReady = onWindowReady
         return view
     }
 
     func updateNSView(_ view: HostView, context: Context) {
         view.state = state
+        view.openingPath = openingPath
         view.onWindowReady = onWindowReady
         view.updateDocumentProperties()
     }
@@ -187,12 +195,17 @@ private struct WindowTabs: NSViewRepresentable {
         weak var state: ReaderState?
         var tabWith: Int?
         var groupIdentifier: String?
+        var openingPath: String?
         var onWindowReady: (() -> Void)?
         private var closeGuard: ReaderCloseGuard?
         private weak var guardedWindow: NSWindow?
-
         func updateDocumentProperties() {
-            window?.representedURL = state?.document?.url
+            guard let window else { return }
+            window.representedURL = state?.document?.url
+            closeGuard?.openingPath = openingPath
+            let home = closeGuard?.isHome == true
+            window.tabbingMode = home || UserDefaults.standard.bool(forKey: "disableTabs") ? .disallowed : .preferred
+            if home { window.tabGroup?.removeWindow(window) }
         }
 
 
@@ -218,12 +231,20 @@ private struct WindowTabs: NSViewRepresentable {
             updateDocumentProperties()
             state?.applyTabColor()
             window.tabbingIdentifier = groupIdentifier ?? "SumraReader"
-            window.tabbingMode = UserDefaults.standard.bool(forKey: "disableTabs") ? .disallowed : .preferred
-            if let tabWith, let parent = ReaderWindows.states.compactMap(\.window).first(where: { $0.windowNumber == tabWith }), parent !== window {
+            let parent: NSWindow?
+            if closeGuard?.isHome == true { parent = nil }
+            else if let tabWith, let target = ReaderWindows.states.compactMap(\.window).first(where: {
+                $0 !== window && $0.windowNumber == tabWith && ($0.delegate as? ReaderCloseGuard)?.isHome != true
+            }) {
+                parent = target
+            } else if let groupIdentifier {
+                parent = ReaderWindows.states.compactMap(\.window).first {
+                    $0 !== window && $0.tabbingIdentifier == groupIdentifier && ($0.delegate as? ReaderCloseGuard)?.isHome != true
+                }
+            } else { parent = nil }
+            if let parent {
                 parent.addTabbedWindow(window, ordered: .above)
                 self.tabWith = nil
-            } else if let groupIdentifier, let parent = ReaderWindows.states.compactMap(\.window).first(where: { $0 !== window && $0.tabbingIdentifier == groupIdentifier }) {
-                parent.addTabbedWindow(window, ordered: .above)
             }
             NotificationCenter.default.addObserver(self, selector: #selector(activated), name: NSWindow.didBecomeKeyNotification, object: window)
             NotificationCenter.default.addObserver(self, selector: #selector(deactivated), name: NSWindow.didResignKeyNotification, object: window)
@@ -258,6 +279,8 @@ private struct WindowTabs: NSViewRepresentable {
 @MainActor
 final class ReaderCloseGuard: NSObject, NSWindowDelegate, NSUserInterfaceValidations {
     weak var state: ReaderState?
+    var openingPath: String?
+    var isHome: Bool { openingPath == nil && state?.document == nil && state?.restoredPayload == nil && state?.busy != true }
     // NSWindow caches forwarded notification selectors while this proxy is installed.
     let previous: NSWindowDelegate?
     private var closePending = false
@@ -268,7 +291,11 @@ final class ReaderCloseGuard: NSObject, NSWindowDelegate, NSUserInterfaceValidat
     // Preserve reader selection commands when a sibling sidebar has focus.
     @objc func copy(_ sender: Any?) { state?.send(.copy) }
     @objc func selectAll(_ sender: Any?) { state?.send(.selectAll) }
+    @objc func newWindowForTab(_ sender: Any?) {
+        if let state { ReaderMenuCommand.newTab.run(state) }
+    }
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(newWindowForTab(_:)) { return ReaderMenuCommand.newTab.enabled(state) }
         if item.action == #selector(copy(_:)) { return ReaderMenuCommand.copy.enabled(state) }
         if item.action == #selector(selectAll(_:)) { return ReaderMenuCommand.selectAll.enabled(state) }
         return (previous as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item) ?? true
@@ -325,13 +352,35 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     func installWindowOpener(_ opener: @escaping (WindowPayload) -> Void) {
         guard createWindow == nil else { return }
         createWindow = opener
+        documentOpenLog.notice("opener-ready")
         // Registration happens while SwiftUI builds commands. Open scenes only
         // after that update, also allowing an existing Home to connect first.
         Task { @MainActor [weak self] in self?.openPendingFiles() }
     }
 
+    func applicationShouldHandleReopen(_ application: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        let readers = ReaderWindows.states.filter { !$0.isWindowClosed }.compactMap(\.window)
+        let front = application.orderedWindows.first { readers.contains($0) }
+            ?? ReaderWindows.mru.lazy.compactMap { number in readers.first { $0.windowNumber == number } }.first
+            ?? readers.first
+        if let front {
+            let selected = front.tabGroup?.selectedWindow
+            let window = selected.flatMap { readers.contains($0) ? $0 : nil } ?? front
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+            return false
+        }
+        // Shared system and auxiliary windows can keep hasVisibleWindows true
+        // after the last reader closes. Only reader ownership counts here.
+        guard let createWindow else { return true }
+        createWindow(WindowPayload())
+        return false
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
-        pendingFiles.append(contentsOf: urls.filter(\.isFileURL))
+        let files = urls.filter(\.isFileURL)
+        pendingFiles.append(contentsOf: files)
+        documentOpenLog.notice("request-received count=\(urls.count, privacy: .public) files=\(files.count, privacy: .public) pending=\(self.pendingFiles.count, privacy: .public) launch-ready=\(self.hasFinishedLaunching, privacy: .public) opener-ready=\(self.createWindow != nil, privacy: .public)")
         for url in urls where url.scheme?.lowercased() == "sumra" {
             do { pendingSyncTeX.append(try SyncTeXForwardRequest(url: url)) }
             catch { presentSyncTeXError(error) }
@@ -342,6 +391,7 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     func connect(_ state: ReaderState, canReuse: Bool) {
         guard state.window != nil else { return }
         if canReuse { emptyReader = state }
+        documentOpenLog.notice("reader-connected window=\(state.window?.windowNumber ?? -1, privacy: .public)")
         openPendingFiles()
     }
 
@@ -349,6 +399,7 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     // so a later empty Home cannot cover an already opened book.
     func finishLaunching() {
         hasFinishedLaunching = true
+        documentOpenLog.notice("launch-finished")
         openPendingFiles()
     }
 
@@ -360,6 +411,7 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
         let urls = pendingFiles
         pendingFiles.removeAll()
         if !urls.isEmpty {
+            documentOpenLog.notice("pending-handoff count=\(urls.count, privacy: .public)")
             ReaderWindows.open(urls, in: emptyReader, createWindow: createWindow)
             emptyReader = nil
         }
@@ -572,9 +624,9 @@ enum ReaderWindows {
     static var states: [ReaderState] { NSApp.windows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state } }
 
     static func open(_ urls: [URL], in state: ReaderState?, recordsHistory: Bool = true,
+                     behavior: DocumentOpenBehavior = .current,
                      createWindow: (WindowPayload) -> Void) {
         let state = state ?? NSApp.orderedWindows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state }.first
-        let behavior = DocumentOpenBehavior.current
         let opensInTabs = behavior == .newTab && !UserDefaults.standard.bool(forKey: "disableTabs")
         let tabWith = opensInTabs ? state?.window?.windowNumber : nil
         let tabIdentifier = opensInTabs && tabWith == nil ? UUID().uuidString : nil
@@ -584,15 +636,26 @@ enum ReaderWindows {
             if index == 0, let state, state.window != nil,
                state.restoredPayload == nil, !state.busy,
                state.document == nil || behavior == .replaceCurrent {
+                documentOpenLog.notice("route-reuse window=\(state.window?.windowNumber ?? -1, privacy: .public)")
                 if recordsHistory { state.open(url) }
                 else { state.openWithoutHistory(url) }
                 state.window?.makeKeyAndOrderFront(nil)
             } else {
                 var payload = WindowPayload(path: url.path, tabWith: tabWith, recordsHistory: recordsHistory ? nil : false)
                 payload.tabIdentifier = tabIdentifier
+                documentOpenLog.notice("route-create payload=\(payload.id.uuidString, privacy: .public)")
                 createWindow(payload)
             }
         }
+    }
+
+    static func showHome(from state: ReaderState) {
+        if let home = states.first(where: {
+            !$0.isWindowClosed && ($0.window?.delegate as? ReaderCloseGuard)?.isHome == true
+        })?.window {
+            if home.isMiniaturized { home.deminiaturize(nil) }
+            home.makeKeyAndOrderFront(nil)
+        } else { state.createWindow?(WindowPayload()) }
     }
 
     static func isTyping(in window: NSWindow, state: ReaderState) -> Bool {
@@ -700,7 +763,7 @@ enum ReaderWindows {
         for state in states {
             guard let window = state.window, !visited.contains(window.windowNumber) else { continue }
             let identifier = "Sumra-" + UUID().uuidString
-            for tab in window.tabbedWindows ?? [window] {
+            for tab in window.tabGroup?.windows ?? [window] {
                 visited.insert(tab.windowNumber)
                 guard let reader = states.first(where: { $0.window === tab }), reader.recordsDocumentHistory, var payload = payload(reader) else { continue }
                 payload.tabIdentifier = identifier
@@ -1353,7 +1416,7 @@ extension ReaderState {
     }
     func selectTab(_ direction: Int, smart: Bool = false) {
         guard let window else { return }
-        let tabs = window.tabbedWindows ?? [window]
+        let tabs = window.tabGroup?.windows ?? [window]
         if smart {
             if ReaderWindows.smartOrder == nil {
                 let numbers = Set(tabs.map(\.windowNumber))
@@ -1379,7 +1442,7 @@ extension ReaderState {
     }
     func closeTabs(_ subset: String) {
         guard let window else { return }
-        let tabs = window.tabbedWindows ?? [window]
+        let tabs = window.tabGroup?.windows ?? [window]
         guard let index = tabs.firstIndex(of: window) else { return }
         let targets = tabs.enumerated().filter { offset, tab in
             subset == "all" || subset == "other" && tab !== window || subset == "left" && offset < index || subset == "right" && offset > index
@@ -1401,7 +1464,7 @@ extension ReaderState {
         name.placeholderString = L("Group name"); alert.accessoryView = name; alert.window.initialFirstResponder = name
         alert.addButton(withTitle: L("Save")); alert.addButton(withTitle: L("Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn, !name.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let group = (window.tabbedWindows ?? [window]).compactMap { tab -> WindowPayload? in
+        let group = (window.tabGroup?.windows ?? [window]).compactMap { tab -> WindowPayload? in
             guard let state = (tab.delegate as? ReaderCloseGuard)?.state, var payload = ReaderWindows.payload(state) else { return nil }
             payload.selected = tab === (window.tabGroup?.selectedWindow ?? window)
             payload.active = payload.selected
