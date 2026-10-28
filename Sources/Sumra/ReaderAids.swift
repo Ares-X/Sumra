@@ -31,7 +31,7 @@ extension ReaderState {
             if response == .alertFirstButtonReturn {
                 let saved = ReaderTheme(id: base.isCustom ? base.id : "custom-" + UUID().uuidString,
                     name: editor.name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
-                    text: editor.text.value!, background: editor.paper.value!, link: editor.link.value!)
+                    text: editor.text.value!, background: editor.paper.value!, link: editor.link.value!, pageDivider: editor.pageDividerValue)
                 try ReaderTheme.saveCustom(saved)
                 setTheme(saved.id)
             } else if response == .alertThirdButtonReturn, base.isCustom {
@@ -827,10 +827,19 @@ final class ReaderThemePreview: NSView {
     override func draw(_ dirtyRect: NSRect) {
         ReaderTheme.color(theme.background).setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
-        (L("Sample text") as NSString).draw(at: NSPoint(x: 16, y: 54), withAttributes: [
-            .font: NSFont.systemFont(ofSize: 20), .foregroundColor: ReaderTheme.color(theme.text)])
-        (L("Link") as NSString).draw(at: NSPoint(x: 16, y: 20), withAttributes: [
-            .font: NSFont.systemFont(ofSize: 14), .foregroundColor: ReaderTheme.color(theme.link), .underlineStyle: 1])
+        if let divider = theme.pageDivider {
+            ReaderTheme.color(divider).setFill()
+            NSRect(x: bounds.midX - 2, y: 8, width: 4, height: bounds.height - 16).fill()
+        }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        for x in [CGFloat(16), bounds.midX + 16] {
+            let width = bounds.width / 2 - 32
+            (L("Sample text") as NSString).draw(in: NSRect(x: x, y: 54, width: width, height: 24), withAttributes: [
+                .font: NSFont.systemFont(ofSize: 16), .foregroundColor: ReaderTheme.color(theme.text), .paragraphStyle: paragraph])
+            (L("Link") as NSString).draw(in: NSRect(x: x, y: 20, width: width, height: 20), withAttributes: [
+                .font: NSFont.systemFont(ofSize: 14), .foregroundColor: ReaderTheme.color(theme.link), .underlineStyle: 1, .paragraphStyle: paragraph])
+        }
     }
 }
 
@@ -925,15 +934,19 @@ private final class ReaderThemeAlert: NSAlert, NSWindowDelegate {
 
 final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
     let name = NSTextField(), text: ReaderThemeColorInput, paper: ReaderThemeColorInput, link: ReaderThemeColorInput
+    let showsPageDivider = NSButton(checkboxWithTitle: L("Page divider"), target: nil, action: nil)
+    let divider: ReaderThemeColorInput
     let preview: ReaderThemePreview
     var onChange: (() -> Void)?
     private let editsName: Bool
-    var isValid: Bool { (!editsName || !name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) && text.value != nil && paper.value != nil && link.value != nil }
+    var pageDividerValue: UInt32? { editsName && showsPageDivider.state == .on ? divider.value : nil }
+    var isValid: Bool { (!editsName || !name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) && text.value != nil && paper.value != nil && link.value != nil && (!editsName || showsPageDivider.state == .off || divider.value != nil) }
     init(theme: ReaderTheme, editsName: Bool = true) {
         self.editsName = editsName
         text = ReaderThemeColorInput(theme.text, label: L("Text"))
         paper = ReaderThemeColorInput(theme.background, label: L("Background"))
         link = ReaderThemeColorInput(theme.link, label: L("Link"))
+        divider = ReaderThemeColorInput(theme.pageDivider ?? theme.text, label: L("Page divider color"))
         preview = ReaderThemePreview(theme)
         super.init(frame: .zero)
         orientation = .vertical; alignment = .leading; spacing = 12
@@ -942,25 +955,40 @@ final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
         name.widthAnchor.constraint(equalToConstant: 230).isActive = true
         var rows: [[NSView]] = [[NSTextField(labelWithString: L("Text")), text],
             [NSTextField(labelWithString: L("Background")), paper], [NSTextField(labelWithString: L("Link")), link]]
-        if editsName { rows.insert([NSTextField(labelWithString: L("Theme name")), name], at: 0) }
+        showsPageDivider.state = theme.pageDivider == nil ? .off : .on
+        showsPageDivider.target = self; showsPageDivider.action = #selector(dividerChanged)
+        showsPageDivider.widthAnchor.constraint(greaterThanOrEqualToConstant: 100).isActive = true
+        showsPageDivider.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        divider.hex.isEnabled = showsPageDivider.state == .on
+        divider.well.isEnabled = showsPageDivider.state == .on
+        if editsName {
+            rows.insert([NSTextField(labelWithString: L("Theme name")), name], at: 0)
+            rows.append([showsPageDivider, divider])
+        }
         let grid = NSGridView(views: rows)
         grid.rowSpacing = 8; grid.columnSpacing = 12
         addArrangedSubview(grid)
         let hint = NSTextField(labelWithString: L("Choose colors or enter six-digit RGB values."))
         hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         addArrangedSubview(hint); addArrangedSubview(preview)
-        for input in [text, paper, link] { input.onChange = { [weak self] in self?.changed() } }
+        for input in [text, paper, link, divider] { input.onChange = { [weak self] in self?.changed() } }
         setFrameSize(fittingSize)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func closeColorPanel() {
-        for input in [text, paper, link] { input.well.deactivate() }
+        for input in [text, paper, link, divider] { input.well.deactivate() }
         if NSColorPanel.sharedColorPanelExists { NSColorPanel.shared.orderOut(nil) }
     }
     func controlTextDidChange(_ obj: Notification) { changed() }
+    @objc private func dividerChanged() {
+        let visible = showsPageDivider.state == .on
+        divider.hex.isEnabled = visible; divider.well.isEnabled = visible
+        if !visible { divider.well.deactivate() }
+        changed()
+    }
     private func changed() {
         if let text = text.value, let background = paper.value, let link = link.value {
-            preview.theme = ReaderTheme(id: "preview", name: name.stringValue, text: text, background: background, link: link)
+            preview.theme = ReaderTheme(id: "preview", name: name.stringValue, text: text, background: background, link: link, pageDivider: editsName ? pageDividerValue : preview.theme.pageDivider)
         }
         onChange?()
     }

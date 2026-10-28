@@ -351,7 +351,7 @@
 "Application Log" = "Журнал програми";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "Застосовує поточні позначки вилучення до вихідної копії, назавжди видаляючи закритий вміст. Відкритий документ не змінюється. Наявне шифрування зберігається.";
 "Apply Margins and CSS" = "Застосувати поля та CSS";
-"Apply affects saved defaults. Current documents retain their reading settings." = "Застосування змінює збережені типові налаштування. Поточні документи зберігають свої налаштування читання.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "Вигляд і компонування читання оновлюються відразу. Параметри відкриття застосовуються до наступного документа.";
 "Ask AI…" = "Запитати ШІ…";
 "Ask Document" = "Запитання до документа";
 "Assistant" = "Помічник";
@@ -727,3 +727,34 @@
 "File:" = "Файл:";
 "Approximate progress by chapter" = "Приблизний прогрес за розділами";
 "Progress in current file" = "Прогрес у поточному файлі";
+
+
+"Floating Reading Controls" = "Плаваючі елементи керування читанням";
+
+
+"Progress Slider Display" = "Відображення повзунка перебігу";
+
+"Open documents in" = "Відкривати документи в";
+
+"Replace Current Document" = "Замінити поточний документ";
+
+"New Tab" = "Нова вкладка";
+
+"Close Tab" = "Закрити вкладку";
+
+"Move Tab to New Window" = "Перемістити вкладку в нове вікно";
+
+"Page divider" = "Роздільник сторінок";
+
+"Page divider color" = "Колір роздільника сторінок";
+
+"Selected" = "Вибрано";
+
+"More" = "Більше";
+
+
+"Open in New Window" = "Відкрити в новому вікні";
+
+"Narrow" = "Вузькі";
+"Medium" = "Середні";
+"Wide" = "Широкі";

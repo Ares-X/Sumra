@@ -375,7 +375,7 @@
 "Application Log" = "ऐप्लिकेशन लॉग";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "मौजूदा संपादन-लोप चिह्न आउटपुट प्रति पर लागू करता है और ढकी हुई सामग्री स्थायी रूप से हटाता है। खुला दस्तावेज़ अपरिवर्तित रहता है। मौजूदा एन्क्रिप्शन बना रहता है।";
 "Apply Margins and CSS" = "हाशिए और CSS लागू करें";
-"Apply affects saved defaults. Current documents retain their reading settings." = "लागू करने से सहेजे गए डिफ़ॉल्ट बदलते हैं। मौजूदा दस्तावेज़ अपनी पठन सेटिंग बनाए रखते हैं।";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "पढ़ने का रूप और लेआउट तुरंत अपडेट होते हैं। खोलने के विकल्प अगले दस्तावेज़ पर लागू होते हैं।";
 "Ask AI…" = "AI से पूछें…";
 "Ask Document" = "दस्तावेज़ से पूछें";
 "Assistant" = "सहायक";
@@ -734,3 +734,34 @@
 "File:" = "फ़ाइल:";
 "Approximate progress by chapter" = "अध्याय के अनुसार अनुमानित प्रगति";
 "Progress in current file" = "वर्तमान फ़ाइल में प्रगति";
+
+
+"Floating Reading Controls" = "फ़्लोटिंग रीडिंग नियंत्रण";
+
+
+"Progress Slider Display" = "प्रगति स्लाइडर का प्रदर्शन";
+
+"Open documents in" = "दस्तावेज़ खोलें";
+
+"Replace Current Document" = "मौजूदा दस्तावेज़ बदलें";
+
+"New Tab" = "नया टैब";
+
+"Close Tab" = "टैब बंद करें";
+
+"Move Tab to New Window" = "टैब को नई विंडो में ले जाएँ";
+
+"Page divider" = "पेज विभाजक";
+
+"Page divider color" = "पेज विभाजक का रंग";
+
+"Selected" = "चयनित";
+
+"More" = "और";
+
+
+"Open in New Window" = "नई विंडो में खोलें";
+
+"Narrow" = "संकीर्ण";
+"Medium" = "मध्यम";
+"Wide" = "चौड़ा";

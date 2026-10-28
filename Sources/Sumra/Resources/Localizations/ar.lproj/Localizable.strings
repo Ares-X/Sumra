@@ -376,7 +376,7 @@
 "Application Log" = "سجل التطبيق";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "يطبّق علامات التنقيح الحالية على النسخة الناتجة، ويزيل المحتوى المغطى نهائيًا. يبقى المستند المفتوح دون تغيير. يُحافَظ على التشفير الحالي.";
 "Apply Margins and CSS" = "تطبيق الهوامش وCSS";
-"Apply affects saved defaults. Current documents retain their reading settings." = "يؤثر التطبيق في الإعدادات الافتراضية المحفوظة. تحتفظ المستندات الحالية بإعدادات قراءتها.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "يتغير مظهر القراءة وتخطيطها فورًا. تُطبّق خيارات الفتح على المستند التالي.";
 "Ask AI…" = "سؤال الذكاء الاصطناعي…";
 "Ask Document" = "اسأل المستند";
 "Assistant" = "المساعد";
@@ -734,3 +734,34 @@
 "File:" = "الملف:";
 "Approximate progress by chapter" = "التقدّم التقريبي حسب الفصل";
 "Progress in current file" = "التقدّم في الملف الحالي";
+
+
+"Floating Reading Controls" = "عناصر التحكم العائمة للقراءة";
+
+
+"Progress Slider Display" = "عرض شريط التقدم";
+
+"Open documents in" = "فتح المستندات في";
+
+"Replace Current Document" = "استبدال المستند الحالي";
+
+"New Tab" = "علامة تبويب جديدة";
+
+"Close Tab" = "إغلاق علامة التبويب";
+
+"Move Tab to New Window" = "نقل علامة التبويب إلى نافذة جديدة";
+
+"Page divider" = "فاصل الصفحات";
+
+"Page divider color" = "لون فاصل الصفحات";
+
+"Selected" = "محدد";
+
+"More" = "المزيد";
+
+
+"Open in New Window" = "فتح في نافذة جديدة";
+
+"Narrow" = "ضيّق";
+"Medium" = "متوسط";
+"Wide" = "واسع";

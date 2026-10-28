@@ -609,6 +609,9 @@
         const dark = theme === 'dark' || theme === 'system' && scheme.matches
         const padding = margins.length === 4 ? margins.map(value => `${value * 96 / 72}px`).join(' ') : `${margin}px`
         const gap = margins.length === 4 ? (margins[1] + margins[3]) * 96 / 72 : Number(margin) * 2
+        const rootMargins = margins.length === 4 ? `@media screen{
+            html,body{margin:0!important;padding:0!important;min-width:0!important;width:auto!important;max-width:none!important}
+            body{box-sizing:border-box!important;padding:${padding}!important}}` : ''
         // CHM topics retain the author's CSS. Plain-text topics have no author
         // typography, so use the same readable text settings as other books.
         const plainCHM = config.chm && document.contentType === 'text/plain'
@@ -631,7 +634,7 @@
                 direction:${rtl ? 'rtl' : 'ltr'}!important;overflow:visible!important}
             body>*{direction:${documentDirection}}img,svg,video,iframe{max-width:100%}}
             ` : ''
-        const css = `${layout}\n${columns}
+        const css = `${layout}\n${rootMargins}\n${columns}
             ::highlight(sumra-speech){background:#ffd54f;color:#000}
             ${document.contentType === 'text/plain' ? `pre{box-sizing:border-box;max-width:100%;margin:0;
                 font-family:inherit!important;font-size:inherit!important;line-height:inherit!important;

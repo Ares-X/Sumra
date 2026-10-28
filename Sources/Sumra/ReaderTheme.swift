@@ -7,16 +7,47 @@ import SumraCore
 struct ReaderTheme: Identifiable, Codable, Equatable {
     let id: String, name: String
     let text: UInt32, background: UInt32, link: UInt32
+    let pageDivider: UInt32?
+
+    init(id: String, name: String, text: UInt32, background: UInt32, link: UInt32, pageDivider: UInt32? = nil) {
+        self.id = id; self.name = name; self.text = text; self.background = background; self.link = link
+        self.pageDivider = pageDivider
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, text, background, link, pageDivider }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        text = try values.decode(UInt32.self, forKey: .text)
+        background = try values.decode(UInt32.self, forKey: .background)
+        link = try values.decode(UInt32.self, forKey: .link)
+        // Old palettes used the viewport color in the four-point page gap.
+        if values.contains(.pageDivider) { pageDivider = try values.decodeIfPresent(UInt32.self, forKey: .pageDivider) }
+        else {
+            let palette = Self(id: id, name: name, text: text, background: background, link: link)
+            pageDivider = palette.dark ? 0x0f0f0f : 0xffffff
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id); try values.encode(name, forKey: .name)
+        try values.encode(text, forKey: .text); try values.encode(background, forKey: .background); try values.encode(link, forKey: .link)
+        // Explicit null means hidden; omitting the key identifies an old palette.
+        try values.encode(pageDivider, forKey: .pageDivider)
+    }
     static let builtins: [Self] = [
         .init(id: "light", name: "Light", text: 0x000000, background: 0xffffff, link: 0x0020a0),
-        .init(id: "light-warm", name: "Light Warm", text: 0x333333, background: 0xebe6da, link: 0x0020a0),
-        .init(id: "dark", name: "Dark", text: 0xF9FAFB, background: 0x000000, link: 0x9CA3AF),
-        .init(id: "dracula", name: "Dracula", text: 0xf8f8f2, background: 0x282a36, link: 0x8be9fd),
-        .init(id: "gruvbox", name: "Gruvbox", text: 0xebdbb2, background: 0x282828, link: 0x83a598),
+        .init(id: "light-warm", name: "Light Warm", text: 0x333333, background: 0xebe6da, link: 0x0020a0, pageDivider: 0xffffff),
+        .init(id: "dark", name: "Dark", text: 0xF9FAFB, background: 0x000000, link: 0x9CA3AF, pageDivider: 0x0f0f0f),
+        .init(id: "dracula", name: "Dracula", text: 0xf8f8f2, background: 0x282a36, link: 0x8be9fd, pageDivider: 0x0f0f0f),
+        .init(id: "gruvbox", name: "Gruvbox", text: 0xebdbb2, background: 0x282828, link: 0x83a598, pageDivider: 0x0f0f0f),
     ]
 
     // Retain saved preference IDs without offering retired presets.
-    private static let legacy: [Self] = [
+    private static let legacy: [Self] = ([
         .init(id: "dark-from-3-5", name: "Dark from 3.5", text: 0xbac9d0, background: 0x263238, link: 0x8aa3b0),
         .init(id: "charcoal", name: "Charcoal", text: 0xffffff, background: 0x2d2d30, link: 0x9999a0),
         .init(id: "solarized-light", name: "Solarized Light", text: 0x212323, background: 0xfdf6e3, link: 0x268bd2),
@@ -34,14 +65,17 @@ struct ReaderTheme: Identifiable, Codable, Equatable {
         .init(id: "night-owl", name: "Night Owl", text: 0xd6deeb, background: 0x011627, link: 0x82aaff),
         .init(id: "ayu", name: "Ayu", text: 0xbfbdb6, background: 0x0b0e14, link: 0x59c2ff),
         .init(id: "palenight", name: "Palenight", text: 0xa6accd, background: 0x292d3e, link: 0x82aaff),
-    ]
+    ] as [Self]).map { Self(id: $0.id, name: $0.name, text: $0.text, background: $0.background, link: $0.link, pageDivider: $0.dark ? 0x0f0f0f : 0xffffff) }
 
     private static let customDefaultsKey = "customThemes"
 
     static var all: [Self] { builtins + custom() }
     static var system: Self {
         let base = builtins[NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? 2 : 0]
-        return .init(id: "system", name: "System", text: base.text, background: base.background, link: base.link)
+        return .init(id: "system", name: "System", text: base.text, background: base.background, link: base.link, pageDivider: base.pageDivider)
+    }
+    @MainActor static func applyAppearance(_ id: String) {
+        NSApplication.shared.appearance = id == "system" ? nil : NSAppearance(named: (resolve(id) ?? builtins[0]).dark ? .darkAqua : .aqua)
     }
     static func choices(selected id: String) -> [Self] {
         var themes = [system] + all
@@ -67,6 +101,7 @@ struct ReaderTheme: Identifiable, Codable, Equatable {
             guard theme.isCustom, theme.id.count > "custom-".count,
                   !theme.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   theme.text <= 0xffffff, theme.background <= 0xffffff, theme.link <= 0xffffff,
+                  theme.pageDivider.map({ $0 <= 0xffffff }) ?? true,
                   ids.insert(theme.id).inserted else { throw CustomThemeError.invalidPalette }
         }
     }

@@ -375,7 +375,7 @@
 "Application Log" = "บันทึกแอปพลิเคชัน";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "ใช้เครื่องหมายปกปิดปัจจุบันกับสำเนาผลลัพธ์ โดยลบเนื้อหาที่ครอบคลุมอย่างถาวร เอกสารที่เปิดอยู่ไม่เปลี่ยนแปลง และคงการเข้ารหัสเดิมไว้";
 "Apply Margins and CSS" = "ใช้ระยะขอบและ CSS";
-"Apply affects saved defaults. Current documents retain their reading settings." = "การใช้จะเปลี่ยนค่าเริ่มต้นที่บันทึกไว้ เอกสารปัจจุบันจะคงการตั้งค่าการอ่านของตนไว้";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "รูปลักษณ์และเค้าโครงการอ่านจะอัปเดตทันที ส่วนตัวเลือกการเปิดจะมีผลกับเอกสารถัดไป";
 "Ask AI…" = "ถาม AI…";
 "Ask Document" = "ถามเกี่ยวกับเอกสาร";
 "Assistant" = "ผู้ช่วย";
@@ -734,3 +734,34 @@
 "File:" = "ไฟล์:";
 "Approximate progress by chapter" = "ความคืบหน้าโดยประมาณตามบท";
 "Progress in current file" = "ความคืบหน้าในไฟล์ปัจจุบัน";
+
+
+"Floating Reading Controls" = "ตัวควบคุมการอ่านแบบลอย";
+
+
+"Progress Slider Display" = "การแสดงแถบเลื่อนความคืบหน้า";
+
+"Open documents in" = "เปิดเอกสารใน";
+
+"Replace Current Document" = "แทนที่เอกสารปัจจุบัน";
+
+"New Tab" = "แท็บใหม่";
+
+"Close Tab" = "ปิดแท็บ";
+
+"Move Tab to New Window" = "ย้ายแท็บไปหน้าต่างใหม่";
+
+"Page divider" = "ตัวแบ่งหน้า";
+
+"Page divider color" = "สีตัวแบ่งหน้า";
+
+"Selected" = "เลือกแล้ว";
+
+"More" = "เพิ่มเติม";
+
+
+"Open in New Window" = "เปิดในหน้าต่างใหม่";
+
+"Narrow" = "แคบ";
+"Medium" = "ปานกลาง";
+"Wide" = "กว้าง";

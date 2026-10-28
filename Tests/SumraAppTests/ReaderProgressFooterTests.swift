@@ -7,6 +7,132 @@ import XCTest
 @testable import Sumra
 
 final class ReaderProgressFooterTests: XCTestCase {
+    func testSpreadSliderStepsMoveBetweenRowsIncludingTheReported453PageTail() {
+        for cover in [false, true] {
+            for count in [2, 3, 453] {
+              for landscape in [Set<Int>(), Set([1, 2, 5])] {
+                let rows = PageRows.ranges(count: count, spread: true, cover: cover, landscape: landscape)
+                for (offset, row) in rows.enumerated() {
+                    let progress = ReaderProgress(position: .pages(row.lowerBound, count), spread: true, cover: cover, landscape: landscape)
+                    XCTAssertNil(progress.action(at: progress.value))
+                    if offset == rows.count - 1 { XCTAssertEqual(progress.value, 1) }
+                    if offset > 0 {
+                        XCTAssertEqual(progress.action(at: max(0, progress.value - progress.backwardStep)), .page(rows[offset - 1].lowerBound))
+                    }
+                    if offset + 1 < rows.count {
+                        XCTAssertEqual(progress.action(at: min(1, progress.value + progress.step)), .page(rows[offset + 1].lowerBound))
+                    }
+                }
+              }
+            }
+        }
+    }
+
+    @MainActor
+    func testFinalPairedSpreadReachesEndWithoutMovingItsLeadingPage() throws {
+        let state = ReaderState(recordsHistory: false)
+        defer { state.windowClosed() }
+        state.document = try nativePDFReadingFixture(pageCount: 3)
+        state.count = 3; state.page = 1; state.spread = true; state.cover = true
+        state.flow = "paged"; state.presentation = false
+        state.reflowable = true
+        var table = ChapterTable(chapters: 1)
+        table.setPageCount(chapter: 0, count: 3)
+        state.chapterLayout = table
+        XCTAssertEqual(state.visiblePages, 1..<3)
+        XCTAssertFalse(state.canGoForward)
+        let progress = state.readingProgress
+        XCTAssertEqual(progress.value, 1)
+        XCTAssertEqual(progress.percentage(), "100%")
+        XCTAssertTrue(progress.label().contains("2 / 3"), "The label retains the leading page")
+        XCTAssertNil(progress.action(at: progress.value), "Grabbing the completed slider must preserve the current spread")
+        XCTAssertEqual(progress.label(at: progress.value), progress.label())
+        XCTAssertNil(progress.action(at: 0.5), "Both pages of the current spread are already visible")
+        XCTAssertEqual(progress.percentage(at: 0.5), "100%", "Preview and committed spread use the same completion")
+        XCTAssertEqual(progress.action(at: 0), .page(0))
+        XCTAssertEqual(progress.action(at: progress.value - progress.backwardStep), .page(0), "Left arrow must leave the final spread")
+        state.spread = false
+        XCTAssertEqual(state.readingProgress.value, 0.5)
+        XCTAssertEqual(state.readingProgress.action(at: 1), .page(2))
+    }
+
+    @MainActor
+    func testPairedSliderDragAndKeyboardPreserveCompletedSpreadAndReachBothEnds() async throws {
+        _ = NSApplication.shared
+        func slider(in view: NSView) -> ReaderProgressSliderControl? {
+            if let slider = view as? ReaderProgressSliderControl { return slider }
+            return view.subviews.lazy.compactMap { slider(in: $0) }.first
+        }
+        for reflowable in [false, true] {
+            let state = ReaderState(recordsHistory: false)
+            state.document = try nativePDFReadingFixture(pageCount: 3)
+            state.count = 3; state.page = 1; state.spread = true; state.cover = true
+            state.flow = "paged"; state.presentation = false; state.reflowable = reflowable
+            let host = NSHostingView(rootView: ReaderProgressFooter(state: state))
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: ReaderProgressFooter.height),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            defer { state.windowClosed(); window.contentView = nil; window.close() }
+            func settle() async throws {
+                try await Task.sleep(nanoseconds: 10_000_000)
+                host.layoutSubtreeIfNeeded()
+            }
+            func key(_ code: UInt16) throws -> NSEvent {
+                try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
+            }
+            try await settle()
+            let control = try XCTUnwrap(slider(in: host)), original = state.currentPosition, revision = state.command.revision
+            XCTAssertEqual(control.doubleValue, 1)
+            control.began?(); try await settle(); control.ended?(); try await settle()
+            XCTAssertEqual(state.currentPosition, original)
+            XCTAssertEqual(state.command.revision, revision)
+            XCTAssertFalse(state.canNavigateBack)
+            func navigate(_ code: UInt16, to page: Int) async throws {
+                let before = state.command.revision
+                control.keyDown(with: try key(code))
+                XCTAssertEqual(state.command.revision, before + 1, "Each key must issue a new command")
+                XCTAssertEqual(state.command.action, .page(page))
+                // A footer-only host has no renderer to apply and acknowledge
+                // navigation. Complete that handoff before sending the next key.
+                state.updatePosition(.init(page: page))
+                state.didHandleCommand(state.command.revision)
+                try await settle()
+                XCTAssertEqual(control.doubleValue, page == 0 ? 0 : 1)
+            }
+            try await navigate(123, to: 0)
+            try await navigate(124, to: 1)
+            try await navigate(115, to: 0)
+            try await navigate(119, to: 1)
+            try await navigate(115, to: 0)
+        }
+    }
+
+    @MainActor
+    func testLazyFinalSpreadCompletionDoesNotResolveUnreadChapters() throws {
+        let state = ReaderState(recordsHistory: false)
+        defer { state.windowClosed() }
+        state.document = try nativePDFReadingFixture(pageCount: 5)
+        state.reflowable = true; state.spread = true; state.cover = true
+        state.flow = "paged"; state.presentation = false
+        var table = ChapterTable(chapters: 3)
+        table.setPageCount(chapter: 2, count: 3)
+        state.chapterLayout = table; state.count = table.totalPages
+        state.updatePosition(.init(page: 3, anchor: table.bookmark(.init(chapter: 2, page: 1))))
+        let progress = state.readingProgress
+        XCTAssertEqual(progress.value, 1)
+        XCTAssertEqual(progress.percentage(), "≈ 100%")
+        XCTAssertNil(progress.action(at: 1))
+        XCTAssertEqual(progress.label(at: 1), progress.label())
+        XCTAssertFalse(state.chapterLayout!.complete)
+        XCTAssertFalse(state.chapterLayout!.isLaidOut(0))
+        XCTAssertFalse(state.chapterLayout!.isLaidOut(1))
+        state.flow = "continuous"
+        state.scrollProgress.update(0.7)
+        XCTAssertEqual(state.readingProgress.value, 0.7, "Continuous passage progress owns the fraction")
+        XCTAssertEqual(state.readingProgress.action(at: 1), .progress(1))
+    }
+
     @MainActor
     func testNaturalContinuousFooterTracksScrollAndSeeksWithinAndAcrossChapters() async throws {
         _ = NSApplication.shared
@@ -111,6 +237,28 @@ final class ReaderProgressFooterTests: XCTestCase {
                 state.send(.none)
                 try await waitFor { state.command.action == .none && abs(fraction() - expected) < 0.001 }
             }
+            var completedFractions = [Double]()
+            state.navigate(.progress(0.65)) { completedFractions.append(fraction()) }
+            state.send(.none)
+            try await waitFor { state.command.action == .none && completedFractions.count == 1 }
+            XCTAssertEqual(completedFractions[0], 0.65, accuracy: 0.001,
+                           "A seek completes only after the measured viewport publishes its new fraction")
+
+            // Cancellation is queued immediately after command delivery, before
+            // SwiftUI needs to render the request. It must still release the
+            // command queue exactly once rather than depend on onChange.
+            var cancelledCompletions = 0
+            state.navigate(.progress(0.35)) { cancelledCompletions += 1 }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+            }
+            state.send(.none)
+            try await waitFor { state.command.action == .none && cancelledCompletions == 1 }
+            try await Task.sleep(nanoseconds: 20_000_000)
+            XCTAssertEqual(cancelledCompletions, 1)
+
+            state.navigate(.progress(1)); state.send(.none)
+            try await waitFor { state.command.action == .none && abs(fraction() - 1) < 0.001 }
             var restored = state.currentPosition
             restored.scrollFraction = 0
             state.send(.preservePosition(restored)); state.send(.none)
@@ -438,7 +586,7 @@ final class ReaderProgressFooterTests: XCTestCase {
             if let slider = view as? ReaderProgressSliderControl { return slider }
             return view.subviews.lazy.compactMap { slider(in: $0) }.first
         }
-        for width: CGFloat in [560, 1000] {
+        for width: CGFloat in [480, 560, 1000] {
             let state = ReaderState(recordsHistory: false)
             state.document = try nativePDFReadingFixture(pageCount: 12); state.count = 12
             let host = NSHostingView(rootView: ReaderProgressFooter(state: state))
@@ -455,7 +603,8 @@ final class ReaderProgressFooterTests: XCTestCase {
             try await settle()
             let control = try XCTUnwrap(slider(in: host))
             let original = control.convert(control.bounds, to: host)
-            XCTAssertGreaterThan(original.width, 80)
+            XCTAssertGreaterThanOrEqual(original.width, 80)
+            XCTAssertEqual(original.midX, host.bounds.midX, accuracy: 0.5, "The slider itself is centered independently of its unequal labels")
             func assertFrame(line: UInt = #line) {
                 let current = control.convert(control.bounds, to: host)
                 XCTAssertEqual(current.minX, original.minX, accuracy: 0.01, "width=\(width)", line: line)
@@ -484,6 +633,70 @@ final class ReaderProgressFooterTests: XCTestCase {
     }
 
     @MainActor
+    func testFloatingFooterWidensTheTrackAndPinsLabelsToEqualOuterInsets() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "progressDisplayMode")
+        defaults.set(ReaderToolbarDisplayMode.shown.rawValue, forKey: "progressDisplayMode")
+        defer {
+            if let previous { defaults.set(previous, forKey: "progressDisplayMode") }
+            else { defaults.removeObject(forKey: "progressDisplayMode") }
+        }
+        func slider(in view: NSView) -> ReaderProgressSliderControl? {
+            if let slider = view as? ReaderProgressSliderControl { return slider }
+            return view.subviews.lazy.compactMap { slider(in: $0) }.first
+        }
+        for width: CGFloat in [320, 560, 1000] {
+            let state = ReaderState(recordsHistory: false)
+            state.document = try nativePDFReadingFixture(pageCount: 12); state.count = 12
+            state.theme = "light"
+            let host = NSHostingView(rootView: ReaderProgressFooter(state: state, floating: true).background(Color.white))
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: width, height: 56),
+                styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            defer { state.windowClosed(); window.contentView = nil; window.close() }
+            func settle() async throws {
+                try await Task.sleep(nanoseconds: 10_000_000)
+                host.layoutSubtreeIfNeeded()
+            }
+            try await settle()
+            let control = try XCTUnwrap(slider(in: host))
+            let original = control.convert(control.bounds, to: host)
+            XCTAssertGreaterThanOrEqual(original.width, 80)
+            if width >= 560 { XCTAssertGreaterThan(original.width, 250, "The floating track should use the available middle space") }
+            let cardWidth = min(472, width - 32)
+            let cardLeft = (width - cardWidth) / 2
+            func checkEdges(line: UInt = #line) throws {
+                let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                func hasTextInk(_ x: Int) -> Bool {
+                    (0..<bitmap.pixelsHigh).contains { y in
+                        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+                        return max(color.redComponent, color.greenComponent, color.blueComponent) < 0.6
+                    }
+                }
+                let left = try XCTUnwrap((0..<bitmap.pixelsWide).first(where: hasTextInk))
+                let right = try XCTUnwrap((0..<bitmap.pixelsWide).reversed().first(where: hasTextInk))
+                let scale = CGFloat(bitmap.pixelsWide) / width
+                XCTAssertEqual(CGFloat(left) / scale - cardLeft, 12, accuracy: 2, "Allow glyph side bearings", line: line)
+                XCTAssertEqual(cardLeft + cardWidth - CGFloat(right + 1) / scale, 12, accuracy: 2, "Allow glyph side bearings", line: line)
+                XCTAssertEqual(control.convert(control.bounds, to: host), original, "The track must not move as numbers change", line: line)
+            }
+            for page in [0, 6, 11] {
+                state.page = page; try await settle(); try checkEdges()
+            }
+            let revision = state.command.revision
+            control.began?()
+            for value in [0.0, 0.5, 1.0, 0.0] {
+                control.changed?(value); try await settle(); try checkEdges()
+                XCTAssertEqual(state.command.revision, revision, "Dragging only previews until release")
+            }
+            control.ended?()
+            try await settle(); try checkEdges()
+            XCTAssertEqual(state.command.revision, revision + 1)
+        }
+    }
+
+    @MainActor
     func testFooterAlwaysReservesTheSameCompactHeight() throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
@@ -496,7 +709,38 @@ final class ReaderProgressFooterTests: XCTestCase {
         state.page = 2
         host.layoutSubtreeIfNeeded()
         XCTAssertEqual(host.fittingSize.height, size.height)
-        XCTAssertEqual(size.height, 30)
+        XCTAssertEqual(size.height, 26)
+    }
+
+    @MainActor
+    func testAlwaysHiddenProgressRemovesTheInteractiveSlider() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "progressDisplayMode")
+        let state = ReaderState(recordsHistory: false)
+        state.document = try nativePDFReadingFixture(pageCount: 3); state.count = 3
+        defaults.set(ReaderToolbarDisplayMode.shown.rawValue, forKey: "progressDisplayMode")
+        let host = NSHostingView(rootView: ReaderProgressFooter(state: state))
+        host.frame = CGRect(x: 0, y: 0, width: 560, height: ReaderProgressFooter.height)
+        defer {
+            state.windowClosed()
+            if let previous { defaults.set(previous, forKey: "progressDisplayMode") }
+            else { defaults.removeObject(forKey: "progressDisplayMode") }
+        }
+        func containsSlider(_ view: NSView) -> Bool {
+            view is ReaderProgressSliderControl || view.subviews.contains(where: containsSlider)
+        }
+        func settle() async throws {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            host.layoutSubtreeIfNeeded()
+        }
+        try await settle()
+        XCTAssertTrue(containsSlider(host))
+        defaults.set(ReaderToolbarDisplayMode.hidden.rawValue, forKey: "progressDisplayMode")
+        try await settle()
+        XCTAssertFalse(containsSlider(host), "Always Hide must remove focusable and clickable progress controls")
+        defaults.set(ReaderToolbarDisplayMode.auto.rawValue, forKey: "progressDisplayMode")
+        try await settle()
+        XCTAssertTrue(containsSlider(host), "Auto Hide retains the hover and keyboard reveal control")
     }
 }
 #endif

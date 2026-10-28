@@ -373,7 +373,7 @@
 "Application Log" = "Registo da aplicação";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "Aplica as marcas de ocultação atuais à cópia de saída, removendo permanentemente o conteúdo coberto. O documento aberto permanece inalterado. A cifragem existente é mantida.";
 "Apply Margins and CSS" = "Aplicar margens e CSS";
-"Apply affects saved defaults. Current documents retain their reading settings." = "«Aplicar» altera as predefinições guardadas. Os documentos abertos mantêm as respetivas definições de leitura.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "O aspeto e a disposição da leitura são atualizados de imediato. As opções de abertura aplicam-se ao documento seguinte.";
 "Ask AI…" = "Perguntar à IA…";
 "Ask Document" = "Consultar o documento";
 "Assistant" = "Assistente";
@@ -732,3 +732,34 @@
 "File:" = "Ficheiro:";
 "Approximate progress by chapter" = "Progresso aproximado por capítulo";
 "Progress in current file" = "Progresso no ficheiro atual";
+
+
+"Floating Reading Controls" = "Controlos de leitura flutuantes";
+
+
+"Progress Slider Display" = "Apresentação do cursor de progresso";
+
+"Open documents in" = "Abrir documentos em";
+
+"Replace Current Document" = "Substituir documento atual";
+
+"New Tab" = "Novo separador";
+
+"Close Tab" = "Fechar separador";
+
+"Move Tab to New Window" = "Mover separador para uma nova janela";
+
+"Page divider" = "Separador de páginas";
+
+"Page divider color" = "Cor do separador de páginas";
+
+"Selected" = "Selecionado";
+
+"More" = "Mais";
+
+
+"Open in New Window" = "Abrir numa nova janela";
+
+"Narrow" = "Estreita";
+"Medium" = "Média";
+"Wide" = "Larga";

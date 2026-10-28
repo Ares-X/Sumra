@@ -7,6 +7,108 @@ import SumraCore
 
 @MainActor
 final class ReaderAppearanceControlsTests: XCTestCase {
+    func testCustomizeThemeSavesDividerColorAndCanHideIt() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let keys = ["theme", "lastLightTheme", "lastDarkTheme", "customThemes"]
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        let appearance = NSApp.appearance
+        defer {
+            for (key, value) in saved { defaults.set(value, forKey: key) }
+            NSApp.appearance = appearance
+        }
+        let state = ReaderState(recordsHistory: false)
+        var base = ReaderTheme.builtins[2]
+        for visible in [true, false] {
+            inspectModal { content in
+                let editor = try XCTUnwrap(self.descendants(content, of: ReaderThemeEditorView.self).first)
+                self.assertClickable(editor.showsPageDivider, in: content)
+                XCTAssertEqual(editor.showsPageDivider.state, .on)
+                editor.divider.hex.stringValue = "#123456"
+                editor.divider.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+                if !visible { editor.showsPageDivider.performClick(nil) }
+                XCTAssertEqual(editor.pageDividerValue, visible ? 0x123456 : nil)
+                XCTAssertEqual(editor.preview.theme.pageDivider, visible ? 0x123456 : nil)
+                XCTAssertEqual(editor.divider.hex.isEnabled, visible)
+                XCTAssertEqual(editor.divider.well.isEnabled, visible)
+            }
+            state.editTheme(base)
+            base = try XCTUnwrap(ReaderTheme.resolve(state.theme))
+            XCTAssertEqual(base.pageDivider, visible ? 0x123456 : nil)
+        }
+    }
+
+    func testThemePreviewRendersDividerColorChangesAndHidesItWithoutLosingTextAndLinks() throws {
+        _ = NSApplication.shared
+        let editor = ReaderThemeEditorView(theme: ReaderTheme(id: "custom-preview", name: "Preview",
+            text: 0x000000, background: 0xffffff, link: 0x0000ff, pageDivider: 0xff0000))
+        for divider in [UInt32?(0xff0000), 0x00ff00, nil] {
+            if let divider {
+                editor.divider.hex.stringValue = String(format: "#%06X", divider)
+                editor.divider.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+            } else { editor.showsPageDivider.performClick(nil) }
+            let preview = editor.preview
+            // Render the production view in authored sRGB, independent of the
+            // display profile that AppKit chooses for its caching context.
+            let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+            let context = try XCTUnwrap(CGContext(data: nil, width: Int(preview.bounds.width * 2),
+                height: Int(preview.bounds.height * 2), bitsPerComponent: 8, bytesPerRow: 0,
+                space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.scaleBy(x: 2, y: 2)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            preview.draw(preview.bounds)
+            NSGraphicsContext.restoreGraphicsState()
+            let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+            let scaleX = CGFloat(bitmap.pixelsWide) / preview.bounds.width
+            let scaleY = CGFloat(bitmap.pixelsHigh) / preview.bounds.height
+            func paintedRGB(x: Int, y: Int) -> UInt32 {
+                // colorAt returns a calibrated NSColor even for an sRGB image.
+                // Read the authored sRGB samples without a second conversion.
+                var components = [Int](repeating: 0, count: 4)
+                bitmap.getPixel(&components, atX: x, y: y)
+                return UInt32(components[0]) << 16 | UInt32(components[1]) << 8 | UInt32(components[2])
+            }
+            for y in [12, 48, 84] {
+                let color = paintedRGB(x: Int(preview.bounds.midX * scaleX), y: Int(CGFloat(y) * scaleY))
+                XCTAssertEqual(color, divider ?? 0xffffff,
+                    "The painted spread must show the chosen divider, or uninterrupted paper when hidden")
+            }
+            // Count authored foreground pixels on each page, outside the gap.
+            // Antialiased edges are ignored; full glyph interiors retain RGB.
+            for half in 0..<2 {
+                var textPixels = 0, linkPixels = 0
+                let firstX = Int((CGFloat(half) * preview.bounds.width / 2 + 12) * scaleX)
+                let lastX = Int((CGFloat(half + 1) * preview.bounds.width / 2 - 12) * scaleX)
+                for y in Int(8 * scaleY)..<Int((preview.bounds.height - 8) * scaleY) {
+                    for x in firstX..<lastX {
+                        let color = paintedRGB(x: x, y: y)
+                        if color == 0x000000 { textPixels += 1 }
+                        if color == 0x0000ff { linkPixels += 1 }
+                    }
+                }
+                XCTAssertGreaterThan(textPixels, 10, "Each preview page must retain readable sample text")
+                XCTAssertGreaterThan(linkPixels, 10, "Each preview page must retain the selected link color")
+            }
+        }
+    }
+
+    func testDocumentColorsKeepThreeInputsWhileThemeDividerValidityFollowsItsToggle() {
+        _ = NSApplication.shared
+        let document = ReaderThemeEditorView(theme: ReaderTheme.builtins[0], editsName: false)
+        XCTAssertNil(document.showsPageDivider.superview)
+        XCTAssertNil(document.divider.superview)
+        XCTAssertEqual(descendants(document, of: ReaderThemeColorInput.self).count, 3)
+
+        let theme = ReaderThemeEditorView(theme: ReaderTheme.builtins[2])
+        theme.divider.hex.stringValue = "invalid"
+        theme.divider.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        XCTAssertFalse(theme.isValid)
+        theme.showsPageDivider.performClick(nil)
+        XCTAssertTrue(theme.isValid, "A hidden divider does not require a color")
+        XCTAssertNil(theme.pageDividerValue)
+    }
+
     func testDocumentColorWellOpensTheSystemColorPanelAndClosesWithDialog() {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
@@ -62,7 +164,7 @@ final class ReaderAppearanceControlsTests: XCTestCase {
                 editor.paper.well.activate(true)
                 NSColorPanel.shared.color = ReaderTheme.color(0x945200)
                 XCTAssertEqual(editor.paper.value, 0x945200)
-                let fields = [heading, editor.text.hex, editor.paper.hex, editor.link.hex] + (editsName ? [editor.name] : [])
+                let fields = [heading, editor.text.hex, editor.paper.hex, editor.link.hex] + (editsName ? [editor.name, editor.divider.hex] : [])
                 for field in fields {
                     field.selectText(nil)
                     let fieldEditor = try XCTUnwrap(window.firstResponder as? NSTextView)
@@ -83,7 +185,11 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = ["theme", "lastLightTheme"]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
-        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        let appearance = NSApp.appearance
+        defer {
+            for (key, value) in saved { defaults.set(value, forKey: key) }
+            NSApp.appearance = appearance
+        }
         state.theme = "light"
         inspectModal { content in
             let picker = try XCTUnwrap(self.descendants(content, of: NSPopUpButton.self).first)
@@ -101,7 +207,11 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = ["theme", "lastLightTheme", "lastDarkTheme"]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
-        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        let appearance = NSApp.appearance
+        defer {
+            for (key, value) in saved { defaults.set(value, forKey: key) }
+            NSApp.appearance = appearance
+        }
         let state = ReaderState(recordsHistory: false)
         for id in ["system", "solarized-dark"] {
             state.theme = id
@@ -120,7 +230,11 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = ["theme", "lastLightTheme"]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
-        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        let appearance = NSApp.appearance
+        defer {
+            for (key, value) in saved { defaults.set(value, forKey: key) }
+            NSApp.appearance = appearance
+        }
         let state = ReaderState(recordsHistory: false)
         inspectModal { content in
             let editor = try XCTUnwrap(self.descendants(content, of: ReaderThemeEditorView.self).first)
@@ -199,9 +313,11 @@ final class ReaderAppearanceControlsTests: XCTestCase {
 
     func testDefaultTypographyReflectsSavedFontAndOffersInstalledSupplementalFamilies() async throws {
         _ = NSApplication.shared
-        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "font")
+        let defaults = UserDefaults.standard
+        let keys = ["font", "readingPreferenceRevisions"]
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
         defaults.set("Iowan Old Style", forKey: "font")
-        defer { defaults.set(previous, forKey: "font") }
+        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
         let host = NSHostingView(rootView: SettingsView())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 540),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -334,7 +450,11 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = ["customThemes", "customCommands", "theme", "lastLightTheme", "lastDarkTheme"]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
-        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        let appearance = NSApp.appearance
+        defer {
+            for (key, value) in saved { defaults.set(value, forKey: key) }
+            NSApp.appearance = appearance
+        }
         defaults.removeObject(forKey: "customThemes")
         defaults.removeObject(forKey: "customCommands")
         let state = ReaderState(recordsHistory: false)
@@ -385,7 +505,11 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = ["customThemes", "customCommands", "theme", "lastDarkTheme", "lastLightTheme"]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
-        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        let appearance = NSApp.appearance
+        defer {
+            for (key, value) in saved { defaults.set(value, forKey: key) }
+            NSApp.appearance = appearance
+        }
         let palette = ReaderTheme.makeCustom(name: "Imported Paper", text: 0x222222, background: 0xffffff, link: 0x0055aa)
         let json = String(decoding: try JSONEncoder().encode([palette]), as: UTF8.self)
         defaults.removeObject(forKey: "customThemes")

@@ -122,6 +122,8 @@ struct SumraCommands: Commands {
         CommandGroup(after: .toolbar) {
             buttons([.contents, .thumbnails, .navigateThumbnail, .bookmarks, .bookmarksWindow, .annotations])
             ReaderToolbarDisplayPicker()
+            ReaderProgressDisplayPicker()
+            ReaderImmersiveControlsToggle()
             buttons([.fullscreen, .presentation, .palette, .ai])
             Menu(L("Contents")) {
                 buttons([.contentsSearch])
@@ -158,7 +160,7 @@ struct SumraCommands: Commands {
             Menu(L("Format Defaults")) { buttons([.saveFormatDefaults, .clearFormatDefaults]) }
         }
         CommandMenu(L("Tabs")) {
-            buttons([.duplicateTab, .duplicateWindow, .nextTab, .previousTab, .nextTabSmart, .previousTabSmart, .moveTabLeft, .moveTabRight])
+            buttons([.newTab, .duplicateTab, .duplicateWindow, .nextTab, .previousTab, .nextTabSmart, .previousTabSmart, .moveTabLeft, .moveTabRight])
             Divider()
             buttons([.closeOtherTabs, .closeLeftTabs, .closeRightTabs, .closeAllTabs, .reopenClosed])
             Divider()

@@ -351,7 +351,7 @@
 "Application Log" = "گزارش برنامه";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "علامت‌های حذف محتوای کنونی را روی نسخهٔ خروجی اعمال و محتوای پوشانده‌شده را برای همیشه حذف می‌کند. سند باز تغییری نمی‌کند. رمزگذاری موجود حفظ می‌شود.";
 "Apply Margins and CSS" = "اعمال حاشیه‌ها و CSS";
-"Apply affects saved defaults. Current documents retain their reading settings." = "اعمال، پیش‌فرض‌های ذخیره‌شده را تغییر می‌دهد. سندهای کنونی تنظیمات خواندن خود را نگه می‌دارند.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "ظاهر و چیدمان مطالعه فوراً به‌روز می‌شوند. گزینه‌های باز کردن برای سند بعدی اعمال می‌شوند.";
 "Ask AI…" = "پرسش از هوش مصنوعی…";
 "Ask Document" = "پرسش از سند";
 "Assistant" = "دستیار";
@@ -727,3 +727,34 @@
 "File:" = "پرونده:";
 "Approximate progress by chapter" = "پیشرفت تقریبی بر اساس فصل";
 "Progress in current file" = "پیشرفت در پروندهٔ فعلی";
+
+
+"Floating Reading Controls" = "کنترل‌های شناور مطالعه";
+
+
+"Progress Slider Display" = "نمایش نوار لغزنده پیشرفت";
+
+"Open documents in" = "باز کردن سندها در";
+
+"Replace Current Document" = "جایگزینی سند فعلی";
+
+"New Tab" = "زبانه جدید";
+
+"Close Tab" = "بستن زبانه";
+
+"Move Tab to New Window" = "انتقال زبانه به پنجره جدید";
+
+"Page divider" = "جداکننده صفحه";
+
+"Page divider color" = "رنگ جداکننده صفحه";
+
+"Selected" = "انتخاب‌شده";
+
+"More" = "بیشتر";
+
+
+"Open in New Window" = "باز کردن در پنجره جدید";
+
+"Narrow" = "باریک";
+"Medium" = "متوسط";
+"Wide" = "عریض";

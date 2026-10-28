@@ -214,7 +214,7 @@
 "Shortcut" = "快捷键";
 "Restore Defaults" = "恢复默认设置";
 "Filter setting names" = "筛选设置名称";
-"Apply affects saved defaults. Current documents retain their reading settings." = "应用将更改已保存的默认设置。当前文档仍保留自己的阅读设置。";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "阅读外观与排版会立即更新；打开选项在下次打开文档时生效。";
 "Apply" = "应用";
 "Saved" = "已保存";
 "Import…" = "导入…";
@@ -979,3 +979,32 @@
 "File:" = "文件：";
 "Approximate progress by chapter" = "按章节估算的进度";
 "Progress in current file" = "当前文件的进度";
+
+"Floating Reading Controls" = "浮层阅读控件";
+
+
+"Progress Slider Display" = "阅读进度条显示方式";
+
+"Open documents in" = "打开文档的方式";
+
+"Replace Current Document" = "替换当前文档";
+
+"New Tab" = "新建标签页";
+
+"Close Tab" = "关闭标签页";
+
+"Move Tab to New Window" = "将标签页移至新窗口";
+
+"Page divider" = "页间分隔线";
+
+"Page divider color" = "页间分隔线颜色";
+
+"Selected" = "已选中";
+
+"More" = "更多";
+
+
+"Open in New Window" = "在新窗口中打开";
+
+"Narrow" = "窄";
+"Wide" = "宽";

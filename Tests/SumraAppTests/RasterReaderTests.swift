@@ -394,6 +394,198 @@ final class RasterReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testContinuousSpreadHoverDoesNotInvalidateDividerBackground() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), state = ReaderState(recordsHistory: false)
+        let context = try XCTUnwrap(CGContext(data: nil, width: 200, height: 400, bitsPerComponent: 8,
+            bytesPerRow: 800, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(NSColor.white.cgColor); context.fill(CGRect(x: 0, y: 0, width: 200, height: 400))
+        let image = try XCTUnwrap(NSBitmapImageRep(cgImage: XCTUnwrap(context.makeImage())).representation(using: .png, properties: [:]))
+        for index in 0..<2 { try image.write(to: directory.url.appendingPathComponent("\(index).png")) }
+        let pages = try Pages(directory.url, format: .comic)
+        state.document = ReadingDocument(url: directory.url, content: .pages(pages)); state.count = 2
+        state.flow = "continuous"; state.fit = "actual"; state.zoom = 1; state.spread = true; state.cover = false
+        state.freePan = false; state.uniformPageWidth = false; state.landscapeAsSpread = false; state.automaticLayout = false
+        state.scrollbarMode = "hidden"; state.rotation = 0; state.trimEmptyMargins = false
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
+        func readyPages(in view: NSView) -> Int {
+            if let canvas = view as? RasterCanvas.Canvas { return canvas.readingReady ? 1 : 0 }
+            return view.subviews.reduce(0) { $0+readyPages(in: $1) }
+        }
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            host.layoutSubtreeIfNeeded()
+            if readyPages(in: host) == 2 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        } while Date() < deadline
+        XCTAssertEqual(readyPages(in: host), 2)
+        let document = try XCTUnwrap(state.readerScrollView?.documentView)
+        XCTAssertFalse(window.isVisible, "The unordered test window must retain invalidation until explicitly painted")
+        for hovered in [true, false, true, false] {
+            document.needsDisplay = false
+            state.toolbarHoverVisible = hovered
+            host.layoutSubtreeIfNeeded()
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            host.layoutSubtreeIfNeeded()
+            XCTAssertFalse(document.needsDisplay, "Unchanged divider geometry and color must not invalidate the parent canvas on hover")
+        }
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testFiniteEPUBSpreadResizeKeepsBothPagesAlignedEveryPaint() async throws {
+        try requireMuPDF()
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = try epubFixture(in: directory.url, chapters: 2, paragraphs: 100)
+        try await checkFiniteSpreadResize(input)
+    }
+
+    @MainActor
+    func testOriginalIssue42EPUBSpreadResizeKeepsBothPagesAlignedEveryPaint() async throws {
+        guard let path = ProcessInfo.processInfo.environment["SUMRA_ISSUE42_RESIZE_EPUB"] else {
+            throw XCTSkip("Set SUMRA_ISSUE42_RESIZE_EPUB to misalignedepubsecondroundC.epub")
+        }
+        try requireMuPDF()
+        try await checkFiniteSpreadResize(URL(fileURLWithPath: path))
+    }
+
+    @MainActor
+    func testOriginalAliceCoverLiveResizeKeepsFitPageInCurrentViewport() async throws {
+        guard let path = ProcessInfo.processInfo.environment["SUMRA_LEGACY_TITLE_SAMPLES"] else {
+            throw XCTSkip("Set SUMRA_LEGACY_TITLE_SAMPLES to the original Alice FB2/MOBI directory")
+        }
+        try requireMuPDF()
+        for suffix in ["fb2", "mobi"] {
+            try await checkFiniteSpreadResize(URL(fileURLWithPath: path)
+                .appendingPathComponent("AlicesAdventuresinWonderland_Chapter1."+suffix), cover: true)
+        }
+    }
+
+    @MainActor
+    private func checkFiniteSpreadResize(_ input: URL, cover: Bool = false) async throws {
+        _ = NSApplication.shared
+        let visibleCount = cover ? 1 : 2
+        let state = ReaderState(recordsHistory: false)
+        state.fontSize = 17; state.lineHeight = 1.4; state.margin = 32; state.font = "serif"; state.theme = "light"
+        state.flow = "paged"; state.fit = "page"; state.spread = true; state.cover = cover
+        state.automaticLayout = false; state.freePan = false; state.uniformPageWidth = false
+        state.trimEmptyMargins = false; state.landscapeAsSpread = false; state.rtl = false
+        state.scrollbarMode = "hidden"; state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
+        let pages = try Pages(input, format: .book)
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+            userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 398, height: 600))
+        state.document = ReadingDocument(url: input, content: .pages(pages)); state.reflowable = true
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        let initialBounds = try await pages.bounds(0)
+        // Covers may have a natural SVG aspect ratio while text pages use the
+        // full finite height. Compare each page with its own native layout;
+        // equal heights would reject this valid original EPUB geometry.
+        let reference = try Pages(input, format: .book)
+        _ = try await reference.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+            userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 298, height: 500))
+        _ = try await reference.prepareFacingPages(.init(page: 0), cover: cover)
+        var finalBounds = [Int: CGRect]()
+        for page in 0..<visibleCount { finalBounds[page] = try await reference.bounds(page) }
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages, initialBounds: initialBounds))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close() }
+        func canvases(_ view: NSView) -> [RasterCanvas.Canvas] {
+            (view as? RasterCanvas.Canvas).map { [$0] } ?? view.subviews.flatMap(canvases)
+        }
+        var compareEveryPaint = false
+        var originalBounds = [Int: CGRect]()
+        func matches(_ visible: [RasterCanvas.Canvas], _ expected: [Int: CGRect]) -> Bool {
+            visible.count == visibleCount && visible.allSatisfy { canvas in
+                guard let bounds = expected[canvas.page] else { return false }
+                return abs(canvas.pageBounds.width-bounds.width) < 0.5 && abs(canvas.pageBounds.height-bounds.height) < 0.5
+            }
+        }
+        func paint() {
+            host.layoutSubtreeIfNeeded()
+            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+            let visible = canvases(host).filter { state.visiblePages.contains($0.page) }
+            if compareEveryPaint, visible.count == visibleCount {
+                XCTAssertTrue(matches(visible, originalBounds) || matches(visible, finalBounds),
+                    "Every painted pair must belong entirely to the old or the new native layout: \(visible.map { ($0.page, $0.pageBounds) })")
+                if visibleCount == 2 {
+                    XCTAssertEqual(visible[0].bounds.width, visible[1].bounds.width, accuracy: 0.5,
+                        "These equal-width native pages must resize together")
+                    XCTAssertEqual(visible[0].convert(.zero, to: host).y, visible[1].convert(.zero, to: host).y, accuracy: 0.5)
+                }
+                for canvas in visible {
+                    if let clip = canvas.enclosingScrollView?.contentView {
+                        let viewport = clip.safeAreaRect.size
+                        let slotWidth = visibleCount == 2 ? (viewport.width-4)/2 : viewport.width
+                        let fitScale = min(slotWidth/canvas.pageBounds.width, viewport.height/canvas.pageBounds.height)
+                        let pixel = 1/window.backingScaleFactor
+                        XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width*fitScale, accuracy: pixel,
+                            "Fit Page width must independently fit the current viewport")
+                        XCTAssertEqual(canvas.bounds.height, canvas.pageBounds.height*fitScale, accuracy: pixel,
+                            "Fit Page height must independently fit the current viewport")
+                        let displayed = canvas.convert(canvas.bounds, to: clip)
+                        XCTAssertTrue(clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5).contains(displayed),
+                            "Fit Page must keep the entire source page in the current clip during every painted resize frame: \(displayed), \(clip.safeAreaRect)")
+                    }
+                }
+            }
+        }
+        func wait(_ condition: () async throws -> Bool, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                paint()
+                if try await condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Facing EPUB resize did not settle", line: line)
+            throw CancellationError()
+        }
+        try await wait { canvases(host).filter { state.visiblePages.contains($0.page) && $0.readingReady }.count == visibleCount }
+        let revision = await pages.layoutRevision
+        originalBounds = Dictionary(uniqueKeysWithValues: canvases(host).filter { state.visiblePages.contains($0.page) }.map { ($0.page, $0.pageBounds) })
+        let originalImages = Dictionary(uniqueKeysWithValues: canvases(host).filter { state.visiblePages.contains($0.page) }
+            .compactMap { canvas in canvas.image.map { (canvas.page, $0) } })
+        XCTAssertEqual(originalImages.count, visibleCount)
+        compareEveryPaint = true
+        NotificationCenter.default.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+        for size in [CGSize(width: 740, height: 570), CGSize(width: 600, height: 500), CGSize(width: 900, height: 700), CGSize(width: 600, height: 500)] {
+            window.setContentSize(size)
+            for _ in 0..<5 { paint(); try await Task.sleep(nanoseconds: 10_000_000) }
+            let visible = canvases(host).filter { state.visiblePages.contains($0.page) }
+            XCTAssertTrue(matches(visible, originalBounds), "Dragging changes display fit while preserving the original native page dimensions")
+            for canvas in visible {
+                XCTAssertTrue(canvas.image === originalImages[canvas.page],
+                    "Display fit must scale the existing frozen-layout bitmap during a drag rather than rerasterizing each window size")
+                let slotWidth = visibleCount == 2 ? (size.width-4)/2 : size.width
+                let expectedScale = min(slotWidth/canvas.pageBounds.width, size.height/canvas.pageBounds.height)
+                XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width*expectedScale, accuracy: 0.5,
+                    "Fit Page must use the current viewport rather than its frozen native layout viewport")
+            }
+            let intermediateRevision = await pages.layoutRevision
+            XCTAssertEqual(intermediateRevision, revision)
+        }
+        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        try await wait {
+            let visible = canvases(host).filter { state.visiblePages.contains($0.page) }
+            return matches(visible, finalBounds) && visible.allSatisfy(\.readingReady)
+        }
+        for _ in 0..<5 { paint(); try await Task.sleep(nanoseconds: 10_000_000) }
+        let finalRevision = await pages.layoutRevision
+        XCTAssertEqual(finalRevision, revision+1)
+        for canvas in canvases(host).filter({ state.visiblePages.contains($0.page) }) {
+            XCTAssertFalse(canvas.image === originalImages[canvas.page], "The final native layout must publish a fresh bitmap after the drag")
+            XCTAssertEqual(CGFloat(canvas.pixelWidth), canvas.lastDisplaySize.width*window.backingScaleFactor, accuracy: 1,
+                "The settled bitmap must request the final display resolution")
+        }
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
     func testEPUBUsesTheWindowViewportAndAllReadingModes() async throws {
         try requireMuPDF()
         _ = NSApplication.shared
@@ -795,12 +987,20 @@ final class RasterReaderTests: XCTestCase {
                 RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: page))
             }
             for zoom in [1.2, 0.85, 1.5] {
-                let zoomRevision = state.command.revision + 2
-                state.setZoom(zoom); state.send(.none)
+                let zoomRevision = state.command.revision
+                let canvas = try XCTUnwrap(state.readerFocusView as? RasterCanvas.Canvas)
+                let center = CGPoint(x: clip.safeAreaRect.midX, y: clip.safeAreaRect.midY)
+                let source = canvas.convert(center, from: clip).applying(canvas.pageTransform.inverted())
+                let offset = CGPoint(x: center.x-clip.bounds.minX, y: center.y-clip.bounds.minY)
+                state.setZoom(zoom)
                 paint()
                 try await waitFor {
-                    state.command.revision >= zoomRevision && state.command.action == .none && state.page == page && abs((actualOffset() ?? -1) - 40) < 1 &&
-                    RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: page))
+                    let target = canvas.convert(source.applying(canvas.pageTransform), to: clip)
+                    let expected = clip.constrainBoundsRect(CGRect(origin: CGPoint(x: target.x-offset.x, y: target.y-offset.y), size: clip.bounds.size))
+                    return state.command.revision == zoomRevision && state.command.action == .none && state.page == page &&
+                        abs(Double(canvas.pageTransform.a)-zoom) < 0.001 &&
+                        abs(clip.bounds.minX-expected.minX) < 1 && abs(clip.bounds.minY-expected.minY) < 1 &&
+                        RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: page))
                 }
             }
             NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
@@ -895,7 +1095,7 @@ final class RasterReaderTests: XCTestCase {
         XCTAssertLessThan(actual.x, 0); XCTAssertLessThan(actual.y, 0)
         XCTAssertEqual(state.location.x ?? 0, actual.x, accuracy: 1)
         XCTAssertEqual(state.location.y ?? 0, actual.y, accuracy: 1, "Free pan must preserve the visible outer margin")
-        let restoreRevision = state.command.revision + 3 // Zoom, restore, then this batch's .none.
+        let restoreRevision = state.command.revision + 2 // Restore, then this batch's .none; zoom anchors natively.
         state.freePan = false; state.rtl = true; state.setZoom(2)
         state.send(.restore(.init(page: 0, y: 0))); state.send(.none)
         try await waitFor { state.command.revision >= restoreRevision && state.command.action == .none && state.readerFocusView?.bounds.width == 400 }
@@ -908,11 +1108,22 @@ final class RasterReaderTests: XCTestCase {
         let rtlPage = try XCTUnwrap(state.readerFocusView)
         let rtlOffset = rtlPage.convert(clip.bounds.origin, from: clip).x * 200 / rtlPage.bounds.width
         XCTAssertEqual(state.location.x ?? 0, rtlOffset, accuracy: 1, "RTL must preserve the visible left page as an offset from its logical row start")
-        let zoomRevision = state.command.revision + 2
-        state.setZoom(1.5); state.send(.none)
+        let zoomRevision = state.command.revision
+        let center = CGPoint(x: clip.safeAreaRect.midX, y: clip.safeAreaRect.midY)
+        func centeredCanvas(in view: NSView) -> RasterCanvas.Canvas? {
+            if let canvas = view as? RasterCanvas.Canvas, canvas.bounds.contains(canvas.convert(center, from: clip)) { return canvas }
+            return view.subviews.lazy.compactMap { centeredCanvas(in: $0) }.first
+        }
+        let centerPage = try XCTUnwrap(centeredCanvas(in: host))
+        let source = centerPage.convert(center, from: clip).applying(centerPage.pageTransform.inverted())
+        let offset = CGPoint(x: center.x-clip.bounds.minX, y: center.y-clip.bounds.minY)
+        state.setZoom(1.5)
         try await waitFor {
-            guard state.command.revision >= zoomRevision, state.command.action == .none, let page = state.readerFocusView else { return false }
-            return abs(page.convert(clip.bounds.origin, from: clip).x * 200 / page.bounds.width - rtlOffset) < 1
+            guard state.command.revision == zoomRevision, state.command.action == .none,
+                  abs(Double(centerPage.pageTransform.a)-1.5) < 0.001, centerPage.readingReady else { return false }
+            let target = centerPage.convert(source.applying(centerPage.pageTransform), to: clip)
+            let expected = clip.constrainBoundsRect(CGRect(origin: CGPoint(x: target.x-offset.x, y: target.y-offset.y), size: clip.bounds.size))
+            return abs(clip.bounds.minX-expected.minX) < 1 && abs(clip.bounds.minY-expected.minY) < 1
         }
 
     }

@@ -4,6 +4,29 @@ import XCTest
 @testable import Sumra
 
 final class ReaderThemeTests: XCTestCase {
+    func testCustomPageDividerRoundTripsVisibleAndHiddenAndPreservesOldPalettes() throws {
+        try withDefaults { defaults in
+            let oldPalettes = """
+            [{"id":"custom-old-light","name":"Old light","text":0,"background":16777215,"link":0},
+             {"id":"custom-old-dark","name":"Old dark","text":16777215,"background":0,"link":0}]
+            """
+            let old = try ReaderTheme.decodeCustom(oldPalettes)
+            XCTAssertEqual(old.map(\.pageDivider), [0xffffff, 0x0f0f0f])
+            for divider in [UInt32?(0x123456), nil] {
+                let theme = ReaderTheme(id: "custom-divider", name: "Divider", text: 0, background: 0xffffff, link: 0, pageDivider: divider)
+                try ReaderTheme.saveCustom(theme, defaults: defaults)
+                XCTAssertEqual(ReaderTheme.resolve(theme.id, defaults: defaults), theme)
+                let saved = try XCTUnwrap(defaults.string(forKey: "customThemes"))
+                let entries = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(saved.utf8)) as? [[String: Any]])
+                XCTAssertNotNil(entries[0]["pageDivider"], "Hidden must persist as explicit null, distinct from an old missing key")
+                if divider == nil { XCTAssertTrue(entries[0]["pageDivider"] is NSNull) }
+            }
+            let invalid = ReaderTheme(id: "custom-invalid-divider", name: "Invalid", text: 0, background: 0xffffff, link: 0, pageDivider: 0x1000000)
+            XCTAssertThrowsError(try ReaderTheme.saveCustom(invalid, defaults: defaults))
+            XCTAssertNil(ReaderTheme.resolve(invalid.id, defaults: defaults))
+        }
+    }
+
     func testBuiltinTextAndLinksRemainReadableAtNormalReadingSizes() {
         // WCAG 2.2 SC 1.4.3 uses the authored sRGB colors, before font
         // antialiasing. Custom palettes remain the user's explicit choice.

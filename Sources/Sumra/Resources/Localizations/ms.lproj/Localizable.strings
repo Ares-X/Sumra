@@ -351,7 +351,7 @@
 "Application Log" = "Log Aplikasi";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "Menerapkan tanda pemadaman semasa pada salinan output dan membuang kandungan yang diliputi secara kekal. Dokumen terbuka tidak berubah. Penyulitan sedia ada dikekalkan.";
 "Apply Margins and CSS" = "Terapkan Jidar dan CSS";
-"Apply affects saved defaults. Current documents retain their reading settings." = "Penerapan mengubah lalai tersimpan. Dokumen semasa mengekalkan tetapan bacaannya.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "Penampilan dan susun atur bacaan dikemas kini serta-merta. Pilihan pembukaan digunakan pada dokumen seterusnya.";
 "Ask AI…" = "Tanya AI…";
 "Ask Document" = "Tanya Dokumen";
 "Assistant" = "Pembantu";
@@ -727,3 +727,34 @@
 "File:" = "Fail:";
 "Approximate progress by chapter" = "Anggaran kemajuan mengikut bab";
 "Progress in current file" = "Kemajuan dalam fail semasa";
+
+
+"Floating Reading Controls" = "Kawalan bacaan terapung";
+
+
+"Progress Slider Display" = "Paparan peluncur kemajuan";
+
+"Open documents in" = "Buka dokumen dalam";
+
+"Replace Current Document" = "Gantikan dokumen semasa";
+
+"New Tab" = "Tab baharu";
+
+"Close Tab" = "Tutup tab";
+
+"Move Tab to New Window" = "Alihkan tab ke tetingkap baharu";
+
+"Page divider" = "Pemisah halaman";
+
+"Page divider color" = "Warna pemisah halaman";
+
+"Selected" = "Dipilih";
+
+"More" = "Lagi";
+
+
+"Open in New Window" = "Buka dalam tetingkap baharu";
+
+"Narrow" = "Sempit";
+"Medium" = "Sederhana";
+"Wide" = "Lebar";
