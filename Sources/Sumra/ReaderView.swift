@@ -368,10 +368,6 @@ struct ReaderView: View {
                     else { contentsSidebar }
                 }.frame(minWidth: 180, idealWidth: 220, maxWidth: 360)
                 .focusable(!state.showContents || state.outline.isEmpty || state.outlineBusy).focused($sidebarFocused)
-                .background(GeometryReader { geometry in
-                    // Persist the splitter without feeding its measured width back into this layout.
-                    Color.clear.onChange(of: geometry.size.width) { UserDefaults.standard.set(min(360, max(180, $0)), forKey: "sidebarWidth") }
-                })
                 .background(ReaderSidebarPosition(documentID: state.document?.id).frame(width: 0, height: 0))
                 .modifier(ReaderChromeEntrance())
         }
@@ -701,6 +697,10 @@ private struct ReaderSidebarPosition: NSViewRepresentable {
                                       let pane = split.arrangedSubviews.first(where: { self.isDescendant(of: $0) }) else { return }
                                 self.width = min(360, max(180, pane.frame.width))
                                 self.aiWidth = split.arrangedSubviews.count == 3 ? split.arrangedSubviews.last?.frame.width : nil
+                                // Record the native allocation before publishing
+                                // it, so AppStorage cannot restore a transient
+                                // geometry measurement over the saved width.
+                                UserDefaults.standard.set(Double(self.width), forKey: "sidebarWidth")
                             }
                         }
                         return

@@ -43,6 +43,10 @@ color; disabling the divider leaves uninterrupted paper. Text and links on each
 side use the same palette as the reading canvas.
 
 The six Settings categories use system symbols alongside their translated labels.
+Native sidebar dividers retain their dragged widths across PDF save/reload,
+including an adjacent AI pane. Explicit sidebar-width changes in Advanced
+Settings update the mounted reader immediately; transient layout measurements
+do not replace the saved width.
 
 **Page Margins** offers Narrow (8 pt), Medium (16 pt) and Wide (24 pt)
 presets for reflowable books, plain text and browser documents. Presets set all

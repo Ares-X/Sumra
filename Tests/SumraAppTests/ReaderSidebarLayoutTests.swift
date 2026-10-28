@@ -43,7 +43,18 @@ final class ReaderSidebarLayoutTests: XCTestCase {
     }
 
     @MainActor
-    private func checkSaveReload(initial: CGFloat, dragged: CGFloat, right: Bool, ai: Bool = false) async throws {
+    func testLeftSidebarAppliesExplicitSettingsWhileOpenAndKeepsDraggedWidthAfterSave() async throws {
+        try await checkSaveReload(initial: 220, dragged: 240, right: false, updatedPreference: 280)
+    }
+
+    @MainActor
+    func testRightSidebarAppliesExplicitSettingsBesideAIAndKeepsDraggedWidthAfterSave() async throws {
+        try await checkSaveReload(initial: 220, dragged: 240, right: true, ai: true, updatedPreference: 280)
+    }
+
+    @MainActor
+    private func checkSaveReload(initial: CGFloat, dragged: CGFloat, right: Bool, ai: Bool = false,
+                                 updatedPreference: CGFloat? = nil) async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard
         let keys = ["sidebarWidth", "sidebarRight", "disableHistory"]
@@ -97,6 +108,13 @@ final class ReaderSidebarLayoutTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(sidebarWidth()), initial, accuracy: 2,
                        "The saved sidebar width must still be used when opening a reader")
         try await waitFor { abs(defaults.double(forKey: "sidebarWidth") - Double(initial)) < 2 }
+        if let updatedPreference {
+            let settings = try JSONSerialization.data(withJSONObject: ["sidebarWidth": Double(updatedPreference)])
+            try ReaderPreferences.apply(settings)
+            try await waitFor { abs((sidebarWidth() ?? 0) - updatedPreference) < 2 }
+            XCTAssertEqual(try XCTUnwrap(sidebarWidth()), updatedPreference, accuracy: 2,
+                           "An explicit settings edit must resize an already mounted sidebar")
+        }
         let split = try XCTUnwrap(splits(in: host).first { $0.isVertical && $0.arrangedSubviews.count >= 2 && $0.bounds.width > 800 })
         if ai { print("Split panes: \(split.arrangedSubviews.map { "\(type(of: $0)): \($0.frame)" })") }
         // Exercise AppKit's real divider allocation after the saved position.
