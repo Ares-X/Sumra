@@ -47,6 +47,9 @@ Native sidebar dividers retain their dragged widths across PDF save/reload,
 including an adjacent AI pane. Explicit sidebar-width changes in Advanced
 Settings update the mounted reader immediately; transient layout measurements
 do not replace the saved width.
+The document pane keeps at least 360 pt beside either sidebar. Narrow windows
+temporarily compress the sidebar; widening restores its saved width without
+changing the selected page layout.
 
 **Page Margins** offers Narrow (8 pt), Medium (16 pt) and Wide (24 pt)
 presets for reflowable books, plain text and browser documents. Presets set all
@@ -103,6 +106,11 @@ the Dock. Dragging and keyboard adjustment keep the control visible.
 TXT bookmarks use their existing UTF-16 character anchors to order positions
 within a wrapped source line. Previous/Next Bookmark visits each position and
 wraps in reading order; older line-only bookmarks remain supported.
+Paged Markdown keeps consecutive headings with their first body text. Existing
+reading positions and bookmarks migrate through their original source locations
+and saved typography before the current chapter layout is used. Bookmark titles,
+identities, file access and reading preferences remain intact; different source
+positions on a merged page remain separate bookmarks.
 
 In the compatible browser reader, a new Find starts at the reading viewport in
 the requested direction. Paged and right-to-left layouts use the same source
@@ -152,10 +160,15 @@ or restoring a native toolbar over them. Presentation hides those buttons too.
 Tab switching, batch closing, sessions and named groups read the complete native
 group even when its system tab bar is not shown.
 The floating progress bar is 26 points tall and 6 points from the bottom edge.
-Its capsule is at most 472 points wide, with equal 12-point inner padding and
+Small-book capsules are 472 points wide, with equal 12-point inner padding and
 16-point window gutters in narrow windows. The percentage and page label align
 to the outer ends in stable slots; the slider fills the remaining middle width
 without shifting when the digits change during navigation or drag previews.
+Long page and chapter counters reserve their complete localized label width;
+the capsule grows by that difference when the window permits it. A held drag
+keeps its counter width and track geometry when background chapter pagination
+finishes. Multi-topic CHM progress navigates the whole file sequence; single-file
+browser documents retain within-file scrolling.
 Medium margins reserve a small gap around the floating controls; Narrow allows
 the controls to cover reading content; Wide keeps additional clearance. This
 reservation includes the book's own margin instead of adding a second full

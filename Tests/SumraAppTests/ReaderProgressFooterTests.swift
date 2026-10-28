@@ -292,16 +292,83 @@ final class ReaderProgressFooterTests: XCTestCase {
         XCTAssertTrue(progress.label(at: 0.5).contains("6 / 11"))
     }
 
-    func testSourceLinesAndBrowserFilesKeepTheirCountSemantics() {
+    func testSourceLinesKeepTheirCountSemantics() {
         let lines = ReaderProgress(position: .lines(499, 1000))
         XCTAssertTrue(lines.label().contains("Line:"))
         XCTAssertEqual(lines.action(at: 1), .page(999))
-        let file = ReaderProgress(position: .file(4, 20, 0.25))
+    }
+
+    func testMultiFileProgressNavigatesTheWholeFileSequenceWithoutScrollProgress() {
+        for (count, middle, percent) in [(20, 10, "53%"), (2016, 1008, "50%")] {
+            for scroll in [nil, 0.0, 0.75] as [Double?] {
+                let first = ReaderProgress(position: .file(0, count, scroll))
+                XCTAssertTrue(first.enabled, "A non-scrollable CHM cover must not disable topic navigation")
+                XCTAssertEqual(first.value, 0)
+                XCTAssertEqual(first.percentage(), "0%")
+                XCTAssertTrue(first.label(at: 0).contains("1 / \(count)"))
+                XCTAssertTrue(first.label(at: 0.5).contains("\(middle + 1) / \(count)"))
+                XCTAssertTrue(first.label(at: 1).contains("\(count) / \(count)"))
+                XCTAssertEqual(first.percentage(at: 0.5), percent)
+                XCTAssertEqual(first.percentage(at: 1), "100%")
+                XCTAssertNil(first.action(at: 0))
+                XCTAssertEqual(first.action(at: 0, includingCurrent: true), .page(0))
+                XCTAssertEqual(first.action(at: 0.5), .page(middle))
+                XCTAssertEqual(first.action(at: 1), .page(count - 1))
+                let current = ReaderProgress(position: .file(middle, count, scroll))
+                XCTAssertEqual(current.percentage(), percent)
+                XCTAssertEqual(current.label(at: current.value), current.label())
+                XCTAssertNil(current.action(at: current.value))
+                XCTAssertEqual(current.action(at: current.value, includingCurrent: true), .page(middle))
+                XCTAssertEqual(current.action(at: current.value + current.step), .page(middle + 1))
+                XCTAssertEqual(current.action(at: current.value - current.backwardStep), .page(middle - 1))
+                let last = ReaderProgress(position: .file(count - 1, count, scroll))
+                XCTAssertEqual(last.value, 1)
+                XCTAssertEqual(last.percentage(), "100%")
+                XCTAssertEqual(last.action(at: 0), .page(0))
+                XCTAssertNil(last.action(at: 1))
+                XCTAssertEqual(last.action(at: 1, includingCurrent: true), .page(count - 1))
+            }
+        }
+    }
+
+    func testSingleHTMLFileProgressRetainsContinuousScrollingAndUnknownState() {
+        let file = ReaderProgress(position: .file(0, 1, 0.25))
         XCTAssertEqual(file.value, 0.25)
-        XCTAssertTrue(file.label().contains("File:"))
-        XCTAssertTrue(file.label().contains("5 / 20"))
+        XCTAssertEqual(file.step, 0.01)
+        XCTAssertEqual(file.backwardStep, 0.01)
+        XCTAssertTrue(file.enabled)
+        XCTAssertTrue(file.label(at: 0.75).contains("1 / 1"))
+        XCTAssertEqual(file.percentage(at: 0.75), "75%")
         XCTAssertEqual(file.action(at: 0.75), .progress(0.75))
-        XCTAssertFalse(ReaderProgress(position: .file(0, 2, nil)).enabled)
+        XCTAssertNil(file.action(at: 0.25))
+        XCTAssertEqual(file.action(at: 0.25, includingCurrent: true), .progress(0.25))
+        let unknown = ReaderProgress(position: .file(0, 1, nil))
+        XCTAssertFalse(unknown.enabled)
+        XCTAssertEqual(unknown.value, 0)
+        XCTAssertEqual(unknown.percentage(), "—")
+        XCTAssertEqual(unknown.action(at: 0.5), .progress(0.5))
+    }
+
+    @MainActor
+    func testMultiFileSliderKeyboardMovesExactlyOneTopic() throws {
+        _ = NSApplication.shared
+        let progress = ReaderProgress(position: .file(1008, 2016, nil))
+        let slider = ReaderProgressSliderControl(value: progress.value, minValue: 0, maxValue: 1, target: nil, action: nil)
+        slider.step = progress.step; slider.backwardStep = progress.backwardStep
+        slider.isEnabled = progress.enabled
+        slider.target = slider; slider.action = #selector(ReaderProgressSliderControl.changedValue)
+        var actions = [ReaderAction]()
+        slider.changed = { value in
+            if let action = progress.action(at: value) { actions.append(action) }
+        }
+        for (keyCode, character, target) in [(UInt16(124), "\u{f703}", 1009), (UInt16(123), "\u{f702}", 1008)] {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: 0, context: nil, characters: character,
+                charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode))
+            slider.keyDown(with: event)
+            XCTAssertEqual(progress.action(at: slider.doubleValue, includingCurrent: true), .page(target))
+        }
+        XCTAssertEqual(actions, [.page(1009)])
     }
 
     func testPartialChapterSeekDoesNotTreatPlaceholderPagesAsExactTotal() throws {
@@ -539,7 +606,7 @@ final class ReaderProgressFooterTests: XCTestCase {
         defer { state.windowClosed() }
         state.document = try nativePDFReadingFixture(pageCount: 11); state.count = 11
         let revision = state.command.revision
-        var drag = ReaderProgressDrag(document: state.document?.id, value: 0)
+        var drag = ReaderProgressDrag(document: state.document?.id, value: 0, presentation: state.readingProgress)
         for value in [0.1, 0.2, 0.5, 0.8] { drag.value = value }
         XCTAssertEqual(state.command.revision, revision)
         XCTAssertEqual(drag.action(in: state), .page(8))
@@ -629,6 +696,139 @@ final class ReaderProgressFooterTests: XCTestCase {
             control.ended?()
             try await settle(); assertFrame()
             XCTAssertEqual(state.command.revision, revision + 1, "Release commits once")
+        }
+    }
+
+    @MainActor
+    func testChapterWarmDuringDragKeepsThePresentationUntilSeekAcknowledgement() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("drag-chapter-warm.md")
+        defer { withExtendedLifetime(directory) {} }
+        let long = String(repeating: "A real long chapter gains measured pages while the reader keeps its slider preview.\n\n", count: 1200)
+        try ("# Cover\n\nShort first chapter.\n\n# Long chapter\n\n" + long + "# Unread chapter\n\nShort final chapter.\n")
+            .write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
+        let document = ReadingDocument(url: input, content: .pages(pages))
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "system", theme: "light",
+            pageSize: CGSize(width: 420, height: 595))
+        _ = try await pages.bounds(PageLocation(chapter: 0, page: 0))
+        let initialTable = await pages.chapterLayout
+        XCTAssertFalse(initialTable.complete)
+        let state = ReaderState(recordsHistory: false)
+        state.document = document; state.reflowable = true; state.flow = "paged"; state.spread = false
+        _ = state.applyChapterLayout(initialTable)
+        state.updatePosition(.init(page: 0, anchor: initialTable.bookmark(.init(chapter: 0, page: 0))))
+        let host = NSHostingView(rootView: ReaderProgressFooter(state: state, floating: true))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: 56),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); window.contentView = nil; window.close() }
+        func slider(in view: NSView) -> ReaderProgressSliderControl? {
+            if let control = view as? ReaderProgressSliderControl { return control }
+            return view.subviews.lazy.compactMap { slider(in: $0) }.first
+        }
+        func settle() async throws {
+            try await Task.sleep(nanoseconds: 20_000_000)
+            host.layoutSubtreeIfNeeded()
+        }
+        try await settle()
+        let control = try XCTUnwrap(slider(in: host))
+        control.began?(); control.changed?(0.5)
+        try await settle()
+        let originalFrame = control.convert(control.bounds, to: host)
+        let originalLabel = control.accessibilityValueDescription()
+        let initialWidth = state.readingProgress.labelWidth
+        let longChapter = initialTable.chapterCount / 2
+        let measuredCount = try await pages.searchPageCount(longChapter)
+        XCTAssertGreaterThan(measuredCount, 99, "The actual native layout must produce a wider three-digit count")
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        XCTAssertGreaterThan(state.readingProgress.labelWidth, initialWidth)
+        try await settle()
+        XCTAssertEqual(control.convert(control.bounds, to: host), originalFrame,
+            "An actual lazy chapter publication must not move the rail while the pointer is held")
+        XCTAssertEqual(control.accessibilityValueDescription(), originalLabel,
+            "The preview must retain the same chapter/page projection while the table warms")
+        let revision = state.command.revision
+        control.ended?()
+        try await settle()
+        XCTAssertEqual(state.command.revision, revision + 1)
+        XCTAssertEqual(state.command.action, .progress(0.5))
+        XCTAssertEqual(control.convert(control.bounds, to: host), originalFrame,
+            "Mouse-up keeps the frozen presentation until the renderer acknowledges the seek")
+        XCTAssertEqual(control.accessibilityValueDescription(), originalLabel)
+        let destination = try await pages.progressPosition(0.5)
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        state.updatePosition(destination)
+        state.didHandleCommand(state.command.revision)
+        try await settle()
+        XCTAssertNotEqual(control.convert(control.bounds, to: host), originalFrame,
+            "After the navigation handoff, current document measurements own the label width")
+        XCTAssertEqual(control.accessibilityValueDescription(), state.readingProgress.percentage() + ", " + state.readingProgress.label())
+    }
+
+    @MainActor
+    func testFloatingFooterShowsWholeLargeCountsAndKeepsTheTrackFixedDuringPreview() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "progressDisplayMode")
+        defaults.set(ReaderToolbarDisplayMode.shown.rawValue, forKey: "progressDisplayMode")
+        defer {
+            if let previous { defaults.set(previous, forKey: "progressDisplayMode") }
+            else { defaults.removeObject(forKey: "progressDisplayMode") }
+        }
+        func slider(in view: NSView) -> ReaderProgressSliderControl? {
+            if let control = view as? ReaderProgressSliderControl { return control }
+            return view.subviews.lazy.compactMap { slider(in: $0) }.first
+        }
+        for chapterBook in [false, true] {
+          for width: CGFloat in [560, 900] {
+            let state = ReaderState(recordsHistory: false)
+            state.document = try nativePDFReadingFixture(pageCount: 1)
+            state.theme = "light"
+            if chapterBook {
+                var table = ChapterTable(chapters: 2445)
+                table.setPageCount(chapter: 0, count: 1234)
+                state.reflowable = true
+                _ = state.applyChapterLayout(table)
+            } else { state.count = 99_999 }
+            let host = NSHostingView(rootView: ReaderProgressFooter(state: state, floating: true).background(Color.white))
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: width, height: 56),
+                styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            defer { state.windowClosed(); window.contentView = nil; window.close() }
+            func settle() async throws {
+                try await Task.sleep(nanoseconds: 20_000_000)
+                host.layoutSubtreeIfNeeded()
+            }
+            try await settle()
+            let control = try XCTUnwrap(slider(in: host))
+            let original = control.convert(control.bounds, to: host)
+            XCTAssertGreaterThan(original.width, 0)
+            if width == 900 { XCTAssertEqual(original.width, 298, accuracy: 1) }
+            control.began?()
+            for value in [0.0, 0.5, 1.0, 0.0] {
+                control.changed?(value)
+                try await settle()
+                let label = state.readingProgress.label(at: value)
+                let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+                let track = control.convert(control.bounds, to: host)
+                let columns = (Int(ceil((track.maxX + 10) * scale))..<bitmap.pixelsWide).filter { x in
+                    (0..<bitmap.pixelsHigh).contains { y in
+                        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+                        return max(color.redComponent, color.greenComponent, color.blueComponent) < 0.6
+                    }
+                }
+                let inkWidth = CGFloat(try XCTUnwrap(columns.last) - XCTUnwrap(columns.first) + 1) / scale
+                let natural = (label as NSString).size(withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)]).width
+                XCTAssertGreaterThanOrEqual(inkWidth, natural - 4,
+                    "The rendered label must reserve its complete text rather than draw an ellipsis: \(label)")
+                XCTAssertEqual(control.convert(control.bounds, to: host), original,
+                    "Changing preview numbers must not move or resize the track")
+                XCTAssertLessThanOrEqual(CGFloat(try XCTUnwrap(columns.last) + 1) / scale,
+                    width - 16 - 10, "Narrow windows retain the outer gutter and inner label padding")
+            }
+          }
         }
     }
 

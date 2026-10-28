@@ -15,6 +15,7 @@ public struct PageLocation: Hashable, Codable, Sendable, Comparable {
 
 /// The decoder owner mutates this table; readers receive immutable snapshots.
 public struct ChapterTable: Equatable, Sendable {
+    public let bookmarkScheme: String?
     private var counts: [Int]
     private var laidOut: [Bool]
     private var ends: [Int]
@@ -23,7 +24,8 @@ public struct ChapterTable: Equatable, Sendable {
     public var totalPages: Int { ends.last ?? 0 }
     public var complete: Bool { laidOut.allSatisfy { $0 } }
 
-    public init(chapters: Int) {
+    public init(chapters: Int, bookmarkScheme: String? = nil) {
+        self.bookmarkScheme = bookmarkScheme
         let n = max(1, chapters)
         counts = Array(repeating: 1, count: n)
         laidOut = Array(repeating: false, count: n)
@@ -77,12 +79,12 @@ public struct ChapterTable: Equatable, Sendable {
         return .init(chapter: chapter, page: min(Int((coordinate - Double(chapter)) * Double(count)), count - 1))
     }
     public func bookmark(_ location: PageLocation) -> String {
-        let position = "\(location.chapter):\(location.page)"
+        let position = (bookmarkScheme.map { $0 + ":" } ?? "") + "\(location.chapter):\(location.page)"
         // An unresolved navigation target has no saved pagination to scale.
         return isLaidOut(location.chapter) ? position + ":\(pageCount(location.chapter))" : position
     }
     public static func bookmarkLocation(_ anchor: String) -> (location: PageLocation, count: Int)? {
-        let parts = anchor.split(separator: ":")
+        let parts = (anchor.hasPrefix("md2:") ? String(anchor.dropFirst(4)) : anchor).split(separator: ":")
         guard (2...3).contains(parts.count), let chapter = Int(parts[0]), let page = Int(parts[1]), chapter >= 0, page >= 0,
               let count = parts.count == 3 ? Int(parts[2]) : 0, count >= 0 else { return nil }
         return (.init(chapter: chapter, page: page), count)

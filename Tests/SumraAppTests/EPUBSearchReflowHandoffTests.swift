@@ -184,6 +184,85 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
         }
     }
 
+    func testCompletedSearchSelectionAndResultsStayTogetherDuringLazyChapterPagination() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), query = "合计四十九营二万五千人之"
+        let input = try fixture(in: directory.url, query: query, ordinaryParagraphs: 240)
+        let state = ReaderState(recordsHistory: false)
+        state.flow = "paged"; state.spread = false; state.cover = false
+        state.fit = "page"; state.zoom = 1; state.automaticLayout = false
+        state.fontSize = 17; state.lineHeight = 1.4; state.margin = 32
+        state.font = "system"; state.theme = "light"; state.pageMargins = nil
+        state.userCSS = ""; state.useDocumentCSS = true; state.scrollbarMode = "hidden"
+        state.trimEmptyMargins = false; state.uniformPageWidth = false; state.freePan = false
+        state.landscapeAsSpread = false; state.rtl = false
+        var completedSelection: String?, completedWithLazyChapters = false
+        var mismatchedSelections = [String]()
+        let subscription = state.$selectedSearchTarget.sink { target in
+            guard let target else { return }
+            guard !state.searchCounting, !state.searchResults.isEmpty else { return }
+            if !state.searchResults.contains(where: { $0.target == target }) {
+                mismatchedSelections.append("selected=\(target) published=\(state.searchResults.map(\.target))")
+            }
+        }
+        let completion = state.$searchCounting.dropFirst().sink { counting in
+            if !counting, state.searchResults.count == 4 {
+                completedSelection = state.selectedSearchTarget
+                completedWithLazyChapters = state.chapterLayout?.complete == false
+            }
+        }
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer {
+            subscription.cancel(); completion.cancel(); state.windowClosed(); window.makeFirstResponder(nil)
+            window.contentView = nil; window.close(); withExtendedLifetime(directory) {}
+        }
+        func wait(_ reason: String, _ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(15)
+            repeat {
+                try await Task.sleep(nanoseconds: 20_000_000)
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                }
+                if let error = state.error { throw ReadError(error) }
+                if condition() { return }
+            } while Date() < deadline
+            throw ReadError("\(reason): \(state.searchCountText)")
+        }
+        func painted() -> Bool {
+            guard case .pages(let current) = state.document?.content else { return false }
+            return RasterReader.pageIsRendered(in: state.readerFocusView, pages: current, location: state.pageLocation(state.page))
+        }
+        state.openWithoutHistory(input, at: state.currentPosition)
+        try await wait("Initial reader") { !state.busy && painted() }
+        // Exercise the same real viewport boundary as the original report:
+        // opening/closing Contents relayouts the reader and makes chapter counts
+        // lazy again before an ordinary user find command.
+        state.showContents = true; state.send(.toc)
+        try await wait("Open Contents") { !state.outlineBusy && painted() }
+        state.showContents = false
+        try await wait("Close Contents") { painted() }
+        state.send(.find(query))
+        try await wait("Search and resumed background pagination") {
+            if state.chapterLayout?.complete == true, !state.searchCounting,
+               state.searchResults.count == 4, let target = state.selectedSearchTarget {
+                return state.searchResults.contains(where: { $0.target == target }) && painted()
+            }
+            return false
+        }
+        XCTAssertNotNil(completedSelection)
+        XCTAssertTrue(completedWithLazyChapters,
+                      "The search must complete before earlier negative chapters are laid out")
+        XCTAssertNotEqual(completedSelection, state.selectedSearchTarget,
+                          "Background chapter layout after completed search must change the selected page projection")
+        XCTAssertTrue(mismatchedSelections.isEmpty, mismatchedSelections.joined(separator: "\n"))
+        XCTAssertEqual(state.searchCountText, "1 / 4")
+        XCTAssertFalse(window.isVisible)
+    }
+
     func testCompletedNegativeFindIsReusedUntilSearchChanges() async throws {
         for chapterCount in [1, 14] {
             _ = NSApplication.shared
@@ -444,7 +523,7 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
         return source
     }
 
-    private func fixture(in directory: URL, query: String) throws -> URL {
+    private func fixture(in directory: URL, query: String, ordinaryParagraphs: Int = 24) throws -> URL {
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
         var files = [
             "mimetype": "application/epub+zip",
@@ -455,7 +534,7 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
             let filename = "chapter\(chapter).xhtml"
             manifest += "<item id='c\(chapter)' href='\(filename)' media-type='application/xhtml+xml'/>"
             spine += "<itemref idref='c\(chapter)'/>"
-            let paragraphs = (0..<24).map { paragraph in
+            let paragraphs = (0..<(chapter == 13 ? 24 : ordinaryParagraphs)).map { paragraph in
                 let token = chapter == 13 && paragraph < 4 ? query : "Ordinary passage"
                 return "<p>\(token) chapter \(chapter) paragraph \(paragraph). Reading and search use the same authored document through typography changes.</p>"
             }.joined()

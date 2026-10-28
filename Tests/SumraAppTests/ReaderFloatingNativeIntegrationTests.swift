@@ -1,11 +1,96 @@
 #if os(macOS)
 import AppKit
+import SumraCore
 import SwiftUI
 import XCTest
 @testable import Sumra
 
 @MainActor
 final class ReaderFloatingNativeIntegrationTests: XCTestCase {
+    func testPortraitFixedPagesReserveFloatingControlsWithoutReflowMarginsOrHoverLayoutChanges() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        var page = CGRect(x: 0, y: 0, width: 300, height: 600)
+        let pdf = directory.url.appendingPathComponent("portrait.pdf")
+        let writer = try XCTUnwrap(CGContext(pdf as CFURL, mediaBox: &page, nil))
+        writer.beginPDFPage(nil); writer.setFillColor(CGColor(gray: 0.4, alpha: 1)); writer.fill(page)
+        writer.endPDFPage(); writer.closePDF()
+        let bitmap = try XCTUnwrap(CGContext(data: nil, width: 300, height: 600, bitsPerComponent: 8,
+            bytesPerRow: 1200, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        bitmap.setFillColor(CGColor(gray: 0.4, alpha: 1)); bitmap.fill(page)
+        let png = directory.url.appendingPathComponent("portrait.png")
+        let image = NSBitmapImageRep(cgImage: try XCTUnwrap(bitmap.makeImage()))
+        try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: png)
+        let defaults = UserDefaults.standard, savedProgress = defaults.object(forKey: "progressDisplayMode")
+        defer { defaults.set(savedProgress, forKey: "progressDisplayMode") }
+        for input in [pdf, png] {
+            let document = try ReadingDocument.open(input)
+            guard case .pages(let pages) = document.content else { return XCTFail("Expected fixed native pages") }
+            let prepared = try await pages.prepare()
+            let state = ReaderState(recordsHistory: false)
+            state.document = document; state.count = await pages.count
+            state.reflowable = prepared.reflowable; state.searchable = prepared.searchable
+            state.flow = "paged"; state.fit = "page"; state.spread = false; state.cover = false
+            state.rtl = false; state.automaticLayout = false; state.presentation = false
+            state.immersiveControls = true; state.scrollbarMode = "hidden"
+            state.showContents = false; state.showThumbnails = false; state.showBookmarks = false
+            state.showAnnotations = false; state.showAI = false; state.showFind = false
+            state.trimEmptyMargins = false; state.uniformPageWidth = false; state.freePan = false
+            let host = NSHostingView(rootView: ReaderView(state: state))
+            let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 800, height: 700),
+                styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+            window.contentView = host; state.window = window
+            defer { state.windowClosed(); window.contentView = nil; window.close() }
+            func waitForPaint() async throws {
+                let deadline = Date().addingTimeInterval(5)
+                repeat {
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                    host.layoutSubtreeIfNeeded()
+                    if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                        host.cacheDisplay(in: host.bounds, to: bitmap)
+                    }
+                    if let error = state.error { throw ReadError(error) }
+                    if RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(0)) { return }
+                } while Date() < deadline
+                throw ReadError("Fixed page did not paint")
+            }
+            // Fixed pages do not consume these reflow overrides. The actual
+            // mounted viewport must still reserve full control clearance.
+            let cases: [(Double, ReaderToolbarDisplayMode, ReaderToolbarDisplayMode, CGFloat, CGFloat)] = [
+                (16, .auto, .shown, ReaderFloatingControls.topInset + ReaderFloatingControls.height + 2, 34),
+                (24, .auto, .shown, ReaderFloatingControls.topInset + ReaderFloatingControls.height + 10, 40),
+                (8, .auto, .shown, 0, 0), (24, .hidden, .hidden, 0, 0)
+            ]
+            for (margin, toolbar, progress, top, bottom) in cases {
+                state.margin = margin; state.pageMargins = .init(cssValues: [margin])
+                state.toolbarDisplayMode = toolbar; defaults.set(progress.rawValue, forKey: "progressDisplayMode")
+                state.toolbarHoverVisible = false; state.toolbarHoverOpacity = 0
+                try await waitForPaint()
+                let clip = try XCTUnwrap(state.readerScrollView?.contentView)
+                let canvas = try XCTUnwrap(state.readerFocusView)
+                let root = host.convert(host.bounds, to: nil)
+                let viewport = clip.convert(clip.bounds, to: nil)
+                let canvasFrame = canvas.convert(canvas.bounds, to: nil)
+                XCTAssertFalse(state.usesReflowMargins)
+                XCTAssertEqual(root.maxY - viewport.maxY, top, accuracy: 1, "\(input.pathExtension), margin=\(margin)")
+                XCTAssertEqual(viewport.minY - root.minY, bottom, accuracy: 1, "\(input.pathExtension), margin=\(margin)")
+                XCTAssertEqual(canvasFrame.width / canvasFrame.height, 0.5, accuracy: 0.002)
+                XCTAssertLessThanOrEqual(canvasFrame.maxY, viewport.maxY + 1)
+                XCTAssertGreaterThanOrEqual(canvasFrame.minY, viewport.minY - 1)
+                let windowFrame = window.frame
+                for shown in [true, false] {
+                    state.toolbarHoverVisible = shown; state.toolbarHoverOpacity = shown ? 1 : 0
+                    try await waitForPaint()
+                    XCTAssertEqual(clip.convert(clip.bounds, to: nil), viewport)
+                    XCTAssertEqual(canvas.convert(canvas.bounds, to: nil), canvasFrame)
+                    XCTAssertEqual(window.frame, windowFrame)
+                }
+            }
+        }
+    }
+
     func testAlwaysHideRevealsOnlyWindowButtonsAndKeepsReadingToolsHidden() async throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)

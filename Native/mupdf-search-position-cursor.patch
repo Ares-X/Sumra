@@ -1,0 +1,52 @@
+--- a/source/fitz/stext-search.c
++++ b/source/fitz/stext-search.c
+@@ -1280,6 +1280,7 @@
+ 	char *haystack;
+ 	size_t length;
+ 	size_t utf_length;
++	size_t byte_cursor, rune_cursor;
+ 
+ 	char *spun_haystack;
+ 	size_t spun_length;
+@@ -1684,6 +1685,7 @@
+ 
+ 	page->length = 0;
+ 	page->utf_length = 0;
++	page->byte_cursor = page->rune_cursor = 0;
+ 	page->spun_length = 0;
+ }
+ 
+@@ -1705,6 +1707,7 @@
+ 	page->haystack = NULL;
+ 	page->length = 0;
+ 	page->utf_length = 0;
++	page->byte_cursor = page->rune_cursor = 0;
+ 	page->spun_haystack = NULL;
+ 	page->spun_length = 0;
+ 	page->index = NULL;
+@@ -1899,7 +1902,24 @@
+ 	page_unspun_ix = page->index ? page->index[page_spun_ix] : page_spun_ix;
+ 	assert(page_unspun_ix >= 0 && page_unspun_ix < page->length);
+ 
+-	utf_ix = fz_runeidx(page->haystack, page->haystack + page_unspun_ix);
++	/* Match and quad lookups normally advance locally. Keep the source UTF-8
++	 * position with this page instead of rescanning its prefix for every hit.
++	 * Normalization and direction changes can move either way. Retain the
++	 * first rune boundary at or after the byte target, as fz_runeidx does. */
++	while (page->byte_cursor > page_unspun_ix)
++	{
++		const char *previous = retreat_one_utf8(page->haystack, page->haystack + page->byte_cursor);
++		if ((size_t)(previous - page->haystack) < page_unspun_ix)
++			break;
++		page->byte_cursor = previous - page->haystack;
++		--page->rune_cursor;
++	}
++	while (page->byte_cursor < page_unspun_ix)
++	{
++		page->byte_cursor = advance_one_utf8(page->haystack, page->haystack + page->byte_cursor) - page->haystack;
++		++page->rune_cursor;
++	}
++	utf_ix = page->rune_cursor;
+ 
+ 	return page->map[utf_ix];
+ }

@@ -8,6 +8,82 @@ import XCTest
 
 final class ReaderSidebarLayoutTests: XCTestCase {
     @MainActor
+    func testNarrowLeftSearchSidebarPreservesReadingWidthAndItsSavedPreference() async throws {
+        try await checkNarrowSearch(right: false)
+    }
+
+    @MainActor
+    func testNarrowRightSearchSidebarPreservesReadingWidthAndItsSavedPreference() async throws {
+        try await checkNarrowSearch(right: true)
+    }
+
+    @MainActor
+    private func checkNarrowSearch(right: Bool) async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarWidth", "sidebarRight", "findFloating", "disableHistory", "disableReadingState"]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        defaults.set(360.0, forKey: "sidebarWidth")
+        defaults.set(right, forKey: "sidebarRight")
+        defaults.set(false, forKey: "findFloating")
+        defaults.set(true, forKey: "disableHistory")
+        defaults.set(true, forKey: "disableReadingState")
+        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
+
+        let reading = try nativePDFReadingFixture()
+        let state = ReaderState(recordsHistory: false)
+        state.document = reading; state.count = 1
+        state.showFindPanel()
+        state.flow = "paged"; state.fit = "page"; state.spread = true
+        state.automaticLayout = false; state.showAI = false; state.presentation = false
+        state.immersiveControls = false; state.scrollbarMode = "hidden"
+        let host = NSHostingView(rootView: ReaderView(state: state).environment(\.layoutDirection, .leftToRight))
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 1000, height: 640),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        window.contentView = host; state.window = window
+        defer {
+            state.windowClosed(); window.contentView = nil; window.close()
+            withExtendedLifetime(reading) {}
+        }
+        func splits(in view: NSView) -> [NSSplitView] {
+            ((view as? NSSplitView).map { [$0] } ?? []) + view.subviews.flatMap(splits)
+        }
+        func mainSplit() -> NSSplitView? {
+            splits(in: host).first { $0.isVertical && $0.arrangedSubviews.count == 2 }
+        }
+        func waitFor(_ ready: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(5)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if ready() { return }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            } while Date() < deadline
+            XCTFail("Search sidebar allocation did not settle")
+        }
+        try await waitFor {
+            guard let split = mainSplit() else { return false }
+            return abs(split.arrangedSubviews[right ? 1 : 0].frame.width - 360) < 1
+        }
+        let split = try XCTUnwrap(mainSplit())
+        for width in [560.0, 1000.0, 560.0, 1000.0] {
+            window.setContentSize(CGSize(width: width, height: 640))
+            try await waitFor {
+                let sidebar = split.arrangedSubviews[right ? 1 : 0].frame.width
+                let document = split.arrangedSubviews[right ? 0 : 1].frame.width
+                return abs(split.bounds.width - width) < 1 && document >= 359.5 &&
+                    (width == 560 ? sidebar < 201 : abs(sidebar - 360) < 1)
+            }
+            XCTAssertGreaterThanOrEqual(split.arrangedSubviews[right ? 0 : 1].frame.width, 359.5)
+            XCTAssertEqual(defaults.double(forKey: "sidebarWidth"), 360,
+                           "Temporary native compression must not replace the user's saved width")
+            XCTAssertTrue(state.spread, "Making room for search must retain the chosen spread")
+            XCTAssertEqual(window.frame.width, width, accuracy: 1)
+        }
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
     func testLeftSidebarKeepsMinimumWidthAfterSaveReload() async throws {
         try await checkSaveReload(initial: 220, dragged: 180, right: false)
     }
@@ -40,6 +116,11 @@ final class ReaderSidebarLayoutTests: XCTestCase {
     @MainActor
     func testRightSidebarKeepsWidthWithAISidebarAfterSaveReload() async throws {
         try await checkSaveReload(initial: 220, dragged: 240, right: true, ai: true)
+    }
+
+    @MainActor
+    func testLeftSidebarKeepsWidthWithAISidebarAfterSaveReload() async throws {
+        try await checkSaveReload(initial: 220, dragged: 240, right: false, ai: true)
     }
 
     @MainActor
@@ -78,7 +159,8 @@ final class ReaderSidebarLayoutTests: XCTestCase {
         state.flow = "paged"; state.fit = "page"; state.spread = false
         state.presentation = false; state.showAI = ai
         let host = NSHostingView(rootView: ReaderView(state: state))
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 847, height: 640),
+        // Leave room for the saved sidebar, the AI pane and the readable document minimum.
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: ai ? 1000 : 847, height: 640),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host

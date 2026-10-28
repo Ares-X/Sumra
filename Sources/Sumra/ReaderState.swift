@@ -1391,6 +1391,7 @@ extension ReaderState {
     }
 
     static func chapterInput(_ value: String, offset: Int) -> String? {
+        let value = offset > 0 && value.hasPrefix("md2:") ? String(value.dropFirst(4)) : value
         let fields = value.split(separator: ":", omittingEmptySubsequences: false)
         guard fields.count == 2 || (offset > 0 && fields.count == 3), let chapter = Int(fields[0]), let page = Int(fields[1]),
               chapter >= (offset < 0 ? 1 : 0), page >= (offset < 0 ? 1 : 0),
@@ -2452,6 +2453,35 @@ private extension ReaderState {
                 } else if reloading, case .browser(let source) = document?.content, source is MarkupSource {
                     reloadedPosition = filePosition
                 } else { reloadedPosition = nil }
+                if opened.markdownRenderer == .paged, case .pages(let pages) = opened.content {
+                    let legacyKey = "bookmark:" + opened.url.path
+                    let legacy = !bookmarks.contains(where: { $0.path == opened.url.path })
+                        ? UserDefaults.standard.data(forKey: legacyKey).flatMap { try? JSONDecoder().decode(ReadingPosition.self, from: $0) }
+                        : nil
+                    var originals = bookmarks.filter { $0.path == opened.url.path }
+                    let imported = legacy.map { ReaderBookmark(title: opened.url.lastPathComponent, path: opened.url.path, position: $0) }
+                    if let imported { originals.append(imported) }
+                    if !originals.isEmpty {
+                        let migrated = try await pages.migratedMarkdownBookmarks(originals.map(\.position),
+                            fontSize: fontSize, lineHeight: lineHeight, margin: margin, font: font, theme: resolvedTheme,
+                            userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageMargins: pageMargins, textZoom: zoom)
+                        guard !Task.isCancelled, currentGeneration == generation else { return }
+                        var changed = false
+                        for (original, position) in zip(originals, migrated) {
+                            if original.id == imported?.id {
+                                if !bookmarks.contains(where: { $0.path == opened.url.path }) {
+                                    var bookmark = original; bookmark.position = position
+                                    bookmarks.append(bookmark); changed = true
+                                    UserDefaults.standard.removeObject(forKey: legacyKey)
+                                }
+                            } else if position != original.position,
+                                      let index = bookmarks.firstIndex(where: { $0.id == original.id && $0.path == original.path && $0.position == original.position }) {
+                                bookmarks[index].position = position; changed = true
+                            }
+                        }
+                        if changed { saveBookmarks() }
+                    }
+                }
                 let publicationStarted = DispatchTime.now().uptimeNanoseconds
                 NativeReadingPerformance.mark("load-publication-entry", revision: currentGeneration, persistent: true)
                 persist()

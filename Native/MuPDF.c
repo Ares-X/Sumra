@@ -802,6 +802,39 @@ API char *lf_markdown_legacy_anchor(void *opaque, uint32_t node, uint32_t offset
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(json.data); return NULL; }
     return lf_json_finish(&json, error);
 }
+API char *lf_markdown_section_anchor(void *opaque, int chapter, uint32_t node, uint32_t offset, uint32_t part, char *error) {
+    SumraMuPDFDocument *d = opaque;
+    SumraJSON json = {0}; fz_var(json);
+    fz_try(d->ctx) {
+        uint32_t local = 0;
+        fz_location location = fz_htdoc_legacy_section_source(d->ctx, d->doc, chapter, node, &local);
+        if (location.chapter < 0) lf_json(&json, "null");
+        else {
+            lf_json(&json, "{\"chapter\":"); lf_json_number(&json, location.chapter);
+            lf_json(&json, ",\"source\":["); lf_json_u32(&json, local); lf_json(&json, ",");
+            lf_json_u32(&json, offset); lf_json(&json, ","); lf_json_u32(&json, part);
+            lf_json(&json, ","); lf_json_number(&json, location.chapter); lf_json(&json, "]}");
+        }
+    }
+    fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(json.data); return NULL; }
+    return lf_json_finish(&json, error);
+}
+API char *lf_markdown_section_bookmark(void *opaque, int chapter, int page, int count, char *error) {
+    SumraMuPDFDocument *d = opaque;
+    SumraJSON json = {0}; fz_var(json);
+    fz_try(d->ctx) {
+        float y = 0;
+        fz_location location = fz_htdoc_legacy_section_bookmark(d->ctx, d->doc, chapter, page, count, &y);
+        if (location.chapter < 0) lf_json(&json, "null");
+        else {
+            lf_json(&json, "{\"chapter\":"); lf_json_number(&json, location.chapter);
+            lf_json(&json, ",\"page\":"); lf_json_number(&json, location.page);
+            lf_json(&json, ",\"yOffset\":"); lf_json_number(&json, y); lf_json(&json, "}");
+        }
+    }
+    fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); free(json.data); return NULL; }
+    return lf_json_finish(&json, error);
+}
 API int lf_count_error(SumraMuPDFDocument *d, char *error) {
     int n = 0; fz_var(n);
     fz_try(d->ctx) { n = fz_count_pages(d->ctx, d->doc); }
@@ -1913,9 +1946,17 @@ static int search_word_char(int c) {
     int category = ucdn_get_general_category(c);
     return category >= UCDN_GENERAL_CATEGORY_LL && category <= UCDN_GENERAL_CATEGORY_NO;
 }
-static int search_word_match(fz_search_match *match) {
+typedef struct {
+    fz_stext_char ch;
+    fz_stext_char *previous;
+    size_t index;
+    int chapter, page, line;
+} PageSearchChar;
+
+static int search_word_match(fz_search_match *match, int window) {
     fz_stext_char *before = NULL;
-    for (fz_stext_char *ch = match->begin.line->first_char; ch && ch != match->begin.ch; ch = ch->next) before = ch;
+    if (window) before = ((PageSearchChar *)match->begin.ch)->previous;
+    else for (fz_stext_char *ch = match->begin.line->first_char; ch && ch != match->begin.ch; ch = ch->next) before = ch;
     if (before && search_word_char(before->c) && search_word_char(match->begin.ch->c)) return 0;
     fz_stext_char *after = match->end.ch->next;
     return !after || !search_word_char(match->end.ch->c) || !search_word_char(after->c);
@@ -2005,12 +2046,6 @@ API int lf_search_chapter_candidate(void *document, int chapter, const char *nee
 // location. Query-sized lookahead lets a phrase cross any number of short pages;
 // native normalization, not a fixed page count, determines its extent.
 enum { PAGE_SEARCH_LINE_HYPHEN = 1u << 13 };
-typedef struct {
-    fz_stext_char ch;
-    size_t index;
-    int chapter, page, line;
-} PageSearchChar;
-
 static size_t page_search_end_offset(fz_stext_char *ch, int chapter, int page) {
     PageSearchChar *item = (PageSearchChar *)ch;
     return item->chapter == chapter && item->page == page
@@ -2098,7 +2133,7 @@ static char *search_options_on_text(void *document, int chapter, int index, cons
                 restart = 1;
             }
             if (result.reason == FZ_SEARCH_MORE_INPUT) fz_feed_search(d->ctx, search, NULL, result.u.seq_needed);
-            else if (result.reason == FZ_SEARCH_MATCH && result.u.match->num_quads && (!(flags & 2) || search_word_match(result.u.match))) {
+            else if (result.reason == FZ_SEARCH_MATCH && result.u.match->num_quads && (!(flags & 2) || search_word_match(result.u.match, window != NULL))) {
                 if (!buffer) {
                     // BuildSnippet uses real character positions, not intersecting
                     // glyph boxes. Flatten only once, and only for a matching page.
@@ -2320,6 +2355,14 @@ API char *lf_search_pages_at(void *document, int chapter, int index, const char 
                 if (next && search_word_char(next->c)) { before->next = next; continue; }
             }
             before = before->next;
+        }
+        // Whole-word matches share this single logical line. Record its final
+        // normalized predecessors once instead of rescanning the page prefix
+        // for every hit, including reverse searches.
+        fz_stext_char *previous = NULL;
+        for (fz_stext_char *ch = line->first_char; ch; ch = ch->next) {
+            ((PageSearchChar *)ch)->previous = previous;
+            previous = ch;
         }
         result = search_options_on_text(document, chapter, index, needle, flags, after, maximum, cancelled, error, window, cookie);
     } while (0); }

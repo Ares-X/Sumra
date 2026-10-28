@@ -3,6 +3,9 @@ import SwiftUI
 import SumraCore
 import UniformTypeIdentifiers
 import WebKit
+import OSLog
+
+private let documentOpenLog = Logger(subsystem: "com.leaf.reader", category: "document-open")
 
 struct WindowPayload: Codable, Hashable {
     var id = UUID()
@@ -104,11 +107,13 @@ struct ReaderWindow: View {
             .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
             .navigationTitle(windowTitle)
             .background(WindowTabs(state: state, tabWith: payload.tabWith, identifier: payload.tabIdentifier, openingPath: payload.path) {
+                documentOpenLog.notice("scene-ready payload=\(payload.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
                 application.connect(state, canReuse: payload.path == nil)
                 if payload.restoring, let window = state.window { ReaderWindows.restoredWindowReady(window, payload: payload) }
             })
             .focusedSceneObject(state)
             .onAppear {
+                documentOpenLog.notice("scene-appeared payload=\(payload.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
                 state.tabColor = payload.tabColor
                 let opener = openWindow
                 state.createWindow = { [opener] in opener(id: "reader", value: $0) }
@@ -347,6 +352,7 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     func installWindowOpener(_ opener: @escaping (WindowPayload) -> Void) {
         guard createWindow == nil else { return }
         createWindow = opener
+        documentOpenLog.notice("opener-ready")
         // Registration happens while SwiftUI builds commands. Open scenes only
         // after that update, also allowing an existing Home to connect first.
         Task { @MainActor [weak self] in self?.openPendingFiles() }
@@ -372,7 +378,9 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        pendingFiles.append(contentsOf: urls.filter(\.isFileURL))
+        let files = urls.filter(\.isFileURL)
+        pendingFiles.append(contentsOf: files)
+        documentOpenLog.notice("request-received count=\(urls.count, privacy: .public) files=\(files.count, privacy: .public) pending=\(self.pendingFiles.count, privacy: .public) launch-ready=\(self.hasFinishedLaunching, privacy: .public) opener-ready=\(self.createWindow != nil, privacy: .public)")
         for url in urls where url.scheme?.lowercased() == "sumra" {
             do { pendingSyncTeX.append(try SyncTeXForwardRequest(url: url)) }
             catch { presentSyncTeXError(error) }
@@ -383,6 +391,7 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     func connect(_ state: ReaderState, canReuse: Bool) {
         guard state.window != nil else { return }
         if canReuse { emptyReader = state }
+        documentOpenLog.notice("reader-connected window=\(state.window?.windowNumber ?? -1, privacy: .public)")
         openPendingFiles()
     }
 
@@ -390,6 +399,7 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     // so a later empty Home cannot cover an already opened book.
     func finishLaunching() {
         hasFinishedLaunching = true
+        documentOpenLog.notice("launch-finished")
         openPendingFiles()
     }
 
@@ -401,6 +411,7 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
         let urls = pendingFiles
         pendingFiles.removeAll()
         if !urls.isEmpty {
+            documentOpenLog.notice("pending-handoff count=\(urls.count, privacy: .public)")
             ReaderWindows.open(urls, in: emptyReader, createWindow: createWindow)
             emptyReader = nil
         }
@@ -625,12 +636,14 @@ enum ReaderWindows {
             if index == 0, let state, state.window != nil,
                state.restoredPayload == nil, !state.busy,
                state.document == nil || behavior == .replaceCurrent {
+                documentOpenLog.notice("route-reuse window=\(state.window?.windowNumber ?? -1, privacy: .public)")
                 if recordsHistory { state.open(url) }
                 else { state.openWithoutHistory(url) }
                 state.window?.makeKeyAndOrderFront(nil)
             } else {
                 var payload = WindowPayload(path: url.path, tabWith: tabWith, recordsHistory: recordsHistory ? nil : false)
                 payload.tabIdentifier = tabIdentifier
+                documentOpenLog.notice("route-create payload=\(payload.id.uuidString, privacy: .public)")
                 createWindow(payload)
             }
         }

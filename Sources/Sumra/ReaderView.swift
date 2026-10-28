@@ -133,7 +133,7 @@ struct ReaderView: View {
     }
     private var overlaysProgress: Bool { state.usesFloatingChrome || reclaimsNativeInsets }
     private func floatingTopClearance(forControls: Bool) -> CGFloat {
-        guard state.usesFloatingChrome, forControls || state.usesReflowMargins, state.toolbarDisplayMode != .hidden else { return 0 }
+        guard state.usesFloatingChrome, state.toolbarDisplayMode != .hidden else { return 0 }
         guard forControls || state.marginPreset != .narrow else { return 0 }
         let gap: CGFloat = state.marginPreset == .medium ? 2 : 10
         // The book already reserves its own page margin. Add only the space
@@ -142,14 +142,15 @@ struct ReaderView: View {
         // scalar is not the actual margin of a native reflowable book.
         // Find, speech and editing rows have no page margin and stay reachable
         // even when Narrow intentionally allows controls over reading content.
-        let pageMargin = forControls ? 0 : state.pageMargins?.top ?? 0
+        // Fixed pages have no reflow page margin to contribute this space.
+        let pageMargin = !forControls && state.usesReflowMargins ? state.pageMargins?.top ?? 0 : 0
         return max(0, ReaderFloatingControls.topInset + ReaderFloatingControls.height + gap - pageMargin)
     }
     private var floatingBottomClearance: CGFloat {
-        guard state.usesFloatingChrome, state.usesReflowMargins, progressDisplayMode != .hidden else { return 0 }
+        guard state.usesFloatingChrome, progressDisplayMode != .hidden else { return 0 }
         guard state.marginPreset != .narrow else { return 0 }
         let gap: CGFloat = state.marginPreset == .medium ? 2 : 8
-        let pageMargin = state.pageMargins?.bottom ?? 0
+        let pageMargin = state.usesReflowMargins ? state.pageMargins?.bottom ?? 0 : 0
         return max(0, ReaderProgressFooter.height + ReaderProgressFooter.floatingBottomInset + gap - pageMargin)
     }
 
@@ -342,6 +343,7 @@ struct ReaderView: View {
                 .saturation(state.grayscale && !state.isPDF ? 0 : 1)
                 .overlay { if state.invertColors && !state.isPDF { Color.white.blendMode(.difference).allowsHitTesting(false) } }
                 .compositingGroup()
+                .frame(minWidth: 360)
             if !sidebarFirst { sidebar }
             if state.hasDocument && state.showAI && !state.presentation { ReaderAISidebar(state: state).frame(minWidth: 240, idealWidth: 300, maxWidth: 480) }
         }
@@ -653,6 +655,7 @@ private struct ReaderSidebarPosition: NSViewRepresentable {
         private var aiWidth: CGFloat?
         private var positioned = false
         private var restoring = false
+        private var splitWidth: CGFloat?
         private var resizeObserver: NSObjectProtocol?
 
         init(documentID: UUID?, width: CGFloat) {
@@ -690,12 +693,20 @@ private struct ReaderSidebarPosition: NSViewRepresentable {
                         let position = index == 0 ? self.width : split.arrangedSubviews[index].frame.maxX - self.width
                         split.setPosition(position, ofDividerAt: max(0, index - 1))
                         self.aiWidth = split.arrangedSubviews.count == 3 ? split.arrangedSubviews.last?.frame.width : nil
+                        self.splitWidth = split.bounds.width
                         self.restoring = false
                         if self.resizeObserver == nil {
                             self.resizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification,
                                 object: split, queue: .main) { [weak self, weak split] _ in
                                 guard let self, !self.restoring, let split,
                                       let pane = split.arrangedSubviews.first(where: { self.isDescendant(of: $0) }) else { return }
+                                // Window resizing can constrain the sidebar below
+                                // its saved width. Reapply that preference through
+                                // native constraints without saving the allocation.
+                                if self.splitWidth != split.bounds.width {
+                                    self.restorePosition()
+                                    return
+                                }
                                 self.width = min(360, max(180, pane.frame.width))
                                 self.aiWidth = split.arrangedSubviews.count == 3 ? split.arrangedSubviews.last?.frame.width : nil
                                 // Record the native allocation before publishing
