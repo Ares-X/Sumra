@@ -454,6 +454,7 @@ final class ReaderState: ObservableObject {
     @Published var toolbarHoverOpacity = 0.0
     @Published var immersiveControls = UserDefaults.standard.bool(forKey: "immersiveControls")
     var usesFloatingChrome: Bool { hasDocument && immersiveControls && !presentation }
+    var usesCustomChrome: Bool { !hasDocument || usesFloatingChrome }
     var toolbarShown: Bool { hasDocument && !presentation && (toolbarDisplayMode == .shown || (toolbarDisplayMode == .auto && toolbarHoverVisible)) }
     var toolbarOverlaysContent: Bool { hasDocument && (presentation || toolbarDisplayMode != .shown) }
     @Published var presentationBlank: String?

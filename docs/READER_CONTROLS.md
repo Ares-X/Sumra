@@ -129,15 +129,28 @@ policy with this same visibility state, so the menu-bar hover area does not
 impose a second reveal threshold or leave hidden chrome covering the first line.
 Window close/full-screen controls remain owned by macOS; minimizing is unavailable
 while the native full-screen window is active.
-**Floating Reading Controls** is an optional setting, off by default. Welcome and
-initial loading pages keep the native toolbar without changing this setting. It replaces
+**Floating Reading Controls** is an optional setting, off by default. Home and
+initial loading pages use a fixed header in the window layout, with 16-point
+horizontal gutters around the window buttons and Open button. Home is an
+independent launch window; it has no document tabs or floating reading tools and
+does not change the reading setting. Floating reading controls replace
 the native strip with separate compact navigation, tab and reading-tool groups;
 the existing visibility choice still controls their reveal. Tabs continue to use
 the native window group, retain their colors and reveal the selected tab. The
 three groups combine into one compact strip in narrow windows. Long filenames
 truncate in the middle, keeping both their beginning and extension; one open
 document shows its filename only once. Window buttons and reading controls
-retain their click areas.
+retain their click areas. One document uses the available title width; fitting
+multiple tabs share the strip, and crowded tabs scroll horizontally while
+keeping their selection and close targets usable.
+The native full-screen toolbar follows automatic visibility while custom chrome
+is active. Its detached companion stays hidden, including during system-menu
+tracking and tab changes, so it cannot paint over or intercept custom buttons.
+Always Hide suppresses reading tools and document tabs. Moving to the top edge
+still reveals the three macOS window buttons, without changing the book viewport
+or restoring a native toolbar over them. Presentation hides those buttons too.
+Tab switching, batch closing, sessions and named groups read the complete native
+group even when its system tab bar is not shown.
 The floating progress bar is 26 points tall and 6 points from the bottom edge.
 Its capsule is at most 472 points wide, with equal 12-point inner padding and
 16-point window gutters in narrow windows. The percentage and page label align
@@ -146,8 +159,9 @@ without shifting when the digits change during navigation or drag previews.
 Medium margins reserve a small gap around the floating controls; Narrow allows
 the controls to cover reading content; Wide keeps additional clearance. This
 reservation includes the book's own margin instead of adding a second full
-margin: the top content inset is 48 points for Medium and 56 for Wide, including
-the 36-point toolbar and its 10-point top inset. The bottom inset is 34/40 points
+margin: the top content inset is 54 points for Medium and 62 for Wide, including
+the 36-point toolbar and its 16-point top inset. Window buttons stay below the
+system's window-sharing indicator band. The bottom inset is 34/40 points
 respectively. All toolbar groups stay in one row, including multiple tabs.
 The reservation does not change when controls appear or disappear. The floating
 hover area retains access to the full control group in narrow windows.
@@ -157,8 +171,14 @@ During window resizing, paged reflowable books fit their existing pages to the
 changing viewport. Pagination and raster generation wait until the drag ends,
 then refresh at the final size while retaining the reading passage. Both halves
 of a spread adopt the new page dimensions together.
-**New Tab** is available in the toolbar, Tabs menu and with Command-T, including
-the empty welcome window. **Open Documents** chooses New Window (the existing
+**New Tab** is available in the toolbar, Tabs menu and with Command-T. It selects
+files first and opens them as document tabs, independently of the default open
+policy; canceling creates nothing. The system tab-bar New Tab action uses the
+same command. **Home** opens or activates a separate launch window and retains
+all open books. Closing Home does not close their windows. Reopening the running
+app from the Dock restores an existing reader or creates Home when none remain,
+even if an auxiliary system window is still visible.
+**Open Documents** chooses New Window (the existing
 default), New Tab or Replace Current; replacing a modified document still uses
 the normal save/discard/cancel decision.
 Reader chrome uses a short 180 ms eased reveal. A hidden toolbar waits 140 ms
@@ -192,3 +212,5 @@ and Paper Handling → Sheets to Print → Odd Only / Even Only controls. Actual
 duplex availability and paper handling depend on the selected printer/driver.
 The [acceptance record](READER_ACCEPTANCE_20261023.md) separates observed controls
 from physical printer output.
+
+Mouse-moved events can carry either document/owned-child coordinates or, when AppKit supplies no associated window, screen coordinates. The existing toolbar owner converts the latter before its key-window and top-region hover decision.

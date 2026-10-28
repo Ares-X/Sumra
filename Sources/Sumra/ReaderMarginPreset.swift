@@ -36,7 +36,7 @@ enum ReaderMarginPreset: String, CaseIterable, Identifiable {
     }
 
     var extendsReadingUnderChrome: Bool {
-        usesFloatingChrome || (usesReflowMargins && marginPreset == .narrow && toolbarDisplayMode != .shown)
+        usesCustomChrome || (usesReflowMargins && marginPreset == .narrow && toolbarDisplayMode != .shown)
     }
 
     var marginPreset: ReaderMarginPreset? {

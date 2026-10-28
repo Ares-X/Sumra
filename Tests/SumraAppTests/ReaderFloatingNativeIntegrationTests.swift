@@ -6,6 +6,160 @@ import XCTest
 
 @MainActor
 final class ReaderFloatingNativeIntegrationTests: XCTestCase {
+    func testAlwaysHideRevealsOnlyWindowButtonsAndKeepsReadingToolsHidden() async throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/hidden-toolbar-book.txt"), content: .text("book"))
+        state.immersiveControls = true; state.toolbarDisplayMode = .hidden
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 400),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        state.window = window
+        let host = NSHostingView(rootView: ReaderFloatingControls(state: state, open: { XCTFail("Reading tools stay hidden") })
+            .frame(width: 700, height: 400, alignment: .top))
+        window.contentView = host; window.orderBack(nil)
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        host.addSubview(observer)
+        defer {
+            observer.detach(); window.contentView = nil; window.orderOut(nil); window.close(); state.windowClosed()
+        }
+        let initialFrame = window.frame
+        XCTAssertFalse(state.toolbarShown); XCTAssertFalse(state.toolbarHoverVisible)
+        observer.pointerMoved(to: NSPoint(x: 30, y: window.frame.height - 10))
+        for _ in 0..<25 {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(state.toolbarHoverVisible)
+        XCTAssertFalse(state.toolbarShown, "Window buttons must not reveal the hidden reading toolbar")
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        let buttons = views(host).compactMap { $0 as? NSButton }
+        XCTAssertEqual(buttons.count, 3, "Only close, minimize and fullscreen belong in this reveal")
+        XCTAssertTrue(buttons.allSatisfy { $0.target === window && $0.isEnabled })
+        XCTAssertEqual(window.frame, initialFrame)
+        observer.pointerMoved(to: NSPoint(x: 350, y: 100))
+        XCTAssertFalse(state.toolbarHoverVisible)
+        XCTAssertFalse(state.toolbarShown)
+        state.presentation = true
+        observer.pointerMoved(to: NSPoint(x: 30, y: window.frame.height - 10))
+        XCTAssertFalse(state.toolbarHoverVisible, "Presentation suppresses the window-control reveal as well")
+    }
+
+    func testHomeHeaderKeepsWindowControlsAndOpenInsetWithoutDocumentTabs() async throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 400),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        let state = ReaderState(recordsHistory: false)
+        state.window = window
+        let host = NSHostingView(rootView: ReaderHomeHeader(state: state, open: {}))
+        window.contentView = host; window.orderBack(nil)
+        defer { window.contentView = nil; window.orderOut(nil); window.close(); state.windowClosed() }
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        for width in [560.0, 1000.0] {
+            window.setContentSize(CGSize(width: width, height: 400))
+            for _ in 0..<30 {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            let mounted = views(host)
+            let controls = try XCTUnwrap(mounted.compactMap { $0 as? ReaderFloatingWindowButtons.Buttons }.first)
+            XCTAssertEqual(controls.convert(controls.bounds, to: host).minX, 16, accuracy: 1)
+            let buttons = mounted.compactMap { $0 as? NSButton }
+            let open = try XCTUnwrap(buttons.first { !$0.isDescendant(of: controls) })
+            XCTAssertEqual(open.convert(open.bounds, to: host).maxX, host.bounds.maxX - 16, accuracy: 1)
+            XCTAssertEqual(buttons.count, 4, "Home has window controls and Open, without document-tab actions")
+            XCTAssertFalse(mounted.contains { $0 is NSScrollView })
+        }
+    }
+
+    func testTwoDocumentTabsFillTheStripAndNarrowStripScrollsInsteadOfShrinkingTargets() async throws {
+        _ = NSApplication.shared
+        let windows = ["first-book.epub", "second-book.epub"].map { title in
+            let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 600, height: 100),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.title = title
+            window.alphaValue = 0; window.ignoresMouseEvents = true
+            return window
+        }
+        windows[0].addTabbedWindow(windows[1], ordered: .above)
+        windows[0].tabGroup?.selectedWindow = windows[1]
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/second-book.epub"), content: .text("book"))
+        state.window = windows[1]
+        let host = NSHostingView(rootView: ReaderDocumentTabs(state: state))
+        windows[1].contentView = host; windows[1].orderBack(nil)
+        defer {
+            windows[1].contentView = nil
+            for window in windows { window.orderOut(nil); window.close() }
+            state.windowClosed()
+        }
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        for width in [360.0, 600.0, 220.0] {
+            windows[1].setContentSize(CGSize(width: width, height: 100))
+            for _ in 0..<30 {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            let scroll = try XCTUnwrap(views(host).compactMap { $0 as? NSScrollView }.first)
+            let buttons = views(scroll).compactMap { $0 as? NSButton }
+            XCTAssertEqual(buttons.count, 4, "Both documents keep independent selection and close targets")
+            let closeButtons = buttons.filter { abs($0.bounds.width - 20) < 1 }
+            XCTAssertEqual(closeButtons.count, 2)
+            XCTAssertTrue(closeButtons.allSatisfy { $0.bounds.height >= 20 })
+            if width >= 360 {
+                let frame = scroll.convert(scroll.bounds, to: host)
+                let lastClose = try XCTUnwrap(closeButtons.map { $0.convert($0.bounds, to: host) }.max { $0.maxX < $1.maxX })
+                XCTAssertEqual(lastClose.maxX, frame.maxX - 8, accuracy: 1,
+                               "Fitting tabs use the available strip instead of leaving an empty trailing region")
+            } else {
+                XCTAssertGreaterThan(try XCTUnwrap(scroll.documentView).bounds.width, scroll.contentView.bounds.width,
+                                     "Narrow strips scroll rather than crushing document and close targets")
+            }
+        }
+    }
+
+    func testCustomHomeChromeNeverAdoptsSiblingFactoryButtonsAsANativeCompanion() throws {
+        final class SharedLookupWindow: NSWindow {
+            var sharedClose: NSButton?
+            override func standardWindowButton(_ type: NSWindow.ButtonType) -> NSButton? {
+                if type == .closeButton, let sharedClose { return sharedClose }
+                return super.standardWindowButton(type)
+            }
+        }
+        _ = NSApplication.shared
+        let sibling = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 400),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        let home = SharedLookupWindow(contentRect: sibling.frame,
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        sibling.isReleasedWhenClosed = false; home.isReleasedWhenClosed = false
+        let controls = ReaderFloatingWindowButtons.Buttons(frame: CGRect(x: 16, y: 16, width: 54, height: 20))
+        sibling.contentView?.addSubview(controls)
+        home.sharedClose = try XCTUnwrap(controls.subviews.compactMap { $0 as? NSButton }.first { $0.tag == Int(NSWindow.ButtonType.closeButton.rawValue) })
+        let state = ReaderState(recordsHistory: false)
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        home.contentView?.addSubview(observer)
+        defer {
+            observer.detach(); home.contentView = nil; controls.removeFromSuperview()
+            home.close(); sibling.close(); state.windowClosed()
+        }
+        for menuVisible in [false, true, false] {
+            observer.updateChrome(revealingNativeControls: menuVisible)
+            XCTAssertFalse(controls.isHiddenOrHasHiddenAncestor)
+            XCTAssertEqual(controls.alphaValue, 1)
+            XCTAssertEqual(sibling.contentView?.alphaValue, 1)
+            XCTAssertFalse(sibling.ignoresMouseEvents)
+        }
+    }
+
     func testMountedWindowButtonsRecoverAfterSwiftUIDismantleAndFullscreenContextChanges() throws {
         final class FullscreenWindow: NSWindow {
             var fullscreen = false
@@ -353,7 +507,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
             selected.setContentSize(CGSize(width: width, height: 150))
             try await settle()
             XCTAssertEqual(host.bounds.width, width, accuracy: 0.1)
-            XCTAssertEqual(host.bounds.height, ReaderFloatingControls.height + 10, accuracy: 0.1)
+            XCTAssertEqual(host.bounds.height, ReaderFloatingControls.height + 16, accuracy: 0.1)
             let rendered = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: rendered)
             // Sample the painted row, including the return to narrow width.

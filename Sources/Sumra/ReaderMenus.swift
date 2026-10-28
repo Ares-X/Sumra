@@ -2,9 +2,9 @@
 import SwiftUI
 
 @MainActor
-func chooseDocuments(_ receive: @escaping ([URL]) -> Void) {
+func chooseDocuments(allowDirectories: Bool = true, _ receive: @escaping ([URL]) -> Void) {
     let panel = NSOpenPanel()
-    panel.canChooseDirectories = true
+    panel.canChooseDirectories = allowDirectories
     panel.allowsMultipleSelection = true
     panel.begin { if $0 == .OK { receive(panel.urls) } }
 }
@@ -506,7 +506,9 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
     }
 
     @MainActor
-    func run(_ state: ReaderState) {
+    func run(_ state: ReaderState, choose: @MainActor (@escaping ([URL]) -> Void) -> Void = { receive in
+        chooseDocuments(allowDirectories: false, receive)
+    }) {
         guard enabled(state) else { return }
         switch self {
         case .pdfEditing: state.setPDFEditingEnabled(!state.pdfEditingEnabled)
@@ -631,7 +633,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .relocate: state.relocateFile()
         case .trash: state.trashFile(openNext: false)
         case .trashAndNext: state.trashFile(openNext: true)
-        case .home: state.close()
+        case .home: ReaderWindows.showHome(from: state)
         case .save: state.savePDF()
         case .saveCopy: state.saveCopy()
         case .exportPDF: state.send(.exportPDF)
@@ -647,7 +649,10 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .scrollbarsHidden: state.scrollbarMode = "hidden"; if state.isBrowser { state.send(.style) }
         case .copyPath: state.copyPath()
         case .close: state.window?.performClose(nil)
-        case .newTab: state.createWindow?(WindowPayload(tabWith: state.window?.windowNumber))
+        case .newTab:
+            choose { urls in
+                ReaderWindows.open(urls, in: state, behavior: .newTab) { state.createWindow?($0) }
+            }
         case .duplicateTab: state.duplicate(inTab: true)
         case .duplicateWindow: state.duplicate(inTab: false)
         case .nextTab: state.selectTab(1)

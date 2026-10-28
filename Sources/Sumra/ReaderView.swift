@@ -30,6 +30,7 @@ struct ReaderView: View {
         let hasTopControls = findControlsShown || editingControlsShown || speechControlsShown
         let topClearance = floatingTopClearance(forControls: hasTopControls)
         VStack(spacing: 0) {
+            if !state.hasDocument { ReaderHomeHeader(state: state, open: openFiles) }
             if findControlsShown {
                 ReaderFindControls(state: state, floating: $findFloating, close: closeFind)
                     .modifier(ReaderChromeEntrance())
@@ -81,8 +82,8 @@ struct ReaderView: View {
         .toolbar(id: "reader") { toolbar }
         // Fullscreen policy is chosen on entry. Keep document chrome installed
         // across reader modes; its owned views/window control visible opacity.
-        .toolbar(state.usesFloatingChrome ? .hidden : .visible, for: .windowToolbar)
-        .modifier(ReaderToolbarAppearance(shown: state.toolbarShown && !state.usesFloatingChrome, hidesNativeTitle: state.usesFloatingChrome, background: ReaderTheme.color(state.palette.background)))
+        .toolbar(state.usesCustomChrome ? .hidden : .visible, for: .windowToolbar)
+        .modifier(ReaderToolbarAppearance(shown: state.toolbarShown && !state.usesCustomChrome, hidesNativeTitle: state.usesCustomChrome, background: ReaderTheme.color(state.palette.background)))
         .onChange(of: reducedMotion) { _ in state.toolbarHoverVisible = false }
         .onChange(of: state.presentation) {
             state.toolbarHoverVisible = false

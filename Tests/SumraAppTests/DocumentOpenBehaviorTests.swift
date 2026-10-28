@@ -109,28 +109,72 @@ final class DocumentOpenBehaviorTests: XCTestCase {
         }
     }
 
-    func testFinderUsesFrontReaderForTabPolicyAndNewTabCommandWorksOnWelcome() throws {
+    func testFinderUsesFrontReaderForTabPolicyAndNewTabCancellationLeavesWelcomeAlone() throws {
         let fixture = try Fixture(behavior: .newTab)
         defer { fixture.close() }
         var created = [WindowPayload]()
         fixture.state.createWindow = { created.append($0) }
         XCTAssertTrue(ReaderMenuCommand.newTab.enabled(fixture.state))
-        ReaderMenuCommand.newTab.run(fixture.state)
-        XCTAssertNil(created[0].path)
-        XCTAssertEqual(created[0].tabWith, fixture.window.windowNumber)
+        var pickerRequests = 0
+        ReaderMenuCommand.newTab.run(fixture.state, choose: { _ in pickerRequests += 1 })
+        XCTAssertEqual(pickerRequests, 1)
+        XCTAssertTrue(created.isEmpty, "Cancelling selection must not create a blank tab")
         fixture.loadCurrent()
         fixture.window.orderFront(nil)
         let delegate = ReaderApplicationDelegate()
         delegate.installWindowOpener { created.append($0) }
         delegate.finishLaunching()
         delegate.application(NSApp, open: fixture.urls)
-        XCTAssertEqual(created.dropFirst().map(\.path), fixture.urls.map(\.path))
+        XCTAssertEqual(created.map(\.path), fixture.urls.map(\.path))
         XCTAssertTrue(created.allSatisfy { $0.tabWith == fixture.window.windowNumber })
 
         UserDefaults.standard.set(true, forKey: "disableTabs")
         XCTAssertFalse(ReaderMenuCommand.newTab.enabled(fixture.state))
-        ReaderMenuCommand.newTab.run(fixture.state)
-        XCTAssertEqual(created.count, 3)
+        ReaderMenuCommand.newTab.run(fixture.state, choose: { _ in XCTFail("Disabled tabs must not show a picker") })
+        XCTAssertEqual(created.count, 2)
+    }
+
+    func testNewTabSelectionOverridesEveryDefaultOpenPolicyWithoutReplacingTheBook() throws {
+        for behavior in DocumentOpenBehavior.allCases {
+            let fixture = try Fixture(behavior: behavior)
+            defer { fixture.close() }
+            fixture.loadCurrent()
+            let original = fixture.state.document?.id
+            var created = [WindowPayload]()
+            fixture.state.createWindow = { created.append($0) }
+            ReaderMenuCommand.newTab.run(fixture.state, choose: { receive in receive(fixture.urls) })
+            XCTAssertEqual(fixture.state.document?.id, original, behavior.rawValue)
+            XCTAssertFalse(fixture.state.busy)
+            XCTAssertEqual(created.map(\.path), fixture.urls.map(\.path))
+            XCTAssertTrue(created.allSatisfy { $0.tabWith == fixture.window.windowNumber })
+        }
+    }
+
+    func testNewTabEmptySelectionAndCancellationPreserveTheCurrentBook() throws {
+        let fixture = try Fixture(behavior: .replaceCurrent)
+        defer { fixture.close() }
+        fixture.loadCurrent()
+        let original = fixture.state.document?.id
+        var created = [WindowPayload]()
+        fixture.state.createWindow = { created.append($0) }
+        ReaderMenuCommand.newTab.run(fixture.state, choose: { _ in })
+        ReaderMenuCommand.newTab.run(fixture.state, choose: { receive in receive([]) })
+        XCTAssertTrue(created.isEmpty)
+        XCTAssertEqual(fixture.state.document?.id, original)
+        XCTAssertFalse(fixture.state.busy)
+    }
+
+    func testNativeNewTabActionUsesTheSameCommandAvailability() throws {
+        let fixture = try Fixture(behavior: .replaceCurrent)
+        defer { fixture.close() }
+        fixture.loadCurrent()
+        fixture.state.createWindow = { _ in }
+        let action = #selector(ReaderCloseGuard.newWindowForTab(_:))
+        let item = NSMenuItem(title: "New Tab", action: action, keyEquivalent: "")
+        XCTAssertTrue(fixture.closeGuard.responds(to: action))
+        XCTAssertTrue(fixture.closeGuard.validateUserInterfaceItem(item))
+        UserDefaults.standard.set(true, forKey: "disableTabs")
+        XCTAssertFalse(fixture.closeGuard.validateUserInterfaceItem(item))
     }
 
     private func waitUntilIdle(_ state: ReaderState) async throws {

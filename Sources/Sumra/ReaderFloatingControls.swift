@@ -6,39 +6,47 @@ import AppKit
 @MainActor struct ReaderFloatingControls: View {
     @ObservedObject var state: ReaderState
     let open: () -> Void
-    @State private var tabs: [Tab] = []
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
 
-    private struct Tab: Equatable, Identifiable {
-        let id: Int
-        let title: String
-        let color: NSColor?
+    private var visible: Bool {
+        state.toolbarDisplayMode == .hidden ? state.toolbarHoverVisible : state.toolbarShown
     }
-    private var visible: Bool { state.toolbarShown }
     private var opacity: Double {
         state.toolbarDisplayMode == .shown ? 1 : state.toolbarHoverOpacity
     }
 
     static let height: CGFloat = 36
-    static let topInset: CGFloat = 10
+    static let topInset: CGFloat = 16
     private static let compactWidth: CGFloat = 680
 
     var body: some View {
         GeometryReader { geometry in
             let compact = geometry.size.width < Self.compactWidth
-            HStack(alignment: compact ? .center : .top, spacing: 0) {
-                navigation(compact: compact).fixedSize()
-                    .accessibilityElement(children: .contain).accessibilityIdentifier("floating-navigation")
-                Spacer(minLength: compact ? 8 : 12)
-                documents(compact: compact).frame(minWidth: 0, maxWidth: 360)
-                    .accessibilityElement(children: .contain).accessibilityIdentifier("floating-documents")
-                Spacer(minLength: compact ? 8 : 12)
-                tools(compact: compact).fixedSize()
-                    .accessibilityElement(children: .contain).accessibilityIdentifier("floating-tools")
+            Group {
+                if state.toolbarDisplayMode == .hidden {
+                    HStack(spacing: 0) {
+                        ReaderFloatingWindowButtons().frame(width: 54, height: 20)
+                            .padding(.horizontal, 10).frame(height: Self.height)
+                            .modifier(ReaderFloatingSurface(palette: state.palette))
+                            .accessibilityElement(children: .contain).accessibilityIdentifier("floating-window-controls")
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    HStack(alignment: compact ? .center : .top, spacing: 0) {
+                        navigation(compact: compact).fixedSize()
+                            .accessibilityElement(children: .contain).accessibilityIdentifier("floating-navigation")
+                        Spacer(minLength: compact ? 8 : 12)
+                        documents(compact: compact).frame(minWidth: 0, maxWidth: 360)
+                            .accessibilityElement(children: .contain).accessibilityIdentifier("floating-documents")
+                        Spacer(minLength: compact ? 8 : 12)
+                        tools(compact: compact).fixedSize()
+                            .accessibilityElement(children: .contain).accessibilityIdentifier("floating-tools")
+                    }
+                    .padding(.horizontal, compact ? 10 : 0)
+                    .modifier(ReaderFloatingSurface(palette: state.palette, enabled: compact))
+                }
             }
-            .padding(.horizontal, compact ? 10 : 0)
             .frame(height: Self.height)
-            .modifier(ReaderFloatingSurface(palette: state.palette, enabled: compact))
             .padding(.horizontal, 16).padding(.top, Self.topInset)
         }
         .frame(height: Self.height + Self.topInset, alignment: .top)
@@ -50,8 +58,6 @@ import AppKit
         .animation(reducedMotion ? nil : ReaderMotion.reveal, value: visible)
         .allowsHitTesting(visible)
         .accessibilityHidden(!visible)
-        .onAppear(perform: updateTabs)
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didUpdateNotification)) { _ in updateTabs() }
     }
 
     private func navigation(compact: Bool) -> some View {
@@ -67,81 +73,9 @@ import AppKit
     }
 
     private func documents(compact: Bool) -> some View {
-        Group {
-            if tabs.count <= 1 {
-                HStack(spacing: 6) {
-                    if let color = tabs.first?.color {
-                        Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
-                    }
-                    documentTitle
-                    command(.newTab, "plus")
-                }
-            } else {
-                tabStrip
-            }
-        }
-        .padding(.horizontal, compact ? 6 : 8).frame(height: Self.height)
-        .modifier(ReaderFloatingSurface(palette: state.palette, enabled: !compact))
-    }
-
-    private var documentTitle: some View {
-        Text(state.document?.url.lastPathComponent ?? "Sumra")
-            .font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
-            .frame(minWidth: 0, maxWidth: .infinity)
-    }
-
-    private var tabStrip: some View {
-        HStack(spacing: 4) {
-            GeometryReader { geometry in
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
-                            ForEach(tabs) { tab in
-                                HStack(spacing: 6) {
-                                    Button { window(tab.id)?.makeKeyAndOrderFront(nil) } label: {
-                                        HStack(spacing: 6) {
-                                            if let color = tab.color {
-                                                Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
-                                            }
-                                            Text(tab.title).lineLimit(1).truncationMode(.middle)
-                                                .frame(minWidth: 0,
-                                                    maxWidth: min(160, max(0, geometry.size.width - 32 - (tab.color == nil ? 0 : 13))),
-                                                    alignment: .leading)
-                                        }
-                                    }
-                                    .accessibilityLabel(tab.title)
-                                    .accessibilityValue(tab.id == state.window?.windowNumber ? L("Selected") : "")
-                                    Button { window(tab.id)?.performClose(nil) } label: {
-                                        Image(systemName: "xmark").font(.system(size: 9, weight: .medium))
-                                    }.help(L("Close Tab")).accessibilityLabel(L("Close Tab") + ": " + tab.title)
-                                }
-                                .padding(.horizontal, 8).frame(height: 24)
-                                .background(Color(nsColor: ReaderTheme.color(state.palette.text))
-                                    .opacity(tab.id == state.window?.windowNumber ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 5))
-                                .id(tab.id)
-                                .contextMenu {
-                                    Button(L("Close Tab")) { window(tab.id)?.performClose(nil) }
-                                    Button(L("Move Tab to New Window")) { window(tab.id)?.moveTabToNewWindow(nil) }
-                                }
-                            }
-                        }
-                    }
-                    .onAppear { proxy.scrollTo(state.window?.windowNumber, anchor: .center) }
-                    .onChange(of: tabs) { _ in proxy.scrollTo(state.window?.windowNumber, anchor: .center) }
-                    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-                        if notification.object as? NSWindow === state.window {
-                            proxy.scrollTo(state.window?.windowNumber, anchor: .center)
-                        }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
-                        if notification.object as? NSWindow === state.window {
-                            proxy.scrollTo(state.window?.windowNumber, anchor: .center)
-                        }
-                    }
-                }
-            }.frame(height: 24)
-            command(.newTab, "plus")
-        }
+        ReaderDocumentTabs(state: state)
+            .padding(.horizontal, compact ? 6 : 8).frame(height: Self.height)
+            .modifier(ReaderFloatingSurface(palette: state.palette, enabled: !compact))
     }
 
     private func tools(compact: Bool) -> some View {
@@ -175,11 +109,139 @@ import AppKit
         Button { command.run(state) } label: { Image(systemName: symbol).frame(width: 24, height: 24) }
             .disabled(!command.enabled(state)).help(command.title).accessibilityLabel(command.title)
     }
+
+}
+
+/// Home is a separate launch surface, with a fixed header in its layout.
+@MainActor struct ReaderHomeHeader: View {
+    @ObservedObject var state: ReaderState
+    let open: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ReaderFloatingWindowButtons().frame(width: 54, height: 20)
+            Text("Sumra").font(.headline)
+            Spacer(minLength: 12)
+            Button(action: open) { Image(systemName: "folder").frame(width: 24, height: 24) }
+                .help(L("Open Document")).accessibilityLabel(L("Open Document"))
+        }
+        .frame(height: 28).padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .buttonStyle(.borderless)
+        .foregroundStyle(Color(nsColor: ReaderTheme.color(state.palette.text)))
+        .accessibilityElement(children: .contain).accessibilityIdentifier("home-header")
+    }
+}
+
+/// The native document window group is the only tab model.
+@MainActor struct ReaderDocumentTabs: View {
+    @ObservedObject var state: ReaderState
+    @State private var tabs: [Tab] = []
+
+    private struct Tab: Equatable, Identifiable {
+        let id: Int
+        let title: String
+        let color: NSColor?
+    }
+
+    var body: some View {
+        Group {
+            if tabs.count <= 1 {
+                HStack(spacing: 6) {
+                    if let color = tabs.first?.color {
+                        Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
+                    }
+                    documentTitle
+                    closeButton(state.window)
+                    command(.newTab, "plus")
+                }
+            } else { tabStrip }
+        }
+        .font(.system(size: 12)).buttonStyle(.borderless)
+        .foregroundStyle(Color(nsColor: ReaderTheme.color(state.palette.text)))
+        .onAppear(perform: updateTabs)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didUpdateNotification)) { _ in updateTabs() }
+    }
+
+    private var documentTitle: some View {
+        Text(state.document?.url.lastPathComponent ?? "Sumra")
+            .font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var tabStrip: some View {
+        HStack(spacing: 4) {
+            GeometryReader { geometry in
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            ForEach(tabs) { tab in
+                                HStack(spacing: 6) {
+                                    Button { window(tab.id)?.makeKeyAndOrderFront(nil) } label: {
+                                        HStack(spacing: 6) {
+                                            if let color = tab.color {
+                                                Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
+                                            }
+                                            Text(tab.title).lineLimit(1).truncationMode(.middle)
+                                                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .help(tab.title).accessibilityLabel(tab.title)
+                                    .accessibilityValue(tab.id == state.window?.windowNumber ? L("Selected") : "")
+                                    closeButton(window(tab.id), title: tab.title)
+                                }
+                                .padding(.horizontal, 8)
+                                .frame(width: max(120, (geometry.size.width - CGFloat(tabs.count - 1) * 4) / CGFloat(tabs.count)), height: 28)
+                                .background(Color(nsColor: ReaderTheme.color(state.palette.text))
+                                    .opacity(tab.id == state.window?.windowNumber ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 5))
+                                .id(tab.id)
+                                .contextMenu {
+                                    Button(L("Close Tab")) { window(tab.id)?.performClose(nil) }
+                                    Button(L("Move Tab to New Window")) { window(tab.id)?.moveTabToNewWindow(nil) }
+                                }
+                            }
+                        }
+                    }
+                    .onAppear { proxy.scrollTo(state.window?.windowNumber, anchor: .center) }
+                    .onChange(of: tabs) { _ in proxy.scrollTo(state.window?.windowNumber, anchor: .center) }
+                    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+                        if notification.object as? NSWindow === state.window {
+                            proxy.scrollTo(state.window?.windowNumber, anchor: .center)
+                        }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
+                        if notification.object as? NSWindow === state.window {
+                            proxy.scrollTo(state.window?.windowNumber, anchor: .center)
+                        }
+                    }
+                }
+            }.frame(height: 28)
+            command(.newTab, "plus")
+        }
+    }
+
+    private func closeButton(_ window: NSWindow?, title: String? = nil) -> some View {
+        Button { window?.performClose(nil) } label: {
+            Image(systemName: "xmark").font(.system(size: 9, weight: .medium))
+                .frame(width: 20, height: 20).contentShape(Rectangle())
+        }
+        .help(L("Close Tab"))
+        .accessibilityLabel(L("Close Tab") + ": " + (title ?? state.document?.url.lastPathComponent ?? ""))
+    }
+
+    private func command(_ command: ReaderMenuCommand, _ symbol: String) -> some View {
+        Button { command.run(state) } label: { Image(systemName: symbol).frame(width: 24, height: 24).contentShape(Rectangle()) }
+            .disabled(!command.enabled(state)).help(command.title).accessibilityLabel(command.title)
+    }
     private func window(_ number: Int) -> NSWindow? {
-        (state.window?.tabbedWindows ?? [state.window].compactMap { $0 }).first { $0.windowNumber == number }
+        (state.window?.tabGroup?.windows ?? [state.window].compactMap { $0 }).first { $0.windowNumber == number }
     }
     private func updateTabs() {
-        let current = (state.window?.tabbedWindows ?? [state.window].compactMap { $0 }).map {
+        let current = (state.window?.tabGroup?.windows ?? [state.window].compactMap { $0 }).map {
             Tab(id: $0.windowNumber, title: $0.title,
                 color: ($0.tab.accessoryView?.layer?.backgroundColor).flatMap { NSColor(cgColor: $0) })
         }
