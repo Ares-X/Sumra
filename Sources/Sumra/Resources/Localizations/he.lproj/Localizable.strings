@@ -375,7 +375,7 @@
 "Application Log" = "יומן היישום";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "מחיל את סימוני ההשחרה הנוכחיים על עותק הפלט ומסיר לצמיתות את התוכן המכוסה. המסמך הפתוח אינו משתנה. ההצפנה הקיימת נשמרת.";
 "Apply Margins and CSS" = "החלת שוליים ו־CSS";
-"Apply affects saved defaults. Current documents retain their reading settings." = "ההחלה משנה את ברירות המחדל השמורות. המסמכים הנוכחיים שומרים על הגדרות הקריאה שלהם.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "מראה הקריאה והפריסה מתעדכנים מיד. אפשרויות הפתיחה יחולו על המסמך הבא.";
 "Ask AI…" = "שאלה לבינה מלאכותית…";
 "Ask Document" = "שאלה על המסמך";
 "Assistant" = "עוזר";
@@ -734,3 +734,34 @@
 "File:" = "קובץ:";
 "Approximate progress by chapter" = "התקדמות משוערת לפי פרק";
 "Progress in current file" = "התקדמות בקובץ הנוכחי";
+
+
+"Floating Reading Controls" = "פקדי קריאה צפים";
+
+
+"Progress Slider Display" = "תצוגת מחוון ההתקדמות";
+
+"Open documents in" = "פתיחת מסמכים ב";
+
+"Replace Current Document" = "החלפת המסמך הנוכחי";
+
+"New Tab" = "כרטיסייה חדשה";
+
+"Close Tab" = "סגירת כרטיסייה";
+
+"Move Tab to New Window" = "העברת כרטיסייה לחלון חדש";
+
+"Page divider" = "מפריד עמודים";
+
+"Page divider color" = "צבע מפריד העמודים";
+
+"Selected" = "נבחר";
+
+"More" = "עוד";
+
+
+"Open in New Window" = "פתיחה בחלון חדש";
+
+"Narrow" = "צר";
+"Medium" = "בינוני";
+"Wide" = "רחב";

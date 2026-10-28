@@ -19,3 +19,32 @@
 "Auto Hide" = "Auto Hide";
 "Always Hide" = "Always Hide";
 "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar." = "In Auto Hide mode, move the pointer to the top of the window to reveal the toolbar.";
+
+"Floating Reading Controls" = "Floating Reading Controls";
+
+
+"Progress Slider Display" = "Progress Slider Display";
+
+"Open documents in" = "Open documents in";
+
+"Replace Current Document" = "Replace Current Document";
+
+"New Tab" = "New Tab";
+
+"Close Tab" = "Close Tab";
+
+"Move Tab to New Window" = "Move Tab to New Window";
+
+"Page divider" = "Page divider";
+
+"Page divider color" = "Page divider color";
+
+"Selected" = "Selected";
+
+"More" = "More";
+
+"Narrow" = "Narrow";
+"Medium" = "Medium";
+"Wide" = "Wide";
+
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "Reading appearance and layout update immediately. Opening options apply to the next document.";

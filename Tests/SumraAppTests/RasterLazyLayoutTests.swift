@@ -25,6 +25,7 @@ final class RasterLazyLayoutTests: XCTestCase {
         let pages = try Pages(input, format: .html)
         state.document = ReadingDocument(url: input, content: .pages(pages))
         state.fontSize = 17; state.lineHeight = 1.4; state.margin = 24; state.font = "serif"; state.theme = "light"
+        state.pageMargins = nil
         state.flow = "continuous"; state.fit = "width"; state.spread = false; state.automaticLayout = false
         state.scrollbarMode = "hidden"
         _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 24, font: "serif", theme: "light",

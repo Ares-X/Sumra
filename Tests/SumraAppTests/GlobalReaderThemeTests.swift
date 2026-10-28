@@ -6,6 +6,25 @@ import XCTest
 
 @MainActor
 final class GlobalReaderThemeTests: XCTestCase {
+    func testSettingsThemeSelectionUpdatesNativeAppearanceWithoutAFocusedReader() throws {
+        try preservingThemeDefaults {
+            // Settings and Welcome use native semantic colors. Starting from
+            // the opposite appearance reproduces the reported transition.
+            for (old, selected, expected) in [
+                (NSAppearance.Name.darkAqua, "light", NSAppearance.Name.aqua),
+                (.aqua, "dracula", .darkAqua),
+                (.darkAqua, "light-warm", .aqua)
+            ] {
+                NSApp.appearance = NSAppearance(named: old)
+                ReaderState.selectTheme(selected)
+                XCTAssertEqual(NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]), expected,
+                    "Global theme selection must update native Settings and Welcome surfaces")
+            }
+            ReaderState.selectTheme("system")
+            XCTAssertNil(NSApp.appearance, "System theme must restore the macOS appearance owner")
+        }
+    }
+
     func testReaderCommandsChangeEveryWindowAndNewReadersWithRememberingOnOrOff() throws {
         try preservingThemeDefaults {
             for disabled in [false, true] {
@@ -130,7 +149,11 @@ final class GlobalReaderThemeTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = ["theme", "lastLightTheme", "lastDarkTheme", "customThemes", "customCommands", "disableReadingState"]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
-        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        let appearance = NSApp.appearance
+        defer {
+            for (key, value) in saved { defaults.set(value, forKey: key) }
+            NSApp.appearance = appearance
+        }
         try body()
     }
 

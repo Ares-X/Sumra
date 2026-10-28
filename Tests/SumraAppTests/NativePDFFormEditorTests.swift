@@ -520,6 +520,53 @@ final class NativePDFFormEditorTests: XCTestCase {
         editor.cancel()
     }
 
+    func testGlobalLayoutSettingsWaitForFormInputBeforeAcknowledgingTheirRevision() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let saved = ["flow", "readingPreferenceRevisions"].map { ($0, defaults.object(forKey: $0)) }
+        defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
+        defaults.removeObject(forKey: "readingPreferenceRevisions")
+        defaults.set("paged", forKey: "flow")
+        let host = NSView(frame: CGRect(x: 0, y: 0, width: 500, height: 400))
+        let window = NSWindow(contentRect: host.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/global-settings-form.pdf"), content: .text(""))
+        state.window = window
+        let closeGuard = ReaderCloseGuard(state: state, previous: nil)
+        window.delegate = closeGuard
+        var release: CheckedContinuation<Void, Never>?
+        defer {
+            release?.resume()
+            state.windowClosed(); window.delegate = nil; window.contentView = nil; window.close()
+            withExtendedLifetime(closeGuard) {}
+        }
+        let started = expectation(description: "Global layout commits the current form input")
+        var submitted = [String]()
+        let editor = NativePDFFormEditor(widget: widget(), host: host, frame: fieldFrame,
+            commitValue: { value in
+                submitted.append(try self.text(value))
+                await withCheckedContinuation { release = $0; started.fulfill() }
+            }, didClose: { state.nativePDFFormEditor = nil }, advance: { _ in }, failure: { XCTFail("\($0)") })
+        state.nativePDFFormEditor = editor
+        let field = try XCTUnwrap(host.subviews.first as? NSTextField)
+        field.stringValue = "Keep this draft"
+        defaults.set("continuous", forKey: "flow")
+        ReaderPreferences.applyReadingDefaults(changed: ["flow"])
+        await fulfillment(of: [started], timeout: 2)
+        XCTAssertEqual(state.flow, "paged")
+        XCTAssertEqual(state.currentPosition.preferenceRevisions?["flow"] ?? 0, 0,
+            "An input-blocked reader must not save old layout as if it had applied the new setting")
+        let changed = expectation(description: "Accepted input permits the global layout")
+        let subscription = state.$flow.filter { $0 == "continuous" }.prefix(1).sink { _ in changed.fulfill() }
+        let continuation = release; release = nil; continuation?.resume()
+        await fulfillment(of: [changed], timeout: 2)
+        XCTAssertEqual(submitted, ["Keep this draft"])
+        XCTAssertEqual(state.currentPosition.preferenceRevisions?["flow"], ReaderPreferences.readingRevisions["flow"])
+        XCTAssertTrue(host.subviews.isEmpty)
+        withExtendedLifetime(subscription) {}
+    }
+
     func testLayoutChangeWaitsForAcceptedInputAndIgnoresReplacedDocument() async throws {
         struct Rejected: Error {}
         let defaults = UserDefaults.standard, previousFlow = UserDefaults.standard.object(forKey: "flow")

@@ -185,7 +185,7 @@ final class LegacyTitlePageTests: XCTestCase {
         }
     }
 
-    func testExplicitPublisherAndReaderMarginsKeepTheFullTitlePageCanvas() throws {
+    func testExplicitPublisherSpacingKeepsTheFullTitlePageCanvas() throws {
         let cssCases = ["@page{margin:3em 2em}", "@page{margin:0}",
             "FictionBook{margin:1em}", "FictionBook{margin:0}",
             "p{margin-top:1em}", "p{margin-top:0}", "p>image{margin:1em 0}", "p>image{margin:0}",
@@ -202,11 +202,6 @@ final class LegacyTitlePageTests: XCTestCase {
         let mobiContent = try XCTUnwrap(LegacyText.mobiContent(mobi(picture())))
         let mobiFile = try NativeFile(mobiContent.materialize(in: directory.url), engine: .mupdf)
         for file in [fb2File, mobiFile] {
-        for margins in [[0.0], [51, 34]] {
-            _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light",
-                pageMargins: PageMargins(cssValues: margins), pageSize: viewport)
-            XCTAssertEqual(try file.bounds(0), CGRect(origin: .zero, size: viewport))
-        }
         for css in ["body{margin:1em}", "body{margin:0}"] {
             _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light",
                 userCSS: css, pageSize: viewport)
@@ -216,6 +211,39 @@ final class LegacyTitlePageTests: XCTestCase {
         _ = try mobiFile.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light",
             userCSS: "div{margin:0}", pageSize: viewport)
         XCTAssertEqual(try mobiFile.bounds(0), CGRect(origin: .zero, size: viewport))
+    }
+
+    func testReaderMarginsPadTheIntrinsicTitleWithoutDiscardingAuthoredOverrides() throws {
+        let directory = try TemporaryDirectory(); defer { withExtendedLifetime(directory) {} }
+        let fb2File = try NativeFile(fb2(directory.url, firstSection: titleSection), engine: .mupdf)
+        let mobiContent = try XCTUnwrap(LegacyText.mobiContent(mobi(picture())))
+        let mobiFile = try NativeFile(mobiContent.materialize(in: directory.url), engine: .mupdf)
+        let viewport = CGSize(width: 1000, height: 800)
+        for file in [fb2File, mobiFile] {
+            for values in [[0.0], [8], [16], [24], [51, 34]] {
+                let margins = try XCTUnwrap(PageMargins(cssValues: values))
+                _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light",
+                    pageMargins: margins, pageSize: viewport)
+                let canvas = try XCTUnwrap(file.bounds(0))
+                let art = try XCTUnwrap(file.imageBounds(0).first)
+                XCTAssertLessThan(canvas.width, viewport.width, "Reader margins must not retain unused title paper: \(values)")
+                XCTAssertTrue(canvas.insetBy(dx: -0.1, dy: -0.1).contains(art))
+                let display = RasterLayout.size(page: canvas.size, viewport: viewport, columns: 1,
+                    rotation: 0, fit: "page", zoom: 1, origin: canvas.origin)
+                let visibleArt = art.applying(RasterLayout.transform(bounds: canvas, size: display, rotation: 0))
+                XCTAssertGreaterThanOrEqual(visibleArt.minX, margins.left - 0.1)
+                XCTAssertGreaterThanOrEqual(display.width - visibleArt.maxX, margins.right - 0.1)
+                let body = try bodyEvidence(file, query: "FOLLOWING")
+                let images = try file.imageBounds(0)
+                // A later actual user rule wins even when it has the same zero
+                // root margin as the reader-generated rule.
+                _ = try file.relayout(fontSize: 17, lineHeight: 1.6, font: "system", theme: "light",
+                    userCSS: "body{margin:0!important}", pageMargins: margins, pageSize: viewport)
+                XCTAssertEqual(try file.bounds(0), CGRect(origin: .zero, size: viewport))
+                XCTAssertEqual(try file.imageBounds(0), images)
+                XCTAssertEqual(try bodyEvidence(file, query: "FOLLOWING"), body)
+            }
+        }
     }
 
     @MainActor
@@ -404,6 +432,70 @@ final class LegacyTitlePageTests: XCTestCase {
             XCTAssertTrue(try XCTUnwrap(file.text(1)).contains("LAST TEXT"))
             try retain(file.image(0, width: Int(ceil(min(size.width / canvas.width, size.height / canvas.height) * canvas.width))), name: "authored-mobi-\(Int(size.width))x\(Int(size.height))")
         }
+    }
+
+    @MainActor
+    func testReaderPresetsKeepVisibleAliceTitleGapsCompactAsSpreadWindowGrows() throws {
+        guard let path = ProcessInfo.processInfo.environment["SUMRA_LEGACY_TITLE_SAMPLES"] else {
+            throw XCTSkip("Set SUMRA_LEGACY_TITLE_SAMPLES to the original Alice FB2/MOBI directory")
+        }
+        var evidence = [[String: Any]]()
+        for suffix in ["fb2", "mobi"] {
+            let source = URL(fileURLWithPath: path).appendingPathComponent("AlicesAdventuresinWonderland_Chapter1." + suffix)
+            let bytes = try Data(contentsOf: source)
+            let directory = try TemporaryDirectory(); defer { withExtendedLifetime(directory) {} }
+            let input = suffix == "mobi" ? try XCTUnwrap(LegacyText.mobiContent(bytes)).materialize(in: directory.url) : source
+            let file = try NativeFile(input, engine: .mupdf)
+            for preset in ReaderMarginPreset.allCases {
+                let topBudget: CGFloat = preset == .narrow ? 8 : preset == .medium ? 48 : 56
+                let bottomBudget: CGFloat = preset == .narrow ? 8 : preset == .medium ? 34 : 40
+                let topClearance = preset == .narrow ? 0 : topBudget - preset.margin
+                let bottomClearance = preset == .narrow ? 0 : bottomBudget - preset.margin
+                for frame in [CGSize(width: 900, height: 650), CGSize(width: 871, height: 795), CGSize(width: 871, height: 900)] {
+                    let viewport = CGSize(width: frame.width, height: frame.height - topClearance - bottomClearance)
+                    let paper = RasterReader.pageSize(in: viewport, spread: true)
+                    _ = try file.relayout(fontSize: 17, lineHeight: 1.4, font: "system", theme: "light",
+                        pageMargins: PageMargins(cssValues: [preset.margin]), pageSize: paper)
+                    let canvas = try XCTUnwrap(file.bounds(0))
+                    let art = try XCTUnwrap(file.imageBounds(0).first)
+                    let content: CGRect
+                    if suffix == "fb2" {
+                        let title = try XCTUnwrap(file.matches("Alice", page: 0).first).rects.reduce(CGRect.null) { $0.union($1) }
+                        let author = try XCTUnwrap(file.matches("Lewis Carroll", page: 0).first).rects.reduce(CGRect.null) { $0.union($1) }
+                        content = title.union(author).union(art)
+                    } else {
+                        // The original MOBI's generated first page is its
+                        // picture-only cover; its text starts on the next page.
+                        content = art
+                    }
+                    let display = RasterLayout.size(page: canvas.size, viewport: viewport, columns: 1,
+                        rotation: 0, fit: "page", zoom: 1, origin: canvas.origin)
+                    let transform = RasterLayout.transform(bounds: canvas, size: display, rotation: 0)
+                    let visible = content.applying(transform)
+                    let centerInset = (viewport.height - display.height) / 2
+                    let top = topClearance + centerInset + visible.minY
+                    let bottom = bottomClearance + centerInset + display.height - visible.maxY
+                    let label = "\(suffix) \(preset.rawValue) \(frame)"
+                    evidence.append(["format": suffix, "preset": preset.rawValue,
+                        "width": frame.width, "height": frame.height, "top": top, "bottom": bottom])
+                    XCTAssertLessThanOrEqual(top, topBudget + 8, "Visible top gap must not absorb spare title-page height: \(label)")
+                    XCTAssertLessThanOrEqual(bottom, bottomBudget + 8, "Visible bottom gap must not absorb spare title-page height: \(label)")
+                    XCTAssertTrue(canvas.insetBy(dx: -0.1, dy: -0.1).contains(content), label)
+                    XCTAssertEqual(art.width / art.height, 440.0 / 633, accuracy: 0.002, label)
+                    let body = try bodyEvidence(file, query: "Alice")
+                    let titleImages = try file.imageBounds(0)
+                    // A genuinely authored zero margin retains the paper, but
+                    // must not alter the title layout or following chapters.
+                    _ = try file.relayout(fontSize: 17, lineHeight: 1.4, font: "system", theme: "light",
+                        userCSS: "body{margin:0!important}", pageMargins: PageMargins(cssValues: [preset.margin]), pageSize: paper)
+                    XCTAssertEqual(try file.bounds(0), CGRect(origin: .zero, size: paper), label)
+                    XCTAssertEqual(try file.imageBounds(0), titleImages, label)
+                    XCTAssertEqual(try bodyEvidence(file, query: "Alice"), body, "Reader canvas fitting must not repaginate or move search rectangles: \(label)")
+                }
+            }
+            XCTAssertEqual(SHA256.hash(data: try Data(contentsOf: source)), SHA256.hash(data: bytes))
+        }
+        print("LEGACY_MARGIN_EVIDENCE", String(data: try JSONSerialization.data(withJSONObject: evidence, options: [.sortedKeys]), encoding: .utf8)!)
     }
 
     func testOriginalAliceFirstPageFitsAndCentersAcrossWindowSizes() throws {

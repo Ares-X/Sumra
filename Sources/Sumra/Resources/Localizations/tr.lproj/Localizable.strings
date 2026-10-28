@@ -376,7 +376,7 @@
 "Application Log" = "Uygulama Günlüğü";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "Geçerli karartma işaretlerini çıktı kopyasına uygulayarak kapatılan içeriği kalıcı olarak kaldırır. Açık belge değişmez. Mevcut şifreleme korunur.";
 "Apply Margins and CSS" = "Kenar Boşluklarını ve CSS'yi Uygula";
-"Apply affects saved defaults. Current documents retain their reading settings." = "Uygulama, kayıtlı varsayılanları değiştirir. Geçerli belgeler okuma ayarlarını korur.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "Okuma görünümü ve düzeni hemen güncellenir. Açma seçenekleri sonraki belgeye uygulanır.";
 "Ask AI…" = "Yapay Zekâya Sor…";
 "Ask Document" = "Belgeye Sor";
 "Assistant" = "Asistan";
@@ -734,3 +734,34 @@
 "File:" = "Dosya:";
 "Approximate progress by chapter" = "Bölüme göre yaklaşık ilerleme";
 "Progress in current file" = "Geçerli dosyadaki ilerleme";
+
+
+"Floating Reading Controls" = "Yüzen okuma denetimleri";
+
+
+"Progress Slider Display" = "İlerleme kaydırıcısı görünümü";
+
+"Open documents in" = "Belgeleri şurada aç";
+
+"Replace Current Document" = "Geçerli belgeyi değiştir";
+
+"New Tab" = "Yeni sekme";
+
+"Close Tab" = "Sekmeyi kapat";
+
+"Move Tab to New Window" = "Sekmeyi yeni pencereye taşı";
+
+"Page divider" = "Sayfa ayırıcı";
+
+"Page divider color" = "Sayfa ayırıcı rengi";
+
+"Selected" = "Seçildi";
+
+"More" = "Daha fazla";
+
+
+"Open in New Window" = "Yeni pencerede aç";
+
+"Narrow" = "Dar";
+"Medium" = "Orta";
+"Wide" = "Geniş";

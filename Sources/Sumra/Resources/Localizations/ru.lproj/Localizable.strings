@@ -376,7 +376,7 @@
 "Application Log" = "Журнал приложения";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "Применяет текущие отметки удаления к выходной копии, безвозвратно удаляя закрытое содержимое. Открытый документ не изменяется. Существующее шифрование сохраняется.";
 "Apply Margins and CSS" = "Применить поля и CSS";
-"Apply affects saved defaults. Current documents retain their reading settings." = "Применение меняет сохранённые настройки по умолчанию. Текущие документы сохраняют свои настройки чтения.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "Внешний вид и компоновка чтения обновляются сразу. Параметры открытия применяются к следующему документу.";
 "Ask AI…" = "Спросить ИИ…";
 "Ask Document" = "Вопрос по документу";
 "Assistant" = "Помощник";
@@ -734,3 +734,34 @@
 "File:" = "Файл:";
 "Approximate progress by chapter" = "Примерный прогресс по главам";
 "Progress in current file" = "Прогресс в текущем файле";
+
+
+"Floating Reading Controls" = "Плавающие элементы управления чтением";
+
+
+"Progress Slider Display" = "Отображение ползунка прогресса";
+
+"Open documents in" = "Открывать документы в";
+
+"Replace Current Document" = "Заменить текущий документ";
+
+"New Tab" = "Новая вкладка";
+
+"Close Tab" = "Закрыть вкладку";
+
+"Move Tab to New Window" = "Переместить вкладку в новое окно";
+
+"Page divider" = "Разделитель страниц";
+
+"Page divider color" = "Цвет разделителя страниц";
+
+"Selected" = "Выбрано";
+
+"More" = "Ещё";
+
+
+"Open in New Window" = "Открыть в новом окне";
+
+"Narrow" = "Узкие";
+"Medium" = "Средние";
+"Wide" = "Широкие";

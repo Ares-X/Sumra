@@ -143,7 +143,15 @@ import SumraCore
                         Slider(value: typography(\.lineHeight, overrideDocumentStyles: true), in: 1...2.4, step: 0.1)
                         Text(state.lineHeight, format: .number.precision(.fractionLength(1))).monospacedDigit().frame(width: 30)
                     }
-                    LabeledContent(L("Margins")) {
+                    Picker(L("Margins"), selection: Binding(get: { state.marginPreset }, set: { preset in
+                        if let preset { state.applyMarginPreset(preset) }
+                    })) {
+                        if state.marginPreset == nil { Text(L("Custom")).tag(nil as ReaderMarginPreset?) }
+                        ForEach(ReaderMarginPreset.allCases) { preset in
+                            Text(preset.title).tag(Optional(preset))
+                        }
+                    }
+                    LabeledContent(L("Margin")) {
                         Slider(value: Binding(get: { uniformMargin ?? state.margin }, set: { value in
                             state.captureReflowPosition()
                             state.margin = value; state.pageMargins = PageMargins(cssValues: [value]); state.applyTypography()

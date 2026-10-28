@@ -226,6 +226,7 @@ struct ReadingPosition: Codable, Hashable {
     var customLinkColor: UInt32?
     var pageMargins: PageMargins?
     var scrollbarMode: String?
+    var preferenceRevisions: [String: Int]?
     // Only persisted PDF locations need this migration marker. In-memory
     // raster navigation always uses Fitz coordinates, including untagged points.
     var pdfCoordinateSpace: String?
@@ -320,13 +321,16 @@ final class ReaderState: ObservableObject {
                 pair.0.title != pair.1.title || pair.0.target != pair.1.target || pair.0.depth != pair.1.depth
             }) else { return }
             outlineRevision &+= 1
-            let level = UserDefaults.standard.object(forKey: "contentsDepth") as? Int ?? 0
-            collapsedContents = level > 0 ? Set(outline.indices.filter { outline[$0].depth >= level - 1 && contentsHasChildren($0) }) : []
+            applyContentsDepth()
             selectedContents = nil
         }
     }
     @Published var chmIndex: [CHMKeyword] = []
     private(set) var outlineRevision = 0
+    func applyContentsDepth() {
+        let level = UserDefaults.standard.object(forKey: "contentsDepth") as? Int ?? 0
+        collapsedContents = level > 0 ? Set(outline.indices.filter { outline[$0].depth >= level - 1 && contentsHasChildren($0) }) : []
+    }
     @Published var collapsedContents = Set<Int>() {
         didSet { if collapsedContents != oldValue { contentsExpansionRevision &+= 1 } }
     }
@@ -364,8 +368,9 @@ final class ReaderState: ObservableObject {
     @Published var font = "system"
     @Published var fontSize = 17.0
     @Published var lineHeight = 1.6
-    @Published var margin = 32.0
+    @Published var margin = ReaderMarginPreset.medium.margin
     @Published var pageMargins: PageMargins?
+    private(set) var appliedPreferenceRevisions: [String: Int] = [:]
     @Published var theme = ReaderTheme.all[0].id
     @Published var invertColors = false
     @Published var grayscale = false
@@ -447,6 +452,8 @@ final class ReaderState: ObservableObject {
         didSet { if !toolbarHoverVisible, toolbarHoverOpacity != 0 { toolbarHoverOpacity = 0 } }
     }
     @Published var toolbarHoverOpacity = 0.0
+    @Published var immersiveControls = UserDefaults.standard.bool(forKey: "immersiveControls")
+    var usesFloatingChrome: Bool { hasDocument && immersiveControls && !presentation }
     var toolbarShown: Bool { hasDocument && !presentation && (toolbarDisplayMode == .shown || (toolbarDisplayMode == .auto && toolbarHoverVisible)) }
     var toolbarOverlaysContent: Bool { hasDocument && (presentation || toolbarDisplayMode != .shown) }
     @Published var presentationBlank: String?
@@ -525,7 +532,12 @@ final class ReaderState: ObservableObject {
     private var recordsHistory = true
     private var requestedHistory: Bool?
 
-    private var pendingActions: [ReaderAction] = []
+    private struct PendingAction {
+        var action: ReaderAction
+        var completed: (() -> Void)?
+    }
+    private var pendingActions: [PendingAction] = []
+    private var commandCompletion: (() -> Void)?
     private var commandInFlight = false
     private var claimedCommandRevision: Int?
     private(set) var editRevision = 0
@@ -681,6 +693,7 @@ extension ReaderState {
         position.customLinkColor = customLinkColor
         position.pageMargins = pageMargins
         position.scrollbarMode = scrollbarMode
+        position.preferenceRevisions = appliedPreferenceRevisions.isEmpty ? nil : appliedPreferenceRevisions
         if nativePDF != nil { position.pdfCoordinateSpace = "fitz" }
         return position
     }
@@ -730,7 +743,7 @@ extension ReaderState {
     var palette: ReaderTheme {
         let base = ReaderTheme.resolve(theme) ?? ReaderTheme.builtins[0]
         guard customTextColor != nil || customBackgroundColor != nil || customLinkColor != nil else { return base }
-        return ReaderTheme(id: "custom", name: "Custom", text: customTextColor ?? base.text, background: customBackgroundColor ?? base.background, link: customLinkColor ?? base.link)
+        return ReaderTheme(id: "custom", name: "Custom", text: customTextColor ?? base.text, background: customBackgroundColor ?? base.background, link: customLinkColor ?? base.link, pageDivider: base.pageDivider)
     }
 
     var effectiveUserCSS: String { palette.css + "\n" + userCSS }
@@ -801,7 +814,7 @@ extension ReaderState {
         return true
     }
 
-    func send(_ action: ReaderAction) {
+    func send(_ action: ReaderAction, completed: (() -> Void)? = nil) {
         // Input can queue behind an in-flight command without advancing its
         // revision yet. It still terminates the current raster pinch now.
         switch action {
@@ -836,15 +849,15 @@ extension ReaderState {
         }
         // Browser zooms are absolute sizes. A newer adjacent pending zoom
         // supersedes the older reflow without changing the in-flight command.
-        if (isBrowser || isNativeMarkdown), case .zoom = action, case .zoom? = pendingActions.last {
+        if (isBrowser || isNativeMarkdown), case .zoom = action, case .zoom? = pendingActions.last?.action {
             pendingActions.removeLast()
         }
         // Window resizing and mode changes replace the pending absolute layout.
         // Keep navigation between them in order while using the latest viewport.
-        if (reflowable || isText || isBrowser), action == .style, pendingActions.last == .style {
+        if (reflowable || isText || isBrowser), action == .style, pendingActions.last?.action == .style {
             pendingActions.removeLast()
         }
-        pendingActions.append(action)
+        pendingActions.append(.init(action: action, completed: completed))
         dispatchCommand()
     }
 
@@ -862,7 +875,10 @@ extension ReaderState {
         // Defer publication until the representable's update has finished.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.document?.id == documentID, self.command.revision == revision else { return }
+            let completed = self.commandCompletion
+            self.commandCompletion = nil
             self.commandInFlight = false
+            completed?()
             self.dispatchCommand()
         }
     }
@@ -870,7 +886,9 @@ extension ReaderState {
     private func dispatchCommand() {
         guard !commandInFlight, !pendingActions.isEmpty else { return }
         commandInFlight = true
-        command = .init(revision: command.revision &+ 1, action: pendingActions.removeFirst())
+        let next = pendingActions.removeFirst()
+        commandCompletion = next.completed
+        command = .init(revision: command.revision &+ 1, action: next.action)
     }
 
     // Published page numbers are a projection of stable chapter locations.
@@ -904,11 +922,15 @@ extension ReaderState {
         history = history.map(remap)
         requestedPosition = requestedPosition.map(remap)
         if let old, let speechPage, let location = old.location(page: speechPage) { self.speechPage = table.page(for: location) }
-        pendingActions = pendingActions.map { action in
-            if case .restore(let position) = action { return .restore(remap(position)) }
-            if case .preservePosition(let position) = action { return .preservePosition(remap(position)) }
-            if case .page(let page) = action { return .restore(remap(.init(page: page))) }
-            return action
+        pendingActions = pendingActions.map { request in
+            var request = request
+            switch request.action {
+            case .restore(let position): request.action = .restore(remap(position))
+            case .preservePosition(let position): request.action = .preservePosition(remap(position))
+            case .page(let page): request.action = .restore(remap(.init(page: page)))
+            default: break
+            }
+            return request
         }
         if let old {
             var located = outline, changed = false
@@ -993,11 +1015,11 @@ extension ReaderState {
         historyIndex = history.count
     }
 
-    func navigate(_ action: ReaderAction) {
+    func navigate(_ action: ReaderAction, completed: (() -> Void)? = nil) {
         if case .href(let target) = action, searchResults.contains(where: { $0.target == target }) {
             selectedSearchTarget = target
         } else { recordNavigation() }
-        send(action)
+        send(action, completed: completed)
     }
 
     func linkPosition(_ destination: ReadingPosition) -> ReadingPosition {
@@ -1040,7 +1062,7 @@ extension ReaderState {
             return
         }
         persist()
-        apply(position)
+        let position = apply(position)
         send(.restore(position))
     }
 
@@ -1526,6 +1548,7 @@ extension ReaderState {
 
     func setZoom(_ value: Double, preservingPosition: Bool = true) {
         guard value.isFinite else { return }
+        if preservingPosition, !isNativeMarkdown, RasterPinchZoom.setZoom(value, in: readerScrollView) { return }
         zoom = ReadingZoom.clamp(value, limit: isNativeMarkdown ? configuredZoomMaximum : zoomLimit)
         if !isNativeMarkdown { fit = "custom" }
         if preservingPosition { send(.zoom(zoom)) }
@@ -1536,17 +1559,15 @@ extension ReaderState {
         setZoom((start ?? zoom) * value)
     }
 
-    func setFit(_ value: String) {
+    func setFit(_ value: String, notify: Bool = true) {
         guard value == "custom" || ReadingZoom.fitTitles[value] != nil else { return }
         fit = value
         if !isNativeMarkdown { zoom = 1 }
-        UserDefaults.standard.set(value, forKey: "fit")
-        send(.fit(value))
+        if notify { send(.fit(value)) }
     }
     func setActualSize() {
         if isNativeMarkdown {
             fit = "actual"
-            UserDefaults.standard.set("actual", forKey: "fit")
             setZoom(1)
         } else {
             setFit("actual")
@@ -1582,19 +1603,17 @@ extension ReaderState {
         pendingReflowPosition = currentPosition
     }
 
-    func setFlow(_ value: String) {
+    func setFlow(_ value: String, notify: Bool = true) {
         if deferForNativePDFForm({ [weak self] in self?.setFlow(value) }) { return }
         if flow != value { captureReflowPosition() }
         automaticLayout = false
         if value == "continuous", reflowable || isText || isBrowser { spread = false }
         flow = value
-        UserDefaults.standard.set(value, forKey: "flow")
-        if isBrowser || isText { send(.style) }
+        if notify, isBrowser || isText { send(.style) }
     }
 
     func applyTypography(overrideDocumentStyles: Bool = false) {
         if overrideDocumentStyles && isCHM { useDocumentCSS = false }
-        persist()
         if typographyForAll {
         let defaults = UserDefaults.standard
         defaults.set(font, forKey: "font")
@@ -1604,8 +1623,14 @@ extension ReaderState {
         defaults.set(pageMargins.flatMap { try? JSONEncoder().encode($0) }, forKey: "pageMargins")
         defaults.set(userCSS, forKey: "userCSS")
         defaults.set(useDocumentCSS, forKey: "useDocumentCSS")
+        ReaderPreferences.applyReadingDefaults(changed: ReaderPreferences.typographyKeys)
+        acknowledgeReadingPreferences(changed: ReaderPreferences.typographyKeys)
+        if !ReaderWindows.states.contains(where: { $0 === self }) { persist(); send(.style) }
+        } else {
+            acknowledgeReadingPreferences(changed: ReaderPreferences.typographyKeys)
+            persist()
+            send(.style)
         }
-        send(.style)
     }
 
     func setTheme(_ value: String) {
@@ -1615,6 +1640,7 @@ extension ReaderState {
     static func selectTheme(_ value: String, source: ReaderState? = nil) {
         let defaults = UserDefaults.standard
         defaults.set(value, forKey: "theme")
+        ReaderTheme.applyAppearance(value)
         if value != "system" {
             let palette = ReaderTheme.resolve(value) ?? ReaderTheme.builtins[0]
             defaults.set(value, forKey: palette.dark ? "lastDarkTheme" : "lastLightTheme")
@@ -2242,6 +2268,7 @@ private extension ReaderState {
         // stopReading may publish the final highlight clear to the outgoing reader.
         command = ReaderCommand(revision: command.revision)
         pendingActions = []
+        commandCompletion = nil
         commandInFlight = false
         browserTemporary = nil; selectionScreenBounds = nil; nativePDFSignatureSelection = nil; nativePDFInverseSearchPosition = nil; nativePDFCursorPosition = nil
         readerScrollView = nil
@@ -2542,8 +2569,9 @@ private extension ReaderState {
         }
     }
 
-    internal func apply(_ position: ReadingPosition) {
-        var position = position
+    @discardableResult
+    internal func apply(_ position: ReadingPosition) -> ReadingPosition {
+        var position = ReaderPreferences.applicable(position)
         if let saved = position.anchor.flatMap(ChapterTable.bookmarkLocation), let page = chapterLayout?.page(for: saved.location) {
             position.page = page
         }
@@ -2575,6 +2603,7 @@ private extension ReaderState {
         if let value = position.margin { margin = value }
         if let value = position.userCSS { userCSS = value }
         if let value = position.useDocumentCSS { useDocumentCSS = value }
+        return position
     }
 
     func saveBookmarks() {
@@ -2583,44 +2612,54 @@ private extension ReaderState {
         for reader in ReaderWindows.states where reader !== self { reader.bookmarks = bookmarks }
     }
 
-    func readPreferences() {
+    func acknowledgeReadingPreferences(changed keys: Set<String>? = nil) {
+        let revisions = ReaderPreferences.readingRevisions
+        if let keys {
+            for key in keys { appliedPreferenceRevisions[key] = revisions[key] }
+        } else { appliedPreferenceRevisions = revisions }
+    }
+
+    internal func readPreferences(changed keys: Set<String>? = nil) {
         let defaults = UserDefaults.standard
-        zoomLevels = (try? ReadingZoom.parseLevels(defaults.string(forKey: "zoomLevels") ?? "")) ?? []
-        zoomIncrement = max(0, defaults.double(forKey: "zoomIncrement"))
-        zoomLimit = configuredZoomMaximum
-        fit = defaults.string(forKey: "fit") ?? "page"
-        if ReadingZoom.fitTitles[fit] == nil { fit = "page" }
-        flow = defaults.string(forKey: "flow") ?? "paged"
-        scrollbarMode = defaults.string(forKey: "scrollbarMode") ?? "smart"
-        spread = defaults.bool(forKey: "spread")
-        automaticLayout = defaults.bool(forKey: "automaticLayout")
-        invertColors = defaults.bool(forKey: "invertColors")
-        grayscale = defaults.bool(forKey: "grayscale")
-        documentColors = defaults.string(forKey: "documentColors") ?? "off"
-        enhanceScannedPages = defaults.object(forKey: "enhanceScannedPages") as? Bool ?? true
-        preservePDFImages = defaults.object(forKey: "preservePDFImages") as? Bool ?? true
-        engineeringEnhance = defaults.string(forKey: "engineeringEnhance") ?? "off"
-        customTextColor = nil; customBackgroundColor = nil; customLinkColor = nil
-        pageMargins = defaults.data(forKey: "pageMargins").flatMap { try? JSONDecoder().decode(PageMargins.self, from: $0) }
-        inverseSearchEnabled = defaults.object(forKey: "inverseSearchEnabled") as? Bool ?? true
-        landscapeAsSpread = defaults.object(forKey: "landscapeAsSpread") as? Bool ?? true
-        rtl = defaults.bool(forKey: "rtl")
-        cover = defaults.bool(forKey: "cover")
-        showContents = defaults.bool(forKey: "showContentsOnOpen")
-        font = defaults.string(forKey: "font") ?? "system"
-        theme = defaults.string(forKey: "theme") ?? ReaderTheme.all[0].id
-        userCSS = defaults.string(forKey: "userCSS") ?? ""
-        useDocumentCSS = defaults.object(forKey: "useDocumentCSS") as? Bool ?? true
-        fontSize = defaults.object(forKey: "fontSize") == nil ? 17 : defaults.double(forKey: "fontSize")
-        lineHeight = defaults.object(forKey: "lineHeight") == nil ? 1.6 : defaults.double(forKey: "lineHeight")
-        margin = defaults.object(forKey: "margin") == nil ? 32 : defaults.double(forKey: "margin")
-        pageGridWidth = defaults.object(forKey: "pageGridWidth") as? Double ?? 72
-        pageGridHeight = defaults.object(forKey: "pageGridHeight") as? Double ?? 72
-        pageGridOffsetX = defaults.double(forKey: "pageGridOffsetX")
-        pageGridOffsetY = defaults.double(forKey: "pageGridOffsetY")
-        pageGridSubdivisions = defaults.object(forKey: "pageGridSubdivisions") as? Int ?? 4
-        pageGridColor = UInt32(clamping: defaults.object(forKey: "pageGridColor") as? Int ?? 0x8080ff)
-        pageGridStyle = defaults.string(forKey: "pageGridStyle") ?? "dots"
+        func reads(_ key: String) -> Bool { keys?.contains(key) ?? true }
+        if reads("zoomLevels") { zoomLevels = (try? ReadingZoom.parseLevels(defaults.string(forKey: "zoomLevels") ?? "")) ?? [] }
+        if reads("zoomIncrement") { zoomIncrement = max(0, defaults.double(forKey: "zoomIncrement")) }
+        if reads("zoomLevels") || reads("zoomIncrement") { zoomLimit = configuredZoomMaximum }
+        if reads("fit") { fit = defaults.string(forKey: "fit") ?? "page"; if ReadingZoom.fitTitles[fit] == nil { fit = "page" } }
+        if reads("flow") { flow = defaults.string(forKey: "flow") ?? "paged" }
+        if reads("scrollbarMode") { scrollbarMode = defaults.string(forKey: "scrollbarMode") ?? "smart" }
+        if reads("spread") { spread = defaults.bool(forKey: "spread") }
+        if reads("automaticLayout") { automaticLayout = defaults.bool(forKey: "automaticLayout") }
+        if reads("invertColors") { invertColors = defaults.bool(forKey: "invertColors") }
+        if reads("grayscale") { grayscale = defaults.bool(forKey: "grayscale") }
+        if reads("documentColors") { documentColors = defaults.string(forKey: "documentColors") ?? "off" }
+        if reads("enhanceScannedPages") { enhanceScannedPages = defaults.object(forKey: "enhanceScannedPages") as? Bool ?? true }
+        if reads("preservePDFImages") { preservePDFImages = defaults.object(forKey: "preservePDFImages") as? Bool ?? true }
+        if reads("engineeringEnhance") { engineeringEnhance = defaults.string(forKey: "engineeringEnhance") ?? "off" }
+        if reads("documentColors") { customTextColor = nil; customBackgroundColor = nil; customLinkColor = nil }
+        if reads("pageMargins") { pageMargins = defaults.data(forKey: "pageMargins").flatMap { try? JSONDecoder().decode(PageMargins.self, from: $0) } }
+        if reads("inverseSearchEnabled") { inverseSearchEnabled = defaults.object(forKey: "inverseSearchEnabled") as? Bool ?? true }
+        if reads("landscapeAsSpread") { landscapeAsSpread = defaults.object(forKey: "landscapeAsSpread") as? Bool ?? true }
+        if reads("rtl") { rtl = defaults.bool(forKey: "rtl") }
+        if reads("cover") { cover = defaults.bool(forKey: "cover") }
+        if reads("showContentsOnOpen") { showContents = defaults.bool(forKey: "showContentsOnOpen") }
+        if reads("font") { font = defaults.string(forKey: "font") ?? "system" }
+        if reads("theme") { theme = defaults.string(forKey: "theme") ?? ReaderTheme.all[0].id }
+        if reads("userCSS") { userCSS = defaults.string(forKey: "userCSS") ?? "" }
+        if reads("useDocumentCSS") { useDocumentCSS = defaults.object(forKey: "useDocumentCSS") as? Bool ?? true }
+        if reads("fontSize") { fontSize = defaults.object(forKey: "fontSize") == nil ? 17 : defaults.double(forKey: "fontSize") }
+        if reads("lineHeight") { lineHeight = defaults.object(forKey: "lineHeight") == nil ? 1.6 : defaults.double(forKey: "lineHeight") }
+        if reads("margin") { margin = defaults.object(forKey: "margin") == nil ? ReaderMarginPreset.medium.margin : defaults.double(forKey: "margin") }
+        if reads("pageGridWidth") { pageGridWidth = defaults.object(forKey: "pageGridWidth") as? Double ?? 72 }
+        if reads("pageGridHeight") { pageGridHeight = defaults.object(forKey: "pageGridHeight") as? Double ?? 72 }
+        if reads("pageGridOffsetX") { pageGridOffsetX = defaults.double(forKey: "pageGridOffsetX") }
+        if reads("pageGridOffsetY") { pageGridOffsetY = defaults.double(forKey: "pageGridOffsetY") }
+        if reads("pageGridSubdivisions") { pageGridSubdivisions = defaults.object(forKey: "pageGridSubdivisions") as? Int ?? 4 }
+        if reads("pageGridColor") { pageGridColor = UInt32(clamping: defaults.object(forKey: "pageGridColor") as? Int ?? 0x8080ff) }
+        if reads("pageGridStyle") { pageGridStyle = defaults.string(forKey: "pageGridStyle") ?? "dots" }
+        if keys?.contains("speechVoice") == true { speechVoice = defaults.string(forKey: "speechVoice") ?? "" }
+        if keys?.contains("speechRate") == true { speechRate = defaults.object(forKey: "speechRate") as? Double ?? 180 }
+        acknowledgeReadingPreferences(changed: keys)
     }
 
     func followMovedFile(from source: URL, to destination: URL) {

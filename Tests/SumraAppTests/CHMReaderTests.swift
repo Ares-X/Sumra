@@ -959,7 +959,7 @@ final class BrowserReaderTests: XCTestCase {
         XCTAssertEqual(reading?["padding"], "24px")
         let margins = result?["margins"] as? [String: String]
         XCTAssertEqual(margins?["size"], "23px")
-        XCTAssertEqual(margins?["margin"], "11px 13px")
+        XCTAssertEqual(margins?["margin"], "0px", "Explicit reader margins replace the publisher's extra root spacing")
         XCTAssertEqual(margins?["padding"], "4px 8px 12px 16px")
         let custom = result?["custom"] as? [String: String]
         XCTAssertEqual(custom?["font"], "serif")

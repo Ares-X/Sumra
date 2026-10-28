@@ -375,7 +375,7 @@
 "Application Log" = "অ্যাপ্লিকেশন লগ";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "বর্তমান গোপনীয় অংশ মোছার চিহ্ন আউটপুট কপিতে প্রয়োগ করে আচ্ছাদিত বিষয়বস্তু স্থায়ীভাবে সরায়। খোলা নথি অপরিবর্তিত থাকে। বিদ্যমান এনক্রিপশন রাখা হয়।";
 "Apply Margins and CSS" = "মার্জিন ও CSS প্রয়োগ করুন";
-"Apply affects saved defaults. Current documents retain their reading settings." = "প্রয়োগ করলে সংরক্ষিত পূর্বনির্ধারিত মান বদলায়। বর্তমান নথির পাঠের সেটিংস অপরিবর্তিত থাকে।";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "পড়ার চেহারা ও বিন্যাস সঙ্গে সঙ্গে বদলে যায়। খোলার বিকল্পগুলো পরের নথিতে প্রযোজ্য হয়।";
 "Ask AI…" = "AI-কে জিজ্ঞাসা করুন…";
 "Ask Document" = "নথি সম্পর্কে জিজ্ঞাসা করুন";
 "Assistant" = "সহায়ক";
@@ -734,3 +734,34 @@
 "File:" = "ফাইল:";
 "Approximate progress by chapter" = "অধ্যায় অনুযায়ী আনুমানিক অগ্রগতি";
 "Progress in current file" = "বর্তমান ফাইলে অগ্রগতি";
+
+
+"Floating Reading Controls" = "ভাসমান পড়ার নিয়ন্ত্রণ";
+
+
+"Progress Slider Display" = "প্রগতি স্লাইডারের প্রদর্শন";
+
+"Open documents in" = "নথি খোলার স্থান";
+
+"Replace Current Document" = "বর্তমান নথি প্রতিস্থাপন";
+
+"New Tab" = "নতুন ট্যাব";
+
+"Close Tab" = "ট্যাব বন্ধ করুন";
+
+"Move Tab to New Window" = "ট্যাবটি নতুন উইন্ডোতে সরান";
+
+"Page divider" = "পৃষ্ঠা বিভাজক";
+
+"Page divider color" = "পৃষ্ঠা বিভাজকের রং";
+
+"Selected" = "নির্বাচিত";
+
+"More" = "আরও";
+
+
+"Open in New Window" = "নতুন উইন্ডোতে খুলুন";
+
+"Narrow" = "সংকীর্ণ";
+"Medium" = "মাঝারি";
+"Wide" = "প্রশস্ত";

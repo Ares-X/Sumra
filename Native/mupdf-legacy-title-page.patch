@@ -1,15 +1,24 @@
 --- a/source/html/html-imp.h
 +++ b/source/html/html-imp.h
-@@ -315,6 +315,8 @@
+@@ -203,6 +203,7 @@
+ 	PRO_WIDTH,
+ 	PRO_WORD_SPACING,
+ 	PRO_SUMRA_PROSE_SPACING,
++	PRO_SUMRA_READER_MARGINS,
+ 
+ 	/* Number of real properties. */
+ 	NUM_PROPERTIES,
+@@ -315,6 +316,9 @@
  	unsigned int colspan : 10; /* Needs to be able to represent 1-1000 */
  	unsigned int white_space : 3;
  	unsigned int compact_prose_spacing : 1;
 +	unsigned int title_authored_margin : 1;
++	unsigned int title_reader_margin : 1;
 +	unsigned int title_default_margin : 4; /* FB2 title spacing supplied by the default stylesheet. */
  	unsigned int vertical_align : 4;
  	unsigned int page_break_inside : 3;
  	unsigned int page_break_before : 3;
-@@ -386,6 +388,7 @@
+@@ -386,6 +390,7 @@
  	int fixed_layout;
  	float layout_w, layout_h, layout_em;
  	float page_margin[4];
@@ -17,7 +26,7 @@
  	fz_html_metadata metadata;
  	uint32_t source_nodes;
  };
-@@ -547,6 +550,7 @@
+@@ -547,6 +552,7 @@
  	unsigned int compact_empty_prose : 1;
  	unsigned int inline_block : 1;
  	unsigned int single_image : 1;
@@ -46,7 +55,7 @@
  
  #ifdef DEBUG_HTML_SEQ
  	{
-@@ -1696,6 +1701,34 @@
+@@ -1696,6 +1701,54 @@
  	g->depth--;
  }
  
@@ -64,6 +73,25 @@
 +	return 0;
 +}
 +
++/* Only values from the marked reader rule are reader margins. A later user
++ * declaration has its own value even when its spelling or number is identical. */
++static int title_reader_value(struct genstate *g, fz_css_value *value)
++{
++	for (fz_css_rule *rule = g->css->rule; rule; rule = rule->next)
++	{
++		if (!rule->user) continue;
++		int reader = 0;
++		for (fz_css_property *property = rule->declaration; property; property = property->next)
++			if (property->name == PRO_SUMRA_READER_MARGINS && property->value &&
++				!strcmp(property->value->data, "yes")) reader = 1;
++		if (!reader) continue;
++		for (fz_css_property *property = rule->declaration; property; property = property->next)
++			for (fz_css_value *v = property->value; v; v = v->next)
++				if (v == value) return 1;
++	}
++	return 0;
++}
++
 +static void title_margin_origins(struct genstate *g, fz_css_style *style, fz_css_match *match, int default_insets)
 +{
 +	static const int margins[] = { PRO_MARGIN_TOP, PRO_MARGIN_RIGHT, PRO_MARGIN_BOTTOM, PRO_MARGIN_LEFT };
@@ -74,6 +102,7 @@
 +			{
 +				if (default_insets) style->title_default_margin |= 1 << side;
 +			}
++			else if (title_reader_value(g, match->value[margins[side]])) style->title_reader_margin = 1;
 +			else style->title_authored_margin = 1;
 +		}
 +}
@@ -81,7 +110,7 @@
  static void gen2_children(fz_context *ctx, struct genstate *g, fz_html_box *root_box, fz_xml *root_node, fz_css_match *root_match)
  {
  	fz_xml *node;
-@@ -1723,6 +1756,14 @@
+@@ -1723,6 +1776,14 @@
  		{
  			fz_match_css(ctx, &match, root_match, g->css, node, FZ_CSS_PSEUDO_NONE, g->publisher_css);
  			fz_apply_css_style(ctx, g->set, &style, &match);
@@ -96,7 +125,7 @@
  			apply_attributes_as_styles(ctx, &style, node);
  			display = fz_get_css_match_display(&match);
  			if (tag[0]=='b' && tag[1]=='r' && tag[2]==0)
-@@ -2439,6 +2480,64 @@
+@@ -2439,6 +2500,64 @@
  	return total;
  }
  
@@ -161,12 +190,10 @@
  static int page_image_maximum(fz_css_number number)
  {
  	return number.unit == N_AUTO || (number.unit == N_PERCENT && number.value == 100);
-@@ -2449,6 +2548,34 @@
- 	float scale;
- 	return box->style->height.unit == N_AUTO ||
+@@ -2451,16 +2570,41 @@
  		(box->style->height.unit == N_PERCENT && !fz_html_height_reference(box, &scale));
-+}
-+
+ }
+ 
 +static int page_image_auto_size(fz_html_box *box)
 +{
 +	return box->style->width.unit == N_AUTO && page_image_auto_height(box) &&
@@ -193,10 +220,11 @@
 +			box->image_title_page = 0;
 +		validate_title_pages(box->down);
 +	}
- }
- 
++}
++
  /* Independent image paragraphs with effective-auto dimensions are page art.
-@@ -2457,10 +2584,7 @@
+  * Definite author sizing and prose retain ordinary document flow. */
+ static int image_page_sequence(fz_html_tree *tree, fz_html_box *box, int *images)
  {
  	for (; box; box = box->next)
  	{
@@ -208,7 +236,7 @@
  		if (box->type == BOX_FLOW)
  		{
  			int count = 0;
-@@ -2577,6 +2701,7 @@
+@@ -2577,6 +2721,7 @@
  		memset(metadata, 0, sizeof(*metadata));
  
  	root = fz_xml_root(g.xml);
@@ -216,7 +244,7 @@
  	if (flavor == FZ_HTML_FLAVOR_EPUB_COVER && normalize_epub_cover(ctx, root))
  	{
  		g.is_epub_cover = 1;
-@@ -2595,9 +2720,12 @@
+@@ -2595,9 +2740,12 @@
  		{
  			g.is_fb2 = 1;
  			fz_parse_css(ctx, g.css, fb2_default_css, "<default:fb2>");
@@ -229,7 +257,7 @@
  		}
  		else
  		{
-@@ -2614,6 +2742,8 @@
+@@ -2614,6 +2762,8 @@
  			/* Our markdown overrides count as the publisher_css for md files. */
  			if (flavor == FZ_HTML_FLAVOR_MARKDOWN && publisher_css)
  				fz_parse_css(ctx, g.css, markdown_publisher_css, "<default:markdown>");
@@ -238,7 +266,7 @@
  			if (publisher_css)
  				html_load_css(ctx, g.set, g.zip, g.base_uri, g.css, root);
  		}
-@@ -2674,6 +2804,7 @@
+@@ -2674,6 +2824,7 @@
  
  		fz_match_css_at_page(ctx, &root_match, g.css);
  		fz_apply_css_style(ctx, g.set, &style, &root_match);
@@ -246,7 +274,7 @@
  
  		g.pool = tree->pool;
  		g.tree = tree;
-@@ -2695,11 +2826,13 @@
+@@ -2695,11 +2846,13 @@
  		// Create document node (html).
  		fz_match_css(ctx, &match, &root_match, g.css, root, FZ_CSS_PSEUDO_NONE, publisher_css);
  		fz_apply_css_style(ctx, g.set, &style, &match);
@@ -384,13 +412,13 @@
  		}
  	}
  
-@@ -3335,8 +3386,21 @@
+@@ -3335,7 +3386,20 @@
  		ld->used[B] += delta;
  	}
  
 -	if (layout_block_page_break(ctx, ld, &ld->used[B], style->page_break_after))
 +	if (title_page)
- 	{
++	{
 +		/* Keep title, picture and author together, centering the complete group
 +		 * when the viewport's width leaves unused vertical space. */
 +		float shift = (position.bounds[B] - ld->used[B]) / 2;
@@ -403,10 +431,9 @@
 +	}
 +	if (title_canvas) TRBLCPY(ld->bounds, title_bounds);
 +	if (layout_block_page_break(ctx, ld, &ld->used[B], title_page ? PB_ALWAYS : style->page_break_after))
-+	{
+ 	{
  		/* Tricky. We need to restart, but our restart marker should be on
  		 * the NEXT one. */
- 		if (SHOULD_STOP_FOR_RESTART(restart))
 @@ -3344,6 +3408,7 @@
  	}
  
@@ -524,10 +551,12 @@
  		}
  
  		assert(box->type == BOX_BLOCK);
-@@ -3872,6 +3949,63 @@
+@@ -3870,6 +3947,77 @@
+ fz_restartable_layout_html(fz_context *ctx, fz_html_tree *tree, float start_x, float start_y, float page_w, float page_h, float em, fz_html_restarter *restart)
+ {
  	restartable_layout_html(ctx, tree, start_x, start_y, page_w, page_h, em, restart, 0);
- }
- 
++}
++
 +static fz_html_box *find_image_title_page(fz_html_box *box)
 +{
 +	for (; box; box = box->next)
@@ -582,13 +611,25 @@
 +	if (title->style->background_color.a) return;
 +	fz_rect bounds = fz_empty_rect;
 +	if (title_page_content_bounds(&html->tree, title->down, &bounds))
++	{
++		/* Reader margins frame the intrinsic title once. Authored page/root
++		 * spacing retains its full canvas through the geometry checks above. */
++		if (html->tree.root->style->title_reader_margin)
++		{
++			/* Keep reader margins in display points when the intrinsic title
++			 * expands to the original page height in Fit Page. */
++			float padding_scale = (bounds.y1 - bounds.y0) / html->page_h;
++			bounds.x0 -= html->page_margin[L] * padding_scale;
++			bounds.y0 -= html->page_margin[T] * padding_scale;
++			bounds.x1 += html->page_margin[R] * padding_scale;
++			bounds.y1 += html->page_margin[B] * padding_scale;
++		}
 +		html->title_page_bounds = fz_translate_rect(bounds, html->page_margin[L], html->page_margin[T]);
-+}
-+
++	}
+ }
+ 
  void
- fz_layout_html(fz_context *ctx, fz_html *html, float w, float h, float em)
- {
-@@ -3928,6 +4062,8 @@
+@@ -3928,6 +4076,8 @@
  
  	restartable_layout_html(ctx, &html->tree, 0, 0, html->page_w, html->page_h, em, NULL, html->fixed_layout);
  	update_draw_groups(ctx, &html->tree, html->tree.root, 1);
@@ -608,3 +649,24 @@
  	bbox.x0 = 0;
  	bbox.y0 = 0;
  	bbox.x1 = page->html->page_w + page->html->page_margin[L] + page->html->page_margin[R];
+--- a/source/html/css-parse.c
++++ b/source/html/css-parse.c
+@@ -195,6 +195,9 @@
+ 	static struct css_property_info prose_spacing = { "-sumra-prose-spacing", PRO_SUMRA_PROSE_SPACING };
+ 	if (!strcmp(name, prose_spacing.name))
+ 		info = &prose_spacing;
++	static struct css_property_info reader_margins = { "-sumra-reader-margins", PRO_SUMRA_READER_MARGINS };
++	if (!strcmp(name, reader_margins.name))
++		info = &reader_margins;
+ 	if (info)
+ 	{
+ 		fz_css_property *prop = fz_pool_alloc(ctx, pool, sizeof *prop);
+@@ -1181,6 +1184,8 @@
+ {
+ 	if (key == PRO_SUMRA_PROSE_SPACING)
+ 		return "-sumra-prose-spacing";
++	if (key == PRO_SUMRA_READER_MARGINS)
++		return "-sumra-reader-margins";
+ 	const char *name = "unknown";
+ 	size_t i;
+ 	for (i = 0; i < nelem(css_property_list); ++i)

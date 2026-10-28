@@ -22,11 +22,13 @@ struct SettingsView:View{
     @AppStorage("font") private var font="system"
     @AppStorage("fontSize") private var fontSize=17.0
     @AppStorage("lineHeight") private var lineHeight=1.6
-    @AppStorage("margin") private var margin=32.0
+    @AppStorage("margin") private var margin = ReaderMarginPreset.medium.margin
+    @AppStorage("pageMargins") private var pageMarginsData = Data()
     @AppStorage("sourceEditor") private var sourceEditor="[]"
     @AppStorage("disableHistory") private var disableHistory = false
     @AppStorage("disableReadingState") private var disableReadingState = false
     @AppStorage("disableTabs") private var disableTabs = false
+    @AppStorage("documentOpenBehavior") private var documentOpenBehavior = DocumentOpenBehavior.newWindow
     @AppStorage("restoreSession") private var restoreSession = false
     @AppStorage("showContentsOnOpen") private var showContentsOnOpen = false
     @AppStorage("contentsDepth") private var contentsDepth = 0
@@ -57,7 +59,7 @@ struct SettingsView:View{
                 Text(L("System")).tag("system")
                 ForEach(ReaderTheme.all) { Text($0.displayName).tag($0.id) }
             }
-            Picker(L("Default fit"),selection:$fit) { ForEach(ReadingZoom.fitTitles.keys.sorted(), id: \.self) { Text(L(ReadingZoom.fitTitles[$0]!)).tag($0) } }
+            Picker(L("Default fit"),selection: ReaderPreferences.live($fit, keys: ["fit"])) { ForEach(ReadingZoom.fitTitles.keys.sorted(), id: \.self) { Text(L(ReadingZoom.fitTitles[$0]!)).tag($0) } }
             TextField(L("Zoom levels (%)"), text: $zoomLevels)
                 .foregroundStyle((try? ReadingZoom.parseLevels(zoomLevels)) != nil ? Color.primary : .red)
             LabeledContent(L("Zoom increment (%)")) {
@@ -68,23 +70,34 @@ struct SettingsView:View{
                 .fixedSize(horizontal: false, vertical: true)
         }
         Section(L("Reading")){
-            Toggle(L("Use document's preferred layout"), isOn: $automaticLayout)
+            ReaderToolbarDisplayPicker()
+            ReaderProgressDisplayPicker()
+            ReaderImmersiveControlsToggle()
+            Toggle(L("Use document's preferred layout"), isOn: ReaderPreferences.live($automaticLayout, keys: ["automaticLayout"]))
             Toggle(L("Choose initial layout from page shape"), isOn: $pageAspectLayout).disabled(automaticLayout)
-            Toggle(L("Landscape images occupy a whole spread"), isOn: $landscapeAsSpread)
-            Picker(L("Default layout"),selection:$flow){Text(L("Paged")).tag("paged");Text(L("Continuous")).tag("continuous")}
-            Picker(L("Scrollbars"), selection: $scrollbarMode) {
+            Toggle(L("Landscape images occupy a whole spread"), isOn: ReaderPreferences.live($landscapeAsSpread, keys: ["landscapeAsSpread"]))
+            Picker(L("Default layout"),selection: manualLayout($flow, key: "flow")){Text(L("Paged")).tag("paged");Text(L("Continuous")).tag("continuous")}
+            Picker(L("Scrollbars"), selection: ReaderPreferences.live($scrollbarMode, keys: ["scrollbarMode"])) {
                 Text(L("Automatic Scrollbars")).tag("smart")
                 Text(L("Always Show Scrollbars")).tag("shown")
                 Text(L("Hide Scrollbars")).tag("hidden")
             }
-            Toggle(L("Open in two-page mode"),isOn:$spread);Toggle(L("Right-to-left by default"),isOn:$rtl)
-            Toggle(L("Cover on its own"), isOn: $cover)
+            Toggle(L("Open in two-page mode"),isOn: Binding(get: { spread }, set: { value in
+                spread = value; automaticLayout = false
+                var keys: Set<String> = ["spread", "automaticLayout"]
+                if value { flow = "paged"; keys.insert("flow") }
+                ReaderPreferences.applyReadingDefaults(changed: keys)
+            }));Toggle(L("Right-to-left by default"),isOn: manualLayout($rtl, key: "rtl"))
+            Toggle(L("Cover on its own"), isOn: manualLayout($cover, key: "cover"))
             Toggle(L("Remember recent documents"), isOn: Binding(get: { !disableHistory }, set: { disableHistory = !$0 }))
             Toggle(L("Remember reading positions"), isOn: Binding(get: { !disableReadingState }, set: { disableReadingState = !$0 }))
-            Toggle(L("Use window tabs"), isOn: Binding(get: { !disableTabs }, set: { disableTabs = !$0 }))
+            Toggle(L("Use window tabs"), isOn: Binding(get: { !disableTabs }, set: { disableTabs = !$0; ReaderPreferences.applyReadingDefaults(changed: ["disableTabs"]) }))
+            Picker(L("Open documents in"), selection: $documentOpenBehavior) {
+                ForEach(DocumentOpenBehavior.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
             Toggle(L("Restore windows on launch"), isOn: $restoreSession)
             Toggle(L("Show contents when opening"), isOn: $showContentsOnOpen)
-            Picker(L("Contents expansion"), selection: $contentsDepth) {
+            Picker(L("Contents expansion"), selection: ReaderPreferences.live($contentsDepth, keys: ["contentsDepth"])) {
                 Text(L("All levels")).tag(0)
                 ForEach(1...3, id: \.self) { Text(String($0)).tag($0) }
             }
@@ -116,31 +129,48 @@ struct SettingsView:View{
                 .fixedSize(horizontal: false, vertical: true)
         }
         Section(L("Default typography")){
-            ReaderFontPicker(selection: $font)
-            LabeledContent(L("Font size")){Slider(value:$fontSize,in:10...36,step:1).frame(width:190);Text("\(Int(fontSize)) pt").monospacedDigit().frame(width:45)}
-            LabeledContent(L("Line height")){Slider(value:$lineHeight,in:1...2.4,step:0.1).frame(width:190);Text(lineHeight,format:.number.precision(.fractionLength(1))).frame(width:30)}
+            ReaderFontPicker(selection: ReaderPreferences.live($font, keys: ["font"]))
+            LabeledContent(L("Font size")){Slider(value: ReaderPreferences.live($fontSize, keys: ["fontSize"]),in:10...36,step:1).frame(width:190);Text("\(Int(fontSize)) pt").monospacedDigit().frame(width:45)}
+            LabeledContent(L("Line height")){Slider(value: ReaderPreferences.live($lineHeight, keys: ["lineHeight"]),in:1...2.4,step:0.1).frame(width:190);Text(lineHeight,format:.number.precision(.fractionLength(1))).frame(width:30)}
+            Picker(L("Margins"), selection: Binding(get: {
+                ReaderMarginPreset.current(pageMargins: try? JSONDecoder().decode(PageMargins.self, from: pageMarginsData))
+            }, set: { preset in
+                if let preset {
+                    ReaderPreferences.setMargins(preset.margin)
+                }
+            })) {
+                Text(L("Custom")).tag(nil as ReaderMarginPreset?)
+                ForEach(ReaderMarginPreset.allCases) { preset in Text(preset.title).tag(Optional(preset)) }
+            }
             LabeledContent(L("Margin")) {
                 Slider(value: Binding(get: { margin }, set: { value in
-                    margin = value
-                    UserDefaults.standard.set(PageMargins(cssValues: [value]).flatMap { try? JSONEncoder().encode($0) }, forKey: "pageMargins")
+                    ReaderPreferences.setMargins(value)
                 }), in: PageMargins.supportedRange, step: 1).frame(width: 190)
                 Text("\(Int(margin))").monospacedDigit().frame(width: 30)
             }
             Text(L("Adjusting margins overrides document styles on all four sides.")).font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }.formStyle(.grouped).tabItem { Text(L("Reading")) }
-        ShortcutSettings().tabItem { Text(L("Shortcuts")) }
-        ReaderConfiguredCommandSettings().tabItem { Text(L("Commands")) }
-        ExternalActionSettings().tabItem { Text(L("External")) }
-        ReaderToolbarSettings().tabItem { Text(L("Toolbar")) }
-        AdvancedSettings().tabItem { Text(L("Advanced")) }
+    }.formStyle(.grouped).tabItem { Label(L("Reading"), systemImage: "book") }
+        ShortcutSettings().tabItem { Label(L("Shortcuts"), systemImage: "keyboard") }
+        ReaderConfiguredCommandSettings().tabItem { Label(L("Commands"), systemImage: "command") }
+        ExternalActionSettings().tabItem { Label(L("External"), systemImage: "arrow.up.forward.app") }
+        ReaderToolbarSettings().tabItem { Label(L("Toolbar"), systemImage: "rectangle.topthird.inset.filled") }
+        AdvancedSettings().tabItem { Label(L("Advanced"), systemImage: "gearshape") }
     }.id(language).padding().frame(width: 500, height: 540)
-        .preferredColorScheme(theme == "system" ? nil : (ReaderTheme.resolve(theme) ?? ReaderTheme.builtins[0]).dark ? .dark : .light)
         .onChange(of: zoomLevels) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: zoomIncrement) { _ in ReaderPreferences.applyZoomDefaults() }
-        .onChange(of: scrollbarMode) { _ in ReaderPreferences.applyScrollbarDefaults() }
         .onChange(of: updateChannel) { _ in ReaderHelp.updateChannelChanged() }
+    }
+
+    private func manualLayout<Value>(_ binding: Binding<Value>, key: String) -> Binding<Value> {
+        Binding(get: { binding.wrappedValue }, set: {
+            binding.wrappedValue = $0
+            automaticLayout = false
+            var keys: Set<String> = [key, "automaticLayout"]
+            if key == "flow", ($0 as? String) == "continuous" { spread = false; keys.insert("spread") }
+            ReaderPreferences.applyReadingDefaults(changed: keys)
+        })
     }
 
     private var installedSourceEditors: [(name: String, arguments: [String])] {
@@ -217,13 +247,31 @@ private struct ShortcutSettings: View {
 // are separate user data and do not belong to an editable configuration.
 @MainActor
 enum ReaderPreferences {
-    static let strings: Set<String> = Set(["appIcon", "theme", "customThemes", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "pageMargins", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "toolbarDisplayMode", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
-    static func applyScrollbarDefaults() {
-        let mode = UserDefaults.standard.string(forKey: "scrollbarMode") ?? "smart"
-        for reader in ReaderWindows.states { reader.scrollbarMode = mode; if reader.isBrowser { reader.send(.style) } }
+    static let settingsSchemaVersion = 1
+
+    static func migrate(defaults: UserDefaults = .standard) {
+        guard defaults.integer(forKey: "settingsSchemaVersion") < settingsSchemaVersion else { return }
+        let saved = defaults.dictionaryRepresentation()
+        let priorProfileKeys = keys.union(["revealHiddenToolbar", "documentOpenHistory", "pinnedDocuments", "session", "closedDocuments", "bookmarks"])
+        let priorProfile = !priorProfileKeys.isDisjoint(with: saved.keys) || saved.keys.contains {
+            $0.hasPrefix("position:") || $0.hasPrefix("tabGroup:") || $0.hasPrefix("bookmark:")
+        }
+        if defaults.object(forKey: "margin") == nil {
+            // The previous release used 32 points even before a user saved
+            // typography. Keep that appearance for existing reader profiles.
+            // The shipped implicit value is independent of today's presets.
+            defaults.set(priorProfile ? 32 : ReaderMarginPreset.medium.margin, forKey: "margin")
+            if !priorProfile {
+                defaults.set(PageMargins(cssValues: [ReaderMarginPreset.medium.margin]).flatMap { try? JSONEncoder().encode($0) }, forKey: "pageMargins")
+            }
+        }
+        _ = ReaderToolbarDisplayMode.load(from: defaults)
+        defaults.set(settingsSchemaVersion, forKey: "settingsSchemaVersion")
     }
+
+    static let strings: Set<String> = Set(["appIcon", "theme", "customThemes", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "pageMargins", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "toolbarDisplayMode", "progressDisplayMode", "documentOpenBehavior", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
     static let numbers: Set<String> = ["fontSize", "lineHeight", "margin", "speechRate", "contentsDepth", "sidebarWidth", "pageGridWidth", "pageGridHeight", "pageGridOffsetX", "pageGridOffsetY", "pageGridSubdivisions", "pageGridColor", "zoomIncrement"]
-    static let booleans: Set<String> = ["spread", "rtl", "cover", "automaticLayout", "pageAspectLayout", "landscapeAsSpread", "invertColors", "grayscale", "preservePDFImages", "inverseSearchEnabled", "disableHistory", "disableReadingState", "disableTabs", "restoreSession", "useDocumentCSS", "useFixedPageUI", "showContentsOnOpen", "sidebarRight", "fullPathTitle", "pageInTitle", "checkForUpdates", "homePageSortByFrequentlyRead", "findFloating", "preservePageTurnPosition", "keepZoomOnLinks"]
+    static let booleans: Set<String> = ["spread", "rtl", "cover", "automaticLayout", "pageAspectLayout", "landscapeAsSpread", "invertColors", "grayscale", "preservePDFImages", "enhanceScannedPages", "inverseSearchEnabled", "disableHistory", "disableReadingState", "disableTabs", "restoreSession", "useDocumentCSS", "useFixedPageUI", "showContentsOnOpen", "sidebarRight", "fullPathTitle", "pageInTitle", "checkForUpdates", "homePageSortByFrequentlyRead", "findFloating", "preservePageTurnPosition", "keepZoomOnLinks", "immersiveControls"]
     static var keys: Set<String> { strings.union(numbers).union(booleans) }
 
     static func boolean(for key: String) -> Bool {
@@ -285,7 +333,7 @@ enum ReaderPreferences {
             if key == "theme", let theme = value as? String, theme != "system",
                !customThemes.contains(where: { $0.id == theme }), ReaderTheme.resolve(theme)?.isCustom != false { throw ReadError("Unknown theme: \(theme)") }
             if key == "flow", let flow = value as? String, !["paged", "continuous"].contains(flow) { throw ReadError("Unknown layout: \(flow)") }
-            let choices = ["toolbarDisplayMode": ReaderToolbarDisplayMode.allCases.map(\.rawValue), "appIcon": AppIconStyle.allCases.map(\.rawValue), "pageGridStyle": ["dots", "dotted", "solid"], "documentColors": ["off", "smart", "legacy"], "engineeringEnhance": ["off", "auto", "on"], "scrollbarMode": ["smart", "shown", "hidden"], "updateChannel": ["stable", "prerelease"], "homePageViewMode": ["list", "thumbnails"]]
+            let choices = ["progressDisplayMode": ReaderToolbarDisplayMode.allCases.map(\.rawValue), "documentOpenBehavior": DocumentOpenBehavior.allCases.map(\.rawValue), "toolbarDisplayMode": ReaderToolbarDisplayMode.allCases.map(\.rawValue), "appIcon": AppIconStyle.allCases.map(\.rawValue), "pageGridStyle": ["dots", "dotted", "solid"], "documentColors": ["off", "smart", "legacy"], "engineeringEnhance": ["off", "auto", "on"], "scrollbarMode": ["smart", "shown", "hidden"], "updateChannel": ["stable", "prerelease"], "homePageViewMode": ["list", "thumbnails"]]
             if let allowed = choices[key], let choice = value as? String, !allowed.contains(choice) { throw ReadError("Invalid value for \(key)") }
             if key == "zoomLevels", let string = value as? String { _ = try ReadingZoom.parseLevels(string) }
             if key == "sourceEditor", let string = value as? String { _ = try JSONDecoder().decode([String].self, from: Data(string.utf8)) }
@@ -307,8 +355,11 @@ enum ReaderPreferences {
         }
         if values["updateChannel"] != nil { ReaderHelp.updateChannelChanged() }
         if values["zoomLevels"] != nil || values["zoomIncrement"] != nil { applyZoomDefaults() }
-        if values["scrollbarMode"] != nil { applyScrollbarDefaults() }
+        applyReadingDefaults(changed: Set(values.keys))
         if values["toolbarDisplayMode"] != nil { ReaderToolbarDisplayMode.load().apply() }
+        if let enabled = values["immersiveControls"] as? Bool {
+            for reader in ReaderWindows.states { reader.immersiveControls = enabled }
+        }
         if values["customThemes"] != nil {
             func replacement(_ id: String) -> String { previousCustomThemes.first { $0.id == id }?.dark == true ? "dark" : "light" }
             for key in ["theme", "lastLightTheme", "lastDarkTheme"] {
@@ -321,8 +372,6 @@ enum ReaderPreferences {
             ReaderState.selectTheme(UserDefaults.standard.string(forKey: "theme") ?? ReaderTheme.builtins[0].id)
         }
         if let icon = values["appIcon"] as? String { AppIcon.apply(icon) }
-        NSWindow.allowsAutomaticWindowTabbing = !UserDefaults.standard.bool(forKey: "disableTabs")
-        for state in ReaderWindows.states { state.window?.tabbingMode = UserDefaults.standard.bool(forKey: "disableTabs") ? .disallowed : .preferred }
     }
 }
 
@@ -336,7 +385,7 @@ private struct AdvancedSettings: View {
         VStack(alignment: .leading) {
             TextField(L("Filter setting names"), text: $query).onChange(of: query) { _ in load() }
             TextEditor(text: $json).font(.system(.body, design: .monospaced)).border(Color.secondary.opacity(0.3))
-            Text(message.isEmpty ? L("Apply affects saved defaults. Current documents retain their reading settings.") : message).font(.caption).foregroundStyle(.secondary)
+            Text(message.isEmpty ? L("Reading appearance and layout update immediately. Opening options apply to the next document.") : message).font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button(L("Reload"), action: load)
                 Button(L("Apply")) { perform { try ReaderPreferences.apply(Data(json.utf8)); message = L("Saved") } }

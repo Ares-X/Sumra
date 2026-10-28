@@ -13,7 +13,7 @@ func chooseDocuments(_ receive: @escaping ([URL]) -> Void) {
 enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
     case open, save, saveCopy, exportPDF, reload, properties, copyPath, close
     case files, openNoHistory, discard, rename, relocate, trash, trashAndNext, home
-    case duplicateTab, duplicateWindow, nextTab, previousTab, nextTabSmart, previousTabSmart, moveTabLeft, moveTabRight, closeOtherTabs, closeLeftTabs, closeRightTabs, closeAllTabs, saveTabGroup, restoreTabGroup, tabColor, reopenClosed, shareEmail, openWith
+    case newTab, duplicateTab, duplicateWindow, nextTab, previousTab, nextTabSmart, previousTabSmart, moveTabLeft, moveTabRight, closeOtherTabs, closeLeftTabs, closeRightTabs, closeAllTabs, saveTabGroup, restoreTabGroup, tabColor, reopenClosed, shareEmail, openWith
     case contents, contentsSearch, thumbnails, bookmarks, fullscreen, presentation, palette, ai
     case find, previous, next, goToPage, back, forward, previousFile, nextFile
     case findNext, findPrevious, findSelectionNext, findSelectionPrevious, matchCase, wholeWord, firstPage, lastPage, scrollUp, scrollDown, scrollLeft, scrollRight, pageUp, pageDown, halfPageUp, halfPageDown
@@ -180,6 +180,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .properties: return "Document Properties…"
         case .copyPath: return "Copy File Path"
         case .close: return "Close Document"
+        case .newTab: return "New Tab"
         case .duplicateTab: return "Duplicate in New Tab"
         case .duplicateWindow: return "Duplicate in New Window"
         case .nextTab: return "Next Tab"
@@ -295,6 +296,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .cycleFocus: return "f6"
         case .open: return "cmd+o"
         case .close: return "cmd+w"
+        case .newTab: return "cmd+t"
         case .save: return "cmd+s"
         case .saveCopy: return "cmd+shift+s"
         case .reload: return "cmd+r"
@@ -467,6 +469,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .discard: return state?.modified == true && state?.busy == false
         case .rename, .trash, .trashAndNext: return state?.document?.url.hasDirectoryPath == false && state?.busy == false
         case .relocate: return state?.busy == false && (state?.missingFile != nil || state?.document?.url.hasDirectoryPath == false || state?.restoredPayload != nil)
+        case .newTab: return state?.window != nil && state?.createWindow != nil && !UserDefaults.standard.bool(forKey: "disableTabs")
         case .restoreTabGroup, .reopenClosed: return state?.createWindow != nil
         case .close, .nextTab, .previousTab, .nextTabSmart, .previousTabSmart, .moveTabLeft, .moveTabRight, .closeOtherTabs, .closeLeftTabs, .closeRightTabs, .closeAllTabs, .saveTabGroup, .tabColor: return state?.window != nil
         case .save: return state?.canSave == true
@@ -644,6 +647,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .scrollbarsHidden: state.scrollbarMode = "hidden"; if state.isBrowser { state.send(.style) }
         case .copyPath: state.copyPath()
         case .close: state.window?.performClose(nil)
+        case .newTab: state.createWindow?(WindowPayload(tabWith: state.window?.windowNumber))
         case .duplicateTab: state.duplicate(inTab: true)
         case .duplicateWindow: state.duplicate(inTab: false)
         case .nextTab: state.selectTab(1)

@@ -380,7 +380,7 @@
 "Application Log" = "アプリケーションログ";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "現在の墨消しマークを出力コピーに適用し、対象の内容を完全に削除します。開いている文書は変更されません。既存の暗号化は保持されます。";
 "Apply Margins and CSS" = "余白とCSSを適用";
-"Apply affects saved defaults. Current documents retain their reading settings." = "適用すると保存済みのデフォルト設定が変わります。現在の文書の閲覧設定は保持されます。";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "閲覧時の外観とレイアウトはすぐに更新されます。起動時のオプションは次の文書に適用されます。";
 "Ask AI…" = "AIに質問…";
 "Ask Document" = "文書について質問";
 "Assistant" = "アシスタント";
@@ -738,3 +738,34 @@
 "File:" = "ファイル:";
 "Approximate progress by chapter" = "章ごとのおおよその進捗";
 "Progress in current file" = "現在のファイルの進捗";
+
+
+"Floating Reading Controls" = "フローティング読書コントロール";
+
+
+"Progress Slider Display" = "進行状況スライダーの表示";
+
+"Open documents in" = "書類を開く場所";
+
+"Replace Current Document" = "現在の書類を置き換える";
+
+"New Tab" = "新規タブ";
+
+"Close Tab" = "タブを閉じる";
+
+"Move Tab to New Window" = "タブを新しいウインドウに移動";
+
+"Page divider" = "ページ区切り";
+
+"Page divider color" = "ページ区切りの色";
+
+"Selected" = "選択中";
+
+"More" = "その他";
+
+
+"Open in New Window" = "新しいウインドウで開く";
+
+"Narrow" = "狭い";
+"Medium" = "標準";
+"Wide" = "広い";

@@ -10,6 +10,7 @@ struct ReaderView: View {
     @AppStorage("customThemes") private var customThemes = "[]"
     @AppStorage("findFloating") private var findFloating = false
     @AppStorage("sidebarRight") private var sidebarRight = false
+    @AppStorage("progressDisplayMode") private var progressDisplayMode = ReaderToolbarDisplayMode.auto
     @FocusState private var sidebarFocused: Bool
     @State private var initialNativeCanvas: (document: UUID, bounds: CGRect, position: ReadingPosition)?
     @State private var initialNativeViewport: (document: UUID, size: CGSize)?
@@ -23,22 +24,27 @@ struct ReaderView: View {
         let _ = language
         let _ = customThemes
         let findStatusVisible = state.showFind || state.searchSessionActive
+        let findControlsShown = state.showFind && !findFloating && !state.presentation
+        let editingControlsShown = state.isPDF && state.pdfEditingEnabled && !state.presentation
+        let speechControlsShown = state.speechRequested && !state.presentation
+        let hasTopControls = findControlsShown || editingControlsShown || speechControlsShown
+        let topClearance = floatingTopClearance(forControls: hasTopControls)
         VStack(spacing: 0) {
-            if state.showFind && !findFloating && !state.presentation {
+            if findControlsShown {
                 ReaderFindControls(state: state, floating: $findFloating, close: closeFind)
                     .modifier(ReaderChromeEntrance())
                 Divider()
             }
 
-            if state.isPDF && state.pdfEditingEnabled && !state.presentation {
+            if editingControlsShown {
                 PDFEditingBar(state: state)
                 Divider()
             }
 
-            if state.speechRequested && !state.presentation { SpeechControls(state: state); Divider() }
-            mainArea
+            if speechControlsShown { SpeechControls(state: state); Divider() }
+            mainArea(topClearance: hasTopControls ? 0 : topClearance)
 
-            if state.hasDocument && !state.presentation {
+            if state.hasDocument && !state.presentation && !overlaysProgress && progressDisplayMode != .hidden {
                 ReaderProgressFooter(state: state).id(state.document?.id)
             }
 
@@ -55,28 +61,28 @@ struct ReaderView: View {
                 .padding(.vertical, 4)
             }
         }
-        .padding(.top, fullscreenMenuInset)
+        .padding(.top, (hasTopControls ? topClearance : 0) + (reclaimsNativeInsets ? 0 : fullscreenMenuInset))
+        .padding(.bottom, floatingBottomClearance)
+        .overlay(alignment: .top) {
+            if state.usesFloatingChrome { ReaderFloatingControls(state: state, open: openFiles) }
+        }
+        .overlay(alignment: .bottom) {
+            if overlaysProgress && state.hasDocument && !state.presentation && progressDisplayMode != .hidden {
+                ReaderProgressFooter(state: state, floating: state.usesFloatingChrome).id(state.document?.id)
+            }
+        }
         .background(state.hasDocument ? Color(nsColor: ReaderTheme.color(state.palette.background)) : Color(nsColor: .windowBackgroundColor))
         .background(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion, fullscreenMenuInset: $fullscreenMenuInset))
-        .preferredColorScheme(state.theme == "system" ? nil : state.palette.dark ? .dark : .light)
         .onChange(of: colorScheme) { _ in
             if state.theme == "system", state.isText || state.isBrowser || state.reflowable {
                 state.send(.style)
             }
         }
-        .onChange(of: state.spread) {
-            UserDefaults.standard.set($0, forKey: "spread")
-        }
-        .onChange(of: state.rtl) {
-            UserDefaults.standard.set($0, forKey: "rtl")
-        }
-        .onChange(of: state.cover) { UserDefaults.standard.set($0, forKey: "cover") }
         .toolbar(id: "reader") { toolbar }
         // Fullscreen policy is chosen on entry. Keep document chrome installed
         // across reader modes; its owned views/window control visible opacity.
-        .toolbar(state.hasDocument ? .visible : .hidden, for: .windowToolbar)
-        .modifier(ReaderToolbarAppearance(overlaysContent: state.toolbarOverlaysContent,
-            shown: state.toolbarShown, background: ReaderTheme.color(state.palette.background)))
+        .toolbar(state.usesFloatingChrome ? .hidden : .visible, for: .windowToolbar)
+        .modifier(ReaderToolbarAppearance(shown: state.toolbarShown && !state.usesFloatingChrome, hidesNativeTitle: state.usesFloatingChrome, background: ReaderTheme.color(state.palette.background)))
         .onChange(of: reducedMotion) { _ in state.toolbarHoverVisible = false }
         .onChange(of: state.presentation) {
             state.toolbarHoverVisible = false
@@ -118,6 +124,32 @@ struct ReaderView: View {
         } message: {
             Text(state.error ?? "")
         }
+        .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
+    }
+
+    private var reclaimsNativeInsets: Bool {
+        state.extendsReadingUnderChrome && !state.usesFloatingChrome
+    }
+    private var overlaysProgress: Bool { state.usesFloatingChrome || reclaimsNativeInsets }
+    private func floatingTopClearance(forControls: Bool) -> CGFloat {
+        guard state.usesFloatingChrome, forControls || state.usesReflowMargins, state.toolbarDisplayMode != .hidden else { return 0 }
+        guard forControls || state.marginPreset != .narrow else { return 0 }
+        let gap: CGFloat = state.marginPreset == .medium ? 2 : 10
+        // The book already reserves its own page margin. Add only the space
+        // still needed to clear the controls, rather than stacking two margins.
+        // An unset override leaves publisher margins in charge; the legacy
+        // scalar is not the actual margin of a native reflowable book.
+        // Find, speech and editing rows have no page margin and stay reachable
+        // even when Narrow intentionally allows controls over reading content.
+        let pageMargin = forControls ? 0 : state.pageMargins?.top ?? 0
+        return max(0, ReaderFloatingControls.topInset + ReaderFloatingControls.height + gap - pageMargin)
+    }
+    private var floatingBottomClearance: CGFloat {
+        guard state.usesFloatingChrome, state.usesReflowMargins, progressDisplayMode != .hidden else { return 0 }
+        guard state.marginPreset != .narrow else { return 0 }
+        let gap: CGFloat = state.marginPreset == .medium ? 2 : 8
+        let pageMargin = state.pageMargins?.bottom ?? 0
+        return max(0, ReaderProgressFooter.height + ReaderProgressFooter.floatingBottomInset + gap - pageMargin)
     }
 
     private func closeFind() {
@@ -138,6 +170,9 @@ struct ReaderView: View {
         ToolbarItem(id: "open", placement: .automatic, showsByDefault: true) {
             Button(action: openFiles) { Image(systemName: "folder") }
                 .help(L("Open Document")).accessibilityLabel(L("Open Document"))
+        }
+        ToolbarItem(id: "newTab", placement: .automatic, showsByDefault: true) {
+            toolbarButton(.newTab, symbol: "plus")
         }
         ToolbarItem(id: "contents", placement: .automatic, showsByDefault: true) {
             Button { state.showContents.toggle() } label: { Image(systemName: "sidebar.left") }
@@ -292,12 +327,17 @@ struct ReaderView: View {
     }
 
     @ViewBuilder
-    private var mainArea: some View {
+    private func mainArea(topClearance: CGFloat) -> some View {
         // The sidebar preference names a physical edge, independent of UI language.
         let sidebarFirst = sidebarRight == (layoutDirection == .rightToLeft)
         HSplitView {
             if sidebarFirst { sidebar }
             documentArea
+                // Keep reader clearance inside the ignored safe area. Outer
+                // padding within the native titlebar inset would be reclaimed
+                // along with that inset by the split view's child.
+                .padding(.top, topClearance)
+                .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
                 .saturation(state.grayscale && !state.isPDF ? 0 : 1)
                 .overlay { if state.invertColors && !state.isPDF { Color.white.blendMode(.difference).allowsHitTesting(false) } }
                 .compositingGroup()
@@ -606,24 +646,29 @@ struct ReaderInitialViewport: NSViewRepresentable {
 // document, because SwiftUI reallocates the split when the main pane is rebuilt.
 private struct ReaderSidebarPosition: NSViewRepresentable {
     let documentID: UUID?
-    func makeNSView(context: Context) -> PositionView { PositionView(documentID: documentID) }
-    func updateNSView(_ view: PositionView, context: Context) { view.replaceDocument(documentID) }
+    @AppStorage("sidebarWidth") private var width = 220.0
+    func makeNSView(context: Context) -> PositionView { PositionView(documentID: documentID, width: width) }
+    func updateNSView(_ view: PositionView, context: Context) { view.replaceDocument(documentID, width: width) }
 
     final class PositionView: NSView {
-        private var width = min(360, max(180, UserDefaults.standard.object(forKey: "sidebarWidth") as? Double ?? 220))
+        private var width: CGFloat
         private var documentID: UUID?
         private var aiWidth: CGFloat?
         private var positioned = false
         private var restoring = false
         private var resizeObserver: NSObjectProtocol?
 
-        init(documentID: UUID?) { self.documentID = documentID; super.init(frame: .zero) }
+        init(documentID: UUID?, width: CGFloat) {
+            self.documentID = documentID; self.width = min(360, max(180, width))
+            super.init(frame: .zero)
+        }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         deinit { if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) } }
 
-        func replaceDocument(_ id: UUID?) {
-            guard documentID != id else { return }
-            documentID = id
+        func replaceDocument(_ id: UUID?, width: CGFloat) {
+            let width = min(360, max(180, width))
+            guard documentID != id || self.width != width else { return }
+            documentID = id; self.width = width
             restorePosition()
         }
 

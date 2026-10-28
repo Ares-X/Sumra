@@ -373,7 +373,7 @@
 "Application Log" = "Nhật ký ứng dụng";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "Áp dụng các dấu bôi xóa hiện tại vào bản sao đầu ra, xóa vĩnh viễn nội dung bị che. Tài liệu đang mở không thay đổi. Mã hóa hiện có được giữ nguyên.";
 "Apply Margins and CSS" = "Áp dụng lề và CSS";
-"Apply affects saved defaults. Current documents retain their reading settings." = "«Áp dụng» thay đổi các giá trị mặc định đã lưu. Các tài liệu đang mở giữ nguyên thiết lập đọc của chúng.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "Giao diện và bố cục đọc được cập nhật ngay. Tùy chọn mở áp dụng cho tài liệu tiếp theo.";
 "Ask AI…" = "Hỏi AI…";
 "Ask Document" = "Hỏi về tài liệu";
 "Assistant" = "Trợ lý";
@@ -732,3 +732,34 @@
 "File:" = "Tệp:";
 "Approximate progress by chapter" = "Tiến độ ước tính theo chương";
 "Progress in current file" = "Tiến độ trong tệp hiện tại";
+
+
+"Floating Reading Controls" = "Điều khiển đọc nổi";
+
+
+"Progress Slider Display" = "Hiển thị thanh trượt tiến độ";
+
+"Open documents in" = "Mở tài liệu trong";
+
+"Replace Current Document" = "Thay thế tài liệu hiện tại";
+
+"New Tab" = "Tab mới";
+
+"Close Tab" = "Đóng tab";
+
+"Move Tab to New Window" = "Chuyển tab sang cửa sổ mới";
+
+"Page divider" = "Dấu phân cách trang";
+
+"Page divider color" = "Màu dấu phân cách trang";
+
+"Selected" = "Đã chọn";
+
+"More" = "Thêm";
+
+
+"Open in New Window" = "Mở trong cửa sổ mới";
+
+"Narrow" = "Hẹp";
+"Medium" = "Vừa";
+"Wide" = "Rộng";

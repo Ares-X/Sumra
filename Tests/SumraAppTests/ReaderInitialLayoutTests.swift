@@ -198,10 +198,11 @@ final class ReaderInitialLayoutTests: XCTestCase {
         for mode in ["smart", "shown", "hidden"] {
             let pages = try Pages(input, format: .markdown, deferReflowLayout: true)
             let state = ReaderState(recordsHistory: false)
-            state.toolbarDisplayMode = toolbarMode
+            state.toolbarDisplayMode = toolbarMode; state.immersiveControls = false
             state.document = ReadingDocument(url: input, content: .pages(pages))
             state.flow = flow; state.spread = spread; state.fit = "width"
             state.font = "serif"; state.fontSize = 17; state.lineHeight = 1.4
+            state.margin = ReaderMarginPreset.medium.margin
             state.theme = "light"; state.userCSS = ""; state.pageMargins = nil
             state.scrollbarMode = mode; state.automaticLayout = false
             state.showContents = false; state.showThumbnails = false; state.showBookmarks = false
@@ -220,10 +221,6 @@ final class ReaderInitialLayoutTests: XCTestCase {
             window.isReleasedWhenClosed = false; window.contentView = host; state.window = window
             window.orderFront(nil)
             host.layoutSubtreeIfNeeded()
-            let initialViewport = ReaderScrollbars.initialReadingViewport(in: host.bounds.size,
-                mode: mode, continuous: flow == "continuous")
-            let initialPageSize = RasterReader.pageSize(in: initialViewport,
-                spread: spread, continuous: flow == "continuous")
             defer { state.windowClosed(); window.contentView = nil; window.close() }
 
             let deadline = Date().addingTimeInterval(5)
@@ -237,24 +234,26 @@ final class ReaderInitialLayoutTests: XCTestCase {
             } while Date() < deadline && state.error == nil
             XCTAssertNil(state.error)
             XCTAssertTrue(RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: 0)))
+            let scroll = try XCTUnwrap(state.readerScrollView)
+            let firstPaintViewport = scroll.contentView.safeAreaRect.size
             // Allow mounted-scroll-view callbacks to deliver any width change.
             try await Task.sleep(nanoseconds: 100_000_000)
             let revision = await pages.layoutRevision
             let bounds = try await pages.bounds(0)
-            let clip = try XCTUnwrap(state.readerScrollView?.contentView.safeAreaRect.size)
+            let clip = scroll.contentView.safeAreaRect.size
+            XCTAssertEqual(clip, firstPaintViewport, "Mounting must retain the first painted reading viewport")
             let expected = RasterReader.pageSize(in: clip, spread: spread, continuous: flow == "continuous")
             if flow == "continuous", mode == "shown" {
                 // A width-fitted natural chapter needs only the vertical bar.
                 // A horizontal bar steals reading height and feeds a different
                 // clip size back into its already fitted canvas.
-                XCTAssertEqual(clip.height, host.bounds.height, accuracy: 0.01)
-                let scroll = try XCTUnwrap(state.readerScrollView)
+                XCTAssertEqual(clip.height, scroll.bounds.height, accuracy: 0.01)
                 let document = try XCTUnwrap(scroll.documentView)
                 XCTAssertLessThanOrEqual(document.frame.width, clip.width + 0.01)
                 XCTAssertFalse(scroll.hasHorizontalScroller)
             }
             XCTAssertEqual(bounds.width, expected.width, accuracy: 0.01, "\(toolbarMode) \(flow) \(spread) \(mode)")
-            XCTAssertEqual(revision, initialPageSize == expected ? 1 : 2, "\(toolbarMode) \(flow) \(spread) \(mode) may relayout only for an actual viewport change")
+            XCTAssertEqual(revision, 1, "\(toolbarMode) \(flow) \(spread) \(mode): An unchanged reading viewport needs one initial layout")
             XCTAssertEqual(publications.count, 1, "\(toolbarMode): The mounted reader must receive its final geometry in the first publication")
             let first = try XCTUnwrap(publications.first)
             XCTAssertNotNil(first.nativePassage)

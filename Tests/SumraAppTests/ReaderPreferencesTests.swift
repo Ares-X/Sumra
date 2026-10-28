@@ -6,7 +6,7 @@ import SumraCore
 
 @MainActor
 final class ReaderPreferencesTests: XCTestCase {
-    private let typographyKeys = ["font", "fontSize", "lineHeight", "margin", "pageMargins", "userCSS", "useDocumentCSS", "language"]
+    private let typographyKeys = ["font", "fontSize", "lineHeight", "margin", "pageMargins", "userCSS", "useDocumentCSS", "language", "readingPreferenceRevisions"]
 
     func testRetiredLanguageExportAndImportUseSystemWithoutRejectingOtherSettings() throws {
         try preservingTypography {

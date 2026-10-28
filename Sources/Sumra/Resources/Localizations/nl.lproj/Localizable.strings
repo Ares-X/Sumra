@@ -375,7 +375,7 @@
 "Application Log" = "Programmalogboek";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "Past de huidige zwartlakmarkeringen toe op de uitvoerkopie en verwijdert de afgedekte inhoud definitief. Het geopende document blijft ongewijzigd. Bestaande versleuteling blijft behouden.";
 "Apply Margins and CSS" = "Marges en CSS toepassen";
-"Apply affects saved defaults. Current documents retain their reading settings." = "‘Toepassen’ wijzigt opgeslagen standaardwaarden. Geopende documenten behouden hun leesinstellingen.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "De weergave en indeling worden meteen bijgewerkt. Openingsopties gelden voor het volgende document.";
 "Ask AI…" = "AI vragen…";
 "Ask Document" = "Document bevragen";
 "Assistant" = "Assistent";
@@ -732,3 +732,34 @@
 "File:" = "Bestand:";
 "Approximate progress by chapter" = "Geschatte voortgang per hoofdstuk";
 "Progress in current file" = "Voortgang in het huidige bestand";
+
+
+"Floating Reading Controls" = "Zwevende leesbediening";
+
+
+"Progress Slider Display" = "Weergave van de voortgangsschuifregelaar";
+
+"Open documents in" = "Documenten openen in";
+
+"Replace Current Document" = "Huidig document vervangen";
+
+"New Tab" = "Nieuw tabblad";
+
+"Close Tab" = "Tabblad sluiten";
+
+"Move Tab to New Window" = "Tabblad naar nieuw venster verplaatsen";
+
+"Page divider" = "Paginascheiding";
+
+"Page divider color" = "Kleur van paginascheiding";
+
+"Selected" = "Geselecteerd";
+
+"More" = "Meer";
+
+
+"Open in New Window" = "Openen in nieuw venster";
+
+"Narrow" = "Smal";
+"Medium" = "Gemiddeld";
+"Wide" = "Breed";

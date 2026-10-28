@@ -78,7 +78,7 @@ final class HighVolumeSearchTests: XCTestCase {
         let host = NSHostingView(rootView: ReaderView(state: state))
         // The open Find panel reserves the 22-point search-session status row.
         // Keep the reader viewport at the frozen oracle's 779x590 geometry.
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 672),
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 698),
             styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer { state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close() }

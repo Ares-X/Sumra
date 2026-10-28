@@ -375,7 +375,7 @@
 "Application Log" = "응용 프로그램 로그";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "현재 가림 처리 표시를 출력 사본에 적용하여 가려진 내용을 영구적으로 제거합니다. 열린 문서는 변경되지 않습니다. 기존 암호화는 유지됩니다.";
 "Apply Margins and CSS" = "여백 및 CSS 적용";
-"Apply affects saved defaults. Current documents retain their reading settings." = "적용하면 저장된 기본값이 변경됩니다. 현재 문서는 읽기 설정을 유지합니다.";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "읽기 모양과 레이아웃이 즉시 업데이트됩니다. 열기 옵션은 다음 문서에 적용됩니다.";
 "Ask AI…" = "AI에게 질문…";
 "Ask Document" = "문서에 질문";
 "Assistant" = "도우미";
@@ -734,3 +734,34 @@
 "File:" = "파일:";
 "Approximate progress by chapter" = "장별 대략적인 진행 상황";
 "Progress in current file" = "현재 파일의 진행 상황";
+
+
+"Floating Reading Controls" = "플로팅 읽기 컨트롤";
+
+
+"Progress Slider Display" = "진행률 슬라이더 표시";
+
+"Open documents in" = "문서를 여는 위치";
+
+"Replace Current Document" = "현재 문서 바꾸기";
+
+"New Tab" = "새 탭";
+
+"Close Tab" = "탭 닫기";
+
+"Move Tab to New Window" = "탭을 새 윈도우로 이동";
+
+"Page divider" = "페이지 구분선";
+
+"Page divider color" = "페이지 구분선 색상";
+
+"Selected" = "선택됨";
+
+"More" = "더 보기";
+
+
+"Open in New Window" = "새 윈도우에서 열기";
+
+"Narrow" = "좁게";
+"Medium" = "보통";
+"Wide" = "넓게";

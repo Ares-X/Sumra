@@ -101,6 +101,7 @@ struct ReaderWindow: View {
             }
         }
             .frame(minWidth: 560, minHeight: state.hasDocument ? 400 : 500)
+            .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
             .navigationTitle(windowTitle)
             .background(WindowTabs(state: state, tabWith: payload.tabWith, identifier: payload.tabIdentifier) {
                 application.connect(state, canReuse: payload.path == nil)
@@ -542,6 +543,23 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+enum DocumentOpenBehavior: String, CaseIterable, Identifiable {
+    case newWindow, newTab, replaceCurrent
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .newWindow: return L("Open in New Window")
+        case .newTab: return L("Open in New Tab")
+        case .replaceCurrent: return L("Replace Current Document")
+        }
+    }
+
+    static var current: Self {
+        Self(rawValue: UserDefaults.standard.string(forKey: "documentOpenBehavior") ?? "") ?? .newWindow
+    }
+}
+
 // AppKit owns the actual tabs and close lifecycle. Only MRU order and saved
 // positions belong to the app; there is no parallel tab model or view cache.
 @MainActor
@@ -555,16 +573,24 @@ enum ReaderWindows {
 
     static func open(_ urls: [URL], in state: ReaderState?, recordsHistory: Bool = true,
                      createWindow: (WindowPayload) -> Void) {
+        let state = state ?? NSApp.orderedWindows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state }.first
+        let behavior = DocumentOpenBehavior.current
+        let opensInTabs = behavior == .newTab && !UserDefaults.standard.bool(forKey: "disableTabs")
+        let tabWith = opensInTabs ? state?.window?.windowNumber : nil
+        let tabIdentifier = opensInTabs && tabWith == nil ? UUID().uuidString : nil
         for (index, url) in urls.enumerated() {
-            // Reuse Home, but preserve loaded books and pending opens, including
-            // restoration requests whose document has not loaded yet.
+            // Home always receives the first file. Replacing a loaded document
+            // still goes through ReaderState's unsaved-changes confirmation.
             if index == 0, let state, state.window != nil,
-               state.document == nil, state.restoredPayload == nil, !state.busy {
+               state.restoredPayload == nil, !state.busy,
+               state.document == nil || behavior == .replaceCurrent {
                 if recordsHistory { state.open(url) }
                 else { state.openWithoutHistory(url) }
                 state.window?.makeKeyAndOrderFront(nil)
             } else {
-                createWindow(WindowPayload(path: url.path, recordsHistory: recordsHistory ? nil : false))
+                var payload = WindowPayload(path: url.path, tabWith: tabWith, recordsHistory: recordsHistory ? nil : false)
+                payload.tabIdentifier = tabIdentifier
+                createWindow(payload)
             }
         }
     }
@@ -1446,7 +1472,9 @@ struct SumraApp: App {
     static var restoring: [WindowPayload] = []
     @NSApplicationDelegateAdaptor(ReaderApplicationDelegate.self) private var delegate
     init() {
+        ReaderPreferences.migrate()
         NSWindow.allowsAutomaticWindowTabbing = !UserDefaults.standard.bool(forKey: "disableTabs")
+        ReaderTheme.applyAppearance(UserDefaults.standard.string(forKey: "theme") ?? ReaderTheme.builtins[0].id)
         AppIcon.apply(UserDefaults.standard.string(forKey: "appIcon") ?? "light")
         if UserDefaults.standard.bool(forKey: "restoreSession") { Self.restoring = ReaderWindows.prepareRestoration(ReaderWindows.saved("session")) }
     }

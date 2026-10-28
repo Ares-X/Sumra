@@ -7,6 +7,273 @@ import SwiftUI
 
 @MainActor
 final class ReaderToolbarTests: XCTestCase {
+    func testFloatingTitleOwnerSurvivesDynamicTitlesAndResizeThenRestoresNativeTitle() async throws {
+        guard #available(macOS 15, *) else { throw XCTSkip("The public default toolbar-title policy requires macOS 15") }
+        final class Titles: ObservableObject { @Published var value = "Floating title initial" }
+        struct WindowContent: View {
+            @ObservedObject var state: ReaderState
+            @ObservedObject var titles: Titles
+            var body: some View { ReaderView(state: state).navigationTitle(titles.value) }
+        }
+        _ = NSApplication.shared
+        let previousMenu = NSApp.mainMenu, previousWindowsMenu = NSApp.windowsMenu
+        let menu = NSMenu(title: "Window"), main = NSMenu(title: "Sumra")
+        main.addItem(withTitle: "Window", action: nil, keyEquivalent: "").submenu = menu
+        NSApp.mainMenu = main; NSApp.windowsMenu = menu
+        defer { NSApp.mainMenu = previousMenu; NSApp.windowsMenu = previousWindowsMenu }
+        let directory = try TemporaryDirectory()
+        let input = directory.url.appendingPathComponent("native-title.txt")
+        try "Reading content keeps its native document name.".write(to: input, atomically: true, encoding: .utf8)
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .text("Reading content."))
+        state.toolbarDisplayMode = .shown; state.immersiveControls = true
+        state.showContents = false; state.showAI = false; state.showFind = false
+        let titles = Titles()
+        let controller = NSHostingController(rootView: WindowContent(state: state, titles: titles))
+        let window = NSWindow(contentViewController: controller)
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        window.styleMask.formUnion([.titled, .closable, .resizable])
+        window.representedURL = input; window.isExcludedFromWindowsMenu = false
+        state.window = window
+        window.orderBack(nil)
+        defer {
+            window.orderOut(nil); NSApp.removeWindowsItem(window)
+            state.windowClosed(); window.contentViewController = nil; window.close()
+            withExtendedLifetime(directory) {}
+        }
+        func visibleNativeTitles(in view: NSView) -> [NSTextField] {
+            if view === controller.view { return [] }
+            var fields = [NSTextField]()
+            if let field = view as? NSTextField, field.stringValue == titles.value,
+               !field.isHiddenOrHasHiddenAncestor {
+                var current: NSView? = field
+                var visible = true
+                while let ancestor = current {
+                    if ancestor.alphaValue == 0 { visible = false }
+                    current = ancestor.superview
+                }
+                if visible { fields.append(field) }
+            }
+            return fields + view.subviews.flatMap { visibleNativeTitles(in: $0) }
+        }
+        var step = 0
+        for floating in [true, true, true, false, true] {
+            state.immersiveControls = floating
+            titles.value = "Floating title \(step)"
+            window.setFrame(CGRect(x: 2200, y: 100, width: 770 + step * 9, height: 675 + step * 3), display: false)
+            for _ in 0..<20 {
+                window.contentView?.superview?.layoutSubtreeIfNeeded()
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            XCTAssertEqual(window.title, titles.value)
+            XCTAssertEqual(window.tab.title, titles.value, "Removing the visible title must preserve native tab names")
+            XCTAssertTrue(menu.items.contains { $0.title == titles.value }, "The native Window menu must retain the document title")
+            let frame = try XCTUnwrap(window.contentView?.superview)
+            if floating {
+                XCTAssertEqual(window.titleVisibility, .hidden)
+                XCTAssertTrue(visibleNativeTitles(in: frame).isEmpty, "SwiftUI must not recreate a native title over the floating one")
+            } else {
+                XCTAssertEqual(window.titleVisibility, .visible)
+                XCTAssertFalse(visibleNativeTitles(in: frame).isEmpty, "Turning off floating controls must restore the native title")
+            }
+            step += 1
+        }
+        window.orderOut(nil)
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testMenuTrackingKeepsRevealedNativeTabsStableThroughPendingDismissal() async throws {
+        final class MenuWindow: NSWindow {
+            override var isKeyWindow: Bool { true }
+            override var mouseLocationOutsideOfEventStream: NSPoint { NSPoint(x: 350, y: 100) }
+        }
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/menu-hover.txt"), content: .text("book"))
+        state.immersiveControls = false; state.toolbarDisplayMode = .auto
+        let window = MenuWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        let sibling = NSWindow(contentRect: window.frame,
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; sibling.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "menu-hover")
+        window.addTabbedWindow(sibling, ordered: .above)
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = false
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); window.contentView = nil; sibling.close(); window.close(); state.windowClosed() }
+        let tabs = window.titlebarAccessoryViewControllers.map(\.view)
+        XCTAssertFalse(tabs.isEmpty)
+        let menu = NSMenu(title: "View")
+        let toggleTabs = NSMenuItem(title: "Show Tab Bar", action: #selector(NSWindow.toggleTabBar(_:)), keyEquivalent: "")
+        let originallyEnabled = window.validateUserInterfaceItem(toggleTabs)
+        let frame = window.frame, layout = window.contentLayoutRect
+        for delay in [50_000_000, 170_000_000] as [UInt64] {
+            observer.pointerMoved(to: NSPoint(x: 350, y: window.frame.height - 1))
+            observer.pointerMoved(to: NSPoint(x: 350, y: 100))
+            try await Task.sleep(nanoseconds: delay)
+            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+            observer.pointerMoved(to: NSPoint(x: 350, y: window.frame.height + 20))
+            try await Task.sleep(nanoseconds: 350_000_000)
+            observer.updateChrome()
+            XCTAssertTrue(state.toolbarHoverVisible, "Opening View must cancel the pending toolbar dismissal")
+            XCTAssertEqual(state.toolbarHoverOpacity, 1)
+            XCTAssertEqual(window.titleVisibility, .visible)
+            for view in tabs { XCTAssertFalse(view.isHidden); XCTAssertEqual(view.alphaValue, 1, accuracy: 0.001) }
+            XCTAssertEqual(window.validateUserInterfaceItem(toggleTabs), originallyEnabled,
+                           "AppKit's tab command availability must stay stable during native menu tracking")
+            XCTAssertEqual(window.frame, frame); XCTAssertEqual(window.contentLayoutRect, layout)
+            observer.reducedMotion = true
+            NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+            XCTAssertFalse(state.toolbarHoverVisible, "Ending menu tracking resumes normal pointer-based dismissal")
+            observer.reducedMotion = false
+        }
+        XCTAssertFalse(window.isVisible); XCTAssertFalse(sibling.isVisible)
+    }
+
+    func testMenuTrackingDoesNotRemainLatchedAfterWindowDeactivation() throws {
+        final class MenuWindow: NSWindow {
+            var key = true
+            var pointer = NSPoint.zero
+            override var isKeyWindow: Bool { key }
+            override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
+        }
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/menu-focus.txt"), content: .text("book"))
+        state.immersiveControls = false; state.toolbarDisplayMode = .auto
+        let window = MenuWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); window.contentView = nil; window.close(); state.windowClosed() }
+        let menu = NSMenu(title: "View")
+        window.pointer = NSPoint(x: 350, y: window.frame.height - 1)
+        observer.pointerMoved(to: window.pointer)
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        window.key = false
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+        window.key = true
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        XCTAssertTrue(state.toolbarHoverVisible)
+        observer.pointerMoved(to: NSPoint(x: 350, y: 100))
+        XCTAssertFalse(state.toolbarHoverVisible, "A menu ended in another window cannot latch this window's later hover")
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testBlankWelcomeTabKeepsNativeTabsVisibleAndInstalled() async throws {
+        _ = NSApplication.shared
+        let states = (0..<2).map { index in
+            let state = ReaderState(recordsHistory: false)
+            if index == 0 { state.document = ReadingDocument(url: URL(fileURLWithPath: "/welcome-tab.txt"), content: .text("book")) }
+            state.immersiveControls = false; state.toolbarDisplayMode = .auto
+            return state
+        }
+        let windows = states.enumerated().map { index, state in
+            let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 600),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+            window.toolbar = NSToolbar(identifier: "welcome-tab-\(index)")
+            window.contentView = NSHostingView(rootView: ReaderView(state: state))
+            return window
+        }
+        defer {
+            for window in windows { window.contentView = nil; window.close() }
+            for state in states { state.windowClosed() }
+        }
+        windows[0].addTabbedWindow(windows[1], ordered: .above)
+        let group = try XCTUnwrap(windows[0].tabGroup)
+        for index in [1, 0, 1] {
+            let window = windows[index]
+            group.selectedWindow = window
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+            for _ in 0..<10 {
+                window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            XCTAssertTrue(try XCTUnwrap(window.toolbar).isVisible,
+                          "Welcome keeps native chrome installed so a blank tab remains part of its tab group")
+            XCTAssertTrue(group.isTabBarVisible)
+            if index == 1 {
+                let tabs = window.titlebarAccessoryViewControllers.map(\.view)
+                XCTAssertFalse(tabs.isEmpty)
+                for view in tabs { XCTAssertFalse(view.isHidden); XCTAssertEqual(view.alphaValue, 1, accuracy: 0.001) }
+                XCTAssertEqual(window.titleVisibility, .visible)
+            }
+        }
+        for window in windows { XCTAssertEqual(window.alphaValue, 0); XCTAssertTrue(window.ignoresMouseEvents) }
+    }
+
+    func testAutoHideRevealsWindowTitleWithItsControls() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/hover-title.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .auto
+        let window = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titleVisibility = .visible
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); window.contentView = nil; window.close(); state.windowClosed() }
+
+        let frame = window.frame, viewport = window.contentView?.frame
+        XCTAssertEqual(window.titleVisibility, .hidden)
+        observer.pointerMoved(to: NSPoint(x: 350, y: window.frame.height - 1))
+        observer.updateChrome()
+        XCTAssertEqual(window.titleVisibility, .visible,
+                       "Auto Hide reveals the document title together with its native window controls")
+        XCTAssertEqual(window.frame, frame)
+        XCTAssertEqual(window.contentView?.frame, viewport,
+                       "Revealing the title must not resize the reading viewport")
+        observer.pointerMoved(to: NSPoint(x: 350, y: 100))
+        observer.updateChrome()
+        XCTAssertEqual(window.titleVisibility, .hidden)
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testNativeTabActivationRevealsControlsUnderStationaryPointer() throws {
+        final class PointerWindow: NSWindow {
+            var pointer = NSPoint.zero
+            override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
+        }
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/tab-activation.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .auto
+        let window = PointerWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "stationary-tab-activation")
+        let tabs = NSTitlebarAccessoryViewController()
+        tabs.view = NSView(frame: CGRect(x: 0, y: 0, width: 700, height: 28))
+        window.addTitlebarAccessoryViewController(tabs)
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); window.contentView = nil; window.close(); state.windowClosed() }
+
+        // A native tab receives the key-window notification after AppKit has
+        // selected it, before any mouse-moved event reaches the new document.
+        window.pointer = NSPoint(x: 350, y: window.frame.height - 1)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        XCTAssertTrue(state.toolbarHoverVisible,
+                      "Selecting a native tab under the pointer must not require a subsequent mouse move")
+        XCTAssertFalse(tabs.view.isHidden)
+        XCTAssertEqual(tabs.view.alphaValue, 1, accuracy: 0.001)
+
+        window.pointer = NSPoint(x: 350, y: 100)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        XCTAssertFalse(state.toolbarHoverVisible,
+                       "Keyboard activation with the pointer in the book must retain Auto Hide")
+        XCTAssertFalse(window.isVisible)
+    }
+
     func testPointerMovementPublishesOnlyToolbarTransitions() throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
@@ -94,8 +361,17 @@ final class ReaderToolbarTests: XCTestCase {
 
     func testHoverToolbarPreservesBookViewportLayoutAndPassage() async throws {
         _ = NSApplication.shared
+        final class FixedHeightMenu: NSMenu {
+            var height: CGFloat = 0
+            override var menuBarHeight: CGFloat { height }
+        }
         let originalMenu = NSApp.mainMenu
         if originalMenu == nil { NSApp.mainMenu = NSMenu(title: "Sumra") }
+        // This test simulates fullscreen flags; hold its external menu geometry
+        // fixed while checking that hover itself never changes book layout.
+        let menu = FixedHeightMenu(title: "Sumra")
+        menu.height = try XCTUnwrap(NSApp.mainMenu).menuBarHeight
+        NSApp.mainMenu = menu
         defer { NSApp.mainMenu = originalMenu }
         let menuHeight = try XCTUnwrap(NSApp.mainMenu).menuBarHeight
         XCTAssertGreaterThan(menuHeight, 0, "The regression needs the native system menu's reserved height")

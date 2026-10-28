@@ -462,7 +462,7 @@
 "App icon" = "App 圖像";
 "Application Log" = "應用程式日誌";
 "Applies the current redaction marks to the output copy, permanently removing the covered content. The open document is unchanged. Existing encryption is kept." = "將目前的遮蔽標記套用至輸出副本，永久移除被覆蓋的內容。開啟中的文件維持不變，並保留現有加密。";
-"Apply affects saved defaults. Current documents retain their reading settings." = "套用會影響已儲存的預設值。目前的文件會保留各自的閱讀設定。";
+"Reading appearance and layout update immediately. Opening options apply to the next document." = "閱讀外觀與版面配置會立即更新；開啟選項會套用至下一份文件。";
 "Ask AI…" = "詢問 AI…";
 "Ask Document" = "詢問文件內容";
 "Assistant" = "助理";
@@ -779,3 +779,33 @@
 "File:" = "檔案：";
 "Approximate progress by chapter" = "按章節估算的進度";
 "Progress in current file" = "目前檔案的進度";
+
+"Floating Reading Controls" = "浮層閱讀控制項";
+
+
+"Progress Slider Display" = "閱讀進度條顯示方式";
+
+"Open documents in" = "開啟文件的方式";
+
+"Replace Current Document" = "取代目前文件";
+
+"New Tab" = "新增分頁";
+
+"Close Tab" = "關閉分頁";
+
+"Move Tab to New Window" = "將分頁移至新視窗";
+
+"Page divider" = "頁間分隔線";
+
+"Page divider color" = "頁間分隔線顏色";
+
+"Selected" = "已選取";
+
+"More" = "更多";
+
+
+"Open in New Window" = "在新視窗中開啟";
+
+"Narrow" = "窄";
+"Medium" = "中等";
+"Wide" = "寬";
