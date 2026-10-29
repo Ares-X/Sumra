@@ -1,7 +1,11 @@
 # Full local-library acceptance, 2026-10-29
 
-Status: final signed candidate local acceptance passed. Publication and the issue
-reply still require public-byte and installed Sparkle-update verification.
+Status: published and installed acceptance complete.
+
+[Sumra 0.2.22](https://github.com/Ares-X/Sumra/releases/tag/v0.2.22)
+was published from the accepted immutable assets;
+[issue 42 follow-up](https://github.com/Ares-X/Sumra/issues/42#issuecomment-6483876136)
+was posted after delivery checks. The issue remains open for reporter feedback.
 
 Accepted application source: `f59ffbf6cbab74c95be59b95b455a827e6723557`,
 version 0.2.22 (24), executable SHA-256
@@ -95,13 +99,30 @@ OS-owned providers exited normally after temporary registration changed; none
 was killed and no global preview cache was purged. The coverless EPUB generic
 Finder icon remains a disclosed limitation; its Space preview works.
 
-## Remaining delivery acceptance
+## Published and installed acceptance
 
-- Publish only the accepted immutable candidate assets through the manifest-gated
-  existing release workflow and compare anonymous public downloads and feed.
-- Exercise the installed 0.2.21 Help-menu Sparkle update, verify all installed
-  candidate bytes, reopen an original book on the first cold request, restore
-  temporary registration and finish scoped cleanup before replying.
+The manifest-gated [publication workflow](https://github.com/Ares-X/Sumra/actions/runs/40788382570)
+published the accepted draft without rebuilding. All six asset IDs were unchanged;
+anonymous downloads and the public appcast matched the accepted candidate bytes.
+
+The installed 0.2.21 was updated through the real Help-menu Sparkle flow: check,
+download, Ready to Install, Install and Relaunch, then a second check reporting
+0.2.22 as current. All 140 installed files, five symlinks, executable mode,
+architecture and community signing identity match the accepted provenance.
+All 274 functional preferences remained identical. An original Alice FB2 rendered
+on the first request after a full installed-app quit; Finder Open With Sumra also
+rendered it. Installed cold-window placement followed another active display,
+so the retained fixed-pointer primary-screen probe is not claimed as installed
+cold-hover acceptance. The identical candidate's stationary-top cold test above
+passed independently. The installed reader was then arranged on the primary
+screen with complete controls and the original book left open.
+
+Temporary candidate registration was removed and the installed 0.2.22 registered
+for Preview and Thumbnail. Four owned unused old bundles, invalid probe images,
+three duplicate public downloads and the rejected unpublished candidate draft
+were removed after checking identity and active consumers. Accepted release assets,
+visual evidence and failure receipts remain local; an ambiguously owned old bundle
+was left untouched. User files and unrelated working-tree changes were preserved.
 
 Historical evidence: the pre-bookmark follow-up source gate completed 1,433 tests
 with no failures and one manual CUA harness skipped; localization, packaging and JavaScript
@@ -142,8 +163,9 @@ synthetic ordinary-launch event. No second request is counted as a cold pass.
 Keeping the sending process alive did not prevent a failure. Twenty-five later
 cold opens with debug logging succeeded, which does not resolve the earlier
 failure. The final community-signed candidate passed the uninstrumented
-first-request cold sweep described above. Installed update/cold opening remains the final
-delivery gate; no reader fallback, delay or argument parser was added.
+first-request cold sweep described above. Installed update and first-request
+cold opening also passed as described above;
+no reader fallback, delay or argument parser was added.
 
 Timing from the Debug hosted sweep is not a release performance claim. Likewise,
 sampled visual inspection is not a claim that every text page was read or that
