@@ -7,6 +7,24 @@ import SumraCore
 
 @MainActor
 final class ReaderAppearanceControlsTests: XCTestCase {
+    func testPageGridDialogDoesNotCompressNumericFieldsOrStylePicker() {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        inspectModal(response: .alertSecondButtonReturn) { content in
+            let grid = try XCTUnwrap(self.descendants(content, of: NSGridView.self).first)
+            for row in 0..<5 {
+                let field = try XCTUnwrap(grid.cell(atColumnIndex: 1, rowIndex: row).contentView as? NSTextField)
+                print("Grid field row=\(row) height=\(field.bounds.height) intrinsic=\(field.intrinsicContentSize.height)")
+                XCTAssertGreaterThanOrEqual(field.bounds.height, field.intrinsicContentSize.height,
+                    "Every numeric value must fit vertically, including the vertical offset")
+            }
+            let style = try XCTUnwrap(grid.cell(atColumnIndex: 1, rowIndex: 5).contentView as? NSPopUpButton)
+            self.assertClickable(style, in: content)
+            XCTAssertGreaterThanOrEqual(style.bounds.height, style.intrinsicContentSize.height)
+        }
+        state.configurePageGrid()
+    }
+
     func testCustomizeThemeSavesDividerColorAndCanHideIt() throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard
@@ -93,12 +111,18 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         }
     }
 
-    func testDocumentColorsKeepThreeInputsWhileThemeDividerValidityFollowsItsToggle() {
+    func testDocumentAndThemeColorsExposeDividerAndValidateItsVisibleColor() {
         _ = NSApplication.shared
         let document = ReaderThemeEditorView(theme: ReaderTheme.builtins[0], editsName: false)
-        XCTAssertNil(document.showsPageDivider.superview)
-        XCTAssertNil(document.divider.superview)
-        XCTAssertEqual(descendants(document, of: ReaderThemeColorInput.self).count, 3)
+        XCTAssertNotNil(document.showsPageDivider.superview)
+        XCTAssertNotNil(document.divider.superview)
+        XCTAssertEqual(descendants(document, of: ReaderThemeColorInput.self).count, 4)
+        document.showsPageDivider.performClick(nil)
+        document.divider.hex.stringValue = "invalid"
+        document.divider.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        XCTAssertFalse(document.isValid)
+        document.showsPageDivider.performClick(nil)
+        XCTAssertTrue(document.isValid)
 
         let theme = ReaderThemeEditorView(theme: ReaderTheme.builtins[2])
         theme.divider.hex.stringValue = "invalid"
@@ -225,7 +249,7 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         }
     }
 
-    func testDocumentColorEditorAppliesPreviewsAndPersistsAllThreeColors() throws {
+    func testDocumentColorEditorAppliesPreviewsAndPersistsAllColors() throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard
         let keys = ["theme", "lastLightTheme"]
@@ -239,18 +263,21 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         inspectModal { content in
             let editor = try XCTUnwrap(self.descendants(content, of: ReaderThemeEditorView.self).first)
             XCTAssertNil(editor.name.superview, "Document colors have no saved theme name")
-            for input in [editor.text, editor.paper, editor.link] { self.assertClickable(input.well, in: content) }
-            for (input, hex) in [(editor.text, "#000000"), (editor.paper, "#FFFFFF"), (editor.link, "#123456")] {
+            if editor.showsPageDivider.state == .off { editor.showsPageDivider.performClick(nil) }
+            for input in [editor.text, editor.paper, editor.link, editor.divider] { self.assertClickable(input.well, in: content) }
+            for (input, hex) in [(editor.text, "#000000"), (editor.paper, "#FFFFFF"), (editor.link, "#123456"), (editor.divider, "#789ABC")] {
                 input.hex.stringValue = hex
                 input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
             }
             XCTAssertEqual(editor.preview.theme.link, 0x123456)
+            XCTAssertEqual(editor.preview.theme.pageDivider, 0x789abc)
             editor.paper.well.activate(true)
         }
         state.configureDocumentColors()
         XCTAssertEqual(state.palette.text, 0x000000)
         XCTAssertEqual(state.palette.background, 0xffffff)
         XCTAssertEqual(state.palette.link, 0x123456)
+        XCTAssertEqual(state.palette.pageDivider, 0x789abc)
         XCTAssertEqual(state.documentColors, "smart")
         XCTAssertFalse(NSColorPanel.shared.isVisible)
         let position = try JSONDecoder().decode(ReadingPosition.self, from: JSONEncoder().encode(state.currentPosition))
@@ -259,12 +286,21 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertEqual(restored.palette.link, 0x123456)
         XCTAssertEqual(restored.customTextColor, 0x000000)
         XCTAssertEqual(restored.customBackgroundColor, 0xffffff)
+        XCTAssertEqual(restored.palette.pageDivider, 0x789abc)
+
+        restored.customPageDividerHidden = true
+        let hidden = try JSONDecoder().decode(ReadingPosition.self, from: JSONEncoder().encode(restored.currentPosition))
+        let hiddenRestored = ReaderState(recordsHistory: false)
+        hiddenRestored.apply(hidden)
+        XCTAssertNil(hiddenRestored.palette.pageDivider)
 
         inspectModal(response: .alertSecondButtonReturn) { _ in }
         state.configureDocumentColors()
         XCTAssertNil(state.customTextColor)
         XCTAssertNil(state.customBackgroundColor)
         XCTAssertNil(state.customLinkColor)
+        XCTAssertNil(state.customPageDividerColor)
+        XCTAssertFalse(state.customPageDividerHidden)
         restored.setTheme("light")
         XCTAssertNil(restored.customLinkColor)
     }

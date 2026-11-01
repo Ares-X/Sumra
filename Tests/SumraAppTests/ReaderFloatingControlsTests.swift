@@ -6,6 +6,73 @@ import SumraCore
 @testable import Sumra
 
 @MainActor final class ReaderFloatingControlsTests: XCTestCase {
+    func testFloatingNativeWindowButtonsPaintHoverAndClearItWithoutReplacingTheirActions() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 100, height: 60),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let controls = ReaderFloatingWindowButtons.Buttons(frame: CGRect(x: 16, y: 20, width: 54, height: 20))
+        let host = try XCTUnwrap(window.contentView)
+        host.addSubview(controls)
+        defer { controls.stopObservingWindow(); window.contentView = nil; window.close() }
+        let buttons = controls.subviews.compactMap { $0 as? NSButton }
+        let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        XCTAssertEqual(buttons.count, 3)
+        let actions = try types.map { type in
+            try XCTUnwrap(NSWindow.standardWindowButton(type, for: window.styleMask)?.action)
+        }
+        controls.updateTrackingAreas()
+        func pointer(_ type: NSEvent.EventType, at point: NSPoint) throws -> NSEvent {
+            if type == .mouseMoved {
+                return try XCTUnwrap(NSEvent.mouseEvent(with: type, location: controls.convert(point, to: nil),
+                    modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 0, pressure: 0))
+            }
+            return try XCTUnwrap(NSEvent.enterExitEvent(with: type, location: controls.convert(point, to: nil),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, trackingNumber: 0, userData: nil))
+        }
+        func raster() throws -> Data {
+            host.layoutSubtreeIfNeeded()
+            host.needsDisplay = true; controls.needsDisplay = true
+            buttons.forEach { $0.needsDisplay = true }
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        }
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            controls.mouseExited(with: try pointer(.mouseExited, at: .zero))
+            let baseline = try raster()
+            for (button, action) in zip(buttons, actions) {
+                let point = NSPoint(x: button.frame.midX, y: button.frame.midY)
+                XCTAssertTrue(controls.hitTest(controls.convert(point, to: host)) === button)
+                controls.mouseEntered(with: try pointer(.mouseEntered, at: point))
+                XCTAssertNotEqual(try raster(), baseline, "Hover must visibly paint in \(appearance.rawValue)")
+                XCTAssertTrue(button.target === window)
+                XCTAssertEqual(button.action, action, "AppKit keeps ownership of window actions and modifier semantics")
+                XCTAssertFalse(button.isHighlighted, "Hover must not masquerade as the native pressed state")
+                controls.mouseMoved(with: try pointer(.mouseMoved, at: NSPoint(x: 18, y: 10)))
+                XCTAssertEqual(try raster(), baseline, "Moving between native hit regions clears the feedback")
+                controls.mouseEntered(with: try pointer(.mouseEntered, at: point))
+                controls.mouseExited(with: try pointer(.mouseExited, at: .zero))
+                XCTAssertEqual(try raster(), baseline, "Exit removes the feedback")
+            }
+            controls.mouseEntered(with: try pointer(.mouseEntered, at: NSPoint(x: 27, y: 10)))
+            controls.removeFromSuperview()
+            host.addSubview(controls)
+            XCTAssertEqual(try raster(), baseline, "Unmounting clears a retained hover")
+        }
+        window.styleMask.remove(.miniaturizable)
+        controls.updateButtons()
+        let minimize = buttons[1]
+        XCTAssertFalse(minimize.isEnabled)
+        let disabledBaseline = try raster()
+        controls.mouseEntered(with: try pointer(.mouseEntered, at: NSPoint(x: minimize.frame.midX, y: minimize.frame.midY)))
+        XCTAssertEqual(try raster(), disabledBaseline, "Unavailable actions must not receive hover emphasis")
+        XCTAssertFalse(window.isVisible)
+    }
+
     func testWelcomeDocumentAndHomeKeepTheirOwnChromeAndRetainTheFloatingSetting() async throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
@@ -165,6 +232,9 @@ import SumraCore
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
+        let previousProgress = UserDefaults.standard.object(forKey: "progressDisplayMode")
+        UserDefaults.standard.set("shown", forKey: "progressDisplayMode")
+        defer { UserDefaults.standard.set(previousProgress, forKey: "progressDisplayMode") }
         let previousFindFloating = UserDefaults.standard.object(forKey: "findFloating")
         UserDefaults.standard.set(false, forKey: "findFloating")
         defer {
@@ -186,7 +256,9 @@ import SumraCore
             state.showContents = false; state.showAI = false; state.showFind = false
             state.flow = "continuous"; state.spread = false
             state.immersiveControls = true; state.toolbarDisplayMode = .auto
-            state.margin = 16; state.pageMargins = PageMargins(cssValues: [16])
+            state.typographyForAll = false
+            state.controlTopMargin = 54; state.controlBottomMargin = 44
+            state.margin = 16; state.pageMargins = PageMargins(cssValues: [16]); state.marginPresetSelection = "custom"
             let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 1000, height: 700),
                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; state.window = window
@@ -217,44 +289,59 @@ import SumraCore
                 }
                 return frame
             }
+            func assertClearance(top: CGFloat, bottom: CGFloat) {
+                let frame = frameInHost()
+                XCTAssertEqual(frame.minY + CGFloat(state.contentMargins?.top ?? 0), top, accuracy: 1, suffix)
+                XCTAssertEqual(host.bounds.height - frame.maxY + CGFloat(state.contentMargins?.bottom ?? 0), bottom, accuracy: 1, suffix)
+            }
             let mediumFrame = frameInHost()
-            XCTAssertEqual(mediumFrame.minY + 16, 54, accuracy: 1,
-                           "Medium's page margin and outer clearance together leave a 2-point gap below the inset toolbar")
-            XCTAssertEqual(host.bounds.height - mediumFrame.maxY + 16, 34, accuracy: 1,
-                           "The progress bar must not add a second full page margin")
+            assertClearance(top: 54, bottom: 44)
             state.toolbarHoverVisible = true; state.toolbarHoverOpacity = 1
             host.layoutSubtreeIfNeeded()
             XCTAssertEqual(frameInHost(), mediumFrame, suffix)
 
-            state.applyMarginPreset(.wide)
+            for preset in ReaderMarginPreset.allCases {
+                state.applyMarginPreset(preset)
+                try await settle()
+                assertClearance(top: 54, bottom: 44)
+                XCTAssertEqual(frameInHost().width, mediumFrame.width, accuracy: 1)
+            }
+            state.setCustomMargins(PageMargins(cssValues: [80]))
             try await settle()
-            let wideFrame = frameInHost()
-            XCTAssertEqual(wideFrame.minY + 24, 62, accuracy: 1,
-                           "Wide must reserve the toolbar and a small gap once, not stack both margins")
-            XCTAssertEqual(host.bounds.height - wideFrame.maxY + 24, 40, accuracy: 1)
-            state.pageMargins = nil
+            assertClearance(top: 80, bottom: 80)
+            state.setCustomMargins(nil)
             try await settle()
-            let publisherFrame = frameInHost()
-            XCTAssertEqual(publisherFrame.minY, 62, accuracy: 1,
-                           "Unknown publisher margins must not be inferred from the legacy scalar")
-            XCTAssertEqual(host.bounds.height - publisherFrame.maxY, 40, accuracy: 1)
-            state.applyMarginPreset(.medium)
+            assertClearance(top: 54, bottom: 44)
+            state.setCustomMargins(PageMargins(cssValues: [16]))
+            for (top, bottom) in [(76.0, 44.0), (76.0, 67.0), (0.0, 67.0), (0.0, 0.0)] {
+                state.setControlMargins(top: top, bottom: bottom)
+                try await settle()
+                assertClearance(top: CGFloat(max(16, top)), bottom: CGFloat(max(16, bottom)))
+                let frame = frameInHost()
+                state.toolbarHoverVisible.toggle()
+                state.toolbarHoverOpacity = state.toolbarHoverVisible ? 1 : 0
+                try await settle()
+                XCTAssertEqual(frameInHost(), frame, "Control visibility must not relayout \(suffix)")
+            }
+            state.setControlMargins(top: 76, bottom: 67)
+            state.toolbarDisplayMode = .hidden
             try await settle()
-            XCTAssertEqual(frameInHost(), mediumFrame, suffix)
-            state.applyMarginPreset(.narrow)
+            assertClearance(top: 16, bottom: 67)
+            UserDefaults.standard.set("hidden", forKey: "progressDisplayMode")
             try await settle()
-            let narrowFrame = frameInHost()
-            XCTAssertGreaterThan(narrowFrame.height, mediumFrame.height,
-                                 "Narrow must reclaim floating chrome clearance in \(suffix)")
-            XCTAssertEqual(narrowFrame.minY, 0, accuracy: 1,
-                           "The split view must not reintroduce native titlebar clearance")
-            XCTAssertEqual(narrowFrame.width, mediumFrame.width, accuracy: 1)
+            assertClearance(top: 16, bottom: 16)
+            UserDefaults.standard.set("shown", forKey: "progressDisplayMode")
+            state.toolbarDisplayMode = .auto
+            state.setControlMargins(top: 0, bottom: 0)
+            try await settle()
+            XCTAssertEqual(frameInHost().minY, 0, accuracy: 1,
+                           "Zero control spacing must allow reading under the floating controls")
             state.showFind = true
             try await settle()
             let field = try XCTUnwrap(state.findInputField)
             XCTAssertGreaterThanOrEqual(field.convert(field.bounds, to: host).minY,
                                         ReaderFloatingControls.topInset + ReaderFloatingControls.height,
-                                        "Narrow may overlay reading content, but the existing Find row must remain below the floating toolbar")
+                                        "Zero control spacing may overlay reading content, but Find must remain below the floating toolbar")
             state.showFind = false
             XCTAssertFalse(window.isVisible)
         }

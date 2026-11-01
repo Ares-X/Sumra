@@ -2,11 +2,14 @@
 import SwiftUI
 
 @MainActor
-func chooseDocuments(allowDirectories: Bool = true, _ receive: @escaping ([URL]) -> Void) {
+func chooseDocuments(allowDirectories: Bool = true, in window: NSWindow? = nil,
+                     _ receive: @escaping ([URL]) -> Void) {
     let panel = NSOpenPanel()
     panel.canChooseDirectories = allowDirectories
     panel.allowsMultipleSelection = true
-    panel.begin { if $0 == .OK { receive(panel.urls) } }
+    let completion: (NSApplication.ModalResponse) -> Void = { if $0 == .OK { receive(panel.urls) } }
+    if let window = window ?? NSApp.keyWindow { panel.beginSheetModal(for: window, completionHandler: completion) }
+    else { panel.begin(completionHandler: completion) }
 }
 
 // One command catalog serves the menu bar, command palette and shortcut editor.
@@ -413,7 +416,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
     }
 
     @MainActor
-    func enabled(_ state: ReaderState?) -> Bool {
+    func enabled(_ state: ReaderState?, window: NSWindow? = nil) -> Bool {
         if let state, state.nativePDF != nil {
             switch self {
             case .copyAnnotation: return NativePDFClipboard.canCopy(state)
@@ -470,8 +473,13 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .rename, .trash, .trashAndNext: return state?.document?.url.hasDirectoryPath == false && state?.busy == false
         case .relocate: return state?.busy == false && (state?.missingFile != nil || state?.document?.url.hasDirectoryPath == false || state?.restoredPayload != nil)
         case .newTab: return state?.window != nil && state?.createWindow != nil && !UserDefaults.standard.bool(forKey: "disableTabs")
-        case .restoreTabGroup, .reopenClosed: return state?.createWindow != nil
-        case .close, .nextTab, .previousTab, .nextTabSmart, .previousTabSmart, .moveTabLeft, .moveTabRight, .closeOtherTabs, .closeLeftTabs, .closeRightTabs, .closeAllTabs, .saveTabGroup, .tabColor: return state?.window != nil
+        case .restoreTabGroup: return state?.createWindow != nil && !ReaderWindows.savedTabGroupKeys.isEmpty
+        case .reopenClosed: return state?.createWindow != nil
+        case .saveTabGroup: return state?.hasDocument == true
+        case .close:
+            guard let window = window ?? state?.window else { return false }
+            return window.styleMask.contains(.closable) && window.attachedSheet == nil
+        case .nextTab, .previousTab, .nextTabSmart, .previousTabSmart, .moveTabLeft, .moveTabRight, .closeOtherTabs, .closeLeftTabs, .closeRightTabs, .closeAllTabs, .tabColor: return state?.window != nil
         case .save: return state?.canSave == true
         case .saveCopy: return state?.canSaveCopy == true
         case .reload: return state?.hasDocument == true && state?.busy == false
@@ -506,9 +514,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
     }
 
     @MainActor
-    func run(_ state: ReaderState, choose: @MainActor (@escaping ([URL]) -> Void) -> Void = { receive in
-        chooseDocuments(allowDirectories: false, receive)
-    }) {
+    func run(_ state: ReaderState, choose: (@MainActor (@escaping ([URL]) -> Void) -> Void)? = nil) {
         guard enabled(state) else { return }
         switch self {
         case .pdfEditing: state.setPDFEditingEnabled(!state.pdfEditingEnabled)
@@ -650,6 +656,8 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .copyPath: state.copyPath()
         case .close: state.window?.performClose(nil)
         case .newTab:
+            state.window?.tabGroup?.isOverviewVisible = false
+            let choose = choose ?? { receive in chooseDocuments(allowDirectories: false, in: state.window, receive) }
             choose { urls in
                 ReaderWindows.open(urls, in: state, behavior: .newTab) { state.createWindow?($0) }
             }
@@ -851,9 +859,9 @@ struct ReaderCommandButton: View {
             }
         }
         .keyboardShortcut(readerShortcut(readerShortcutBindings(overrides[command.id] ?? command.defaultShortcut).first ?? ""))
-        .disabled(command == .close
-            ? NSApp.keyWindow?.standardWindowButton(.closeButton)?.isEnabled != true
-            : !command.enabled(state))
+        // Fullscreen can move or disable the native titlebar control while the
+        // document window remains closable. Validate the command's real owner.
+        .disabled(!command.enabled(state, window: command == .close ? state?.window ?? NSApp.keyWindow : nil))
     }
 }
 
@@ -867,6 +875,14 @@ struct CommandPalette: View {
     @State private var nativeAnnotations: [(page: Int, annotation: PDFAnnotationSnapshot)] = []
     @Environment(\.dismiss) private var dismiss
 
+    init(state: ReaderState, open: @escaping () -> Void) {
+        self.state = state
+        self.open = open
+        _selected = State(initialValue: state.paletteMode == "& " ? "page:\(state.page)" : nil)
+    }
+
+    private var thumbnailOnly: Bool { state.paletteMode == "& " }
+
     private struct Item: Identifiable {
         let id: String
         let title: String
@@ -878,9 +894,9 @@ struct CommandPalette: View {
     // Prefixes are the same as Sumatra's palette. Rows are projections of the
     // existing owners, not a second history, tab or annotation model.
     private var items: [Item] {
-        let prefix = query.first ?? ">"
+        let prefix: Character = thumbnailOnly ? "&" : query.first ?? ">"
         let recognized = ">@#$%&*=".contains(prefix)
-        let filter = (recognized ? String(query.dropFirst()) : query).trimmingCharacters(in: .whitespaces)
+        let filter = thumbnailOnly ? "" : (recognized ? String(query.dropFirst()) : query).trimmingCharacters(in: .whitespaces)
         var items: [Item] = []
         switch recognized ? prefix : ">" {
         case "@":
@@ -927,6 +943,7 @@ struct CommandPalette: View {
                 items += commands.map { command in Item(id: "custom:" + command.name, title: command.name, detail: command.shortcut ?? "", enabled: command.enabled(state)) { command.run(state) } }
             }
         }
+        if thumbnailOnly { return items }
         let recent = UserDefaults.standard.stringArray(forKey: "paletteMRU") ?? []
         return items.filter { filter.isEmpty || ($0.title + " " + $0.detail).localizedCaseInsensitiveContains(filter) }.sorted {
             (recent.firstIndex(of: $0.id) ?? Int.max) < (recent.firstIndex(of: $1.id) ?? Int.max)
@@ -935,38 +952,100 @@ struct CommandPalette: View {
 
     private func activate(_ item: Item) {
         guard item.enabled else { return }
-        var recent = UserDefaults.standard.stringArray(forKey: "paletteMRU") ?? []
-        recent.removeAll { $0 == item.id }; recent.insert(item.id, at: 0)
-        UserDefaults.standard.set(Array(recent.prefix(50)), forKey: "paletteMRU")
+        if !thumbnailOnly {
+            var recent = UserDefaults.standard.stringArray(forKey: "paletteMRU") ?? []
+            recent.removeAll { $0 == item.id }; recent.insert(item.id, at: 0)
+            UserDefaults.standard.set(Array(recent.prefix(50)), forKey: "paletteMRU")
+        }
         dismiss(); item.action()
+    }
+
+    private func moveSelection(_ direction: MoveCommandDirection) {
+        guard direction == .up || direction == .down, !items.isEmpty else { return }
+        let index = selected.flatMap { selection in items.firstIndex { $0.id == selection } } ?? -1
+        selected = items[min(items.count - 1, max(0, index + (direction == .up ? -1 : 1)))].id
+    }
+
+    private func activateSelection() {
+        if let item = items.first(where: { $0.id == selected }) { activate(item) }
+    }
+
+    private func row(_ item: Item) -> some View {
+        HStack {
+            if let page = item.page { ReaderPagePreview(state: state, index: page).frame(width: 56, height: 70) }
+            Text(item.title).lineLimit(2); Spacer(); Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     var body: some View {
         let _ = language
         VStack {
-            TextField(L("Search"), text: $query).textFieldStyle(.roundedBorder)
-                .onSubmit { if let item = items.first(where: { $0.id == selected }) ?? items.first { activate(item) } }
-                .onChange(of: query) { _ in selected = nil }
-            HStack {
-                ForEach(["> Commands", "@ Tabs", "# History", "$ Bookmarks", "% Contents", "& Pages", "* Annotations", "= Settings"], id: \.self) { mode in
-                    Button(L(mode)) { query = String(mode.prefix(1)) + " "; selected = nil }.buttonStyle(.borderless)
-                }
-            }.font(.caption)
-            List(items, selection: $selected) { item in
-                Button { activate(item) } label: {
-                    HStack {
-                        if let page = item.page { ReaderPagePreview(state: state, index: page).frame(width: 56, height: 70) }
-                        Text(item.title).lineLimit(2); Spacer(); Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if thumbnailOnly {
+                Text(L("Choose Page by Thumbnail…")).font(.headline)
+            } else {
+                TextField(L("Search"), text: $query).textFieldStyle(.roundedBorder)
+                    .onSubmit { if let item = items.first(where: { $0.id == selected }) ?? items.first { activate(item) } }
+                    .onChange(of: query) { _ in selected = nil }
+                HStack {
+                    ForEach(["> Commands", "@ Tabs", "# History", "$ Bookmarks", "% Contents", "& Pages", "* Annotations", "= Settings"], id: \.self) { mode in
+                        Button(L(mode)) { query = String(mode.prefix(1)) + " "; selected = nil }.buttonStyle(.borderless)
                     }
-                }.disabled(!item.enabled).buttonStyle(.plain).tag(item.id)
+                }.font(.caption)
             }
-            Button(L("Close")) { dismiss() }.keyboardShortcut(.escape, modifiers: [])
+            ScrollViewReader { proxy in
+                Group {
+                    if thumbnailOnly {
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(items) { item in
+                                    Button { activate(item) } label: {
+                                        row(item)
+                                            .padding(.horizontal, 8)
+                                            .frame(height: 78)
+                                            .contentShape(Rectangle())
+                                            .background {
+                                                if selected == item.id {
+                                                    RoundedRectangle(cornerRadius: 5).fill(Color.accentColor.opacity(0.2))
+                                                }
+                                            }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityAddTraits(selected == item.id ? .isSelected : [])
+                                    .id(item.id)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                        }
+                        .background {
+                            ThumbnailPaletteKeys(move: moveSelection, submit: activateSelection, close: { dismiss() })
+                                .accessibilityHidden(true)
+                        }
+                        .onAppear {
+                            if let selected { proxy.scrollTo(selected, anchor: .center) }
+                        }
+                    } else {
+                        List(items, selection: $selected) { item in
+                            Button { activate(item) } label: { row(item) }
+                                .disabled(!item.enabled).buttonStyle(.plain).tag(item.id).id(item.id)
+                        }
+                    }
+                }
+                .onChange(of: selected) { selection in
+                    if let selection { proxy.scrollTo(selection) }
+                }
+            }
+            HStack {
+                if thumbnailOnly {
+                    Button(L("Go"), action: activateSelection)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!items.contains { $0.id == selected })
+                }
+                Button(L("Close")) { dismiss() }.keyboardShortcut(.escape, modifiers: [])
+            }
         }
-        .onMoveCommand { direction in
-            guard direction == .up || direction == .down, !items.isEmpty else { return }
-            let index = selected.flatMap { selection in items.firstIndex { $0.id == selection } } ?? -1
-            selected = items[min(items.count - 1, max(0, index + (direction == .up ? -1 : 1)))].id
-        }
+        .onMoveCommand(perform: moveSelection)
         .padding().frame(width: 720, height: 460)
         .onAppear { query = state.paletteMode; state.paletteContentsVisible = query.first == "%" }
         .onChange(of: query.first) { state.paletteContentsVisible = $0 == "%" }
@@ -987,6 +1066,59 @@ struct CommandPalette: View {
                 nativeAnnotations = rows
             } catch { if !Task.isCancelled, state.document?.id == documentID { state.error = error.localizedDescription } }
         }
+    }
+}
+
+// A SwiftUI ScrollView does not acquire a keyboard responder when this sheet
+// opens. Give the chooser its own AppKit responder when its window becomes key.
+@MainActor
+private struct ThumbnailPaletteKeys: NSViewRepresentable {
+    let move: (MoveCommandDirection) -> Void
+    let submit: () -> Void
+    let close: () -> Void
+
+    func makeNSView(context: Context) -> KeyView {
+        let view = KeyView(frame: .zero)
+        view.parent = self
+        return view
+    }
+    func updateNSView(_ view: KeyView, context: Context) { view.parent = self }
+    static func dismantleNSView(_ view: KeyView, coordinator: ()) {
+        view.detach()
+        view.parent = nil
+    }
+
+    final class KeyView: NSView {
+        var parent: ThumbnailPaletteKeys?
+        private var focusedInitially = false
+        override var acceptsFirstResponder: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            detach()
+            super.viewWillMove(toWindow: newWindow)
+        }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            NotificationCenter.default.addObserver(self, selector: #selector(becameKey(_:)),
+                name: NSWindow.didBecomeKeyNotification, object: window)
+            focusInitially()
+        }
+        @objc private func becameKey(_ notification: Notification) { focusInitially() }
+        private func focusInitially() {
+            guard !focusedInitially, let window, window.isKeyWindow else { return }
+            focusedInitially = window.makeFirstResponder(self)
+        }
+        func detach() {
+            NotificationCenter.default.removeObserver(self)
+            if window?.firstResponder === self { window?.makeFirstResponder(nil) }
+            focusedInitially = false
+        }
+        override func keyDown(with event: NSEvent) { interpretKeyEvents([event]) }
+        override func moveUp(_ sender: Any?) { parent?.move(.up) }
+        override func moveDown(_ sender: Any?) { parent?.move(.down) }
+        override func insertNewline(_ sender: Any?) { parent?.submit() }
+        override func cancelOperation(_ sender: Any?) { parent?.close() }
     }
 }
 #endif

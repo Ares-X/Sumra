@@ -223,7 +223,7 @@ enum NativePDFTools {
             // sibling. MuPDF recreates that file, so copy its metadata again
             // after writing; the initial copy protects the source checkpoint.
             try FileManager.default.copyItem(at: output, to: temporary)
-            guard let copied = try NativeFile.FileCheckpoint(temporary), copied.digest == checkpoint.digest,
+            guard let copied = try NativeFile.FileCheckpoint(temporary), try copied.digest == checkpoint.digest,
                   try checkpoint.matches(output) else {
                 throw ReadError("The saved PDF changed while preserving source text")
             }

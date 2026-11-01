@@ -51,7 +51,7 @@ import AppKit
         }
         .frame(height: Self.height + Self.topInset, alignment: .top)
         .font(.system(size: 12))
-        .buttonStyle(.borderless)
+        .buttonStyle(ReaderFloatingButtonStyle())
         .foregroundStyle(Color(nsColor: ReaderTheme.color(state.palette.text)))
         .opacity(opacity)
         .offset(y: reducedMotion ? 0 : (visible ? 0 : -3))
@@ -64,7 +64,7 @@ import AppKit
         HStack(spacing: compact ? 6 : 10) {
             ReaderFloatingWindowButtons().frame(width: 54, height: 20)
             Divider().frame(height: 14)
-            Button(action: open) { Image(systemName: "folder").frame(width: 24, height: 24) }
+            Button(action: open) { Image(systemName: "folder").frame(width: 24, height: 24).contentShape(Rectangle()) }
                 .help(L("Open Document")).accessibilityLabel(L("Open Document"))
             command(.contents, "sidebar.left")
         }
@@ -81,19 +81,15 @@ import AppKit
     private func tools(compact: Bool) -> some View {
         HStack(spacing: compact ? 6 : 10) {
             command(.find, "magnifyingglass")
-            Button(action: state.editTypography) { Image(systemName: "textformat").frame(width: 24, height: 24) }
+            Button(action: state.editTypography) { Image(systemName: "textformat").frame(width: 24, height: 24).contentShape(Rectangle()) }
                 .help(L("Reading Settings")).accessibilityLabel(L("Reading Settings")).disabled(!state.hasDocument)
             Menu {
-                ForEach([ReaderMenuCommand.zoomOut, .zoomIn, .actual, .fitPage, .fitWidth, .customZoom]) { item in
-                    Button(item.title) { item.run(state) }.disabled(!item.enabled(state))
-                }
+                ReaderCommandMenuItems(state: state, commands: [.zoomOut, .zoomIn, .actual, .fitPage, .fitWidth, .customZoom])
             } label: { Text(state.zoomLabel).monospacedDigit() }
             .menuStyle(.borderlessButton).fixedSize().disabled(!state.hasDocument)
             .accessibilityLabel(L("Zoom"))
             Menu {
-                ForEach([ReaderMenuCommand.previous, .next, .goToPage, .paged, .continuous, .twoPages, .coverOnItsOwn, .rightToLeft, .print]) { item in
-                    Button(item.title) { item.run(state) }.disabled(!item.enabled(state))
-                }
+                ReaderCommandMenuItems(state: state, commands: [.previous, .next, .goToPage, .paged, .continuous, .twoPages, .coverOnItsOwn, .rightToLeft, .print])
                 Divider()
                 ReaderToolbarDisplayPicker()
                 ReaderProgressDisplayPicker()
@@ -106,7 +102,7 @@ import AppKit
     }
 
     private func command(_ command: ReaderMenuCommand, _ symbol: String) -> some View {
-        Button { command.run(state) } label: { Image(systemName: symbol).frame(width: 24, height: 24) }
+        Button { command.run(state) } label: { Image(systemName: symbol).frame(width: 24, height: 24).contentShape(Rectangle()) }
             .disabled(!command.enabled(state)).help(command.title).accessibilityLabel(command.title)
     }
 
@@ -114,23 +110,26 @@ import AppKit
 
 /// Home is a separate launch surface, with a fixed header in its layout.
 @MainActor struct ReaderHomeHeader: View {
-    @ObservedObject var state: ReaderState
-    let open: () -> Void
-
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 0) {
             ReaderFloatingWindowButtons().frame(width: 54, height: 20)
-            Text("Sumra").font(.headline)
-            Spacer(minLength: 12)
-            Button(action: open) { Image(systemName: "folder").frame(width: 24, height: 24) }
-                .help(L("Open Document")).accessibilityLabel(L("Open Document"))
+            Spacer(minLength: 0)
         }
         .frame(height: 28).padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 8)
         .frame(maxWidth: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .buttonStyle(.borderless)
-        .foregroundStyle(Color(nsColor: ReaderTheme.color(state.palette.text)))
+        .background(ReaderHomeDragRegion())
         .accessibilityElement(children: .contain).accessibilityIdentifier("home-header")
+    }
+}
+
+/// The empty home titlebar remains draggable without adding document commands.
+private struct ReaderHomeDragRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> DragView { DragView() }
+    func updateNSView(_ view: DragView, context: Context) {}
+    final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+        override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
     }
 }
 
@@ -158,7 +157,7 @@ import AppKit
                 }
             } else { tabStrip }
         }
-        .font(.system(size: 12)).buttonStyle(.borderless)
+        .font(.system(size: 12)).buttonStyle(ReaderFloatingButtonStyle())
         .foregroundStyle(Color(nsColor: ReaderTheme.color(state.palette.text)))
         .onAppear(perform: updateTabs)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didUpdateNotification)) { _ in updateTabs() }
@@ -178,7 +177,7 @@ import AppKit
                         HStack(spacing: 4) {
                             ForEach(tabs) { tab in
                                 HStack(spacing: 6) {
-                                    Button { window(tab.id)?.makeKeyAndOrderFront(nil) } label: {
+                                    Button { selectTab(tab.id) } label: {
                                         HStack(spacing: 6) {
                                             if let color = tab.color {
                                                 Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
@@ -186,7 +185,7 @@ import AppKit
                                             Text(tab.title).lineLimit(1).truncationMode(.middle)
                                                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                                         }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                                         .contentShape(Rectangle())
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -237,6 +236,11 @@ import AppKit
         Button { command.run(state) } label: { Image(systemName: symbol).frame(width: 24, height: 24).contentShape(Rectangle()) }
             .disabled(!command.enabled(state)).help(command.title).accessibilityLabel(command.title)
     }
+    private func selectTab(_ number: Int) {
+        guard let window = window(number) else { return }
+        window.tabGroup?.selectedWindow = window
+        window.makeKeyAndOrderFront(nil)
+    }
     private func window(_ number: Int) -> NSWindow? {
         (state.window?.tabGroup?.windows ?? [state.window].compactMap { $0 }).first { $0.windowNumber == number }
     }
@@ -246,6 +250,27 @@ import AppKit
                 color: ($0.tab.accessoryView?.layer?.backgroundColor).flatMap { NSColor(cgColor: $0) })
         }
         if current != tabs { tabs = current }
+    }
+}
+
+
+/// The floating surfaces use a visible, consistent pointer and press affordance.
+struct ReaderFloatingButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        FloatingButton(configuration: configuration, enabled: enabled)
+    }
+    private struct FloatingButton: View {
+        let configuration: ButtonStyleConfiguration
+        let enabled: Bool
+        @State private var hovered = false
+        var body: some View {
+            configuration.label
+                .background(Color.primary.opacity(enabled ? (configuration.isPressed ? 0.16 : hovered ? 0.08 : 0) : 0),
+                            in: RoundedRectangle(cornerRadius: 4))
+                .opacity(enabled ? 1 : 0.4)
+                .onHover { hovered = $0 }
+        }
     }
 }
 
@@ -268,12 +293,18 @@ struct ReaderFloatingSurface: ViewModifier {
     static func dismantleNSView(_ view: Buttons, coordinator: ()) { view.stopObservingWindow() }
     final class Buttons: NSView {
         var readerWindow: NSWindow? { window }
+        override var mouseDownCanMoveWindow: Bool { false }
         private weak var observedWindow: NSWindow?
+        private weak var hoveredButton: NSButton? {
+            didSet { if hoveredButton !== oldValue { needsDisplay = true } }
+        }
+        private var pointerTracking: NSTrackingArea?
         override init(frame: NSRect) {
             super.init(frame: frame)
             for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                 let button = NSWindow.standardWindowButton(type, for: [.titled, .closable, .miniaturizable, .resizable])!
-                button.frame.origin = NSPoint(x: index * 20, y: 3)
+                // Leave room for the hover ring within the 54-point group.
+                button.frame.origin = NSPoint(x: 2 + index * 18, y: 3)
                 button.tag = Int(type.rawValue)
                 button.setAccessibilityElement(true)
                 button.setAccessibilityRole(.button)
@@ -293,9 +324,41 @@ struct ReaderFloatingSurface: ViewModifier {
             super.viewDidMoveToWindow()
             updateButtons()
         }
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let pointerTracking { removeTrackingArea(pointerTracking) }
+            let tracking = NSTrackingArea(rect: .zero,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeInActiveApp, .inVisibleRect],
+                owner: self, userInfo: nil)
+            addTrackingArea(tracking)
+            pointerTracking = tracking
+        }
+        override func mouseEntered(with event: NSEvent) { updateHover(with: event) }
+        override func mouseMoved(with event: NSEvent) { updateHover(with: event) }
+        override func mouseExited(with event: NSEvent) { hoveredButton = nil }
+        private func updateHover(with event: NSEvent) {
+            let point = convert(event.locationInWindow, from: nil)
+            hoveredButton = subviews.compactMap { $0 as? NSButton }.first {
+                $0.isEnabled && $0.hitTest(point) === $0
+            }
+        }
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+            if let button = hoveredButton, button.isEnabled {
+                NSColor.labelColor.withAlphaComponent(0.6).setStroke()
+                let ring = NSBezierPath(ovalIn: button.frame.insetBy(dx: -1.5, dy: -1.5))
+                ring.lineWidth = 1
+                ring.stroke()
+            }
+        }
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            needsDisplay = true
+        }
         func stopObservingWindow() {
             NotificationCenter.default.removeObserver(self)
             observedWindow = nil
+            hoveredButton = nil
         }
         @objc func updateButtons() {
             if observedWindow !== window {
@@ -323,6 +386,7 @@ struct ReaderFloatingSurface: ViewModifier {
                 }
                 if button.isEnabled != enabled { button.isEnabled = enabled }
             }
+            if hoveredButton?.isEnabled == false { hoveredButton = nil }
         }
         deinit { NotificationCenter.default.removeObserver(self) }
     }

@@ -1291,7 +1291,7 @@ actor Pages {
             guard let written, let version = NativeFile.FileVersion(destination), written.version.matchesContentMetadata(version) else {
                 throw ReadError("The PDF was written, but its file version could not be verified. Save a copy to preserve the open edits.")
             }
-            pdfSavedSourceCheckpoint = NativeFile.FileCheckpoint(version: version, digest: written.digest)
+            pdfSavedSourceCheckpoint = try NativeFile.FileCheckpoint(version: version, digest: written.digest)
             try native.pdfMarkSaved()
         }
     }
@@ -1340,6 +1340,14 @@ actor Pages {
     func estimatedBounds() -> CGRect { document.estimatedBounds }
     func htmlSource() throws -> String? { try document.native?.htmlSource() }
     func bounds(_ page: Int) throws -> CGRect { try document.bounds(page) }
+    func pageGeometry(_ locations: [PageLocation], content: Bool) throws -> [PageLocation: (bounds: CGRect, content: CGRect?)] {
+        var geometry = [PageLocation: (bounds: CGRect, content: CGRect?)]()
+        for location in locations {
+            let page = try index(location), bounds = try document.bounds(page)
+            geometry[location] = (bounds, content ? try document.contentBounds(page) : nil)
+        }
+        return geometry
+    }
     func contentBounds(_ page: Int) async throws -> CGRect {
         let cancellation = try renderCancellation(page)
         return try await withTaskCancellationHandler {
@@ -2490,7 +2498,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
     @State private var lastFinitePage: Int?
     @State private var finitePageDirection = 1
     @State private var estimatedBounds = CGRect(x: 0, y: 0, width: 420, height: 595)
-    @State private var finitePageBounds = [PageLocation: CGRect]()
+    @State private var finitePageGeometry = [PageLocation: (bounds: CGRect, content: CGRect?)]()
     @State private var firstRenderedRevision: Int?
     @State private var searchTask: Task<Void, Never>?
     @State private var searchCountStarted = false
@@ -2515,6 +2523,10 @@ private struct ReaderKeyboardFocus: ViewModifier {
 
     private var reflowPageSize: CGSize {
         reflowPageSize(in: liveResizeViewport ?? readingViewport)
+    }
+    private var fixedPageInsets: EdgeInsets {
+        guard !state.reflowable, let margins = state.contentMargins else { return EdgeInsets() }
+        return EdgeInsets(top: margins.top, leading: margins.left, bottom: margins.bottom, trailing: margins.right)
     }
     private var readingViewport: CGSize {
         // Finite reflow defines the document's page from the reader frame.
@@ -2625,6 +2637,8 @@ private struct ReaderKeyboardFocus: ViewModifier {
             }.onEnded { _ in markdownPinchStart = nil }, including: state.isNativeMarkdown ? .all : .none)
 
         }
+        .padding(fixedPageInsets)
+        .background(background)
         // Initial preparation and mounted pagination respect the same native
         // safe area, independent of reader chrome visibility.
         .onChange(of: reflowPageSize) { _ in resizeReflow() }
@@ -2843,6 +2857,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
             landscape: state.landscapeAsSpread ? state.landscapePages : []) : nil
         let predictedIndex = nextRow.map { finitePageDirection > 0 ? $0.lowerBound : $0.upperBound - 1 }
         let predictedLocation = predictedIndex.map { state.pageLocation($0) }
+        let locations = indices.map { state.pageLocation($0) }
         return HStack(alignment: .top, spacing: state.spread ? 4 : 0) {
             ForEach((state.rtl ? Array(indices.reversed()) : indices).map { state.pageLocation($0) }, id: \.self) { location in
                 let index = state.pageNumber(location)
@@ -2852,7 +2867,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                            facingPage: pages.isPDF ? indices.first { $0 != index } : nil, match: selectedMatch?.contains(index) == true ? selectedMatch : nil, scrollRequest: scrollRequestBinding,
                            cancelNavigation: cancelNavigation,
                            selections: selections,
-                           estimate: finitePageBounds[location] ?? estimatedBounds, updateEstimate: { estimatedBounds = $0 }, didRender: { firstRenderedRevision = state.renderRevision }, didPaintMatch: countAfterMatchPaint,
+                           estimate: finitePageGeometry[location]?.bounds ?? estimatedBounds, updateEstimate: { estimatedBounds = $0 }, didRender: { firstRenderedRevision = state.renderRevision }, didPaintMatch: countAfterMatchPaint,
                            didResizeViewport: { size in if viewport != size { viewport = size } },
                            finitePrediction: index == indices.first && liveResizeViewport == nil && scrollRequest == nil && indices.count < 3 && size.width > 0 && size.height > 0
                                ? predictedLocation.map { target in
@@ -2860,9 +2875,30 @@ private struct ReaderKeyboardFocus: ViewModifier {
                                        columns: pages.isPDF && state.spread ? 2 : nextRow!.count,
                                        facingPage: pages.isPDF ? nextRow!.first { $0 != predictedIndex! } : nil)
                                } : nil,
-                           frozenRenderViewport: liveResizeViewport)
+                           frozenRenderViewport: liveResizeViewport,
+                           finiteGeometry: state.reflowable ? finitePageGeometry[location].map { geometry in
+                               let peer = locations.first { $0 != location }.flatMap { other in
+                                   finitePageGeometry[other].map { RasterLayout.FacingPage(bounds: state.trimEmptyMargins ? $0.content ?? $0.bounds : $0.bounds,
+                                       content: $0.content, before: state.pageNumber(other) < index) }
+                               }
+                               return (geometry.bounds, geometry.content, peer)
+                           } : nil)
                     .anchorPreference(key: RasterSpreadFrames.self, value: .bounds) { [location: $0] }
             }
+        }
+        .task(id: "\(state.renderRevision):\(locations):\(state.fit):\(state.trimEmptyMargins):\(state.showFitContentArea)") {
+            guard state.reflowable else { return }
+            do {
+                let revision = state.renderRevision
+                // Read both media/content boxes in one decoder turn, before
+                // their independent bitmap tasks can publish. A cover keeps
+                // its intrinsic aspect while its text peer uses the page size.
+                let geometry = try await pages.pageGeometry(locations,
+                    content: ReadingZoom.usesContent(state.fit) || state.trimEmptyMargins || state.showFitContentArea)
+                try Task.checkCancellation()
+                guard revision == state.renderRevision else { return }
+                finitePageGeometry = geometry
+            } catch is CancellationError {} catch { state.error = error.localizedDescription }
         }
         .backgroundPreferenceValue(RasterSpreadFrames.self) { frames in
             GeometryReader { geometry in
@@ -3445,7 +3481,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
             state.clearChapterContentsPages()
             let font = state.font, size = state.fontSize, line = state.lineHeight, margin = state.margin, theme = state.resolvedTheme
             let userCSS = state.effectiveUserCSS, useDocumentCSS = state.useDocumentCSS
-            let pageMargins = state.pageMargins
+            let pageMargins = state.contentMargins
             let textZoom = pages.isMarkdown ? state.zoom : 1
             let layoutFlow = state.flow, naturalLayout = state.continuousReflow
             let layoutViewport = readingViewport
@@ -3503,19 +3539,17 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     let zoomLimit = naturalLayout ? state.configuredZoomMaximum : try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     let table = await pages.chapterLayout
-                    var facingBounds = [PageLocation: CGRect]()
+                    var facingGeometry = [PageLocation: (bounds: CGRect, content: CGRect?)]()
                     if state.reflowable, !naturalLayout {
                         let row = PageRows.range(page: position.page, count: table.totalPages,
                             spread: state.spread && !state.presentation, cover: state.cover)
-                        for page in row {
-                            let location = table.location(page: page) ?? PageLocation(page: page)
-                            facingBounds[location] = try await pages.bounds(location)
-                        }
+                        facingGeometry = try await pages.pageGeometry(row.map { table.location(page: $0) ?? PageLocation(page: $0) },
+                            content: ReadingZoom.usesContent(state.fit) || state.trimEmptyMargins || state.showFitContentArea)
                     }
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     try await applyLayout(table)
                     estimatedBounds = bounds
-                    finitePageBounds = facingBounds
+                    finitePageGeometry = facingGeometry
                     state.renderRevision += 1
                     if preserveSelection { selections.restore(restoredSelection, state: state) }
                     state.zoomLimit = zoomLimit
@@ -4410,9 +4444,10 @@ private struct WindowScale: NSViewRepresentable {
             let point = CGPoint(x: position.x ?? Double(fallback.x), y: position.y ?? Double(fallback.y)).applying(transform)
             var bounds = contentView.bounds
             bounds.origin = CGPoint(x: frame.minX + point.x, y: frame.minY + point.y)
-            // Reflow can move a source closer to the chapter start than its
-            // saved margin offset. Keep that restoration in its source chapter.
-            if key.continuousReflow, position.nativePassage != nil {
+            // Trimming can remove the saved top-margin point. Keep it at the
+            // cropped page's start instead of scrolling into the previous row.
+            // Reflow likewise keeps a restored source in its own chapter.
+            if key.trim || (key.continuousReflow && position.nativePassage != nil) {
                 bounds.origin.y = max(frame.minY, bounds.origin.y)
             }
             // DocumentLayout centers a narrow canvas in the usable clip width,
@@ -4748,6 +4783,7 @@ private struct WindowScale: NSViewRepresentable {
     var didResizeViewport: ((CGSize) -> Void)?
     var finitePrediction: FinitePrediction? = nil
     var frozenRenderViewport: CGSize? = nil
+    var finiteGeometry: (bounds: CGRect, content: CGRect?, facing: RasterLayout.FacingPage?)? = nil
     @State private var measuredBounds: CGRect?
     @State private var measuredRevision: Int?
     @State private var content: CGRect?
@@ -4765,11 +4801,22 @@ private struct WindowScale: NSViewRepresentable {
     @State private var pageBoxes = [CGRect?]()
     @State private var renderedStyle: PDFColors.Style?
     private var bounds: CGRect {
+        if let finiteGeometry { return finiteGeometry.bounds }
         // Finite reflow commits one page size for the whole spread. An old
         // per-page measurement must not delay either half until its bitmap
         // finishes decoding independently of its facing page.
         if state.reflowable, !continuousReflow, measuredRevision != state.renderRevision { return estimate }
         return measuredBounds ?? estimate
+    }
+    private var pageContent: CGRect? { finiteGeometry.map { $0.content } ?? content }
+    private var pageFacing: RasterLayout.FacingPage? { finiteGeometry.map { $0.facing } ?? facing }
+    private var finiteDisplaySize: CGSize? {
+        guard let finiteGeometry else { return nil }
+        let visible = state.trimEmptyMargins ? finiteGeometry.content ?? finiteGeometry.bounds : finiteGeometry.bounds
+        return RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation,
+            fit: state.fit, zoom: state.rasterZoom, content: finiteGeometry.content, limit: state.zoomLimit,
+            uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin,
+            facing: finiteGeometry.facing, rtl: state.rtl)
     }
     private var pdfStyle: PDFColors.Style? {
         guard pages.isPDF else { return nil }
@@ -4787,7 +4834,7 @@ private struct WindowScale: NSViewRepresentable {
     }
     private var renderViewport: CGSize { frozenRenderViewport ?? viewport }
     var renderID: String {
-        "\(renderViewport):\(scale):\(columns):\(String(describing: facingPage)):\(String(describing: displaySize)):\(state.rotation):\(state.rtl):\(state.fit):\(state.fit == "custom" ? state.rasterZoom : 1):\(state.configuredZoomMaximum):\(state.trimEmptyMargins):\(state.showFitContentArea):\(state.uniformPageWidth):\(state.showTransparencyGrid):\(String(describing: pdfStyle)):\(state.engineeringEnhance):\(state.renderRevision):\(continuousReflow)"
+        "\(renderViewport):\(scale):\(columns):\(String(describing: facingPage)):\(String(describing: displaySize)):\(String(describing: finiteGeometry)):\(state.rotation):\(state.rtl):\(state.fit):\(state.fit == "custom" ? state.rasterZoom : 1):\(state.configuredZoomMaximum):\(state.trimEmptyMargins):\(state.showFitContentArea):\(state.uniformPageWidth):\(state.showTransparencyGrid):\(String(describing: pdfStyle)):\(state.engineeringEnhance):\(state.renderRevision):\(continuousReflow)"
     }
     func renderResult(_ prediction: FinitePrediction? = nil, preheating: Bool = false) async throws -> Pages.RenderedPage {
         return try await pages.render(prediction?.target ?? location, viewport: renderViewport, scale: scale, columns: prediction?.columns ?? columns,
@@ -4795,11 +4842,12 @@ private struct WindowScale: NSViewRepresentable {
                         trim: state.trimEmptyMargins && !continuousReflow, showContent: state.showFitContentArea,
                         uniform: state.uniformPageWidth && !continuousReflow, transparent: state.showTransparencyGrid,
                         pdfStyle: pdfStyle, engineeringAuto: state.engineeringEnhance == "auto",
-                        maximumTileSize: NSScreen.main.map { CGSize(width: $0.frame.width * scale, height: $0.frame.height * scale) }, facingPage: prediction?.facingPage ?? facingPage, displaySize: prediction == nil ? displaySize : nil, rtl: state.rtl, viewportOnly: continuousReflow, preheating: preheating)
+                        maximumTileSize: NSScreen.main.map { CGSize(width: $0.frame.width * scale, height: $0.frame.height * scale) }, facingPage: prediction?.facingPage ?? facingPage, displaySize: prediction == nil ? displaySize ?? finiteDisplaySize : nil, rtl: state.rtl, viewportOnly: continuousReflow, preheating: preheating)
     }
     var body: some View {
+        let content = pageContent, facing = pageFacing
         let visible = state.trimEmptyMargins && !continuousReflow ? content ?? bounds : bounds
-        let size = displaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, content: content, limit: state.zoomLimit, uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin, facing: facing, rtl: state.rtl, continuous: continuousReflow)
+        let size = displaySize ?? finiteDisplaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, content: content, limit: state.zoomLimit, uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin, facing: facing, rtl: state.rtl, continuous: continuousReflow)
         RasterCanvas(state: state, pages: pages, page: index, location: location, image: image, imageCollection: imageCollection, readingReady: renderedID == renderID && (image != nil || continuousReflow), pixelWidth: pixelWidth, tileResolution: renderedID == renderID ? tileResolution : 0, pdfStyle: renderedStyle, imageBounds: imageBounds, pageBoxes: pageBoxes, contentBounds: content, pageBounds: bounds, visibleBounds: visible, links: links, pdfAnnotations: pdfAnnotations, pdfLinks: pdfLinks, match: match, rotation: state.rotation, request: $scrollRequest, cancelNavigation: cancelNavigation, displaySize: size, zoomNormalization: ReadingZoom.pageScale(zoom: 1, referenceWidth: Double(referenceWidth ?? 0), pageWidth: Double(state.rotation % 180 == 0 ? visible.width : visible.height), uniform: state.uniformPageWidth && !continuousReflow), focus: index == state.page ? RasterLayout.contentFocus(bounds: visible, content: content, display: size, rotation: state.rotation, mode: state.fit, facing: facing, rtl: state.rtl) : nil, selections: selections, didResizeViewport: didResizeViewport, didPaint: didRender, didPaintMatch: didPaintMatch, viewportTileSize: viewportTileSize, finitePrediction: finitePrediction, predictionID: renderID, renderPredictedPage: finitePrediction.map { prediction in { _ = try await renderResult(prediction, preheating: true) } })
             .frame(width: size.width, height: size.height)
             .overlay {
@@ -4856,11 +4904,12 @@ private struct WindowScale: NSViewRepresentable {
                         if state.fit == "custom" { state.zoom = ReadingZoom.clamp(state.zoom, limit: result.limit) }
                     }
                     measuredBounds = result.bounds; measuredRevision = state.renderRevision
-                    content = result.content; referenceWidth = result.referenceWidth; facing = result.facing
+                    self.content = result.content; referenceWidth = result.referenceWidth; self.facing = result.facing
                     let measured = result.bounds, visible = state.trimEmptyMargins && !continuousReflow ? result.content ?? measured : measured
+                    let fitFacing = finiteGeometry.map { $0.facing } ?? result.facing
                     if location == state.pageLocation(state.page) {
-                        state.pageFitZoom = Double(RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: "page", zoom: 1, limit: result.limit, origin: visible.origin, facing: result.facing, continuous: continuousReflow).width / (state.rotation % 180 == 0 ? visible.width : visible.height))
-                        state.widthFitZoom = Double(RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: "width", zoom: 1, limit: result.limit, origin: visible.origin, facing: result.facing, continuous: continuousReflow).width / (state.rotation % 180 == 0 ? visible.width : visible.height))
+                        state.pageFitZoom = Double(RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: "page", zoom: 1, limit: result.limit, origin: visible.origin, facing: fitFacing, continuous: continuousReflow).width / (state.rotation % 180 == 0 ? visible.width : visible.height))
+                        state.widthFitZoom = Double(RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: "width", zoom: 1, limit: result.limit, origin: visible.origin, facing: fitFacing, continuous: continuousReflow).width / (state.rotation % 180 == 0 ? visible.width : visible.height))
                         if !pages.isMarkdown, state.fit != "custom", !(state.uniformPageWidth && state.fit == "actual") { state.zoom = Double(result.display.width / (state.rotation % 180 == 0 ? visible.width : visible.height)) }
                     }
                     image = result.image; links = result.links; imageCollection = result.imageCollection

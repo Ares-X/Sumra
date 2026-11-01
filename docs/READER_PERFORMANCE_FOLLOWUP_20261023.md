@@ -19,8 +19,12 @@ private input or cause the later snapshot hash to read different source bytes.
 
 The original-save checkpoint now combines the captured source version with the
 captured bytes' digest. The private-input checkpoint combines the private file's
-version with that same digest. APFS hashes the private input once; non-cloning
-volumes hash during the existing streaming copy. Source-save validation still
+version with that same digest. APFS retains the private descriptor and its full
+captured version, sharing one on-demand SHA across original/private checkpoints.
+Unchanged opening and rendering do not compute that SHA. The first needed digest
+comparison checks the captured descriptor version before and after hashing, so
+a changed private input cannot become a new baseline. Non-cloning volumes still
+hash during the existing streaming copy. Source-save validation still
 checks the original checkpoint, including digest comparison when only ctime
 changed. An unchanged complete version returns without another hash. A later
 replacement, in-place write, truncation or equal-length write restoring mtime

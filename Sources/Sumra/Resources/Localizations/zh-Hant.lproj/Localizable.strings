@@ -809,3 +809,25 @@
 "Narrow" = "窄";
 "Medium" = "中等";
 "Wide" = "寬";
+"Apply CSS" = "套用 CSS";
+"Apply Margins" = "套用邊界";
+"Bottom margin" = "下邊界";
+"Content margins are separate from the space reserved for the toolbar and progress bar." = "內容邊界與工具列及進度列預留的空間各自獨立。";
+"Left margin" = "左邊界";
+"Margins: top right bottom left (pt)" = "邊界：上、右、下、左 (pt)";
+"No email application is available to compose a message with this document." = "沒有可用來撰寫附有此文件之郵件的電子郵件 App。";
+"Reflowed text uses wider side margins. Fixed pages use the preset's smaller margin on every side. Custom values apply exactly as entered." = "重新排版的文字會使用較寬的側邊界。固定頁面會在各側使用預設值中較小的邊界。自訂值會依照輸入內容原樣套用。";
+"Replace Saved Tab Group?" = "要取代已儲存的分頁群組嗎？";
+"Right margin" = "右邊界";
+"Top margin" = "上邊界";
+"%1$@\n\nDefault email app: %2$@. Choose a default email app that supports file attachments, then try again." = "%1$@\n\n預設電子郵件 App：%2$@。請選擇支援檔案附件的預設電子郵件 App，然後再試一次。";
+
+"Content margins" = "正文邊距";
+
+"Control clearance" = "控制項避讓";
+
+"Top clearance" = "頂部避讓";
+
+"Bottom clearance" = "底部避讓";
+
+"Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "從視窗邊緣為浮動控制項預留的距離。設為 0 可允許覆蓋正文。正文邊距不會重複累加；隱藏控制項不佔空間。";

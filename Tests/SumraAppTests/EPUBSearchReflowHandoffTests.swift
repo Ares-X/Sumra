@@ -239,15 +239,24 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
         state.openWithoutHistory(input, at: state.currentPosition)
         try await wait("Initial reader") { !state.busy && painted() }
         // Exercise the same real viewport boundary as the original report:
-        // opening/closing Contents relayouts the reader and makes chapter counts
-        // lazy again before an ordinary user find command.
+        // opening/closing Contents relayouts the reader before a user find.
         state.showContents = true; state.send(.toc)
         try await wait("Open Contents") { !state.outlineBusy && painted() }
         state.showContents = false
-        try await wait("Close Contents") { painted() }
+        try await wait("Close Contents and finish preceding pagination") {
+            state.chapterLayout?.complete == true && painted()
+        }
+        // Contents can finish background pagination before the next command,
+        // and its preceding painted surface can satisfy the wait above. Queue
+        // a real typography reflow while find is pending so this test always
+        // starts its completed-search handoff with lazy negative chapters.
+        let searchReflowRevision = state.renderRevision
         state.send(.find(query))
+        state.fontSize = 18
+        state.send(.style)
         try await wait("Search and resumed background pagination") {
-            if state.chapterLayout?.complete == true, !state.searchCounting,
+            if state.renderRevision > searchReflowRevision,
+               state.chapterLayout?.complete == true, !state.searchCounting,
                state.searchResults.count == 4, let target = state.selectedSearchTarget {
                 return state.searchResults.contains(where: { $0.target == target }) && painted()
             }

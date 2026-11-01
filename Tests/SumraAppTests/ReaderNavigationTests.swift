@@ -1555,6 +1555,9 @@ final class ReaderNavigationTests: XCTestCase {
         state.rotation = 0; state.automaticLayout = false; state.uniformPageWidth = false
         state.freePan = false; state.trimEmptyMargins = false; state.scrollbarMode = "shown"
         state.toolbarDisplayMode = .shown; state.presentation = false
+        // Exercise native toolbar occlusion and wheel edges without an outer
+        // margin already moving the scroll view below the toolbar safe area.
+        state.pageMargins = PageMargins(cssValues: [0]); state.marginPresetSelection = "custom"
         state.showContents = false; state.showThumbnails = false; state.showBookmarks = false
         let host = NSHostingView(rootView: ReaderView(state: state))
         let window = NSWindow(contentRect: CGRect(x: 50, y: 50, width: 900, height: 740),

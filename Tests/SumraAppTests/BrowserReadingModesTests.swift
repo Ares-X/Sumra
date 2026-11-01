@@ -25,6 +25,7 @@ final class BrowserReadingModesTests: XCTestCase {
         state.document = try ReadingDocument.open(file, markdownRenderer: .compatible)
         state.flow = "continuous"; state.spread = false; state.rtl = false
         state.font = "system"; state.fontSize = 17; state.lineHeight = 1.6; state.margin = 32
+        state.pageMargins = nil; state.marginPresetSelection = nil
         state.theme = "light"; state.zoom = 1; state.userCSS = ""; state.useDocumentCSS = true
         guard case .browser(let source) = state.document?.content else { throw ReadError("Expected browser fixture") }
         let coordinator = BrowserReader.Coordinator(state: state, source: source)
@@ -111,6 +112,126 @@ final class BrowserReadingModesTests: XCTestCase {
         }
         XCTAssertEqual(coordinator.state.browserProgress ?? -1, 1, accuracy: 0.001)
         XCTAssertEqual(coordinator.state.count, 1)
+    }
+
+    @MainActor
+    func testBrowserStylesApplyContextualPresetAndPreserveLegacyScalarMargins() async throws {
+        let (view, coordinator, _) = try await reader()
+        coordinator.state.pageMargins = PageMargins(cssValues: [8])
+        coordinator.state.marginPresetSelection = ReaderMarginPreset.narrow.rawValue
+        var command = coordinator.styleArguments()
+        command["name"] = "style"
+        let contextual = try await evaluate("""
+            await window.leafCommand(command);
+            const style=getComputedStyle(document.body);
+            return {top:parseFloat(style.paddingTop),left:parseFloat(style.paddingLeft)};
+            """, view: view, arguments: ["command": command])
+        XCTAssertEqual(try XCTUnwrap(contextual["top"] as? Double), 8 * 96 / 72, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(contextual["left"] as? Double), 16 * 96 / 72, accuracy: 0.01)
+        coordinator.state.pageMargins = nil; coordinator.state.marginPresetSelection = nil
+        coordinator.state.margin = 29
+        command = coordinator.styleArguments(); command["name"] = "style"
+        let legacy = try await evaluate("""
+            await window.leafCommand(command);
+            const style=getComputedStyle(document.body);
+            return {top:parseFloat(style.paddingTop),left:parseFloat(style.paddingLeft)};
+            """, view: view, arguments: ["command": command])
+        XCTAssertEqual(try XCTUnwrap(legacy["top"] as? Double), 29, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(legacy["left"] as? Double), 29, accuracy: 0.01)
+    }
+
+    @MainActor
+    func testHTMLFilePagesResetOnNextFileAndCHMKeepsTopicProgress() async throws {
+        let (view, coordinator, _) = try await reader(styles: [
+            "z-next.html": "<!doctype html><meta charset=utf-8><p>A short next file.</p>"
+        ])
+        let state = coordinator.state
+        let result = try await evaluate("""
+            await window.leafCommand({name:'style',flow:'paged',spread:false});
+            await window.leafCommand({name:'progress',value:1});
+            return {extent:document.documentElement.scrollWidth-innerWidth,width:innerWidth};
+            """, view: view)
+        let count = Int(ceil(try XCTUnwrap(result["extent"] as? Double) / XCTUnwrap(result["width"] as? Double))) + 1
+        let deadline = Date().addingTimeInterval(2)
+        while state.browserPage != count - 1, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(state.page, 0)
+        XCTAssertEqual(state.count, 2, "File navigation retains its source-file coordinate")
+        XCTAssertEqual(state.browserPage, count - 1)
+        XCTAssertEqual(state.browserPageCount, count)
+        XCTAssertGreaterThan(count, 2)
+
+        state.send(.page(1)); coordinator.deliver(state.command, to: view)
+        let navigationDeadline = Date().addingTimeInterval(5)
+        while (!coordinator.ready || state.page != 1), Date() < navigationDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(state.page, 1)
+        XCTAssertEqual(state.count, 2)
+        XCTAssertEqual(state.browserPage, 0)
+        XCTAssertEqual(state.browserPageCount, 1)
+        XCTAssertEqual(state.browserProgress, 0)
+
+        // The same shared DOM reporter preserves CHM's deliberate topic count.
+        _ = try await evaluate("""
+            window.sumraDocument.chm=true;
+            await window.leafCommand({name:'style',flow:'paged',spread:false});
+            return {};
+            """, view: view)
+        let chmDeadline = Date().addingTimeInterval(2)
+        while state.browserPageCount != nil, Date() < chmDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(state.browserPage)
+        XCTAssertNil(state.browserPageCount)
+        XCTAssertEqual(state.page, 1)
+        XCTAssertEqual(state.count, 2)
+    }
+
+    @MainActor
+    func testPagedHTMLHidesRootScrollbarsAndRestoresContinuousScrolling() async throws {
+        let (view, _, _) = try await reader()
+        let result = try await evaluate("""
+            await window.leafCommand({name:'interaction',flags:{scrollbars:'shown'}});
+            await window.leafCommand({name:'style',flow:'paged',spread:false,rtl:false});
+            await window.leafCommand({name:'turnPages',count:1});
+            const paged={x:scrollX,y:scrollY,overflowX:getComputedStyle(document.documentElement).overflowX,
+                overflowY:getComputedStyle(document.documentElement).overflowY};
+            await window.leafCommand({name:'style',flow:'continuous',spread:false,rtl:false});
+            await window.leafCommand({name:'location',text:'first'});
+            await window.leafCommand({name:'turnPages',count:1});
+            return {paged,y:scrollY,overflowY:getComputedStyle(document.documentElement).overflowY};
+            """, view: view)
+        let paged = try XCTUnwrap(result["paged"] as? [String: Any])
+        XCTAssertGreaterThan(try XCTUnwrap(paged["x"] as? Double), 0)
+        XCTAssertEqual(paged["y"] as? Double, 0)
+        XCTAssertEqual(paged["overflowX"] as? String, "hidden")
+        XCTAssertEqual(paged["overflowY"] as? String, "hidden")
+        XCTAssertEqual(result["overflowY"] as? String, "scroll")
+        XCTAssertGreaterThan(try XCTUnwrap(result["y"] as? Double), 0)
+    }
+
+    @MainActor
+    func testVerticalArrowsTurnHTMLPagesInBothReadingDirectionsAndPreserveInputs() async throws {
+        let (view, _, _) = try await reader()
+        let result = try await evaluate("""
+            const modes=[];
+            const arrow=(target,key)=>{const event=new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true});
+                target.dispatchEvent(event);return event.defaultPrevented;};
+            for(const spread of [false,true])for(const rtl of [false,true]){
+                await window.leafCommand({name:'style',flow:'paged',spread,rtl});
+                await window.leafCommand({name:'location',text:'first'});
+                const downHandled=arrow(document.body,'ArrowDown'),forward=scrollX;
+                const upHandled=arrow(document.body,'ArrowUp'),backward=scrollX;
+                const field=document.getElementById('field');
+                const inputHandled=['ArrowUp','ArrowDown'].map(key=>arrow(field,key));
+                modes.push({rtl,forward,backward,downHandled,upHandled,inputHandled,width:innerWidth});
+            }
+            return {modes};
+            """, view: view)
+        for mode in try XCTUnwrap(result["modes"] as? [[String: Any]]) {
+            let direction = mode["rtl"] as? Bool == true ? -1.0 : 1.0
+            XCTAssertEqual(try XCTUnwrap(mode["forward"] as? Double), direction * (try XCTUnwrap(mode["width"] as? Double)), accuracy: 1)
+            XCTAssertEqual(mode["backward"] as? Double, 0)
+            XCTAssertEqual(mode["downHandled"] as? Bool, true)
+            XCTAssertEqual(mode["upHandled"] as? Bool, true)
+            XCTAssertEqual(mode["inputHandled"] as? [Bool], [false, false])
+        }
     }
 
     @MainActor
@@ -344,6 +465,62 @@ final class BrowserReadingModesTests: XCTestCase {
             XCTAssertEqual(resized["width"] as? Double, 510)
             XCTAssertEqual(resized["visible"] as? Bool, true, "markdown=\(markdown): \(resized)")
             XCTAssertEqual(resized["connected"] as? Bool, true)
+        }
+    }
+
+    @MainActor
+    func testPagedHeightRoundTripKeepsTheVisibleSourceGlyphAndLiveDOM() async throws {
+        for markdown in [false, true] {
+            for spread in [false, true] {
+                let (view, _, window) = try await reader(markdown: markdown)
+                let initial = try await evaluate("""
+                    await window.leafCommand({name:'style',flow:'paged',spread,rtl:false});
+                    const field = document.getElementById('field');
+                    if (field) field.value = 'Edited before height change';
+                    window.heightFirstParagraph = document.querySelector('p');
+                    await window.leafCommand({name:'turnPages',count:3});
+                    const padding = getComputedStyle(document.body);
+                    const source = document.caretRangeFromPoint(parseFloat(padding.paddingLeft)+1,
+                        parseFloat(padding.paddingTop)+1);
+                    source.collapse(true);
+                    window.heightSourceGlyph = source;
+                    window.heightSourceNode = source.startContainer;
+                    window.heightSourceOffset = source.startOffset;
+                    return {x:scrollX,width:innerWidth,height:innerHeight};
+                    """, view: view, arguments: ["spread": spread])
+                XCTAssertGreaterThan(try XCTUnwrap(initial["x"] as? Double), 0,
+                    "The height change must start beyond the first reading page")
+                let context = "markdown=\(markdown), spread=\(spread)"
+                for height in [420, 500] {
+                    // Native toolbar policies change the available height. A
+                    // paged column may gain a different first paragraph; the
+                    // original reading glyph must stay in its visible column.
+                    window.setContentSize(NSSize(width: 700, height: height))
+                    let deadline = Date().addingTimeInterval(5)
+                    var resized: [String: Any] = [:]
+                    repeat {
+                        resized = try await evaluate("""
+                            const range = window.heightSourceGlyph, rect = range.getBoundingClientRect();
+                            const field = document.getElementById('field');
+                            return {width:innerWidth,height:innerHeight,
+                                visible:rect.left>=-1&&rect.right<=innerWidth+1&&rect.top>=-1&&rect.bottom<=innerHeight+1,
+                                sameGlyph:range.startContainer.isConnected&&range.startContainer===window.heightSourceNode&&
+                                    range.startOffset===window.heightSourceOffset,
+                                sameDOM:document.querySelector('p')===window.heightFirstParagraph,
+                                form:!field||field.value==='Edited before height change',rect:rect.toJSON()};
+                            """, view: view)
+                        if resized["height"] as? Double == Double(height), resized["visible"] as? Bool == true { break }
+                        try await Task.sleep(nanoseconds: 20_000_000)
+                    } while Date() < deadline
+                    XCTAssertEqual(resized["width"] as? Double, 700, context)
+                    XCTAssertEqual(resized["height"] as? Double, Double(height), context)
+                    XCTAssertEqual(resized["visible"] as? Bool, true,
+                        "\(context), height=\(height): the original glyph's full line stays visible: \(resized)")
+                    XCTAssertEqual(resized["sameGlyph"] as? Bool, true, context)
+                    XCTAssertEqual(resized["sameDOM"] as? Bool, true, context)
+                    XCTAssertEqual(resized["form"] as? Bool, true, context)
+                }
+            }
         }
     }
 

@@ -1129,14 +1129,29 @@ final class BrowserReaderTests: XCTestCase {
     @MainActor
     func testExplicitFragmentsAndCachedHistoryLeaveAuthorNavigationAndUserScrollAvailable() async throws {
         let paragraphs = (0..<80).map { "<p>Paragraph \($0) of the surrounding text.</p>" }.joined()
-        let topic = "<title>First</title>" + paragraphs + "<a id='middle'></a><h2>Middle</h2>"
+        let lifecycleScript = """
+        <script>
+        const pageShowEvents = [];
+        addEventListener('pageshow', event => {
+            pageShowEvents.push(event.persisted);
+            document.documentElement.dataset.pageShowEvents = JSON.stringify(pageShowEvents);
+        });
+        </script>
+        """
+        let topic = lifecycleScript + "<title>First</title>" + paragraphs + "<a id='middle'></a><h2>Middle</h2>"
             + paragraphs + "<h2 id='later'>Later</h2>" + paragraphs
-        let second = "<title>Second</title>" + paragraphs + "<h2 id='middle'>Second middle</h2>" + paragraphs
+        let second = lifecycleScript + "<title>Second</title>" + paragraphs + "<h2 id='middle'>Second middle</h2>" + paragraphs
         let firstURL = "leaf://book/entry/first.html"
         let (state, view) = try await loadedReaderFixture(topic: ("/first.html", Data(topic.utf8)), home: "/first.html",
             additionalTopics: [("/second.htm", Data(second.utf8))],
             position: .init(page: 0, x: 0, y: 5, anchor: firstURL + "#middle"))
         let coordinator = try XCTUnwrap(view.navigationDelegate as? BrowserReader.Coordinator)
+        func wasRestoredFromCache() async throws -> Bool {
+            let value = try await evaluate("return JSON.parse(document.documentElement.dataset.pageShowEvents)", in: view)
+            let events = try XCTUnwrap(value as? [Bool])
+            XCTAssertEqual(events.first, false, "The page script must observe its initial pageshow before any cache restoration")
+            return try XCTUnwrap(events.last, "Every displayed realm must have an observed pageshow event")
+        }
         func finishCommand() async throws {
             let command = state.command
             state.send(.none)
@@ -1150,6 +1165,8 @@ final class BrowserReaderTests: XCTestCase {
                 DispatchQueue.main.async { continuation.resume() }
             }
         }
+        let initiallyCached = try await wasRestoredFromCache()
+        XCTAssertFalse(initiallyCached)
         XCTAssertNil(view.url?.fragment, "An explicit initial fragment is carried by the reading position")
         let initialTop = try await evaluate("return document.getElementById('middle').getBoundingClientRect().top", in: view) as? Double
         XCTAssertEqual(try XCTUnwrap(initialTop), 0, accuracy: 2)
@@ -1160,8 +1177,12 @@ final class BrowserReaderTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(authorTop), 0, accuracy: 2, "Manual history restoration must retain ordinary fragment navigation")
         _ = try await evaluate("scrollTo(0,200)", in: view)
         try await waitUntil { abs((state.currentPosition.y ?? 0) - 200) < 2 }
+        let firstItem = try XCTUnwrap(view.backForwardList.currentItem)
         state.navigate(.href("leaf://book/entry/second.htm#middle"))
         try await finishCommand()
+        let secondInitiallyCached = try await wasRestoredFromCache()
+        XCTAssertFalse(secondInitiallyCached)
+        let secondItem = try XCTUnwrap(view.backForwardList.currentItem)
         XCTAssertEqual(view.url?.path, "/entry/second.htm")
         XCTAssertNil(view.url?.fragment)
         let secondTop = try await evaluate("return document.getElementById('middle').getBoundingClientRect().top", in: view) as? Double
@@ -1170,13 +1191,25 @@ final class BrowserReaderTests: XCTestCase {
         try await waitUntil { abs((state.currentPosition.y ?? 0) - 600) < 2 }
         state.navigateHistory(-1)
         try await finishCommand()
+        XCTAssertTrue(view.backForwardList.currentItem === firstItem, "Back must reuse the original native history item")
         let back = try await evaluate("return {marker:window.cacheMarker,y:scrollY}", in: view) as? [String: Any]
-        XCTAssertEqual(back?["marker"] as? String, "first")
+        // WebKit may discard a history item's realm. Only an observed persisted
+        // pageshow promises that the existing realm, including its marker, survived.
+        if try await wasRestoredFromCache() {
+            XCTAssertEqual(back?["marker"] as? String, "first")
+        } else {
+            XCTAssertNil(back?["marker"] as? String, "A newly loaded realm must not contain the previous realm's marker")
+        }
         XCTAssertEqual(try XCTUnwrap(back?["y"] as? Double), 200, accuracy: 2, "A cached native hash must not overwrite saved coordinates")
         state.navigateHistory(1)
         try await finishCommand()
+        XCTAssertTrue(view.backForwardList.currentItem === secondItem, "Forward must reuse the original native history item")
         let forward = try await evaluate("return {marker:window.cacheMarker,y:scrollY}", in: view) as? [String: Any]
-        XCTAssertEqual(forward?["marker"] as? String, "second")
+        if try await wasRestoredFromCache() {
+            XCTAssertEqual(forward?["marker"] as? String, "second")
+        } else {
+            XCTAssertNil(forward?["marker"] as? String, "A newly loaded realm must not contain the previous realm's marker")
+        }
         XCTAssertEqual(try XCTUnwrap(forward?["y"] as? Double), 600, accuracy: 2)
         state.restore(.init(page: 0, x: 0, y: 5, anchor: firstURL + "#middle", zoom: 1.3))
         try await finishCommand()

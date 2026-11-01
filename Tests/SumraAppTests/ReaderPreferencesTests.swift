@@ -6,7 +6,57 @@ import SumraCore
 
 @MainActor
 final class ReaderPreferencesTests: XCTestCase {
-    private let typographyKeys = ["font", "fontSize", "lineHeight", "margin", "pageMargins", "userCSS", "useDocumentCSS", "language", "readingPreferenceRevisions"]
+    private let typographyKeys = ["font", "fontSize", "lineHeight", "margin", "pageMargins", "marginPresetSelection", "controlTopMargin", "controlBottomMargin", "userCSS", "useDocumentCSS", "language", "readingPreferenceRevisions"]
+
+    func testControlMarginsDefaultAndRoundTripSeparatelyFromContentMargins() throws {
+        try preservingTypography {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: "controlTopMargin")
+            defaults.removeObject(forKey: "controlBottomMargin")
+            let reader = ReaderState(recordsHistory: false)
+            XCTAssertEqual(reader.controlTopMargin, 54)
+            XCTAssertEqual(reader.controlBottomMargin, 44)
+            reader.typographyForAll = true
+            reader.setCustomMargins(PageMargins(cssValues: [9, 17, 25, 33]))
+            reader.setControlMargins(top: 76, bottom: 0)
+            let exported = try ReaderPreferences.data(matching: "margin")
+            let values = try XCTUnwrap(JSONSerialization.jsonObject(with: exported) as? [String: Any])
+            XCTAssertEqual(values["controlTopMargin"] as? Double, 76)
+            XCTAssertEqual(values["controlBottomMargin"] as? Double, 0)
+            defaults.removeObject(forKey: "controlTopMargin")
+            defaults.removeObject(forKey: "controlBottomMargin")
+            try ReaderPreferences.apply(exported)
+            let restored = ReaderState(recordsHistory: false)
+            XCTAssertEqual(restored.controlTopMargin, 76)
+            XCTAssertEqual(restored.controlBottomMargin, 0)
+            XCTAssertEqual(restored.contentMargins?.values, [9, 17, 25, 33])
+
+            let saved = try JSONDecoder().decode(ReadingPosition.self, from: JSONEncoder().encode(restored.currentPosition))
+            restored.setControlMargins(top: 0, bottom: 67)
+            _ = restored.apply(saved)
+            XCTAssertEqual(restored.controlTopMargin, 76)
+            XCTAssertEqual(restored.controlBottomMargin, 0)
+            _ = restored.apply(ReadingPosition(page: 3))
+            XCTAssertEqual(restored.controlTopMargin, 76, "Old bookmarks do not replace the current independent setting")
+            try ReaderPreferences.apply(Data("{\"pageMargins\":\"10 20\"}".utf8))
+            XCTAssertEqual(defaults.double(forKey: "controlTopMargin"), 76, "Old settings exports leave control clearance intact")
+            XCTAssertEqual(defaults.double(forKey: "controlBottomMargin"), 0)
+        }
+    }
+
+    func testInvalidControlMarginImportDoesNotPartiallyApply() throws {
+        try preservingTypography {
+            let defaults = UserDefaults.standard
+            defaults.set(54, forKey: "controlTopMargin")
+            defaults.set(44, forKey: "controlBottomMargin")
+            for invalid in [-1.0, 201.0] {
+                XCTAssertThrowsError(try ReaderPreferences.apply(JSONSerialization.data(withJSONObject:
+                    ["controlTopMargin": 80, "controlBottomMargin": invalid])))
+                XCTAssertEqual(defaults.double(forKey: "controlTopMargin"), 54)
+                XCTAssertEqual(defaults.double(forKey: "controlBottomMargin"), 44)
+            }
+        }
+    }
 
     func testRetiredLanguageExportAndImportUseSystemWithoutRejectingOtherSettings() throws {
         try preservingTypography {

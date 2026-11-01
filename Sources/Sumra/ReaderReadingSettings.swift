@@ -93,10 +93,6 @@ import SumraCore
     @State private var error = ""
 
     private var typographyAvailable: Bool { state.isText || state.isBrowser || state.reflowable }
-    private var uniformMargin: Double? {
-        guard let margins = state.pageMargins else { return state.margin }
-        return margins.values.allSatisfy { $0 == margins.top } ? margins.top : nil
-    }
 
     var body: some View {
         let _ = language
@@ -135,50 +131,50 @@ import SumraCore
                         ReaderFontNamePicker(selection: typography(\.font, overrideDocumentStyles: true))
                             .frame(minWidth: 180, maxWidth: .infinity, minHeight: 26, maxHeight: 26)
                     }
-                    LabeledContent(L("Font size")) {
-                        Slider(value: typography(\.fontSize, overrideDocumentStyles: true), in: 10...36, step: 1)
-                        Text("\(Int(state.fontSize)) pt").monospacedDigit().frame(width: 44)
-                    }
-                    LabeledContent(L("Line height")) {
-                        Slider(value: typography(\.lineHeight, overrideDocumentStyles: true), in: 1...2.4, step: 0.1)
-                        Text(state.lineHeight, format: .number.precision(.fractionLength(1))).monospacedDigit().frame(width: 30)
-                    }
-                    Picker(L("Margins"), selection: Binding(get: { state.marginPreset }, set: { preset in
-                        if let preset { state.applyMarginPreset(preset) }
-                    })) {
-                        if state.marginPreset == nil { Text(L("Custom")).tag(nil as ReaderMarginPreset?) }
-                        ForEach(ReaderMarginPreset.allCases) { preset in
-                            Text(preset.title).tag(Optional(preset))
-                        }
-                    }
-                    LabeledContent(L("Margin")) {
-                        Slider(value: Binding(get: { uniformMargin ?? state.margin }, set: { value in
-                            state.captureReflowPosition()
-                            state.margin = value; state.pageMargins = PageMargins(cssValues: [value]); state.applyTypography()
-                        }), in: PageMargins.supportedRange, step: 1)
-                            .accessibilityLabel(L("Margins"))
-                        Text(uniformMargin.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? L("Custom"))
-                            .monospacedDigit().lineLimit(1).frame(minWidth: 50)
-                    }
+                    ReaderNumericSetting(label: L("Font size"), value: typography(\.fontSize, overrideDocumentStyles: true),
+                                         range: 10...36, step: 1, unit: "pt")
+                    ReaderNumericSetting(label: L("Line height"), value: typography(\.lineHeight, overrideDocumentStyles: true),
+                                         range: 1...2.4, step: 0.1, unit: "×")
                     Toggle(L("Use document styles"), isOn: typography(\.useDocumentCSS))
                     Toggle(L("Use Changes as Defaults"), isOn: Binding(get: { state.typographyForAll }, set: { value in
                         state.typographyForAll = value; state.applyTypography()
                     }))
                     DisclosureGroup(L("Advanced Typography and CSS"), isExpanded: $advanced) {
-                        TextField(L("Margins: top right bottom left"), text: $marginsDraft)
-                            .onSubmit(applyAdvanced)
-                        Text(L("Leave margins blank to use the document default.")).font(.caption).foregroundStyle(.secondary)
                         ReaderCSSDraftEditor(text: $cssDraft).frame(height: 135)
-                        Button(L("Apply Margins and CSS"), action: applyAdvanced)
-                        if !error.isEmpty { Text(error).foregroundStyle(.red).font(.caption) }
+                        Button(L("Apply CSS"), action: applyAdvanced)
                     }
                 }
+            }
+            Section(L("Content margins")) {
+                Picker(L("Margins"), selection: Binding(get: { state.marginPreset }, set: { preset in
+                    if let preset { state.applyMarginPreset(preset) }
+                    else { state.selectCustomMargins() }
+                })) {
+                    Text(L("Custom")).tag(nil as ReaderMarginPreset?)
+                    ForEach(ReaderMarginPreset.allCases) { preset in Text(preset.title).tag(Optional(preset)) }
+                }
+                ReaderMarginsControls(margins: Binding(get: { state.contentMargins }, set: state.setCustomMargins),
+                                      fallback: state.margin, enabled: state.marginPreset == nil)
+                if typographyAvailable {
+                    TextField(L("Margins: top right bottom left (pt)"), text: $marginsDraft)
+                        .disabled(state.marginPreset != nil).onSubmit(applyMargins)
+                    Text(L("Leave margins blank to use the document default."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button(L("Apply Margins"), action: applyMargins).disabled(state.marginPreset != nil)
+                    if !error.isEmpty { Text(error).foregroundStyle(.red).font(.caption) }
+                }
+            }
+            Section(L("Control clearance")) {
+                ReaderControlMarginsControls(
+                    top: Binding(get: { state.controlTopMargin }, set: { state.setControlMargins(top: $0, bottom: state.controlBottomMargin) }),
+                    bottom: Binding(get: { state.controlBottomMargin }, set: { state.setControlMargins(top: state.controlTopMargin, bottom: $0) }))
             }
             Section(L("Navigation")) {
                 Toggle(L("Keep scroll position when turning pages"), isOn: $preservePageTurnPosition)
                 Toggle(L("Keep current zoom when following links"), isOn: $keepZoomOnLinks)
             }
         }
+        .id(state.document?.id)
         .formStyle(.grouped)
         .onAppear(perform: resetDrafts)
         .onChange(of: language) { _ in
@@ -187,16 +183,23 @@ import SumraCore
         .onChange(of: state.document?.id) { _ in
             resetDrafts(); advanced = false
         }
-        .onChange(of: state.pageMargins) { _ in marginsDraft = marginValues }
+        .onChange(of: state.pageMargins) { _ in resetMarginsDraft() }
+        .onChange(of: state.marginPreset) { _ in resetMarginsDraft() }
         .onChange(of: state.userCSS) { cssDraft = $0 }
     }
 
     private var marginValues: String {
-        state.pageMargins.map { $0.values.map { $0 == $0.rounded() ? String(Int($0)) : String($0) }.joined(separator: " ") } ?? ""
+        state.contentMargins.map { $0.values.map { $0 == $0.rounded() ? String(Int($0)) : String($0) }.joined(separator: " ") } ?? ""
     }
 
     private func resetDrafts() {
-        cssDraft = state.userCSS; marginsDraft = marginValues; error = ""
+        cssDraft = state.userCSS
+        resetMarginsDraft()
+    }
+
+    private func resetMarginsDraft() {
+        marginsDraft = marginValues
+        error = ""
     }
 
     private func typography<Value>(_ path: ReferenceWritableKeyPath<ReaderState, Value>, overrideDocumentStyles: Bool = false) -> Binding<Value> {
@@ -206,18 +209,119 @@ import SumraCore
         })
     }
 
-    private func applyAdvanced() {
+    private func applyMargins() {
         let value = marginsDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         if !value.isEmpty, PageMargins(cssValues: value) == nil {
             error = L("Margins must contain 1, 2 or 4 values between 0 and 200.")
             return
         }
+        state.setCustomMargins(value.isEmpty ? nil : PageMargins(cssValues: value))
+        error = ""
+    }
+
+    private func applyAdvanced() {
         state.captureReflowPosition()
-        state.pageMargins = value.isEmpty ? nil : PageMargins(cssValues: value)
-        if let uniformMargin { state.margin = uniformMargin }
         state.userCSS = cssDraft
         state.applyTypography()
-        error = ""
+    }
+}
+
+// Commit typing on Return or focus loss, preserving the in-progress draft while
+// the document continues showing the last accepted value.
+@MainActor struct ReaderNumericField: NSViewRepresentable {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let label: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(value: $value, range: range) }
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.alignment = .right
+        field.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        field.delegate = context.coordinator
+        field.setAccessibilityLabel(label)
+        field.toolTip = "\(range.lowerBound.formatted())–\(range.upperBound.formatted())"
+        return field
+    }
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.value = $value
+        field.setAccessibilityLabel(label)
+        if field.currentEditor() == nil { field.stringValue = Coordinator.string(value) }
+        field.isEnabled = context.environment.isEnabled
+    }
+
+    @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
+        var value: Binding<Double>
+        let range: ClosedRange<Double>
+        init(value: Binding<Double>, range: ClosedRange<Double>) { self.value = value; self.range = range }
+        static func string(_ value: Double) -> String {
+            let text = value == value.rounded() ? String(Int(value)) : String(value)
+            return text.replacingOccurrences(of: ".", with: Locale.current.decimalSeparator ?? ".")
+        }
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: Locale.current.decimalSeparator ?? ".", with: ".")
+            if let number = Double(text), number.isFinite, range.contains(number) {
+                value.wrappedValue = number
+                field.stringValue = Self.string(number)
+            } else {
+                NSSound.beep()
+                field.stringValue = Self.string(value.wrappedValue)
+            }
+        }
+    }
+}
+
+@MainActor struct ReaderNumericSetting: View {
+    let label: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let unit: String
+
+    var body: some View {
+        LabeledContent(label) {
+            Slider(value: $value, in: range, step: step).accessibilityLabel(label)
+            ReaderNumericField(value: $value, range: range, label: "\(label) (\(unit))")
+                .frame(width: 58)
+            Text(unit).foregroundStyle(.secondary).frame(width: 18, alignment: .leading)
+        }
+    }
+}
+
+@MainActor struct ReaderMarginsControls: View {
+    @Binding var margins: PageMargins?
+    let fallback: Double
+    let enabled: Bool
+
+    var body: some View {
+        ForEach(0..<4, id: \.self) { index in
+            ReaderNumericSetting(label: [L("Top margin"), L("Right margin"), L("Bottom margin"), L("Left margin")][index],
+                                 value: side(index), range: PageMargins.supportedRange, step: 1, unit: "pt")
+                .disabled(!enabled)
+        }
+    }
+    private func side(_ index: Int) -> Binding<Double> {
+        Binding(get: { (margins?.values ?? Array(repeating: fallback, count: 4))[index] }, set: { value in
+            var values = margins?.values ?? Array(repeating: fallback, count: 4)
+            values[index] = value
+            margins = PageMargins(cssValues: values)
+        })
+    }
+}
+
+@MainActor struct ReaderControlMarginsControls: View {
+    @Binding var top: Double
+    @Binding var bottom: Double
+
+    var body: some View {
+        ReaderNumericSetting(label: L("Top clearance"), value: $top,
+                             range: PageMargins.supportedRange, step: 1, unit: "pt")
+        ReaderNumericSetting(label: L("Bottom clearance"), value: $bottom,
+                             range: PageMargins.supportedRange, step: 1, unit: "pt")
+        Text(L("Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space."))
+            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
 }
 

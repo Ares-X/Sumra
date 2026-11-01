@@ -182,7 +182,12 @@ struct ReaderProgress {
 
 extension ReaderState {
     var readingProgress: ReaderProgress {
-        if isBrowser { return .init(position: .file(page, count, browserProgress)) }
+        if isBrowser {
+            if let browserPage, let browserPageCount {
+                return .init(position: .continuous(browserProgress, .pages(browserPage, browserPageCount)))
+            }
+            return .init(position: .file(page, count, browserProgress))
+        }
         if isText { return .init(position: .lines(page, count)) }
         let position: ReaderProgress.Position
         if reflowable, let table = chapterLayout, !table.complete {
@@ -210,7 +215,8 @@ struct ReaderProgressDrag {
 @MainActor
 struct ReaderProgressFooter: View {
     static let height: CGFloat = 26
-    static let floatingBottomInset: CGFloat = 6
+    static let floatingBottomInset: CGFloat = ReaderFloatingControls.topInset
+    static func layoutHeight(floating: Bool) -> CGFloat { floating ? 56 : height }
     @ObservedObject var state: ReaderState
     @ObservedObject private var scrollProgress: ReaderScrollProgress
     @State private var hovered = false
@@ -249,10 +255,10 @@ struct ReaderProgressFooter: View {
         let progress = drag?.presentation ?? seeking?.presentation ?? state.readingProgress
         let preview = drag?.value ?? seeking?.value
         let labelWidth = max(floating ? 84 : 0, progress.labelWidth)
+        let normalSideWidth = max(54, labelWidth)
         return HStack(spacing: 12) {
             Text(progress.percentage(at: preview))
-                .frame(minWidth: floating ? 42 : 0, maxWidth: floating ? 42 : 200,
-                       alignment: floating ? .leading : .trailing)
+                .frame(width: floating ? 42 : normalSideWidth, alignment: floating ? .leading : .trailing)
             ReaderProgressSlider(value: preview ?? progress.value, step: progress.step, backwardStep: progress.backwardStep, enabled: progress.enabled,
                 accessibilityValue: progress.percentage(at: preview) + ", " + progress.label(at: preview),
                 accessibilityHelp: progress.help,
@@ -270,8 +276,7 @@ struct ReaderProgressFooter: View {
                 .frame(minWidth: floating ? 0 : 80, maxWidth: floating ? .infinity : 320)
             Text(progress.label(at: preview)).lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(minWidth: floating ? labelWidth : 0, maxWidth: floating ? labelWidth : max(200, labelWidth),
-                       alignment: floating ? .trailing : .leading)
+                .frame(width: floating ? labelWidth : normalSideWidth, alignment: floating ? .trailing : .leading)
                 .help(progress.label(at: preview))
         }
         .font(.system(size: 11)).monospacedDigit()
@@ -285,7 +290,7 @@ struct ReaderProgressFooter: View {
         .padding(.bottom, floating ? Self.floatingBottomInset : 0)
         .padding(.horizontal, floating ? 16 : 0)
         .frame(maxWidth: .infinity)
-        .frame(height: floating ? 56 : Self.height, alignment: .bottom)
+        .frame(height: Self.layoutHeight(floating: floating), alignment: .bottom)
         .contentShape(Rectangle())
         .onHover { inside in
             hoverDismiss?.cancel(); hoverDismiss = nil

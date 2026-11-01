@@ -96,11 +96,17 @@ struct ReaderWindow: View {
         return (fullPathTitle ? path : URL(fileURLWithPath: path).lastPathComponent) + (pageInTitle && state.count > 0 ? " — " + state.positionLabel : "")
     }
 
+    func readerView(for state: ReaderState) -> ReaderView {
+        // The selected file owns the scene before its opening task starts.
+        // Once a load has run, its normal success/error state owns the view.
+        ReaderView(state: state, awaitingDocumentOpen: payload.path != nil && state.generation == 0)
+    }
+
     var body: some View {
         Group {
             if !state.isWindowClosed {
                 if state.restoredPayload != nil, !state.busy, state.error == nil, state.missingFile == nil { Color.clear }
-                else { ReaderView(state: state) }
+                else { readerView(for: state) }
             }
         }
             .frame(minWidth: 560, minHeight: state.hasDocument ? 400 : 500)
@@ -214,8 +220,11 @@ struct WindowTabs: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
             if let previousWindow = guardedWindow, previousWindow.delegate === closeGuard {
                 previousWindow.delegate = closeGuard?.previous
+                if state?.window === previousWindow { state?.window = nil }
             }
-            if state?.window === guardedWindow { state?.window = nil }
+            if let previousWindow = guardedWindow, previousWindow.nextResponder === closeGuard {
+                previousWindow.nextResponder = closeGuard?.nextResponder
+            }
             closeGuard = nil
             guardedWindow = nil
             guard let window else { return }
@@ -226,6 +235,13 @@ struct WindowTabs: NSViewRepresentable {
             let guardDelegate = ReaderCloseGuard(state: state, previous: previous)
             closeGuard = guardDelegate
             guardedWindow = window
+            // SwiftUI's window controller handles the native tab-bar and tab
+            // overview + actions before consulting its window delegate. Keep
+            // that controller in the chain, after our document-first action.
+            if let installed = window.nextResponder as? ReaderCloseGuard {
+                guardDelegate.nextResponder = installed.nextResponder
+            } else { guardDelegate.nextResponder = window.nextResponder }
+            window.nextResponder = guardDelegate
             window.delegate = guardDelegate
             state?.window = window
             updateDocumentProperties()
@@ -277,25 +293,47 @@ struct WindowTabs: NSViewRepresentable {
 }
 
 @MainActor
-final class ReaderCloseGuard: NSObject, NSWindowDelegate, NSUserInterfaceValidations {
+final class ReaderCloseGuard: NSResponder, NSWindowDelegate, NSUserInterfaceValidations, NSSharingServiceDelegate {
     weak var state: ReaderState?
     var openingPath: String?
     var isHome: Bool { openingPath == nil && state?.document == nil && state?.restoredPayload == nil && state?.busy != true }
     // NSWindow caches forwarded notification selectors while this proxy is installed.
     let previous: NSWindowDelegate?
     private var closePending = false
+    var emailService: NSSharingService?
     init(state: ReaderState?, previous: NSWindowDelegate?) {
         self.state = state
         self.previous = previous
+        super.init()
     }
+    required init?(coder: NSCoder) { previous = nil; super.init(coder: coder) }
     // Preserve reader selection commands when a sibling sidebar has focus.
     @objc func copy(_ sender: Any?) { state?.send(.copy) }
-    @objc func selectAll(_ sender: Any?) { state?.send(.selectAll) }
-    @objc func newWindowForTab(_ sender: Any?) {
+    override func selectAll(_ sender: Any?) { state?.send(.selectAll) }
+    override func newWindowForTab(_ sender: Any?) {
         if let state { ReaderMenuCommand.newTab.run(state) }
+    }
+    @objc func toggleTabBar(_ sender: Any?) {
+        guard let state, !state.usesCustomChrome else { return }
+        state.window?.toggleTabBar(sender)
+    }
+    func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) { emailService = nil }
+    func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
+        let message: String
+        if let application = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "mailto:")!) {
+            message = String(format: L("%1$@\n\nDefault email app: %2$@. Choose a default email app that supports file attachments, then try again."),
+                             error.localizedDescription, FileManager.default.displayName(atPath: application.path))
+        } else { message = error.localizedDescription }
+        state?.error = message
+        emailService = nil
+    }
+    func sharingService(_ sharingService: NSSharingService, sourceWindowForShareItems items: [Any],
+                        sharingContentScope: UnsafeMutablePointer<NSSharingService.SharingContentScope>) -> NSWindow? {
+        state?.window
     }
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(newWindowForTab(_:)) { return ReaderMenuCommand.newTab.enabled(state) }
+        if item.action == #selector(toggleTabBar(_:)) { return state?.window != nil && state?.usesCustomChrome == false }
         if item.action == #selector(copy(_:)) { return ReaderMenuCommand.copy.enabled(state) }
         if item.action == #selector(selectAll(_:)) { return ReaderMenuCommand.selectAll.enabled(state) }
         return (previous as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item) ?? true
@@ -323,7 +361,17 @@ final class ReaderCloseGuard: NSObject, NSWindowDelegate, NSUserInterfaceValidat
                   state.document?.id == documentID, state.generation == generation else { completion(false); return }
             // close() completes the approved request without recursively asking
             // windowShouldClose again, and still sends the normal willClose event.
+            let group = sender.tabGroup
+            let rebuildNativeTabs = !state.usesCustomChrome && group?.isTabBarVisible == true
             sender.close()
+            if rebuildNativeTabs, let group, group.windows.count > 1, let selected = group.selectedWindow {
+                // Remount the native bar through its group owner. Closing alone
+                // retains the old tab widths while the pointer stays in the bar.
+                let windows = group.windows
+                for window in windows where window !== selected { group.removeWindow(window) }
+                for (index, window) in windows.enumerated() where window !== selected { group.insertWindow(window, at: index) }
+                group.selectedWindow = selected
+            }
             completion(true)
         }
     }
@@ -336,9 +384,10 @@ final class ReaderCloseGuard: NSObject, NSWindowDelegate, NSUserInterfaceValidat
 }
 
 @MainActor
-final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
+final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     let undoCommands = ReaderUndoCommands()
     private var keyMonitor: Any?
+    private var routingNativeTabMenu = false
     private var terminationPending = false
     private var pendingFiles: [URL] = []
     private var pendingSyncTeX: [SyncTeXForwardRequest] = []
@@ -346,6 +395,26 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
     private var createWindow: ((WindowPayload) -> Void)?
     private var hasFinishedLaunching = false
     private weak var emptyReader: ReaderState?
+
+    func installTabResponder() {
+        guard NSApp.nextResponder !== self else { return }
+        nextResponder = NSApp.nextResponder
+        NSApp.nextResponder = self
+    }
+
+    func removeTabResponder() {
+        if NSApp.nextResponder === self { NSApp.nextResponder = nextResponder }
+        nextResponder = nil
+    }
+
+    override func newWindowForTab(_ sender: Any?) {
+        if let state = ReaderWindows.newTabState { ReaderMenuCommand.newTab.run(state) }
+    }
+
+    deinit {
+        MainActor.assumeIsolated { removeTabResponder() }
+        NotificationCenter.default.removeObserver(self)
+    }
 
     // Finder can launch the app without creating an initial reader scene.
     // Commands installs the app-wide action without requiring a window first.
@@ -461,12 +530,59 @@ final class ReaderApplicationDelegate: NSObject, NSApplicationDelegate {
         undoCommands.update()
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installTabResponder()
         finishLaunching()
+        installNativeTabMenuRouting()
         ScreenshotHotkey.restore()
         ReaderHelp.checkForUpdatesOnLaunch()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown, .otherMouseDown, .scrollWheel]) { [self] event in
             handleReaderEvent(event)
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        removeTabResponder()
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }
+    }
+
+    func installNativeTabMenuRouting() {
+        NotificationCenter.default.addObserver(self, selector: #selector(tabMenuWillTrack(_:)),
+                                               name: NSMenu.didBeginTrackingNotification, object: nil)
+        for name in [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(tabMenuItemChanged(_:)),
+                                                   name: name, object: nil)
+        }
+    }
+
+    @objc private func tabMenuWillTrack(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        routeNativeTabMenu(menu, for: NSApp.keyWindow ?? NSApp.mainWindow)
+    }
+
+    @objc private func tabMenuItemChanged(_ notification: Notification) {
+        guard !routingNativeTabMenu, let menu = notification.object as? NSMenu,
+              let index = notification.userInfo?["NSMenuItemIndex"] as? Int,
+              let item = menu.item(at: index) else { return }
+        routeNativeTabMenuItem(item, for: NSApp.keyWindow ?? NSApp.mainWindow)
+    }
+
+    func routeNativeTabMenu(_ menu: NSMenu, for window: NSWindow?) {
+        for item in menu.items {
+            routeNativeTabMenuItem(item, for: window)
+            if let submenu = item.submenu { routeNativeTabMenu(submenu, for: window) }
+        }
+    }
+
+    private func routeNativeTabMenuItem(_ item: NSMenuItem, for window: NSWindow?) {
+        guard item.action == #selector(NSWindow.toggleTabBar(_:)) else { return }
+        // Native tab commands may be inserted or rebuilt after main-menu
+        // tracking begins. Route the changed item without updating its menu;
+        // changing enabled state itself posts another appearance notification.
+        routingNativeTabMenu = true
+        defer { routingNativeTabMenu = false }
+        let closeGuard = window?.delegate as? ReaderCloseGuard
+        item.target = closeGuard
+        if let closeGuard { item.isEnabled = closeGuard.validateUserInterfaceItem(item) }
     }
 
     func handleReaderEvent(_ event: NSEvent) -> NSEvent? {
@@ -620,8 +736,21 @@ enum ReaderWindows {
     fileprivate static var smartOrder: [Int]?
     private static var restorationPayloads: [WindowPayload] = []
     private static var restorationWindows: [UUID: NSWindow] = [:]
+    private static weak var restorationSelection: NSWindow?
     static var isTerminating = false
     static var states: [ReaderState] { NSApp.windows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state } }
+
+    static var newTabState: ReaderState? {
+        let readers = states
+        for window in NSApp.orderedWindows where window.delegate is ReaderCloseGuard {
+            guard let group = window.tabGroup, group.isOverviewVisible,
+                  let selected = group.selectedWindow,
+                  let state = readers.first(where: { $0.window === selected }) else { continue }
+            return state
+        }
+        if let active = readers.first(where: { $0.window === NSApp.keyWindow }) { return active }
+        return mru.lazy.compactMap { number in readers.first { $0.window?.windowNumber == number } }.first
+    }
 
     static func open(_ urls: [URL], in state: ReaderState?, recordsHistory: Bool = true,
                      behavior: DocumentOpenBehavior = .current,
@@ -642,7 +771,7 @@ enum ReaderWindows {
                 state.window?.makeKeyAndOrderFront(nil)
             } else {
                 var payload = WindowPayload(path: url.path, tabWith: tabWith, recordsHistory: recordsHistory ? nil : false)
-                payload.tabIdentifier = tabIdentifier
+                payload.tabIdentifier = tabIdentifier ?? (opensInTabs ? nil : "Sumra-" + UUID().uuidString)
                 documentOpenLog.notice("route-create payload=\(payload.id.uuidString, privacy: .public)")
                 createWindow(payload)
             }
@@ -694,16 +823,49 @@ enum ReaderWindows {
         return payload
     }
 
-    static func prepareRestoration(_ payloads: [WindowPayload]) -> [WindowPayload] {
+    static var savedTabGroupKeys: [String] {
+        UserDefaults.standard.dictionaryRepresentation().keys
+            .filter { $0.hasPrefix("tabGroup:") && !saved($0).isEmpty }.sorted()
+    }
+
+    static func restoreTabGroup(_ saved: [WindowPayload], in state: ReaderState?,
+                                behavior: DocumentOpenBehavior = .current,
+                                createWindow: @escaping (WindowPayload) -> Void) {
+        guard !saved.isEmpty else { return }
+        let tabsEnabled = !UserDefaults.standard.bool(forKey: "disableTabs")
+        let reuse = state?.window != nil && state?.busy != true &&
+            (behavior == .replaceCurrent || (state?.document == nil && state?.restoredPayload == nil))
+        let parent = tabsEnabled && (reuse || behavior == .newTab) ? state?.window : nil
+        let identifier = parent?.tabbingIdentifier ?? "Sumra-" + UUID().uuidString
+        var payloads = saved.map { saved -> WindowPayload in
+            var payload = saved
+            payload.id = UUID(); payload.tabWith = parent?.windowNumber
+            payload.tabIdentifier = tabsEnabled ? identifier : "Sumra-" + UUID().uuidString
+            return payload
+        }
+        let openRemaining: ([WindowPayload], NSWindow?) -> Void = { remaining, selected in
+            for payload in prepareRestoration(remaining, selecting: selected) { createWindow(payload) }
+        }
+        if reuse, let state {
+            let first = payloads.removeFirst()
+            state.open(first) {
+                state.window?.makeKeyAndOrderFront(nil)
+                openRemaining(payloads, first.selected == true ? state.window : nil)
+            }
+        } else { openRemaining(payloads, nil) }
+    }
+
+    static func prepareRestoration(_ payloads: [WindowPayload], selecting selected: NSWindow? = nil) -> [WindowPayload] {
         restorationPayloads = payloads
         restorationWindows = [:]
+        restorationSelection = selected
         guard !payloads.isEmpty else { return [] }
         let activeID = payloads.first(where: { $0.active == true })?.id
             ?? payloads.first(where: { $0.selected == true })?.id ?? payloads[0].id
         let windows = payloads.map { saved -> WindowPayload in
             var payload = saved
             payload.restoring = true
-            payload.active = payload.id == activeID
+            payload.active = selected == nil && payload.id == activeID
             return payload
         }
         // Parse the current document first while AppKit assembles its other tabs.
@@ -718,25 +880,30 @@ enum ReaderWindows {
         // openWindow can focus each new tab. Restore native ordering and
         // selection only after every host has attached; none of those incidental
         // key-window changes should parse a background document.
-        var groupIndices: [String: Int] = [:]
+        var restoredGroups: [NSWindowTabGroup: [NSWindow]] = [:]
         for payload in saved {
             guard let window = windows[payload.id], let group = window.tabGroup else { continue }
-            let identifier = payload.tabIdentifier ?? payload.id.uuidString
-            let index = groupIndices[identifier, default: 0]
-            if group.windows.firstIndex(of: window) != index {
-                group.removeWindow(window)
+            restoredGroups[group, default: []].append(window)
+        }
+        for (group, restored) in restoredGroups {
+            // Fix the complete prefix first: moving a later restored tab out
+            // of that prefix otherwise shifts a previously placed tab left.
+            let ordered = group.windows.filter { !restored.contains($0) } + restored
+            for (index, window) in ordered.enumerated() where group.windows[index] !== window {
                 group.insertWindow(window, at: index)
             }
-            groupIndices[identifier] = index + 1
         }
         for payload in saved where payload.selected == true {
             if let window = windows[payload.id] { window.tabGroup?.selectedWindow = window }
         }
         restorationPayloads = []
         restorationWindows = [:]
+        let selected = restorationSelection
+        restorationSelection = nil
         let active = saved.first(where: { $0.active == true })
             ?? saved.first(where: { $0.selected == true }) ?? saved.first
-        if let active, let window = windows[active.id] {
+        if let window = selected ?? active.flatMap({ windows[$0.id] }) {
+            window.tabGroup?.selectedWindow = window
             window.makeKeyAndOrderFront(nil)
             activated(window)
         }
@@ -958,6 +1125,26 @@ enum ReaderFiles {
 }
 
 @MainActor
+struct DocumentFileBrowserSheet: ViewModifier {
+    @ObservedObject var state: ReaderState
+    @State private var pendingOpen: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        content.sheet(isPresented: $state.showFiles) {
+            DocumentFileBrowser(state: state, folder: state.document?.url.deletingLastPathComponent(),
+                                dismissOnOpen: true, performOpen: { pendingOpen = $0 })
+                .frame(width: 620, height: 460)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification)) { notification in
+            guard notification.object as? NSWindow === state.window else { return }
+            let open = pendingOpen
+            pendingOpen = nil
+            open?()
+        }
+    }
+}
+
+@MainActor
 struct DocumentFileBrowser: View {
     @ObservedObject var state: ReaderState
     @State private var folder: URL?
@@ -980,8 +1167,15 @@ struct DocumentFileBrowser: View {
     @AppStorage("homePageSortByFrequentlyRead") private var frequentlyRead = false
     @AppStorage("homePageViewMode") private var viewMode = "thumbnails"
     let dismissOnOpen: Bool
+    let performOpen: (@escaping () -> Void) -> Void
     @Environment(\.dismiss) private var dismiss
-    init(state: ReaderState, folder: URL? = nil, dismissOnOpen: Bool = false) { self.state = state; self.dismissOnOpen = dismissOnOpen; _folder = State(initialValue: folder) }
+    init(state: ReaderState, folder: URL? = nil, dismissOnOpen: Bool = false,
+         performOpen: @escaping (@escaping () -> Void) -> Void = { $0() }) {
+        self.state = state
+        self.dismissOnOpen = dismissOnOpen
+        self.performOpen = performOpen
+        _folder = State(initialValue: folder)
+    }
     private var fileViewSelection: Binding<String> {
         Binding(get: { viewMode }, set: { mode in
             viewChange = DispatchTime.now().uptimeNanoseconds
@@ -1176,9 +1370,23 @@ struct DocumentFileBrowser: View {
                 }.contentShape(Rectangle())
             }
         }.buttonStyle(.plain).contextMenu {
+            Button(L("Open")) { open(url) }
+            Button(L("Open in New Window")) {
+                openAfterClosing {
+                    var payload = WindowPayload(path: url.path)
+                    payload.tabIdentifier = "Sumra-" + UUID().uuidString
+                    state.createWindow?(payload)
+                }
+            }
             Button(pinned ? L("Unpin") : L("Pin")) { ReaderFiles.pin(url); revision += 1 }
-            Button(L("Open without History")) { state.openWithoutHistory(url); closeBrowser() }
-            Button(L("Open in New Tab")) { state.createWindow?(WindowPayload(path: url.path, tabWith: state.window?.windowNumber)); closeBrowser() }
+            Button(L("Open without History")) { openAfterClosing { state.openWithoutHistory(url) } }
+            if state.hasDocument {
+                Button(L("Open in New Tab")) {
+                    openAfterClosing {
+                        ReaderWindows.open([url], in: state, behavior: .newTab) { state.createWindow?($0) }
+                    }
+                }.disabled(!ReaderMenuCommand.newTab.enabled(state))
+            }
             Button(L("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             Button(L("Forget")) { ReaderFiles.forget(url); revision += 1 }
         }
@@ -1231,7 +1439,14 @@ struct DocumentFileBrowser: View {
         else { openDocument(url) }
     }
     private func openDocument(_ url: URL) {
-        ReaderWindows.open([url], in: state) { state.createWindow?($0) }
+        openAfterClosing {
+            ReaderWindows.open([url], in: state) { state.createWindow?($0) }
+        }
+    }
+    private func openAfterClosing(_ action: @escaping () -> Void) {
+        // Sheet dismissal restores its parent's activation. Open the destination
+        // after the native sheet ends so restoration cannot cover the reader.
+        performOpen(action)
         closeBrowser()
     }
     private func closeBrowser() { if dismissOnOpen { dismiss() } }
@@ -1459,22 +1674,39 @@ extension ReaderState {
     }
     func saveTabGroup() {
         guard let window else { return }
-        let alert = NSAlert(); alert.messageText = L("Save Tab Group")
-        let name = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        name.placeholderString = L("Group name"); alert.accessoryView = name; alert.window.initialFirstResponder = name
-        alert.addButton(withTitle: L("Save")); alert.addButton(withTitle: L("Cancel"))
-        guard alert.runModal() == .alertFirstButtonReturn, !name.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         let group = (window.tabGroup?.windows ?? [window]).compactMap { tab -> WindowPayload? in
             guard let state = (tab.delegate as? ReaderCloseGuard)?.state, var payload = ReaderWindows.payload(state) else { return nil }
             payload.selected = tab === (window.tabGroup?.selectedWindow ?? window)
             payload.active = payload.selected
             return payload
         }
-        ReaderWindows.save(group, key: "tabGroup:" + name.stringValue)
+        guard !group.isEmpty else { return }
+        let alert = NSAlert(); alert.messageText = L("Save Tab Group")
+        let name = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        name.placeholderString = L("Group name"); alert.accessoryView = name; alert.window.initialFirstResponder = name
+        alert.addButton(withTitle: L("Save")); alert.addButton(withTitle: L("Cancel"))
+        while alert.runModal() == .alertFirstButtonReturn {
+            let title = name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            let key = "tabGroup:" + title
+            if UserDefaults.standard.object(forKey: key) != nil {
+                let duplicate = NSAlert()
+                duplicate.messageText = L("Replace Saved Tab Group?")
+                duplicate.informativeText = title
+                duplicate.addButton(withTitle: L("Replace")); duplicate.addButton(withTitle: L("Rename")); duplicate.addButton(withTitle: L("Cancel"))
+                switch duplicate.runModal() {
+                case .alertFirstButtonReturn: break
+                case .alertSecondButtonReturn: continue
+                default: return
+                }
+            }
+            ReaderWindows.save(group, key: key)
+            return
+        }
     }
     func restoreTabGroup() {
-        let names = UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.hasPrefix("tabGroup:") }.sorted()
-        guard !names.isEmpty else { status = L("No saved tab groups"); return }
+        let names = ReaderWindows.savedTabGroupKeys
+        guard !names.isEmpty else { return }
         let alert = NSAlert(); alert.messageText = L("Restore Tab Group")
         let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 26))
         picker.addItems(withTitles: names.map { String($0.dropFirst(9)) }); alert.accessoryView = picker
@@ -1482,13 +1714,7 @@ extension ReaderState {
         let response = alert.runModal(); let key = names[picker.indexOfSelectedItem]
         if response == .alertSecondButtonReturn { UserDefaults.standard.removeObject(forKey: key); return }
         guard response == .alertFirstButtonReturn else { return }
-        let identifier = "Sumra-" + UUID().uuidString
-        let saved = ReaderWindows.saved(key).map { saved -> WindowPayload in
-            var payload = saved
-            payload.id = UUID(); payload.tabIdentifier = identifier; payload.tabWith = nil
-            return payload
-        }
-        for payload in ReaderWindows.prepareRestoration(saved) { createWindow?(payload) }
+        ReaderWindows.restoreTabGroup(ReaderWindows.saved(key), in: self) { self.createWindow?($0) }
     }
     func setTabColor() {
         guard window != nil else { return }
@@ -1512,7 +1738,15 @@ extension ReaderState {
         window.tab.accessoryView = dot
     }
     func shareByEmail() {
-        guard let url = document?.url, let service = NSSharingService(named: .composeEmail) else { return }
+        guard let url = document?.url else { return }
+        guard let service = NSSharingService(named: .composeEmail), service.canPerform(withItems: [url]) else {
+            error = L("No email application is available to compose a message with this document.")
+            return
+        }
+        if let owner = window?.delegate as? ReaderCloseGuard {
+            owner.emailService = service
+            service.delegate = owner
+        }
         service.perform(withItems: [url])
     }
     func openWithApplication() {

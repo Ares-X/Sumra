@@ -6,6 +6,39 @@ import XCTest
 
 @MainActor
 final class NativeTabClosingTests: XCTestCase {
+    func testNativeCloseKeepsSurvivingTabOrderAndSelection() async throws {
+        for closing in 0..<5 {
+            let fixture = try Tabs(count: 5, selected: 2)
+            defer { fixture.close() }
+            for state in fixture.states { state.immersiveControls = false; state.toolbarDisplayMode = .shown }
+            let group = try XCTUnwrap(fixture.windows[2].tabGroup)
+            let remaining = fixture.windows.indices.filter { $0 != closing }.map { fixture.windows[$0] }
+            let frames = remaining.map(\.frame)
+            let documentIDs = fixture.states.map { $0.document?.id }
+            let generations = fixture.states.map(\.generation)
+            let keyWindow = NSApp.keyWindow, mainWindow = NSApp.mainWindow
+            let visibility = remaining.map(\.isVisible)
+            fixture.windows[closing].performClose(nil)
+            try await waitFor { fixture.closed.contains(closing) }
+            XCTAssertEqual(group.windows, remaining)
+            XCTAssertTrue(group.isTabBarVisible)
+            XCTAssertEqual(remaining.map(\.frame), frames)
+            XCTAssertTrue(NSApp.keyWindow === keyWindow)
+            XCTAssertTrue(NSApp.mainWindow === mainWindow)
+            for (index, window) in remaining.enumerated() where window !== group.selectedWindow {
+                XCTAssertEqual(window.isVisible, visibility[index], "Remounting must not expose background readers")
+            }
+            for index in fixture.states.indices where index != closing {
+                XCTAssertEqual(fixture.states[index].document?.id, documentIDs[index])
+                XCTAssertEqual(fixture.states[index].generation, generations[index], "Remounting must not load or replace surviving documents")
+            }
+            let selected = try XCTUnwrap(group.selectedWindow)
+            XCTAssertTrue(remaining.contains(selected))
+            if closing != 2 { XCTAssertTrue(selected === fixture.windows[2], "Closing a background tab must retain the selected reader") }
+            XCTAssertEqual(fixture.approvals.map(\.requests), fixture.windows.indices.map { $0 == closing ? 1 : 0 })
+        }
+    }
+
     func testBulkCloseCompletesAllOtherLeftAndRightNativeTabSubsets() async throws {
         for (subset, remaining) in [("all", []), ("other", [2]), ("left", [2, 3, 4]), ("right", [0, 1, 2])] {
             let fixture = try Tabs(count: 5, selected: 2)

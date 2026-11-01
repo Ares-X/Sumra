@@ -3,17 +3,19 @@ import SwiftUI
 import SumraCore
 
 extension ReaderPreferences {
-    static let typographyKeys: Set<String> = ["font", "fontSize", "lineHeight", "margin", "pageMargins", "userCSS", "useDocumentCSS"]
+    static let typographyKeys: Set<String> = ["font", "fontSize", "lineHeight", "margin", "pageMargins", "marginPresetSelection", "controlTopMargin", "controlBottomMargin", "userCSS", "useDocumentCSS"]
     private static let savedReadingFields: [String: (inout ReadingPosition) -> Void] = [
         "fit": { $0.fit = nil; $0.zoom = nil }, "flow": { $0.flow = nil },
         "spread": { $0.spread = nil }, "rtl": { $0.rtl = nil }, "cover": { $0.cover = nil },
         "automaticLayout": { $0.automaticLayout = nil }, "scrollbarMode": { $0.scrollbarMode = nil },
         "font": { $0.font = nil }, "fontSize": { $0.fontSize = nil }, "lineHeight": { $0.lineHeight = nil },
-        "margin": { $0.margin = nil; $0.pageMargins = nil },
-        "pageMargins": { $0.margin = nil; $0.pageMargins = nil },
+        "margin": { $0.margin = nil; $0.pageMargins = nil; $0.marginPresetSelection = nil },
+        "pageMargins": { $0.margin = nil; $0.pageMargins = nil; $0.marginPresetSelection = nil },
+        "marginPresetSelection": { $0.margin = nil; $0.pageMargins = nil; $0.marginPresetSelection = nil },
+        "controlTopMargin": { $0.controlTopMargin = nil }, "controlBottomMargin": { $0.controlBottomMargin = nil },
         "userCSS": { $0.userCSS = nil }, "useDocumentCSS": { $0.useDocumentCSS = nil },
         "invertColors": { $0.invertColors = nil }, "grayscale": { $0.grayscale = nil },
-        "documentColors": { $0.documentColors = nil; $0.customTextColor = nil; $0.customBackgroundColor = nil; $0.customLinkColor = nil },
+        "documentColors": { $0.documentColors = nil; $0.customTextColor = nil; $0.customBackgroundColor = nil; $0.customLinkColor = nil; $0.customPageDividerColor = nil; $0.customPageDividerHidden = nil },
         "enhanceScannedPages": { $0.enhanceScannedPages = nil }, "preservePDFImages": { $0.preservePDFImages = nil },
         "engineeringEnhance": { $0.engineeringEnhance = nil }
     ]
@@ -35,20 +37,25 @@ extension ReaderPreferences {
     }
 
     static func setMargins(_ value: Double) {
+        setMargins(PageMargins(cssValues: [value]), selection: "custom")
+    }
+
+    static func setMargins(_ margins: PageMargins?, selection: String) {
         let defaults = UserDefaults.standard
-        defaults.set(value, forKey: "margin")
-        defaults.set(PageMargins(cssValues: [value]).flatMap { try? JSONEncoder().encode($0) }, forKey: "pageMargins")
-        applyReadingDefaults(changed: ["margin", "pageMargins"])
+        if let margins { defaults.set(margins.left, forKey: "margin") }
+        defaults.set(margins.flatMap { try? JSONEncoder().encode($0) }, forKey: "pageMargins")
+        defaults.set(selection, forKey: "marginPresetSelection")
+        applyReadingDefaults(changed: ["margin", "pageMargins", "marginPresetSelection"])
     }
 
     static func applyReadingDefaults(changed requested: Set<String>) {
         var changed = requested.intersection(liveReadingKeys)
         guard !changed.isEmpty else { return }
         let defaults = UserDefaults.standard
-        if changed.contains("margin") || changed.contains("pageMargins") {
+        if changed.contains("margin") || changed.contains("pageMargins") || changed.contains("marginPresetSelection") {
             // A scalar in an old settings export is not a four-side override.
             // The interactive uniform-margin setter explicitly writes both.
-            changed.formUnion(["margin", "pageMargins"])
+            changed.formUnion(["margin", "pageMargins", "marginPresetSelection"])
         }
         var revisions = readingRevisions
         for key in changed where savedReadingFields[key] != nil { revisions[key, default: 0] += 1 }
@@ -72,7 +79,7 @@ extension ReaderPreferences {
         reader.readPreferences(changed: changed)
         let style = (!changed.isDisjoint(with: typographyKeys.union(["documentColors"])) && (reader.reflowable || reader.isText || reader.isBrowser)) ||
             (changed.contains("flow") && (reader.isText || reader.isBrowser)) ||
-            (changed.contains("scrollbarMode") && reader.isBrowser)
+            (!changed.isDisjoint(with: ["spread", "rtl", "scrollbarMode"]) && reader.isBrowser)
         if changed.contains("flow") {
             reader.setFlow(reader.flow, notify: false)
             if changed.contains("automaticLayout") { reader.automaticLayout = defaults.bool(forKey: "automaticLayout") }

@@ -6,6 +6,7 @@ import CoreText
 @MainActor
 struct ReaderView: View {
     @ObservedObject var state: ReaderState
+    var awaitingDocumentOpen = false
     @AppStorage("language") private var language = "system"
     @AppStorage("customThemes") private var customThemes = "[]"
     @AppStorage("findFloating") private var findFloating = false
@@ -15,6 +16,8 @@ struct ReaderView: View {
     @State private var initialNativeCanvas: (document: UUID, bounds: CGRect, position: ReadingPosition)?
     @State private var initialNativeViewport: (document: UUID, size: CGSize)?
     @State private var fullscreenMenuInset: CGFloat = 0
+    @State private var nativeTopClearance: CGFloat = 0
+    @State private var bottomStatusHeight: CGFloat = 0
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
@@ -30,7 +33,7 @@ struct ReaderView: View {
         let hasTopControls = findControlsShown || editingControlsShown || speechControlsShown
         let topClearance = floatingTopClearance(forControls: hasTopControls)
         VStack(spacing: 0) {
-            if !state.hasDocument { ReaderHomeHeader(state: state, open: openFiles) }
+            if !state.hasDocument { ReaderHomeHeader() }
             if findControlsShown {
                 ReaderFindControls(state: state, floating: $findFloating, close: closeFind)
                     .modifier(ReaderChromeEntrance())
@@ -43,23 +46,33 @@ struct ReaderView: View {
             }
 
             if speechControlsShown { SpeechControls(state: state); Divider() }
-            mainArea(topClearance: hasTopControls ? 0 : topClearance)
+            mainArea(topClearance: hasTopControls ? 0 : topClearance, topControlsShown: hasTopControls)
 
             if state.hasDocument && !state.presentation && !overlaysProgress && progressDisplayMode != .hidden {
                 ReaderProgressFooter(state: state).id(state.document?.id)
             }
 
             if state.document != nil && !state.presentation && (findStatusVisible || !state.status.isEmpty || state.modified) {
-                Divider()
-                HStack {
-                    Text(state.status.isEmpty && findStatusVisible ? state.searchCountText : state.status).lineLimit(1)
-                    Spacer()
-                    if state.modified { Text(L("Unsaved Changes")) }
+                VStack(spacing: 0) {
+                    Divider()
+                    HStack {
+                        Text(state.status.isEmpty && findStatusVisible ? state.searchCountText : state.status).lineLimit(1)
+                        Spacer()
+                        if state.modified { Text(L("Unsaved Changes")) }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear
+                            .onAppear { bottomStatusHeight = geometry.size.height }
+                            .onChange(of: geometry.size.height) { bottomStatusHeight = $0 }
+                            .onDisappear { bottomStatusHeight = 0 }
+                    }
+                }
             }
         }
         .padding(.top, (hasTopControls ? topClearance : 0) + (reclaimsNativeInsets ? 0 : fullscreenMenuInset))
@@ -73,7 +86,7 @@ struct ReaderView: View {
             }
         }
         .background(state.hasDocument ? Color(nsColor: ReaderTheme.color(state.palette.background)) : Color(nsColor: .windowBackgroundColor))
-        .background(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion, fullscreenMenuInset: $fullscreenMenuInset))
+        .overlay(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion, fullscreenMenuInset: $fullscreenMenuInset, nativeTopClearance: $nativeTopClearance))
         .onChange(of: colorScheme) { _ in
             if state.theme == "system", state.isText || state.isBrowser || state.reflowable {
                 state.send(.style)
@@ -107,7 +120,7 @@ struct ReaderView: View {
         .background(ReaderSelectionToolbar(state: state).frame(width: 0, height: 0))
         .background(ReaderFindPanel(state: state, isPresented: state.showFind && findFloating && !state.presentation).frame(width: 0, height: 0))
         .sheet(isPresented: $state.showPalette) { CommandPalette(state: state, open: openFiles) }
-        .sheet(isPresented: $state.showFiles) { DocumentFileBrowser(state: state, folder: state.document?.url.deletingLastPathComponent(), dismissOnOpen: true).frame(width: 620, height: 460) }
+        .modifier(DocumentFileBrowserSheet(state: state))
         .contextMenu { contextMenu }
         .dropDestination(for: URL.self) { urls, _ in
             guard !urls.isEmpty else { return false }
@@ -134,24 +147,36 @@ struct ReaderView: View {
     private var overlaysProgress: Bool { state.usesFloatingChrome || reclaimsNativeInsets }
     private func floatingTopClearance(forControls: Bool) -> CGFloat {
         guard state.usesFloatingChrome, state.toolbarDisplayMode != .hidden else { return 0 }
-        guard forControls || state.marginPreset != .narrow else { return 0 }
-        let gap: CGFloat = state.marginPreset == .medium ? 2 : 10
         // The book already reserves its own page margin. Add only the space
         // still needed to clear the controls, rather than stacking two margins.
         // An unset override leaves publisher margins in charge; the legacy
         // scalar is not the actual margin of a native reflowable book.
-        // Find, speech and editing rows have no page margin and stay reachable
-        // even when Narrow intentionally allows controls over reading content.
-        // Fixed pages have no reflow page margin to contribute this space.
-        let pageMargin = !forControls && state.usesReflowMargins ? state.pageMargins?.top ?? 0 : 0
-        return max(0, ReaderFloatingControls.topInset + ReaderFloatingControls.height + gap - pageMargin)
+        // Find, speech and editing rows stay reachable even when the user
+        // allows the toolbar to overlap reading content.
+        // Fixed pages consume the same margins outside their native canvas.
+        let pageMargin = !forControls ? state.contentMargins?.top ?? 0 : 0
+        let clearance = forControls
+            ? max(state.controlTopMargin, ReaderFloatingControls.topInset + ReaderFloatingControls.height)
+            : state.controlTopMargin
+        return max(0, clearance - pageMargin)
+    }
+    private var sidebarTopClearance: CGFloat {
+        if state.usesFloatingChrome {
+            let windowControlsClearance = ReaderFloatingControls.topInset + ReaderFloatingControls.height + 10
+            return state.toolbarDisplayMode == .hidden ? windowControlsClearance : max(state.controlTopMargin, windowControlsClearance)
+        }
+        return reclaimsNativeInsets ? nativeTopClearance : 0
+    }
+    private var sidebarBottomClearance: CGFloat {
+        guard overlaysProgress, state.hasDocument, !state.presentation, progressDisplayMode != .hidden else { return 0 }
+        // Sidebars have interactive content down to their bottom edge. Clear
+        // the whole footer hover target, counting root padding/status only once.
+        return max(0, ReaderProgressFooter.layoutHeight(floating: state.usesFloatingChrome) - floatingBottomClearance - bottomStatusHeight)
     }
     private var floatingBottomClearance: CGFloat {
         guard state.usesFloatingChrome, progressDisplayMode != .hidden else { return 0 }
-        guard state.marginPreset != .narrow else { return 0 }
-        let gap: CGFloat = state.marginPreset == .medium ? 2 : 8
-        let pageMargin = state.usesReflowMargins ? state.pageMargins?.bottom ?? 0 : 0
-        return max(0, ReaderProgressFooter.height + ReaderProgressFooter.floatingBottomInset + gap - pageMargin)
+        let pageMargin = state.contentMargins?.bottom ?? 0
+        return max(0, state.controlBottomMargin - pageMargin)
     }
 
     private func closeFind() {
@@ -261,12 +286,7 @@ struct ReaderView: View {
     }
 
     private func menuCommands(_ commands: [ReaderMenuCommand]) -> some View {
-        ForEach(commands) { command in
-            Button { command.run(state) } label: {
-                if command.checked(state) == true { Label(command.title, systemImage: "checkmark") }
-                else { Text(command.title) }
-            }.disabled(!command.enabled(state))
-        }
+        ReaderCommandMenuItems(state: state, commands: commands)
     }
 
     private var zoomOptions: some View {
@@ -329,11 +349,19 @@ struct ReaderView: View {
     }
 
     @ViewBuilder
-    private func mainArea(topClearance: CGFloat) -> some View {
+    private func mainArea(topClearance: CGFloat, topControlsShown: Bool) -> some View {
         // The sidebar preference names a physical edge, independent of UI language.
         let sidebarFirst = sidebarRight == (layoutDirection == .rightToLeft)
+        // Shared Find/edit/speech rows already start below floating controls.
+        // Sidebars below those rows must not reserve the toolbar a second time.
+        let sidebarInset = state.usesFloatingChrome && topControlsShown ? 0 : sidebarTopClearance
+        // Each pane reserves chrome clearance itself; reclaim the native safe
+        // area in every split child so sidebars do not count that space twice.
         HSplitView {
-            if sidebarFirst { sidebar }
+            if sidebarFirst {
+                sidebar.padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
+                    .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
+            }
             documentArea
                 // Keep reader clearance inside the ignored safe area. Outer
                 // padding within the native titlebar inset would be reclaimed
@@ -344,8 +372,14 @@ struct ReaderView: View {
                 .overlay { if state.invertColors && !state.isPDF { Color.white.blendMode(.difference).allowsHitTesting(false) } }
                 .compositingGroup()
                 .frame(minWidth: 360)
-            if !sidebarFirst { sidebar }
-            if state.hasDocument && state.showAI && !state.presentation { ReaderAISidebar(state: state).frame(minWidth: 240, idealWidth: 300, maxWidth: 480) }
+            if !sidebarFirst {
+                sidebar.padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
+                    .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
+            }
+            if state.hasDocument && state.showAI && !state.presentation {
+                ReaderAISidebar(state: state).padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
+                    .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
+            }
         }
     }
 
@@ -462,7 +496,7 @@ struct ReaderView: View {
                     // UI direction must not mirror page coordinates or change
                     // the document's independently selected reading order.
                     .environment(\.layoutDirection, .leftToRight)
-            } else if state.busy {
+            } else if state.busy || awaitingDocumentOpen {
                 ProgressView(L("Opening…"))
             } else {
                 WelcomeView(state: state, open: openFiles)
@@ -526,7 +560,7 @@ struct ReaderView: View {
                         _ = try await pages.relayout(
                             fontSize: state.fontSize, lineHeight: state.lineHeight,
                             margin: state.margin, font: state.font, theme: state.resolvedTheme,
-                            userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS, pageMargins: state.pageMargins,
+                            userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS, pageMargins: state.contentMargins,
                             textZoom: pages.isMarkdown ? state.zoom : 1,
                             pageSize: initialPageSize, viewport: initialViewport)
                         NativeReadingPerformance.mark("relayout-return", pages: pages, revision: state.renderRevision, started: layoutStarted, persistent: true, flags: flags)
@@ -546,7 +580,7 @@ struct ReaderView: View {
                             let changed = try await pages.relayout(
                                 fontSize: state.fontSize, lineHeight: state.lineHeight,
                                 margin: state.margin, font: state.font, theme: state.resolvedTheme,
-                                userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS, pageMargins: state.pageMargins,
+                                userCSS: state.effectiveUserCSS, useDocumentCSS: state.useDocumentCSS, pageMargins: state.contentMargins,
                                 textZoom: pages.isMarkdown ? state.zoom : 1,
                                 pageSize: finalPageSize, readingPosition: restored, viewport: finalViewport)
                             if changed != nil { restored = await pages.layoutPosition }
@@ -856,6 +890,7 @@ struct ReaderSearchResults: NSViewRepresentable {
         column.resizingMask = .autoresizingMask
         table.addTableColumn(column); table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         table.headerView = nil; table.style = .sourceList
+        table.backgroundColor = .clear
         table.rowHeight = 44; table.intercellSpacing = .zero
         table.allowsMultipleSelection = false; table.allowsEmptySelection = true
         table.delegate = context.coordinator; table.dataSource = context.coordinator
@@ -1181,13 +1216,9 @@ struct TypographyMenu: View {
                     .onChange(of: state.lineHeight) { _ in state.applyTypography(overrideDocumentStyles: true) }
             }
 
-            Stepper(String(format: L("Margin %d"), Int(state.margin)), value: Binding(
-                get: { state.margin },
-                set: { value in
-                    state.margin = value
-                    state.pageMargins = PageMargins(cssValues: [value])
-                    state.applyTypography()
-                }), in: 0...96, step: 8)
+            Stepper(String(format: L("Margin %d"), Int(state.contentMargins?.left ?? state.margin)), value: Binding(
+                get: { state.contentMargins?.left ?? state.margin },
+                set: { state.setCustomMargins(PageMargins(cssValues: [$0])) }), in: 0...96, step: 8)
         }
     }
 }

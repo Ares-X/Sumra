@@ -522,12 +522,12 @@ final class RasterReaderTests: XCTestCase {
                     if let clip = canvas.enclosingScrollView?.contentView {
                         let viewport = clip.safeAreaRect.size
                         let slotWidth = visibleCount == 2 ? (viewport.width-4)/2 : viewport.width
-                        let fitScale = min(slotWidth/canvas.pageBounds.width, viewport.height/canvas.pageBounds.height)
+                        let fitScale = visible.map { min(slotWidth/$0.pageBounds.width, viewport.height/$0.pageBounds.height) }.min()!
                         let pixel = 1/window.backingScaleFactor
                         XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width*fitScale, accuracy: pixel,
-                            "Fit Page width must independently fit the current viewport")
+                            "Facing pages must share the fit scale for the current viewport")
                         XCTAssertEqual(canvas.bounds.height, canvas.pageBounds.height*fitScale, accuracy: pixel,
-                            "Fit Page height must independently fit the current viewport")
+                            "Facing pages must share the fit scale for the current viewport")
                         let displayed = canvas.convert(canvas.bounds, to: clip)
                         XCTAssertTrue(clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5).contains(displayed),
                             "Fit Page must keep the entire source page in the current clip during every painted resize frame: \(displayed), \(clip.safeAreaRect)")
@@ -562,7 +562,7 @@ final class RasterReaderTests: XCTestCase {
                 XCTAssertTrue(canvas.image === originalImages[canvas.page],
                     "Display fit must scale the existing frozen-layout bitmap during a drag rather than rerasterizing each window size")
                 let slotWidth = visibleCount == 2 ? (size.width-4)/2 : size.width
-                let expectedScale = min(slotWidth/canvas.pageBounds.width, size.height/canvas.pageBounds.height)
+                let expectedScale = visible.map { min(slotWidth/$0.pageBounds.width, size.height/$0.pageBounds.height) }.min()!
                 XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width*expectedScale, accuracy: 0.5,
                     "Fit Page must use the current viewport rather than its frozen native layout viewport")
             }
@@ -1147,6 +1147,9 @@ final class RasterReaderTests: XCTestCase {
         state.flow = "paged"; state.fit = "page"; state.spread = false; state.cover = false; state.rtl = false
         state.rotation = 0; state.automaticLayout = false; state.uniformPageWidth = false
         state.freePan = false; state.trimEmptyMargins = false; state.scrollbarMode = "shown"
+        // Exercise the native toolbar safe area itself, without an outer page
+        // margin already moving the entire scroll view below that safe area.
+        state.pageMargins = nil; state.marginPresetSelection = nil
         state.toolbarDisplayMode = .shown; state.presentation = false
         state.showContents = false; state.showThumbnails = false; state.showBookmarks = false
         let host = NSHostingView(rootView: ReaderView(state: state))
@@ -1366,6 +1369,9 @@ final class RasterReaderTests: XCTestCase {
         state.rotation = 0; state.automaticLayout = false; state.uniformPageWidth = false
         state.freePan = false; state.trimEmptyMargins = false; state.landscapeAsSpread = false
         state.scrollbarMode = "shown"
+        // Keep the mixed CropBox/content-fit case independent of saved user
+        // preferences, while exercising the new fixed-page margin viewport.
+        state.pageMargins = PageMargins(cssValues: [11, 23, 17, 31]); state.marginPresetSelection = "custom"
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
@@ -1379,6 +1385,7 @@ final class RasterReaderTests: XCTestCase {
         // SwiftUI aligns native view edges to the window backing grid. Keep
         // exact fit arithmetic above separate from these rendered view sizes.
         let pixelTolerance = 1 / window.backingScaleFactor
+        var contentVisibilityFailure = ""
         func canvases() -> [NSView] {
             guard let first = state.readerFocusView else { return [] }
             func visit(_ view: NSView) -> [NSView] {
@@ -1393,7 +1400,7 @@ final class RasterReaderTests: XCTestCase {
                 if condition() { return }
                 try await Task.sleep(nanoseconds: 10_000_000)
             } while Date() < deadline && state.error == nil
-            _ = try XCTUnwrap(condition() ? true : nil, "Facing page geometry: \(canvases().map(\.bounds)), \(state.error ?? "no error")", line: line)
+            _ = try XCTUnwrap(condition() ? true : nil, "Facing page geometry: \(canvases().map(\.bounds)), \(state.error ?? "no error"), \(contentVisibilityFailure)", line: line)
         }
         func setFit(_ mode: String, line: UInt = #line) async throws {
             let revision = state.command.revision + 2
@@ -1407,7 +1414,10 @@ final class RasterReaderTests: XCTestCase {
                 let view = logical[index], bounds = index == 0 ? firstBounds : secondBounds
                 let padded = mode == "visible" ? content.insetBy(dx: -2, dy: -2) : content
                 let expected = padded.applying(CGAffineTransform(scaleX: view.bounds.width / bounds.width, y: view.bounds.height / bounds.height))
-                if !view.visibleRect.insetBy(dx: -0.5, dy: -0.5).contains(expected) { return false }
+                if !view.visibleRect.insetBy(dx: -0.5, dy: -0.5).contains(expected) {
+                    contentVisibilityFailure = "mode=\(mode), rtl=\(state.rtl), page=\(index), visible=\(view.visibleRect), expected=\(expected), viewport=\(String(describing: state.readerScrollView?.contentView.safeAreaRect)), margins=\(String(describing: state.contentMargins))"
+                    return false
+                }
             }
             return true
         }
@@ -1461,7 +1471,7 @@ final class RasterReaderTests: XCTestCase {
         try await waitFor {
             guard let viewport = state.readerScrollView?.contentView.bounds.size,
                   let first = state.readerFocusView else { return false }
-            return viewport == host.bounds.size &&
+            return viewport == CGSize(width: host.bounds.width - 54, height: host.bounds.height - 28) &&
                 abs(first.bounds.width - 200 * (viewport.width - 4) / 480) <= pixelTolerance &&
                 rowContentIsVisible(mode: "content", contents: [firstContent, secondContent])
         }
@@ -1745,6 +1755,9 @@ final class RasterReaderTests: XCTestCase {
         state.count = 2; state.flow = "paged"; state.fit = "actual"; state.zoom = 1
         state.spread = false; state.automaticLayout = false; state.freePan = false
         state.rotation = 0; state.uniformPageWidth = false; state.trimEmptyMargins = false; state.scrollbarMode = "smart"
+        // This frame-navigation fixture deliberately compares the viewport to
+        // the complete host. Margin geometry has its own explicit fixture.
+        state.pageMargins = nil; state.marginPresetSelection = nil
         let count = await pages.count
         XCTAssertEqual(count, 2)
         state.updatePosition(.init(page: 1))

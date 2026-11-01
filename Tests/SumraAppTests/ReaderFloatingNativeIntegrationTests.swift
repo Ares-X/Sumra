@@ -7,6 +7,152 @@ import XCTest
 
 @MainActor
 final class ReaderFloatingNativeIntegrationTests: XCTestCase {
+    private struct AccessibleElement {
+        let role: NSAccessibility.Role
+        let label: String?
+        let value: String?
+        let frame: CGRect
+        let identifier: String?
+        func accessibilityRole() -> NSAccessibility.Role { role }
+        func accessibilityLabel() -> String? { label }
+        func accessibilityValue() -> Any? { value }
+        func accessibilityFrame() -> CGRect { frame }
+    }
+    private static var accessibilityLaunched = false
+
+    // NSHostingView's in-process protocol getters expose its AppKit children,
+    // whereas the public AX client includes SwiftUI's virtual button nodes.
+    private func accessibleElements(in window: NSWindow) throws -> [AccessibleElement] {
+        if !Self.accessibilityLaunched {
+            NSApp.finishLaunching()
+            Self.accessibilityLaunched = true
+        }
+        func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+            var value: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+            return value
+        }
+        let application = AXUIElementCreateApplication(getpid())
+        let windows = try XCTUnwrap(attribute(application, kAXWindowsAttribute) as? [AXUIElement])
+        let target = try XCTUnwrap(windows.first { attribute($0, kAXTitleAttribute) as? String == window.title },
+            "The fixture window must be registered with AppKit's accessibility server")
+        func descendants(_ element: AXUIElement) -> [AccessibleElement] {
+            var position = CGPoint.zero, size = CGSize.zero
+            if let value = attribute(element, kAXPositionAttribute), CFGetTypeID(value) == AXValueGetTypeID() {
+                AXValueGetValue(value as! AXValue, .cgPoint, &position)
+            }
+            if let value = attribute(element, kAXSizeAttribute), CFGetTypeID(value) == AXValueGetTypeID() {
+                AXValueGetValue(value as! AXValue, .cgSize, &size)
+            }
+            // Client AX coordinates start at the main screen's top left.
+            let frame = CGRect(x: position.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - position.y - size.height,
+                width: size.width, height: size.height)
+            let item = AccessibleElement(role: NSAccessibility.Role(rawValue: attribute(element, kAXRoleAttribute) as? String ?? ""),
+                label: attribute(element, kAXDescriptionAttribute) as? String ?? attribute(element, kAXTitleAttribute) as? String,
+                value: attribute(element, kAXValueAttribute) as? String, frame: frame,
+                identifier: attribute(element, kAXIdentifierAttribute) as? String)
+            return [item] + (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).flatMap(descendants)
+        }
+        return descendants(target)
+    }
+
+    private func frame(of element: AccessibleElement, in view: NSView) -> CGRect {
+        guard let window = view.window else { return .zero }
+        return view.convert(window.convertFromScreen(element.frame), from: nil)
+    }
+
+    func testEmptyContentsHeaderRemainsAtTheTopOfItsPane() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarRight", "sidebarWidth", "progressDisplayMode", "toolbarDisplayMode", "immersiveControls"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defaults.set(false, forKey: "sidebarRight")
+        defaults.set(220.0, forKey: "sidebarWidth")
+        defaults.set("hidden", forKey: "progressDisplayMode")
+        defer { for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) } }
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/contents-header-layout.txt"),
+            content: .text(String(repeating: "Section 1\nA paragraph to fill the native reading viewport.\n", count: 80)))
+        state.count = 80; state.showContents = true; state.showAI = false
+        state.showAnnotations = false; state.showBookmarks = false; state.showThumbnails = false
+        state.toolbarDisplayMode = .auto
+        state.immersiveControls = false; state.toolbarHoverVisible = false
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 1000, height: 800),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.title = "Contents header layout"
+        window.alphaValue = 0; window.ignoresMouseEvents = true
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        window.contentView = host; state.window = window; window.orderBack(nil)
+        defer { state.windowClosed(); window.contentView = nil; window.orderOut(nil); window.close() }
+        for right in [false, true] {
+            defaults.set(right, forKey: "sidebarRight")
+            for floating in [false, true, false] {
+                state.immersiveControls = floating
+                for populated in [false, true, false] {
+                    state.outline = populated ? [ContentsItem(title: "Section 1", target: "0", depth: 0)] : []
+                    for _ in 0..<25 {
+                        host.layoutSubtreeIfNeeded()
+                        try await Task.sleep(nanoseconds: 10_000_000)
+                    }
+                    let close = try XCTUnwrap(accessibleElements(in: window).first { $0.label == L("Close Sidebar") })
+                    let header = frame(of: close, in: host)
+                    let topGap = host.isFlipped ? header.minY - host.bounds.minY : host.bounds.maxY - header.maxY
+                    let chromeHeight = floating
+                        ? ReaderFloatingControls.topInset + ReaderFloatingControls.height + 10
+                        : host.safeAreaInsets.top
+                    print("Contents header right=\(right), floating=\(floating), populated=\(populated), top gap=\(topGap), chrome=\(chromeHeight)")
+                    XCTAssertEqual(topGap, chromeHeight + 13, accuracy: 3,
+                        "The header must sit immediately below one reserved chrome area, including after content and toolbar changes")
+                }
+            }
+        }
+    }
+
+    func testContentsListUsesItsContainerBackgroundAcrossThemeChanges() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let keys = ["theme", "lastLightTheme", "lastDarkTheme"]
+        let saved = keys.map { defaults.object(forKey: $0) }, appearance = NSApp.appearance
+        defer {
+            for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) }
+            NSApp.appearance = appearance
+        }
+        let state = ReaderState(recordsHistory: false)
+        state.outline = [.init(title: "Chapter", target: "0")]
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 300, height: 400),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        let host = NSHostingView(rootView: ContentsTree(state: state).background(Color.white))
+        window.contentView = host; state.window = window; window.orderBack(nil)
+        defer { state.windowClosed(); window.contentView = nil; window.orderOut(nil); window.close() }
+        for theme in ["light", "dark", "light-warm", "light"] {
+            state.theme = theme; ReaderTheme.applyAppearance(theme)
+            host.rootView = ContentsTree(state: state).background(Color(nsColor: ReaderTheme.color(state.palette.background)))
+            for _ in 0..<25 { host.layoutSubtreeIfNeeded(); try await Task.sleep(nanoseconds: 10_000_000) }
+            let tree = try XCTUnwrap(state.contentsFocusView)
+            let clip = try XCTUnwrap(tree.enclosingScrollView?.contentView)
+            let bottom = clip.isFlipped ? clip.bounds.maxY - 20 : clip.bounds.minY + 20
+            let listPoint = clip.convert(NSPoint(x: clip.bounds.midX, y: bottom), to: host)
+            let searchAreaPoint = NSPoint(x: 4, y: 4)
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let samples = try [("list", listPoint), ("search area", searchAreaPoint)].map { label, point in
+                let x = Int(point.x * CGFloat(bitmap.pixelsWide) / host.bounds.width)
+                let y = Int((host.isFlipped ? point.y : host.bounds.height - point.y) * CGFloat(bitmap.pixelsHigh) / host.bounds.height)
+                let actual = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                print("Contents theme=\(theme) \(label) rgb=\(actual.redComponent),\(actual.greenComponent),\(actual.blueComponent)")
+                return actual
+            }
+            let actual = samples[0], expected = samples[1]
+            XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.01, "\(theme) list and search area")
+            XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.01, "\(theme) list and search area")
+            XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.01, "\(theme) list and search area")
+            if theme == "dark" { XCTAssertLessThan(expected.redComponent, 0.05) }
+            else if theme == "light-warm" { XCTAssertLessThan(expected.blueComponent, 0.95) }
+            else { XCTAssertGreaterThan(expected.blueComponent, 0.95) }
+        }
+    }
+
     func testPortraitFixedPagesReserveFloatingControlsWithoutReflowMarginsOrHoverLayoutChanges() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()
@@ -56,15 +202,22 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
                 } while Date() < deadline
                 throw ReadError("Fixed page did not paint")
             }
-            // Fixed pages do not consume these reflow overrides. The actual
-            // mounted viewport must still reserve full control clearance.
-            let cases: [(Double, ReaderToolbarDisplayMode, ReaderToolbarDisplayMode, CGFloat, CGFloat)] = [
-                (16, .auto, .shown, ReaderFloatingControls.topInset + ReaderFloatingControls.height + 2, 34),
-                (24, .auto, .shown, ReaderFloatingControls.topInset + ReaderFloatingControls.height + 10, 40),
-                (8, .auto, .shown, 0, 0), (24, .hidden, .hidden, 0, 0)
+            // Content margins and each independently chosen clearance reserve
+            // their maximum once; zero clearance allows reading under controls.
+            let cases: [(Double, Double, Double, ReaderToolbarDisplayMode, ReaderToolbarDisplayMode, CGFloat, CGFloat)] = [
+                (16, 54, 44, .auto, .shown, 54, 44),
+                (24, 54, 44, .auto, .shown, 54, 44),
+                (8, 54, 44, .auto, .shown, 54, 44),
+                (80, 54, 44, .auto, .shown, 80, 80),
+                (16, 76, 44, .auto, .shown, 76, 44),
+                (16, 76, 67, .auto, .shown, 76, 67),
+                (16, 0, 67, .auto, .shown, 16, 67),
+                (16, 0, 0, .auto, .shown, 16, 16),
+                (24, 76, 67, .hidden, .hidden, 24, 24)
             ]
-            for (margin, toolbar, progress, top, bottom) in cases {
-                state.margin = margin; state.pageMargins = .init(cssValues: [margin])
+            for (margin, topMargin, bottomMargin, toolbar, progress, top, bottom) in cases {
+                state.margin = margin; state.pageMargins = .init(cssValues: [margin]); state.marginPresetSelection = "custom"
+                state.controlTopMargin = topMargin; state.controlBottomMargin = bottomMargin
                 state.toolbarDisplayMode = toolbar; defaults.set(progress.rawValue, forKey: "progressDisplayMode")
                 state.toolbarHoverVisible = false; state.toolbarHoverOpacity = 0
                 try await waitForPaint()
@@ -131,14 +284,15 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
         XCTAssertFalse(state.toolbarHoverVisible, "Presentation suppresses the window-control reveal as well")
     }
 
-    func testHomeHeaderKeepsWindowControlsAndOpenInsetWithoutDocumentTabs() async throws {
+    func testHomeHeaderKeepsOnlyWindowControlsWithoutDuplicateWelcomeCommands() async throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 400),
-            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        window.title = "Home chrome integration fixture"
         let state = ReaderState(recordsHistory: false)
         state.window = window
-        let host = NSHostingView(rootView: ReaderHomeHeader(state: state, open: {}))
+        let host = NSHostingView(rootView: ReaderHomeHeader())
         window.contentView = host; window.orderBack(nil)
         defer { window.contentView = nil; window.orderOut(nil); window.close(); state.windowClosed() }
         func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
@@ -154,10 +308,17 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
             let mounted = views(host)
             let controls = try XCTUnwrap(mounted.compactMap { $0 as? ReaderFloatingWindowButtons.Buttons }.first)
             XCTAssertEqual(controls.convert(controls.bounds, to: host).minX, 16, accuracy: 1)
-            let buttons = mounted.compactMap { $0 as? NSButton }
-            let open = try XCTUnwrap(buttons.first { !$0.isDescendant(of: controls) })
-            XCTAssertEqual(open.convert(open.bounds, to: host).maxX, host.bounds.maxX - 16, accuracy: 1)
-            XCTAssertEqual(buttons.count, 4, "Home has window controls and Open, without document-tab actions")
+            let elements = try accessibleElements(in: window)
+            let headerFrame = host.convert(host.bounds, to: nil)
+            let headerScreen = window.convertToScreen(headerFrame)
+            let buttons = elements.filter { $0.role == .button && headerScreen.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+            XCTAssertEqual(buttons.count, 3, "The header contains only the native window controls")
+            XCTAssertFalse(buttons.contains { $0.accessibilityLabel() == L("Open Document") },
+                "Welcome already owns the document-opening action")
+            XCTAssertFalse(elements.contains {
+                $0.accessibilityRole() == .staticText && ($0.accessibilityValue() as? String == "Sumra" || $0.accessibilityLabel() == "Sumra")
+            }, "Welcome already displays the application title")
+            XCTAssertTrue(controls.subviews.compactMap { $0 as? NSButton }.allSatisfy { $0.target === window && $0.isEnabled })
             XCTAssertFalse(mounted.contains { $0 is NSScrollView })
         }
     }
@@ -194,14 +355,21 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
             let scroll = try XCTUnwrap(views(host).compactMap { $0 as? NSScrollView }.first)
-            let buttons = views(scroll).compactMap { $0 as? NSButton }
+            let buttons = try accessibleElements(in: windows[1]).filter {
+                $0.role == .button && (["first-book.epub", "second-book.epub"].contains($0.label ?? "") || $0.label?.hasPrefix(L("Close Tab") + ": ") == true)
+            }
             XCTAssertEqual(buttons.count, 4, "Both documents keep independent selection and close targets")
-            let closeButtons = buttons.filter { abs($0.bounds.width - 20) < 1 }
+            let closeButtons = buttons.filter { $0.accessibilityLabel()?.hasPrefix(L("Close Tab") + ": ") == true }
             XCTAssertEqual(closeButtons.count, 2)
-            XCTAssertTrue(closeButtons.allSatisfy { $0.bounds.height >= 20 })
+            XCTAssertTrue(closeButtons.allSatisfy { $0.accessibilityFrame().height >= 20 })
+            for title in ["first-book.epub", "second-book.epub"] {
+                let selection = try XCTUnwrap(buttons.first { $0.accessibilityLabel() == title })
+                XCTAssertGreaterThanOrEqual(selection.accessibilityFrame().height, 28,
+                    "The document name retains the whole tab height as its click target")
+            }
             if width >= 360 {
                 let frame = scroll.convert(scroll.bounds, to: host)
-                let lastClose = try XCTUnwrap(closeButtons.map { $0.convert($0.bounds, to: host) }.max { $0.maxX < $1.maxX })
+                let lastClose = try XCTUnwrap(closeButtons.map { self.frame(of: $0, in: host) }.max { $0.maxX < $1.maxX })
                 XCTAssertEqual(lastClose.maxX, frame.maxX - 8, accuracy: 1,
                                "Fitting tabs use the available strip instead of leaving an empty trailing region")
             } else {

@@ -75,6 +75,113 @@ final class NativePDFClipboardTests: XCTestCase {
         try await source.changeNativePDFHistory(redo: false)
         let restored = try await sourcePages.pdfAnnotations(0)
         XCTAssertTrue(restored.contains { $0.id == original })
+        let stillPasted = try await targetPages.pdfAnnotations(0)
+        XCTAssertEqual(stillPasted, pasted, "Undo in the source must not undo the other document's paste")
+    }
+
+    func testCrossDocumentDeletionFailurePublishesDestinationForUndoCopyAndCloseDecisions() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let (source, sourcePages, original) = try await fixture(directory, name: "failed-delete-source")
+        let (target, targetPages, targetOriginal) = try await fixture(directory, name: "failed-delete-target")
+        let previous = NativePDFClipboard.current
+        defer {
+            NativePDFClipboard.current = previous
+            source.windowClosed(); target.windowClosed(); withExtendedLifetime(directory) {}
+        }
+        try await unlock(source); try await unlock(target)
+        let sourceURL = try XCTUnwrap(source.document?.url), targetURL = try XCTUnwrap(target.document?.url)
+        // Commit the fixture annotations so an already-dirty model cannot hide
+        // a missing publication of the paste's own mutation.
+        try await sourcePages.pdfSave(to: sourceURL); try await source.nativePDFDidChange(sourcePages)
+        try await targetPages.pdfSave(to: targetURL); try await target.nativePDFDidChange(targetPages)
+        let sourceBytes = try Data(contentsOf: sourceURL), targetBytes = try Data(contentsOf: targetURL)
+        let sourceBefore = try await sourcePages.pdfInfo(), targetBefore = try await targetPages.pdfInfo()
+        let renderBefore = target.renderRevision
+        XCTAssertFalse(source.modified); XCTAssertFalse(target.modified)
+        XCTAssertEqual(sourceBefore?.dirty, false); XCTAssertEqual(targetBefore?.dirty, false)
+        let copied = try await NativePDFClipboard.copy(state: source, pages: sourcePages, cut: true)
+        XCTAssertTrue(copied)
+        let clipboard = try XCTUnwrap(NativePDFClipboard.current)
+
+        // Test-injected native failure: lock the real MuPDF edit owner without
+        // changing ReaderState. Its conditional delete still finds the original
+        // snapshot, then the native deletion throws. This is not a GUI race.
+        try await sourcePages.pdfSetEditing(false)
+        XCTAssertTrue(source.canEditPDF)
+        do {
+            try await clipboard.paste(state: target, pages: targetPages, page: 0, at: CGPoint(x: 100, y: 110))
+            XCTFail("The native source deletion must reject editing")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.hasPrefix("Annotation pasted, but the original could not be removed: "))
+            let cause = (error as NSError).userInfo[NSUnderlyingErrorKey] as? Error
+            XCTAssertNotNil(cause)
+            if let cause {
+                XCTAssertFalse(cause.localizedDescription.isEmpty)
+                XCTAssertTrue(error.localizedDescription.hasSuffix(cause.localizedDescription))
+            }
+        }
+        let remaining = try await sourcePages.pdfAnnotations(0), pasted = try await targetPages.pdfAnnotations(0)
+        let sourceAfter = try await sourcePages.pdfInfo(), targetAfter = try await targetPages.pdfInfo()
+        XCTAssertEqual(remaining.map(\.id), [original]); XCTAssertEqual(pasted.count, 2)
+        XCTAssertEqual(sourceAfter?.undoPosition, sourceBefore?.undoPosition)
+        XCTAssertEqual(sourceAfter?.dirty, false); XCTAssertFalse(source.modified)
+        XCTAssertEqual(targetAfter?.undoPosition, (targetBefore?.undoPosition ?? 0) + 1)
+        XCTAssertEqual(targetAfter?.dirty, true); XCTAssertEqual(target.nativePDFInfo?.dirty, true)
+        XCTAssertTrue(target.modified); XCTAssertGreaterThan(target.renderRevision, renderBefore)
+        guard case .annotation(let page, let selected) = target.nativePDFSelection else { return XCTFail("The pasted annotation must be selected") }
+        XCTAssertEqual(page, 0); XCTAssertNotEqual(selected.id, targetOriginal)
+        XCTAssertTrue(pasted.contains { $0.id == selected.id })
+        let sourceCloses = await source.confirmClose()
+        XCTAssertTrue(sourceCloses, "The unchanged source must not require a save")
+
+        // Check close directly after the failed source deletion, before Undo
+        // or Redo could publish the previously missed destination mutation.
+        // Guard first so a broken test cannot leave a queued modal response.
+        guard target.modified else { return XCTFail("Close decisions require the actual destination mutation") }
+        let prompts = expectation(description: "The dirty destination asks before closing")
+        prompts.expectedFulfillmentCount = 2
+        for (response, expected) in [(NSApplication.ModalResponse.alertThirdButtonReturn, false), (.alertSecondButtonReturn, true)] {
+            RunLoop.main.perform(inModes: [.modalPanel]) {
+                MainActor.assumeIsolated {
+                    prompts.fulfill()
+                    NSApplication.shared.stopModal(withCode: response)
+                }
+            }
+            let allowed = await target.confirmClose()
+            XCTAssertEqual(allowed, expected)
+            XCTAssertTrue(target.modified, "Cancel and Discard close approvals must not save the live PDF")
+            XCTAssertEqual(try Data(contentsOf: targetURL), targetBytes)
+        }
+        await fulfillment(of: [prompts], timeout: 1)
+
+        try await target.changeNativePDFHistory(redo: false)
+        let undone = try await targetPages.pdfAnnotations(0)
+        XCTAssertEqual(undone.map(\.id), [targetOriginal]); XCTAssertFalse(target.modified)
+        try await target.changeNativePDFHistory(redo: true)
+        let redone = try await targetPages.pdfAnnotations(0), unchangedSource = try await sourcePages.pdfAnnotations(0)
+        XCTAssertEqual(redone, pasted); XCTAssertTrue(target.modified)
+        XCTAssertEqual(unchangedSource, remaining)
+        let copyURL = directory.url.appendingPathComponent("failed-delete-copy.pdf")
+        try await XCTUnwrap(target.document).saveCopy(to: copyURL)
+        let savedCopy = try NativeFile(copyURL, engine: .mupdf)
+        XCTAssertEqual(try savedCopy.pdfAnnotations(0).count, 2)
+        XCTAssertTrue(target.modified, "Save a Copy must keep the opened destination dirty")
+        let afterCopy = try await targetPages.pdfInfo()
+        XCTAssertEqual(afterCopy?.dirty, true)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceBytes)
+        XCTAssertEqual(try Data(contentsOf: targetURL), targetBytes)
+
+        guard target.modified else { return XCTFail("Save on close must see the restored paste") }
+        RunLoop.main.perform(inModes: [.modalPanel]) {
+            MainActor.assumeIsolated { NSApplication.shared.stopModal(withCode: .alertFirstButtonReturn) }
+        }
+        let savedClose = await target.confirmClose()
+        XCTAssertTrue(savedClose); XCTAssertFalse(target.modified)
+        let savedTarget = try NativeFile(targetURL, engine: .mupdf), savedSource = try NativeFile(sourceURL, engine: .mupdf)
+        XCTAssertEqual(try savedTarget.pdfAnnotations(0).count, 2)
+        XCTAssertEqual(try savedSource.pdfAnnotations(0).map(\.id), [original])
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceBytes)
     }
 
     func testReplacingTheCutSourceDoesNotDeleteAnAnnotationInTheReplacement() async throws {

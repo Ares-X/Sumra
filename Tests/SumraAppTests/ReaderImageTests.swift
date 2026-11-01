@@ -3,6 +3,7 @@ import AppKit
 import ImageIO
 import PDFKit
 import SumraCore
+import WebKit
 import XCTest
 @testable import Sumra
 
@@ -419,6 +420,39 @@ final class ReaderImageTests: XCTestCase {
         let token = try XCTUnwrap(html.components(separatedBy: "atob('").dropFirst().first?.components(separatedBy: "')").first)
         XCTAssertEqual(Data(base64Encoded: token), bytes)
         XCTAssertTrue(html.contains("multipart/form-data"))
+    }
+
+    @MainActor
+    func testLensFormSubmitsLargeImageWithoutChangingBytes() async throws {
+        // The reporter's comic pages encode to 7.8–14.6 MB PNGs. Exercise a
+        // complete large upload in WebKit without sending the fixture online.
+        var bytes = Data(count: 16 * 1024 * 1024)
+        bytes.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
+            for index in buffer.indices { buffer[index] = UInt8(truncatingIfNeeded: index) }
+        }
+        let html = ReaderImages.lensHTML(bytes)
+        let script = try XCTUnwrap(html.components(separatedBy: "<script>").last?.components(separatedBy: "</script>").first)
+        let view = WKWebView(frame: .zero)
+        defer { view.stopLoading() }
+        let value = try await view.callAsyncJavaScript("""
+        HTMLFormElement.prototype.submit=function(){window.lensForm=this};
+        \(script)
+        const submitted=window.lensForm;
+        const file=submitted.elements.namedItem('encoded_image').files[0];
+        const output=new Uint8Array(await file.arrayBuffer());
+        let matches=true;
+        for(let n=0;n<output.length;n++)if(output[n] !== (n & 255)){matches=false;break}
+        return {method:submitted.method,enctype:submitted.enctype,action:submitted.action,
+                filename:file.name,type:file.type,length:output.length,matches};
+        """, arguments: [:], in: nil, contentWorld: .page)
+        let result = try XCTUnwrap(value as? [String: Any])
+        XCTAssertEqual(result["method"] as? String, "post")
+        XCTAssertEqual(result["enctype"] as? String, "multipart/form-data")
+        XCTAssertEqual(result["action"] as? String, "https://lens.google.com/v3/upload?ep=cntpubb&re=df&s=4")
+        XCTAssertEqual(result["filename"] as? String, "sumra.png")
+        XCTAssertEqual(result["type"] as? String, "image/png")
+        XCTAssertEqual(result["length"] as? Int, bytes.count)
+        XCTAssertEqual(result["matches"] as? Bool, true)
     }
 
     private func fixture() throws -> CGImage {

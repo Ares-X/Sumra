@@ -81,7 +81,7 @@ final class NativePDFSourceTests: XCTestCase {
         XCTAssertEqual(source.path.withCString { utimensat(AT_FDCWD, $0, &times, 0) }, 0)
         let snapshot = try NativeFile.PDFSource(source)
         XCTAssertEqual(try Data(contentsOf: snapshot.url), replacement)
-        XCTAssertEqual(snapshot.checkpoint.digest, SHA256.hash(data: replacement))
+        XCTAssertEqual(try snapshot.checkpoint.digest, SHA256.hash(data: replacement))
         XCTAssertEqual(snapshot.sourceCheckpoint.version, NativeFile.FileVersion(source))
         XCTAssertTrue(try snapshot.sourceCheckpoint.matches(source))
     }
@@ -126,7 +126,7 @@ final class NativePDFSourceTests: XCTestCase {
         var snapshot: NativeFile.PDFSource? = try NativeFile.PDFSource(source)
         let input = try XCTUnwrap(snapshot?.url)
         XCTAssertEqual(try Data(contentsOf: input), original)
-        XCTAssertEqual(snapshot?.checkpoint.digest, SHA256.hash(data: original))
+        XCTAssertEqual(try snapshot?.checkpoint.digest, SHA256.hash(data: original))
         XCTAssertEqual(NativeFile.FileVersion(source), expectedVersion)
         snapshot = nil
         XCTAssertFalse(FileManager.default.fileExists(atPath: input.deletingLastPathComponent().path))
