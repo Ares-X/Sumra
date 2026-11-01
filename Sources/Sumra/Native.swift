@@ -287,7 +287,55 @@ final class NativeFile {
 
     struct FileCheckpoint {
         let version: FileVersion
-        let digest: SHA256.Digest
+        private enum ContentDigest {
+            case known(SHA256.Digest)
+            case snapshot(SnapshotDigest)
+        }
+        private let contentDigest: ContentDigest
+        var digest: SHA256.Digest {
+            get throws {
+                switch contentDigest {
+                case .known(let value): return value
+                case .snapshot(let snapshot): return try snapshot.digest()
+                }
+            }
+        }
+        // Only the clone path needs a deferred digest. The descriptor and its
+        // private directory retain exactly the captured bytes until the last
+        // checkpoint consumer releases them, including reopened print decoders.
+        private final class SnapshotDigest {
+            let file: FileHandle
+            let version: FileVersion
+            let temporary: TemporaryDirectory
+            private let lock = NSLock()
+            private var cached: SHA256.Digest?
+
+            init(file: FileHandle, version: FileVersion, temporary: TemporaryDirectory) {
+                self.file = file; self.version = version; self.temporary = temporary
+            }
+            deinit { try? file.close() }
+
+            func digest() throws -> SHA256.Digest {
+                lock.lock()
+                defer { lock.unlock() }
+                if let cached { return cached }
+                // A changed private input must never become a new baseline.
+                // Check the complete captured version, including ctime, on both
+                // sides of the scan; original-file metadata is checked separately.
+                guard FileVersion(descriptor: file.fileDescriptor) == version else {
+                    throw ReadError("The PDF source was modified outside Sumra. Reload it before saving, exporting or printing.")
+                }
+                try file.seek(toOffset: 0)
+                let started = DispatchTime.now().uptimeNanoseconds
+                let value = try FileCheckpoint.digest(file)
+                NativeReadingPerformance.mark("pdf-source-digest", started: started, persistent: true)
+                guard FileVersion(descriptor: file.fileDescriptor) == version else {
+                    throw ReadError("The PDF source was modified outside Sumra. Reload it before saving, exporting or printing.")
+                }
+                cached = value
+                return value
+            }
+        }
         init?(_ url: URL) throws {
             let file = try FileHandle(forReadingFrom: url)
             defer { try? file.close() }
@@ -296,10 +344,17 @@ final class NativeFile {
             let digest = try Self.digest(file)
             NativeReadingPerformance.mark("pdf-source-digest", started: started, persistent: true)
             guard FileVersion(url) == version else { return nil }
-            self.version = version; self.digest = digest
+            self.version = version; contentDigest = .known(digest)
         }
         init(version: FileVersion, digest: SHA256.Digest) {
-            self.version = version; self.digest = digest
+            self.version = version; contentDigest = .known(digest)
+        }
+        init(version: FileVersion, snapshot: FileHandle, temporary: TemporaryDirectory) {
+            self.version = version
+            contentDigest = .snapshot(SnapshotDigest(file: snapshot, version: version, temporary: temporary))
+        }
+        init(version: FileVersion, digestFrom checkpoint: FileCheckpoint) {
+            self.version = version; contentDigest = checkpoint.contentDigest
         }
         func matches(_ url: URL) throws -> Bool {
             guard let current = FileVersion(url) else { return false }
@@ -308,7 +363,7 @@ final class NativeFile {
             // Opening/recording a recent file can change metadata without changing
             // PDF bytes. A digest also detects equal-length writes restoring mtime.
             let digest = try Self.digest(url)
-            return digest == self.digest && FileVersion(url) == current
+            return try digest == self.digest && FileVersion(url) == current
         }
         private static func digest(_ url: URL) throws -> SHA256.Digest {
             let file = try FileHandle(forReadingFrom: url)
@@ -317,10 +372,14 @@ final class NativeFile {
         }
         private static func digest(_ file: FileHandle) throws -> SHA256.Digest {
             var hash = SHA256()
-            while let data = try file.read(upToCount: 1_048_576), !data.isEmpty {
+            // FileHandle's Foundation buffers otherwise survive until the
+            // enclosing task's pool drains, accumulating the entire PDF.
+            while try autoreleasepool(invoking: {
+                guard let data = try file.read(upToCount: 1_048_576), !data.isEmpty else { return false }
                 try Task.checkCancellation()
                 hash.update(data: data)
-            }
+                return true
+            }) {}
             return hash.finalize()
         }
     }
@@ -389,11 +448,13 @@ final class NativeFile {
                 defer { try? output.close() }
                 try file.seek(toOffset: 0)
                 var hash = SHA256()
-                while let block = try file.read(upToCount: 1_048_576), !block.isEmpty {
+                while try autoreleasepool(invoking: {
+                    guard let block = try file.read(upToCount: 1_048_576), !block.isEmpty else { return false }
                     try Task.checkCancellation()
                     try output.write(contentsOf: block)
                     hash.update(data: block)
-                }
+                    return true
+                }) {}
                 try output.close()
                 streamedDigest = hash.finalize()
             }
@@ -407,19 +468,23 @@ final class NativeFile {
             guard FileVersion(descriptor: file.fileDescriptor) == opened, FileVersion(source) == opened else {
                 throw PDFSourceChanged()
             }
-            let captured: FileCheckpoint?
-            if let streamedDigest, let version = FileVersion(snapshot) {
-                captured = FileCheckpoint(version: version, digest: streamedDigest)
-            } else { captured = try FileCheckpoint(snapshot) }
-            guard let captured else {
-                throw ReadError("The PDF snapshot changed while opening. Open it again.")
-            }
             guard chmod(snapshot.path, 0o400) == 0, let version = FileVersion(snapshot) else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
+            let captured: FileCheckpoint
+            if let streamedDigest {
+                captured = FileCheckpoint(version: version, digest: streamedDigest)
+            } else {
+                let input = try FileHandle(forReadingFrom: snapshot)
+                guard FileVersion(descriptor: input.fileDescriptor) == version, FileVersion(snapshot) == version else {
+                    try input.close()
+                    throw ReadError("The PDF snapshot changed while opening. Open it again.")
+                }
+                captured = FileCheckpoint(version: version, snapshot: input, temporary: temporary)
+            }
             self.temporary = temporary; url = snapshot
-            checkpoint = FileCheckpoint(version: version, digest: captured.digest)
-            sourceCheckpoint = FileCheckpoint(version: opened, digest: captured.digest)
+            checkpoint = captured
+            sourceCheckpoint = FileCheckpoint(version: opened, digestFrom: captured)
         }
     }
 
@@ -563,7 +628,7 @@ final class NativeFile {
         if result < 0 { throw CancellationError() }
         guard result > 0 else { throw Self.failure(error, "Cannot verify the retained PDF source") }
         try Task.checkCancellation()
-        guard bytes.elementsEqual(sourceCheckpoint.digest) else {
+        guard try bytes.elementsEqual(sourceCheckpoint.digest) else {
             throw ReadError("The retained PDF source was modified outside Sumra. Reload it before saving, exporting or printing.")
         }
     }

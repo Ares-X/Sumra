@@ -235,6 +235,9 @@ final class ReaderPredictionTests: XCTestCase {
         state.flow = "continuous"; state.fit = "width"; state.spread = false
         state.automaticLayout = false; state.scrollbarMode = "hidden"
         state.freePan = false; state.trimEmptyMargins = false
+        // The 300-point fixture must display its 300x420 page at scale one:
+        // adding saved margins could make the next page genuinely visible.
+        state.pageMargins = PageMargins(cssValues: [0]); state.marginPresetSelection = "custom"
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 390),
             styleMask: .borderless, backing: .buffered, defer: false)

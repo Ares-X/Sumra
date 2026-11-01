@@ -1008,3 +1008,25 @@
 
 "Narrow" = "窄";
 "Wide" = "宽";
+"Apply CSS" = "应用 CSS";
+"Apply Margins" = "应用边距";
+"Bottom margin" = "下边距";
+"Content margins are separate from the space reserved for the toolbar and progress bar." = "内容边距与为工具栏和进度条预留的空间相互独立。";
+"Left margin" = "左边距";
+"Margins: top right bottom left (pt)" = "边距：上、右、下、左 (pt)";
+"No email application is available to compose a message with this document." = "没有可用于撰写包含此文档的邮件的邮件应用。";
+"Reflowed text uses wider side margins. Fixed pages use the preset's smaller margin on every side. Custom values apply exactly as entered." = "重新排版的文本使用较宽的侧边距。固定页面在每一侧使用预设中较小的边距。自定义值会按输入内容原样应用。";
+"Replace Saved Tab Group?" = "替换已存储的标签页组？";
+"Right margin" = "右边距";
+"Top margin" = "上边距";
+"%1$@\n\nDefault email app: %2$@. Choose a default email app that supports file attachments, then try again." = "%1$@\n\n默认邮件应用：%2$@。请选择支持文件附件的默认邮件应用，然后重试。";
+
+"Content margins" = "正文边距";
+
+"Control clearance" = "控件避让";
+
+"Top clearance" = "顶部避让";
+
+"Bottom clearance" = "底部避让";
+
+"Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "从窗口边缘为悬浮控件预留的距离。设为 0 可允许覆盖正文。正文边距不会重复累加；隐藏控件不占空间。";

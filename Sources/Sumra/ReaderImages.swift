@@ -199,11 +199,14 @@ enum ReaderImages {
 
     // GoogleLens.cpp::WriteGoogleLensPage: the explicit menu action submits an
     // ordinary multipart form in the user's browser. No upload runs at startup.
+    // Fill the byte buffer directly; TypedArray.from first collects the string's
+    // iterator into a separate list of one-character values for the whole PNG.
     static func lensHTML(_ png: Data) -> String {
         return """
         <!doctype html><meta charset="utf-8"><title>Google Lens</title>
         <p>Opening Google Lens…</p><script>
-        const b=atob('\(png.base64EncodedString())');const a=Uint8Array.from(b,c=>c.charCodeAt(0));
+        const b=atob('\(png.base64EncodedString())');const a=new Uint8Array(b.length);
+        for(let n=0;n<b.length;n++)a[n]=b.charCodeAt(n);
         const f=new File([a],'sumra.png',{type:'image/png'});
         const i=document.createElement('input');i.type='file';i.name='encoded_image';
         const d=new DataTransfer();d.items.add(f);i.files=d.files;

@@ -1,0 +1,26 @@
+{
+  "configurations": [
+    {
+      "id": "6D23E430-A052-4502-8546-ABE8481A6ACE",
+      "name": "Native GUI",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "preferredScreenCaptureFormat": "screenRecording",
+    "testTimeoutsEnabled": true,
+    "defaultTestExecutionTimeAllowance": 120,
+    "maximumTestExecutionTimeAllowance": 120,
+    "uiTestingScreenshotsLifetime": "keepAlways"
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:GUIAcceptance.xcodeproj",
+        "identifier": "A00000000000000000000005",
+        "name": "SumraUITests"
+      }
+    }
+  ],
+  "version": 1
+}

@@ -1,0 +1,26 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  A00000000000000000000001 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; }; buildConfigurationList = A00000000000000000000002; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A00000000000000000000003; productRefGroup = A00000000000000000000004; projectDirPath = ""; projectRoot = ""; targets = (A00000000000000000000005); };
+  A00000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000006, A00000000000000000000007); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  A00000000000000000000003 = {isa = PBXGroup; children = (A00000000000000000000008, A00000000000000000000010, A00000000000000000000004); sourceTree = "<group>"; };
+  A00000000000000000000004 = {isa = PBXGroup; children = (A00000000000000000000009); name = Products; sourceTree = "<group>"; };
+  A00000000000000000000005 = {isa = PBXNativeTarget; buildConfigurationList = A0000000000000000000000A; buildPhases = (A0000000000000000000000B, A0000000000000000000000C); buildRules = (); dependencies = (); name = SumraUITests; productName = SumraUITests; productReference = A00000000000000000000009; productType = "com.apple.product-type.bundle.ui-testing"; };
+  A00000000000000000000006 = {isa = XCBuildConfiguration; buildSettings = {MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; }; name = Debug; };
+  A00000000000000000000007 = {isa = XCBuildConfiguration; buildSettings = {MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; }; name = Release; };
+  A00000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeReaderJourneyTests.swift; path = ../Tests/SumraUITests/NativeReaderJourneyTests.swift; sourceTree = SOURCE_ROOT; };
+  A00000000000000000000009 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SumraUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+  A0000000000000000000000A = {isa = XCConfigurationList; buildConfigurations = (A0000000000000000000000D, A0000000000000000000000E); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  A0000000000000000000000B = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A0000000000000000000000F, A00000000000000000000011); runOnlyForDeploymentPostprocessing = 0; };
+  A0000000000000000000000C = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  A0000000000000000000000D = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = "com.sumra.GUIAcceptance"; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+  A0000000000000000000000E = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = "com.sumra.GUIAcceptance"; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; }; name = Release; };
+  A0000000000000000000000F = {isa = PBXBuildFile; fileRef = A00000000000000000000008; };
+  A00000000000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PassiveScreenRecordingTests.swift; path = ../Tests/SumraUITests/PassiveScreenRecordingTests.swift; sourceTree = SOURCE_ROOT; };
+  A00000000000000000000011 = {isa = PBXBuildFile; fileRef = A00000000000000000000010; };
+ };
+ rootObject = A00000000000000000000001;
+}

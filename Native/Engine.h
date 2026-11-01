@@ -153,6 +153,8 @@ static void lf_json_string(SumraJSON *j, const char *s) {
     for (const unsigned char *p = (const unsigned char *)(s ? s : ""); *p; ++p) {
         if (*p == '"' || *p == '\\') { char v[] = {'\\', (char)*p}; lf_json_append(j, v, 2); }
         else if (*p < 32) { char v[7]; snprintf(v, sizeof(v), "\\u%04x", *p); lf_json(j, v); }
+        // MuPDF represents embedded NUL in PDF strings as modified UTF-8.
+        else if (*p == 0xc0 && p[1] == 0x80) { lf_json(j, "\\u0000"); ++p; }
         else lf_json_append(j, (const char *)p, 1);
     }
     lf_json(j, "\"");

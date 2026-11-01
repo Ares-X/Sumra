@@ -259,7 +259,7 @@ struct BrowserReader: NSViewRepresentable {
         let state = ReaderState(recordsHistory: false)
         state.font = "system"; state.fontSize = 17; state.lineHeight = 1.6; state.margin = 24
         state.theme = "light"; state.zoom = 1
-        state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
+        state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil; state.marginPresetSelection = nil
         let coordinator = Coordinator(state: state, source: source)
         let view = coordinator.makeView(frame: CGRect(x: 0, y: 0, width: 600, height: size.height * 600 / size.width))
         defer { dismantleNSView(view, coordinator: coordinator) }
@@ -390,7 +390,7 @@ struct BrowserReader: NSViewRepresentable {
             let size = state.fontSize * (usesTextZoom ? zoom : 1)
             return ["text": "\(state.font)|\(size)|\(state.lineHeight)|\(state.margin)|\(state.resolvedTheme)",
                 "zoom": pageZoom(zoom), "userCSS": state.effectiveUserCSS,
-                "useDocumentCSS": state.useDocumentCSS, "pageMargins": state.pageMargins?.values ?? [],
+                "useDocumentCSS": state.useDocumentCSS, "pageMargins": state.contentMargins?.values ?? [],
                 "flow": state.flow, "spread": state.spread, "rtl": state.rtl]
         }
 
@@ -557,7 +557,7 @@ struct BrowserReader: NSViewRepresentable {
             switch command.action {
             case .zoom(let zoom): clearRangeHighlights(); view.pageZoom = pageZoom(zoom)
             case .restore: clearRangeHighlights(); view.pageZoom = pageZoom(state.zoom)
-            case .style: clearRangeHighlights()
+            case .style, .fit: clearRangeHighlights(); view.pageZoom = pageZoom(state.zoom)
             default: break
             }
             var payload: [String: Any]
@@ -572,7 +572,7 @@ struct BrowserReader: NSViewRepresentable {
             case .href(let value): payload = ["name": "href", "text": value]
             case .zoom(let value):
                 payload = styleArguments(zoom: value); payload["name"] = "zoom"; payload["number"] = pageZoom(value)
-            case .style: payload = styleArguments(); payload["name"] = "style"
+            case .style, .fit: payload = styleArguments(); payload["name"] = "style"
             case .toc: payload = ["name": "toc"]
             case .find(let value, let backwards, let options, let selection, _):
                 let options = options ?? .init()
@@ -989,6 +989,8 @@ struct BrowserReader: NSViewRepresentable {
                 if let page = body["page"] as? Int {
                     let count = body["count"] as? Int ?? 0, label = body["label"] as? String
                     state.browserProgress = body["progress"] as? Double
+                    state.browserPage = body["readingPage"] as? Int
+                    state.browserPageCount = body["readingPageCount"] as? Int
                     if state.count != count { state.count = count }
                     if state.logicalPageLabel != label { state.logicalPageLabel = label }
                     var position = ReadingPosition(page: page, x: body["x"] as? Double, y: body["y"] as? Double, anchor: body["anchor"] as? String)
@@ -1065,10 +1067,20 @@ struct BrowserReader: NSViewRepresentable {
                 }
                 if pageIndex(url) != nil {
                     if let markup, let file = try? markup.fileURL(url), state.shouldOpenMarkupSibling(file) {
+                        // Commanded navigation keeps its fragment in the
+                        // position while WebKit loads the document without it.
+                        let target: URL
+                        if navigationRevision != nil, let anchor = initialPosition?.anchor,
+                           let requested = URL(string: anchor), pageIndex(requested) == pageIndex(url) {
+                            target = requested
+                        } else { target = url }
                         if let job = printJob { finishPrint(job, error: ReadError("The displayed topic changed before printing completed."), restore: false) }
                         if let revision = navigationRevision { navigationRevision = nil; ready = true; completeCommand(revision) }
                         decisionHandler(.cancel)
-                        state.open(file)
+                        if let fragment = URLComponents(url: target, resolvingAgainstBaseURL: false)?.percentEncodedFragment,
+                           !fragment.isEmpty {
+                            state.open(file, at: ReadingPosition(anchor: "#" + fragment))
+                        } else { state.open(file) }
                         return
                     }
                     if let job = printJob {

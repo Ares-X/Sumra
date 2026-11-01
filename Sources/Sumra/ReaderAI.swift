@@ -937,7 +937,7 @@ struct ReaderAISidebar: View {
             }
         }
         .padding(14)
-        .frame(minWidth: 290, idealWidth: 340, maxWidth: 420)
+        .frame(minWidth: 340, idealWidth: 360, maxWidth: 480)
         .sheet(isPresented: $showHistory) {
             if let directory {
                 ReaderAIHistoryPicker(provider: provider, directory: directory) { session in

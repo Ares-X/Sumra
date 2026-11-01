@@ -19,6 +19,7 @@ import SumraCore
         let content = text
         let host = TextReaderHost()
         let scroll = TextPageScrollView()
+        scroll.automaticallyAdjustsContentInsets = !state.extendsReadingUnderChrome
         let view = MarginTextView(usingTextLayoutManager: true)
         view.isVerticallyResizable = true; view.isHorizontallyResizable = false
         view.autoresizingMask = [.width]
@@ -77,6 +78,12 @@ import SumraCore
     func updateNSView(_ host: TextReaderHost, context: Context) {
         let c = context.coordinator
         guard c.isCurrent else { return }
+        for scroll in [host.leading, host.trailing].compactMap({ $0 }) {
+            let adjustsInsets = !state.extendsReadingUnderChrome
+            if scroll.automaticallyAdjustsContentInsets != adjustsInsets { scroll.automaticallyAdjustsContentInsets = adjustsInsets }
+            let noInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+            if !adjustsInsets, !NSEdgeInsetsEqual(scroll.contentInsets, noInsets) { scroll.contentInsets = noInsets }
+        }
         ReaderScrollbars.apply(to: host.leading, mode: state.scrollbarMode, horizontal: false)
         ReaderScrollbars.apply(to: host.trailing, mode: state.scrollbarMode, horizontal: false, vertical: false)
         c.style()
@@ -179,7 +186,10 @@ import SumraCore
         var isCurrent: Bool { active && state.document?.id == documentID }
         func positionBeforeResize() -> ReadingPosition? {
             guard isCurrent, indexed, !restoring else { return nil }
-            return pendingPosition ?? visiblePosition() ?? positionReport?.0 ?? state.currentPosition
+            // An ancestor may already clip the old viewport when native chrome
+            // changes height. Restore the last reading position, before that
+            // temporary clipping can become a new text anchor or pixel offset.
+            return pendingPosition ?? positionReport?.0 ?? state.currentPosition
         }
         func textRange(_ range: NSRange) -> NSTextRange? {
             guard let content = view?.textContentStorage, let storage = content.textStorage,
@@ -243,7 +253,7 @@ import SumraCore
         func style() {
             guard let v = view, let storage = v.textContentStorage?.textStorage else { return }
             let key =
-                "\(state.font)|\(state.fontSize)|\(state.lineHeight)|\(state.margin)|\(state.pageMargins?.css ?? "")|\(state.theme)|\(state.resolvedTheme)|\(state.palette.text)|\(state.palette.background)|\(state.zoom)|\(state.flow)|\(state.spread)|\(state.rtl)|\(state.presentation)"
+                "\(state.font)|\(state.fontSize)|\(state.lineHeight)|\(state.margin)|\(state.contentMargins?.css ?? "")|\(state.theme)|\(state.resolvedTheme)|\(state.palette.text)|\(state.palette.background)|\(state.zoom)|\(state.flow)|\(state.spread)|\(state.rtl)|\(state.presentation)"
             if key == styleKey { return }
             styleKey = key
             let size = state.fontSize * state.zoom
@@ -259,7 +269,7 @@ import SumraCore
             default: font = NSFont(name: state.font, size: size) ?? base
             }
             let inset: NSSize, padding: CGFloat
-            if let margins = state.pageMargins {
+            if let margins = state.contentMargins {
                 inset = NSSize(width: (margins.left + margins.right)/2, height: (margins.top + margins.bottom)/2)
                 padding = 0
             } else {
@@ -274,7 +284,7 @@ import SumraCore
             let paragraphChanged = v.defaultParagraphStyle != p
             let foreground = ReaderTheme.color(state.palette.text)
             let foregroundChanged = v.textColor != foreground
-            let marginsChanged = (v as? MarginTextView)?.pageMargins != state.pageMargins
+            let marginsChanged = (v as? MarginTextView)?.pageMargins != state.contentMargins
             let layoutChanged = fontChanged || paragraphChanged || marginsChanged
                 || v.textContainerInset != inset || v.textContainer?.lineFragmentPadding != padding
             let layoutModeChanged = host?.showsFacing != (state.spread && !state.presentation)
@@ -302,7 +312,7 @@ import SumraCore
                 if foregroundChanged { v.textColor = foreground }
                 storage.endEditing()
             }
-            if marginsChanged { (v as? MarginTextView)?.pageMargins = state.pageMargins }
+            if marginsChanged { (v as? MarginTextView)?.pageMargins = state.contentMargins }
             if v.textContainerInset != inset { v.textContainerInset = inset }
             if v.textContainer?.lineFragmentPadding != padding { v.textContainer?.lineFragmentPadding = padding }
             let background = ReaderTheme.color(state.palette.background)
@@ -314,7 +324,7 @@ import SumraCore
                 secondary.defaultParagraphStyle = p
                 secondary.textContainerInset = inset
                 secondary.textContainer?.lineFragmentPadding = padding
-                (secondary as? MarginTextView)?.pageMargins = state.pageMargins
+                (secondary as? MarginTextView)?.pageMargins = state.contentMargins
                 secondary.backgroundColor = background
                 secondary.enclosingScrollView?.backgroundColor = background
             }
@@ -339,6 +349,7 @@ import SumraCore
             container.widthTracksTextView = true
             second.delegate = self; second.reader = self; secondary = second
             let scroll = TextPageScrollView(); scroll.documentView = second
+            scroll.automaticallyAdjustsContentInsets = !state.extendsReadingUnderChrome
             host.trailing = scroll; host.addSubview(scroll)
             if let delegate = manager.textViewportLayoutController.delegate {
                 let observer = TextViewportObserver(delegate: delegate) { [weak self] in self?.scrolled() }
@@ -468,11 +479,32 @@ import SumraCore
                 turn(forward ? count : -count)
             } else if state.flow == "paged", amount == .page {
                 turn(direction == .down ? count : -count)
+            } else if amount == .line, state.flow == "paged" || state.spread {
+                scrollTextLines(direction == .down ? count : -count)
             } else {
                 _ = ReaderScroll.perform(in: view?.enclosingScrollView, direction: direction, amount: amount, count: count)
                 view?.textLayoutManager?.textViewportLayoutController.layoutViewport()
                 updateFacingPage()
             }
+        }
+        private func scrollTextLines(_ count: Int) {
+            guard let view, let manager = view.textLayoutManager else { return }
+            cancelRestoration()
+            for _ in 0..<abs(count) {
+                guard let current = visibleLines().first,
+                      let start = textRange(NSRange(location: count < 0 ? max(0, current.range.location - 1) : current.range.location, length: 0))?.location else { break }
+                var character: Int?
+                manager.enumerateTextLayoutFragments(from: start, options: count < 0 ? [.reverse, .ensuresLayout] : [.ensuresLayout]) { fragment in
+                    let lines = self.lineRecords(fragment)
+                    character = count < 0 ? lines.last(where: { $0.range.location < current.range.location })?.range.location
+                        : lines.first(where: { $0.range.location > current.range.location })?.range.location
+                    return character == nil
+                }
+                guard let character else { break }
+                scrollToCharacter(character, in: view)
+                updateFacingPage()
+            }
+            scrolled()
         }
         func scrollWheel(_ event: NSEvent) -> Bool {
             guard state.flow == "paged" else { return false }
@@ -868,8 +900,15 @@ private final class MarginTextView: NSTextView {
     override func keyDown(with event: NSEvent) {
         if let reader, !reader.state.keyboardTextSelection,
            event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
-           event.keyCode == 123 || event.keyCode == 124 {
-            reader.scroll(event.keyCode == 123 ? .left : .right, amount: .line, count: 1)
+           (123...126).contains(event.keyCode) {
+            let direction: ReaderScrollDirection
+            switch event.keyCode {
+            case 123: direction = .left
+            case 124: direction = .right
+            case 125: direction = .down
+            default: direction = .up
+            }
+            reader.scroll(direction, amount: .line, count: 1)
             return
         }
         super.keyDown(with: event)

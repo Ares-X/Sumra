@@ -202,6 +202,162 @@ final class TextLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testFacingTextAppliesContextualMarginsToBothPaneOrigins() async throws {
+        let text = String(repeating: "A short source paragraph.\n", count: 1_000)
+        let (window, host, view, state) = try await makeReader(text, withDocument: true)
+        defer { close(window) }
+        state.spread = true
+        state.pageMargins = PageMargins(cssValues: [8])
+        state.marginPresetSelection = ReaderMarginPreset.narrow.rawValue
+        try await navigate(.style, state: state, host: host)
+        let facing = try XCTUnwrap((view.enclosingScrollView?.superview as? TextReaderHost)?.trailing?.documentView as? NSTextView)
+        for pane in [view, facing] {
+            XCTAssertEqual(pane.textContainerInset, NSSize(width: 16, height: 8))
+            XCTAssertEqual(pane.textContainerOrigin, NSPoint(x: 16, y: 8))
+        }
+        state.marginPresetSelection = "custom"
+        state.pageMargins = PageMargins(cssValues: [9, 13, 17, 21])
+        try await navigate(.style, state: state, host: host)
+        for pane in [view, facing] {
+            XCTAssertEqual(pane.textContainerInset, NSSize(width: 17, height: 13))
+            XCTAssertEqual(pane.textContainerOrigin, NSPoint(x: 21, y: 9))
+        }
+        state.pageMargins = nil; state.marginPresetSelection = nil; state.margin = 29
+        try await navigate(.style, state: state, host: host)
+        for pane in [view, facing] {
+            XCTAssertEqual(pane.textContainerInset, NSSize(width: 29, height: 16))
+            XCTAssertEqual(pane.textContainerOrigin, NSPoint(x: 29, y: 16))
+        }
+    }
+
+    @MainActor
+    func testFacingTextVerticalArrowsMoveTheSharedViewportFromEitherPane() async throws {
+        let text = (0..<1_000).map { "Line \($0): a short paragraph.\n" }.joined()
+        for flow in ["paged", "continuous"] {
+            let (window, host, view, state) = try await makeReader(text, withDocument: true)
+            defer { close(window) }
+            state.flow = flow; state.spread = true
+            try await navigate(.style, state: state, host: host)
+            let facing = try XCTUnwrap((view.enclosingScrollView?.superview as? TextReaderHost)?.trailing?.documentView as? NSTextView)
+            for input in [view, facing] {
+                try await navigate(.page(0), state: state, host: host)
+                let beginning = view.visibleRect.minY
+                window.makeFirstResponder(input)
+                func arrow(_ keyCode: UInt16) throws -> NSEvent {
+                    let characters = keyCode == 125 ? "\u{f701}" : "\u{f700}"
+                    return try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.function, .numericPad],
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                        context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                        isARepeat: false, keyCode: keyCode))
+                }
+                input.keyDown(with: try arrow(125))
+                await settle(host)
+                XCTAssertGreaterThan(view.visibleRect.minY, beginning, "Either pane must move the leading viewport")
+                XCTAssertEqual(NSMaxRange(try XCTUnwrap(visibleTextLines(in: view).last).range),
+                               try XCTUnwrap(visibleTextLines(in: facing).first).range.location)
+                let moved = view.visibleRect.minY
+                input.keyDown(with: try arrow(126))
+                await settle(host)
+                XCTAssertLessThan(view.visibleRect.minY, moved)
+                XCTAssertEqual(NSMaxRange(try XCTUnwrap(visibleTextLines(in: view).last).range),
+                               try XCTUnwrap(visibleTextLines(in: facing).first).range.location)
+            }
+        }
+    }
+
+    @MainActor
+    func testPagedVerticalLineScrollKeepsTheFirstLineWhole() async throws {
+        let text = String(repeating: "中文 English 😀 wrapped reading text. ", count: 1_000)
+        for spread in [false, true] {
+            let (window, host, view, state) = try await makeReader(text, withDocument: true)
+            defer { close(window) }
+            state.flow = "paged"; state.spread = spread
+            try await navigate(.style, state: state, host: host)
+            for direction: ReaderScrollDirection in [.down, .down, .up] {
+                try await navigate(.scroll(direction, .line), state: state, host: host)
+                let first = try XCTUnwrap(visibleTextLines(in: view).first)
+                XCTAssertGreaterThanOrEqual(first.rect.minY, view.visibleRect.minY - 0.5,
+                    "Paged line scrolling must not leave half a line above the viewport")
+                if spread {
+                    let facing = try XCTUnwrap((view.enclosingScrollView?.superview as? TextReaderHost)?.trailing?.documentView as? NSTextView)
+                    XCTAssertEqual(NSMaxRange(try XCTUnwrap(visibleTextLines(in: view).last).range),
+                                   try XCTUnwrap(visibleTextLines(in: facing).first).range.location)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testTextUsesNativeChromeSpaceOnlyWhenTheToolbarIsShown() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let saved = defaults.object(forKey: "progressDisplayMode")
+        defaults.set(ReaderToolbarDisplayMode.hidden.rawValue, forKey: "progressDisplayMode")
+        defer { defaults.set(saved, forKey: "progressDisplayMode") }
+        let text = String(repeating: "A paragraph of native reader text.\n", count: 1_000)
+        for preset in ReaderMarginPreset.allCases {
+            let state = ReaderState(recordsHistory: false)
+            state.document = ReadingDocument(url: URL(fileURLWithPath: "/native-text-insets.txt"), content: .text(text))
+            state.immersiveControls = false; state.flow = "paged"; state.spread = true
+            state.marginPresetSelection = preset.rawValue
+            state.showContents = false; state.showFind = false; state.showAI = false
+            state.showThumbnails = false; state.showBookmarks = false; state.showAnnotations = false
+            let window = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 400),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.toolbarStyle = .unifiedCompact
+            let toolbar = NSToolbar(identifier: "text-native-insets")
+            window.toolbar = toolbar
+            let host = NSHostingView(rootView: ReaderView(state: state))
+            window.contentView = host
+            defer { state.windowClosed(); window.contentView = nil; window.close() }
+            func settle() async throws {
+                let deadline = Date().addingTimeInterval(5)
+                repeat {
+                    host.layoutSubtreeIfNeeded()
+                    if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                        host.cacheDisplay(in: host.bounds, to: bitmap)
+                    }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                    if state.readerFocusView != nil, !state.outlineBusy { break }
+                } while Date() < deadline
+                for _ in 0..<10 {
+                    host.layoutSubtreeIfNeeded()
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+            }
+            var readingPosition: ReadingPosition?
+            for mode: ReaderToolbarDisplayMode in [.auto, .shown, .hidden, .shown, .auto] {
+                state.toolbarDisplayMode = mode
+                try await settle()
+                if let readingPosition {
+                    XCTAssertEqual(state.currentPosition.anchor, readingPosition.anchor, "Native chrome must retain the reading line")
+                    XCTAssertEqual(state.currentPosition.y ?? 0, readingPosition.y ?? 0, accuracy: 0.5)
+                } else { readingPosition = state.currentPosition }
+                let scroll = try XCTUnwrap(state.readerScrollView)
+                let textHost = try XCTUnwrap(scroll.superview as? TextReaderHost)
+                for pane in [textHost.leading, textHost.trailing].compactMap({ $0 }) {
+                    let clip = pane.contentView
+                    let top = clip.convert(clip.bounds, to: nil).maxY
+                    let expected = mode == .shown ? window.contentLayoutRect.maxY : host.convert(host.bounds, to: nil).maxY
+                    XCTAssertEqual(top, expected, accuracy: 0.5, "\(mode): native chrome must reserve its height once")
+                    let textView = try XCTUnwrap(pane.documentView as? NSTextView)
+                    let firstLine = try XCTUnwrap(visibleTextLines(in: textView).first)
+                    let textTop = textView.convert(firstLine.rect, to: nil).maxY
+                    XCTAssertLessThanOrEqual(textTop, expected + 0.5, "The actual first line must remain below the reading top")
+                    XCTAssertLessThanOrEqual(expected - textTop, textView.textContainerOrigin.y + 0.5,
+                        "Only the requested text margin may precede the actual first line")
+                    let before = clip.convert(clip.bounds, to: nil)
+                    state.toolbarHoverVisible = true; state.toolbarHoverOpacity = 1
+                    try await settle()
+                    XCTAssertEqual(clip.convert(clip.bounds, to: nil), before, "Hover must overlay the text")
+                    state.toolbarHoverVisible = false; state.toolbarHoverOpacity = 0
+                }
+            }
+            XCTAssertFalse(window.isVisible)
+        }
+    }
+
+    @MainActor
     func testTextArrowKeysTurnReadingPagesAndPreserveNativeSelection() async throws {
         let text = (0..<1_000).map { "Line \($0): a short paragraph.\n" }.joined()
         for flow in ["paged", "continuous"] {
@@ -743,7 +899,7 @@ final class TextLayoutTests: XCTestCase {
         let state = ReaderState()
         state.flow = "continuous"
         state.font = "system"; state.fontSize = 17; state.zoom = 1; state.lineHeight = 1.6
-        state.margin = 32; state.pageMargins = nil; state.theme = "light"
+        state.margin = 32; state.pageMargins = nil; state.marginPresetSelection = nil; state.theme = "light"
         if withDocument {
             state.document = ReadingDocument(url: URL(fileURLWithPath: "/text-layout.txt"), content: .text(text))
         }

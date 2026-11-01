@@ -60,15 +60,18 @@ extension ReaderState {
         if response == .alertFirstButtonReturn {
             customTextColor = editor.text.value; customBackgroundColor = editor.paper.value
             customLinkColor = editor.link.value
+            customPageDividerColor = editor.pageDividerValue
+            customPageDividerHidden = editor.showsPageDivider.state == .off
             documentColors = "smart"
         } else if response == .alertSecondButtonReturn {
             customTextColor = nil; customBackgroundColor = nil; customLinkColor = nil
+            customPageDividerColor = nil; customPageDividerHidden = false
         } else { return }
         if isText || isBrowser || reflowable { send(.style) }
     }
 
     func configurePageGrid() {
-        let alert = NSAlert(); alert.messageText = L("Configure Page Grid…")
+        let alert = ReaderThemeAlert(); alert.messageText = L("Configure Page Grid…")
         alert.informativeText = L("Dimensions accept pt, in or mm (72 pt = 1 in).")
         let values = [pageGridWidth, pageGridHeight, pageGridOffsetX, pageGridOffsetY, Double(pageGridSubdivisions)]
         let fields = values.map { NSTextField(string: String(format: "%g", $0)) }
@@ -81,8 +84,18 @@ extension ReaderState {
         rows += [[NSTextField(labelWithString: L("Style")), style], [NSTextField(labelWithString: L("Color")), color]]
         let grid = NSGridView(views: rows); grid.rowSpacing = 8; grid.columnSpacing = 12
         grid.column(at: 1).width = 180
+        color.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        color.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        grid.yPlacement = .center
+        for (index, row) in rows.enumerated() {
+            grid.row(at: index).height = max(row[0].fittingSize.height, row[1].fittingSize.height)
+        }
+        grid.setFrameSize(grid.fittingSize)
         alert.accessoryView = grid; alert.addButton(withTitle: L("Apply")); alert.addButton(withTitle: L("Cancel"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let response = alert.runModal()
+        color.deactivate()
+        if NSColorPanel.sharedColorPanelExists { NSColorPanel.shared.orderOut(nil) }
+        guard response == .alertFirstButtonReturn else { return }
         func points(_ field: NSTextField) -> Double? {
             var input = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             var factor = 1.0
@@ -448,6 +461,7 @@ struct NativeContentsTree: NSViewRepresentable {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("contents"))
         tree.addTableColumn(column); tree.outlineTableColumn = column
         tree.headerView = nil; tree.style = .sourceList
+        tree.backgroundColor = .clear
         tree.allowsMultipleSelection = false; tree.allowsEmptySelection = true
         tree.usesAutomaticRowHeights = true; tree.rowHeight = 24
         tree.indentationPerLevel = 12
@@ -949,8 +963,8 @@ final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
     let preview: ReaderThemePreview
     var onChange: (() -> Void)?
     private let editsName: Bool
-    var pageDividerValue: UInt32? { editsName && showsPageDivider.state == .on ? divider.value : nil }
-    var isValid: Bool { (!editsName || !name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) && text.value != nil && paper.value != nil && link.value != nil && (!editsName || showsPageDivider.state == .off || divider.value != nil) }
+    var pageDividerValue: UInt32? { showsPageDivider.state == .on ? divider.value : nil }
+    var isValid: Bool { (!editsName || !name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) && text.value != nil && paper.value != nil && link.value != nil && (showsPageDivider.state == .off || divider.value != nil) }
     init(theme: ReaderTheme, editsName: Bool = true) {
         self.editsName = editsName
         text = ReaderThemeColorInput(theme.text, label: L("Text"))
@@ -973,8 +987,8 @@ final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
         divider.well.isEnabled = showsPageDivider.state == .on
         if editsName {
             rows.insert([NSTextField(labelWithString: L("Theme name")), name], at: 0)
-            rows.append([showsPageDivider, divider])
         }
+        rows.append([showsPageDivider, divider])
         let grid = NSGridView(views: rows)
         grid.rowSpacing = 8; grid.columnSpacing = 12
         addArrangedSubview(grid)
@@ -998,7 +1012,7 @@ final class ReaderThemeEditorView: NSStackView, NSTextFieldDelegate {
     }
     private func changed() {
         if let text = text.value, let background = paper.value, let link = link.value {
-            preview.theme = ReaderTheme(id: "preview", name: name.stringValue, text: text, background: background, link: link, pageDivider: editsName ? pageDividerValue : preview.theme.pageDivider)
+            preview.theme = ReaderTheme(id: "preview", name: name.stringValue, text: text, background: background, link: link, pageDivider: pageDividerValue)
         }
         onChange?()
     }

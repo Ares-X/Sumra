@@ -269,12 +269,16 @@ struct ReadingDocument: Identifiable {
         // MarkdownModel::CreateThumbnail is empty. This applies to both
         // renderers: opening a paged home preview would lay out the whole book.
         let declared = Format.detect(url.lastPathComponent)
-        if declared == .markdown || declared == .html {
+        if declared == .text || declared == .markdown || declared == .html {
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             let prefix = try handle.read(upToCount: 2048) ?? Data()
             let format = try Format.resolve(url, prefix: prefix)
             if format == .markdown || format == .html { return nil }
+            if format == .text {
+                try handle.seek(toOffset: 0)
+                return textThumbnail(try thumbnailText(handle), size: size)
+            }
         }
         let document = try open(url)
         defer { withExtendedLifetime(document) {} }
@@ -284,21 +288,69 @@ struct ReadingDocument: Identifiable {
             let width = bounds.height > 0 ? min(size.width, size.height * bounds.width / bounds.height) : size.width
             return try await pages.image(0, width: max(1, Int(width.rounded(.up))))
         case .text(let text):
-            guard let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8,
-                bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-            context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(origin: .zero, size: size))
-            context.scaleBy(x: size.width / 600, y: size.width / 600)
-            let attributed = NSAttributedString(string: String(text.prefix(8_000)), attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName("Helvetica" as CFString, 16, nil),
-                NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 0, alpha: 1)])
-            let layout = CTFramesetterCreateWithAttributedString(attributed)
-            let area = CGRect(x: 24, y: 24, width: 552, height: size.height * 600 / size.width - 48)
-            CTFrameDraw(CTFramesetterCreateFrame(layout, CFRange(location: 0, length: 0), CGPath(rect: area, transform: nil), nil), context)
-            return context.makeImage()
+            return textThumbnail(String(text.prefix(8_000)), size: size)
         case .browser(let source):
             guard source is CHMSource else { return nil }
             return try await BrowserReader.thumbnail(source, size: size)
         }
+    }
+
+    // Read until the preview has 8,000 complete Swift Characters and one
+    // following character: a combining mark in the next block can still extend
+    // the last character. The block size controls I/O, not a source-byte limit.
+    // Encoding detection uses the same UTF-8-first/Foundation policy as opening,
+    // applied to the preview bytes rather than scanning the rest of the book.
+    static func thumbnailText(_ handle: FileHandle) throws -> String {
+        var data = Data()
+        while true {
+            try Task.checkCancellation()
+            let block = try handle.read(upToCount: 16_384) ?? Data()
+            data.append(block)
+            let text = block.isEmpty ? decode(data) : decodeThumbnailText(data)
+            if let end = text.index(text.startIndex, offsetBy: 8_000, limitedBy: text.endIndex), end != text.endIndex {
+                return String(text[..<end])
+            }
+            if block.isEmpty { return String(text.prefix(8_000)) }
+        }
+    }
+
+    private static func decodeThumbnailText(_ data: Data) -> String {
+        // A UTF-16/32 BOM fixes the encoding. Leave an unfinished code unit or
+        // surrogate in the input buffer until the next read supplies its end.
+        if data.starts(with: [0xff, 0xfe, 0, 0]) || data.starts(with: [0, 0, 0xfe, 0xff]) {
+            return String(data: data.prefix(data.count - data.count % 4), encoding: .utf32) ?? decode(data)
+        }
+        if data.starts(with: [0xff, 0xfe]) || data.starts(with: [0xfe, 0xff]) {
+            var end = data.count - data.count % 2
+            let littleEndian = data[0] == 0xff
+            if end >= 4 {
+                let unit = littleEndian ? UInt16(data[end - 2]) | UInt16(data[end - 1]) << 8
+                                        : UInt16(data[end - 2]) << 8 | UInt16(data[end - 1])
+                if (0xd800...0xdbff).contains(unit) { end -= 2 }
+            }
+            return String(data: data.prefix(end), encoding: .utf16) ?? decode(data)
+        }
+        // Do not mistake a UTF-8 sequence split by a read for a legacy encoding.
+        var start = data.count - 1
+        while start > 0, data[start] & 0xc0 == 0x80 { start -= 1 }
+        let lead = data[start]
+        let width = lead >= 0xc2 && lead <= 0xdf ? 2 : lead >= 0xe0 && lead <= 0xef ? 3 : lead >= 0xf0 && lead <= 0xf4 ? 4 : 1
+        if data.count - start < width, let text = String(data: data.prefix(start), encoding: .utf8) { return text }
+        return decode(data)
+    }
+
+    private static func textThumbnail(_ text: String, size: CGSize) -> CGImage? {
+        guard let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(origin: .zero, size: size))
+        context.scaleBy(x: size.width / 600, y: size.width / 600)
+        let attributed = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName("Helvetica" as CFString, 16, nil),
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 0, alpha: 1)])
+        let layout = CTFramesetterCreateWithAttributedString(attributed)
+        let area = CGRect(x: 24, y: 24, width: 552, height: size.height * 600 / size.width - 48)
+        CTFrameDraw(CTFramesetterCreateFrame(layout, CFRange(location: 0, length: 0), CGPath(rect: area, transform: nil), nil), context)
+        return context.makeImage()
     }
 
     // EpubCoverImageData from pinned EbookDoc.cpp. Foundation owns XML and URL

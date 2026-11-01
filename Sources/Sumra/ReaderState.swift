@@ -224,7 +224,12 @@ struct ReadingPosition: Codable, Hashable {
     var customTextColor: UInt32?
     var customBackgroundColor: UInt32?
     var customLinkColor: UInt32?
+    var customPageDividerColor: UInt32?
+    var customPageDividerHidden: Bool?
     var pageMargins: PageMargins?
+    var marginPresetSelection: String?
+    var controlTopMargin: Double?
+    var controlBottomMargin: Double?
     var scrollbarMode: String?
     var preferenceRevisions: [String: Int]?
     // Only persisted PDF locations need this migration marker. In-memory
@@ -277,7 +282,7 @@ final class ReaderState: ObservableObject {
         didSet {
             if document != nil { restoredPayload = nil }
             if document?.id != oldValue?.id {
-                browserProgress = nil
+                browserProgress = nil; browserPage = nil; browserPageCount = nil
                 scrollProgress.update(nil)
                 pdfEditingEnabled = false; nativePDFInfo = nil; nativePDFSelection = nil; nativePDFAnnotationTool = nil
                 nativePDFSignatureSelection = nil
@@ -304,6 +309,8 @@ final class ReaderState: ObservableObject {
     @Published var page = 0
     @Published var count = 0
     @Published var browserProgress: Double?
+    @Published var browserPage: Int?
+    @Published var browserPageCount: Int?
     var chapterLayout: ChapterTable?
     private var nativePassageTask: Task<Void, Never>?
     @Published var zoom = 1.0
@@ -370,6 +377,9 @@ final class ReaderState: ObservableObject {
     @Published var lineHeight = 1.6
     @Published var margin = ReaderMarginPreset.medium.margin
     @Published var pageMargins: PageMargins?
+    @Published var marginPresetSelection: String?
+    @Published var controlTopMargin = 54.0
+    @Published var controlBottomMargin = 44.0
     private(set) var appliedPreferenceRevisions: [String: Int] = [:]
     @Published var theme = ReaderTheme.all[0].id
     @Published var invertColors = false
@@ -381,6 +391,8 @@ final class ReaderState: ObservableObject {
     @Published var customTextColor: UInt32?
     @Published var customBackgroundColor: UInt32?
     @Published var customLinkColor: UInt32?
+    @Published var customPageDividerColor: UInt32?
+    @Published var customPageDividerHidden = false
     @Published var userCSS = ""
     @Published var useDocumentCSS = true
     @Published var typographyForAll = false
@@ -692,7 +704,12 @@ extension ReaderState {
         position.customTextColor = customTextColor
         position.customBackgroundColor = customBackgroundColor
         position.customLinkColor = customLinkColor
+        position.customPageDividerColor = customPageDividerColor
+        position.customPageDividerHidden = customPageDividerHidden
         position.pageMargins = pageMargins
+        position.marginPresetSelection = marginPresetSelection
+        position.controlTopMargin = controlTopMargin
+        position.controlBottomMargin = controlBottomMargin
         position.scrollbarMode = scrollbarMode
         position.preferenceRevisions = appliedPreferenceRevisions.isEmpty ? nil : appliedPreferenceRevisions
         if nativePDF != nil { position.pdfCoordinateSpace = "fitz" }
@@ -743,8 +760,8 @@ extension ReaderState {
 
     var palette: ReaderTheme {
         let base = ReaderTheme.resolve(theme) ?? ReaderTheme.builtins[0]
-        guard customTextColor != nil || customBackgroundColor != nil || customLinkColor != nil else { return base }
-        return ReaderTheme(id: "custom", name: "Custom", text: customTextColor ?? base.text, background: customBackgroundColor ?? base.background, link: customLinkColor ?? base.link, pageDivider: base.pageDivider)
+        guard customTextColor != nil || customBackgroundColor != nil || customLinkColor != nil || customPageDividerColor != nil || customPageDividerHidden else { return base }
+        return ReaderTheme(id: "custom", name: "Custom", text: customTextColor ?? base.text, background: customBackgroundColor ?? base.background, link: customLinkColor ?? base.link, pageDivider: customPageDividerHidden ? nil : customPageDividerColor ?? base.pageDivider)
     }
 
     var effectiveUserCSS: String { palette.css + "\n" + userCSS }
@@ -1165,6 +1182,7 @@ extension ReaderState {
                     guard let result else {
                         speechPage = nil; speechLocation = nil; speechNeedsNextPage = false
                         speechActive = false; speechPaused = false; speechRequested = false
+                        send(.speechHighlight(location: 0, length: 0))
                         return
                     }
                     speechLocation = result.position.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location } ?? .init(page: result.position.page)
@@ -1186,6 +1204,7 @@ extension ReaderState {
                 speechActive = false
                 speechPaused = false
                 speechRequested = false
+                send(.speechHighlight(location: 0, length: 0))
             } catch {
                 guard !Task.isCancelled, self.document?.id == document.id else { return }
                 stopReading()
@@ -1623,6 +1642,9 @@ extension ReaderState {
         defaults.set(lineHeight, forKey: "lineHeight")
         defaults.set(margin, forKey: "margin")
         defaults.set(pageMargins.flatMap { try? JSONEncoder().encode($0) }, forKey: "pageMargins")
+        defaults.set(marginPresetSelection, forKey: "marginPresetSelection")
+        defaults.set(controlTopMargin, forKey: "controlTopMargin")
+        defaults.set(controlBottomMargin, forKey: "controlBottomMargin")
         defaults.set(userCSS, forKey: "userCSS")
         defaults.set(useDocumentCSS, forKey: "useDocumentCSS")
         ReaderPreferences.applyReadingDefaults(changed: ReaderPreferences.typographyKeys)
@@ -1652,6 +1674,7 @@ extension ReaderState {
         for reader in readers {
             reader.captureReflowPosition()
             reader.customTextColor = nil; reader.customBackgroundColor = nil; reader.customLinkColor = nil
+            reader.customPageDividerColor = nil; reader.customPageDividerHidden = false
             reader.theme = value
             if reader.isText || reader.isBrowser || reader.reflowable { reader.send(.style) }
         }
@@ -1761,6 +1784,19 @@ extension ReaderState {
             self.requestedHistory = !UserDefaults.standard.bool(forKey: "disableHistory")
             self.requestedPosition = position
             self.load(url.standardizedFileURL, reloading: false)
+        }
+    }
+
+    func open(_ payload: WindowPayload, afterOpening: @escaping () -> Void) {
+        guard let path = payload.path else { return }
+        afterDiscard {
+            self.restoredPayload = payload
+            self.restoredLoadStarted = true
+            self.requestedHistory = payload.recordsHistory != false && !UserDefaults.standard.bool(forKey: "disableHistory")
+            self.requestedPosition = payload.position
+            self.tabColor = payload.tabColor
+            self.load(URL(fileURLWithPath: path).standardizedFileURL, reloading: false, temporary: payload.temporary)
+            afterOpening()
         }
     }
 
@@ -2464,7 +2500,7 @@ private extension ReaderState {
                     if !originals.isEmpty {
                         let migrated = try await pages.migratedMarkdownBookmarks(originals.map(\.position),
                             fontSize: fontSize, lineHeight: lineHeight, margin: margin, font: font, theme: resolvedTheme,
-                            userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageMargins: pageMargins, textZoom: zoom)
+                            userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageMargins: contentMargins, textZoom: zoom)
                         guard !Task.isCancelled, currentGeneration == generation else { return }
                         var changed = false
                         for (original, position) in zip(originals, migrated) {
@@ -2620,12 +2656,19 @@ private extension ReaderState {
         if let value = position.enhanceScannedPages { enhanceScannedPages = value }
         if let value = position.preservePDFImages { preservePDFImages = value }
         if let value = position.engineeringEnhance { engineeringEnhance = value }
-        if position.documentColors != nil || position.customTextColor != nil || position.customBackgroundColor != nil || position.customLinkColor != nil {
+        if position.documentColors != nil || position.customTextColor != nil || position.customBackgroundColor != nil || position.customLinkColor != nil || position.customPageDividerColor != nil || position.customPageDividerHidden != nil {
             customTextColor = position.customTextColor; customBackgroundColor = position.customBackgroundColor
             customLinkColor = position.customLinkColor
+            customPageDividerColor = position.customPageDividerColor
+            customPageDividerHidden = position.customPageDividerHidden ?? false
         }
-        if position.margin != nil || position.pageMargins != nil { pageMargins = position.pageMargins }
+        if position.margin != nil || position.pageMargins != nil || position.marginPresetSelection != nil {
+            pageMargins = position.pageMargins
+            marginPresetSelection = position.marginPresetSelection
+        }
         if let value = position.rtl { rtl = value }
+        if let value = position.controlTopMargin { controlTopMargin = value }
+        if let value = position.controlBottomMargin { controlBottomMargin = value }
         if let value = position.cover { cover = value }
         if let value = position.rotation { rotation = (value % 360 + 360) % 360 }
         if let value = position.font { font = value }
@@ -2667,8 +2710,14 @@ private extension ReaderState {
         if reads("enhanceScannedPages") { enhanceScannedPages = defaults.object(forKey: "enhanceScannedPages") as? Bool ?? true }
         if reads("preservePDFImages") { preservePDFImages = defaults.object(forKey: "preservePDFImages") as? Bool ?? true }
         if reads("engineeringEnhance") { engineeringEnhance = defaults.string(forKey: "engineeringEnhance") ?? "off" }
-        if reads("documentColors") { customTextColor = nil; customBackgroundColor = nil; customLinkColor = nil }
+        if reads("documentColors") {
+            customTextColor = nil; customBackgroundColor = nil; customLinkColor = nil
+            customPageDividerColor = nil; customPageDividerHidden = false
+        }
         if reads("pageMargins") { pageMargins = defaults.data(forKey: "pageMargins").flatMap { try? JSONDecoder().decode(PageMargins.self, from: $0) } }
+        if reads("marginPresetSelection") { marginPresetSelection = defaults.string(forKey: "marginPresetSelection") }
+        if reads("controlTopMargin") { controlTopMargin = defaults.object(forKey: "controlTopMargin") as? Double ?? 54 }
+        if reads("controlBottomMargin") { controlBottomMargin = defaults.object(forKey: "controlBottomMargin") as? Double ?? 44 }
         if reads("inverseSearchEnabled") { inverseSearchEnabled = defaults.object(forKey: "inverseSearchEnabled") as? Bool ?? true }
         if reads("landscapeAsSpread") { landscapeAsSpread = defaults.object(forKey: "landscapeAsSpread") as? Bool ?? true }
         if reads("rtl") { rtl = defaults.bool(forKey: "rtl") }

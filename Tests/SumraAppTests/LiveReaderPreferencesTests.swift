@@ -2,11 +2,82 @@
 import AppKit
 import SwiftUI
 import SumraCore
+import WebKit
 import XCTest
 @testable import Sumra
 
 @MainActor
 final class LiveReaderPreferencesTests: XCTestCase {
+    func testControlDefaultsReachEveryReaderWithoutReplacingContentMarginsOrPosition() throws {
+        try preservingDefaults {
+            try withReaders { readers in
+                for reader in readers {
+                    reader.fontSize = 23
+                    reader.pageMargins = PageMargins(cssValues: [9, 17, 25, 33])
+                    reader.marginPresetSelection = "custom"
+                    reader.controlTopMargin = 0
+                    reader.controlBottomMargin = 67
+                }
+                let positions = readers.map(\.currentPosition)
+                try ReaderPreferences.apply(Data("{\"controlTopMargin\":76}".utf8))
+                for (reader, position) in zip(readers, positions) {
+                    XCTAssertEqual(reader.controlTopMargin, 76)
+                    XCTAssertEqual(reader.controlBottomMargin, 67, "An edit to one end must not replace the other end")
+                    XCTAssertEqual(reader.contentMargins?.values, [9, 17, 25, 33])
+                    XCTAssertEqual(reader.marginPresetSelection, "custom")
+                    XCTAssertEqual(reader.fontSize, 23)
+                    XCTAssertEqual(reader.page, position.page)
+                    XCTAssertEqual(reader.zoom, position.zoom)
+                    XCTAssertEqual(reader.currentPosition.y, position.y)
+                    _ = reader.apply(position)
+                    XCTAssertEqual(reader.controlTopMargin, 76, "An older snapshot cannot undo an explicit global clearance change")
+                    XCTAssertEqual(reader.controlBottomMargin, 67)
+                }
+                XCTAssertEqual(ReaderState(recordsHistory: false).controlTopMargin, 76)
+            }
+        }
+    }
+
+    func testOpenBrowserUpdatesColumnsAndDirectionWhenTheirDefaultsChange() async throws {
+        try await withBrowserReader(spread: true) { state, view, window in
+            let initial = try await browserLayout(view)
+            XCTAssertEqual(initial["columns"], "2")
+            XCTAssertEqual(initial["direction"], "ltr")
+
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: "spread")
+            defaults.set(false, forKey: "automaticLayout")
+            ReaderPreferences.applyReadingDefaults(changed: ["spread", "automaticLayout"])
+            XCTAssertFalse(state.spread)
+            try await waitForBrowser(window: window, state: state) {
+                try await browserLayout(view)["columns"] == "1"
+            }
+
+            defaults.set(true, forKey: "rtl")
+            ReaderPreferences.applyReadingDefaults(changed: ["rtl", "automaticLayout"])
+            XCTAssertTrue(state.rtl)
+            try await waitForBrowser(window: window, state: state) {
+                try await browserLayout(view)["direction"] == "rtl"
+            }
+        }
+    }
+
+    func testBrowserDefaultFitKeepsTheDisplayedPageZoomInSync() async throws {
+        try await withBrowserReader { state, view, window in
+            for changed: Set<String> in [["fit"], ["fit", "fontSize"]] {
+                state.setZoom(2)
+                try await waitForBrowser(window: window, state: state) { abs(view.pageZoom - 2) < 0.001 }
+                XCTAssertEqual(state.zoom, 2, accuracy: 0.001)
+
+                UserDefaults.standard.set("page", forKey: "fit")
+                UserDefaults.standard.set(22, forKey: "fontSize")
+                ReaderPreferences.applyReadingDefaults(changed: changed)
+                XCTAssertEqual(state.zoom, 1, accuracy: 0.001)
+                try await waitForBrowser(window: window, state: state) { abs(view.pageZoom - 1) < 0.001 }
+            }
+        }
+    }
+
     func testExplicitSettingsBindingUpdatesEveryUnfocusedReaderWithoutReplacingBookSettings() throws {
         try preservingDefaults {
             try withReaders { readers in
@@ -270,6 +341,63 @@ final class LiveReaderPreferencesTests: XCTestCase {
             XCTAssertEqual(fresh.fontSize, 28)
             XCTAssertEqual(fresh.font, "serif", "An unrelated per-format default must survive a global font-size change")
         }
+    }
+
+    private func withBrowserReader(spread: Bool = false,
+                                   _ body: (ReaderState, WKWebView, NSWindow) async throws -> Void) async throws {
+        _ = NSApplication.shared
+        let saved = snapshotDefaults()
+        defer { restoreDefaults(saved) }
+        UserDefaults.standard.removeObject(forKey: "readingPreferenceRevisions")
+        let directory = try TemporaryDirectory()
+        let input = directory.url.appendingPathComponent("Live browser settings.html")
+        let paragraphs = (0..<80).map { "<p>Passage \($0). " + String(repeating: "Readable browser text. ", count: 20) + "</p>" }.joined()
+        try ("<!doctype html><meta charset=utf-8>" + paragraphs).write(to: input, atomically: true, encoding: .utf8)
+        let state = ReaderState(recordsHistory: false)
+        state.document = try ReadingDocument.open(input, markdownRenderer: .compatible)
+        state.flow = "paged"; state.spread = spread; state.rtl = false; state.automaticLayout = false
+        state.font = "system"; state.fontSize = 17; state.lineHeight = 1.6; state.margin = 24
+        state.pageMargins = nil; state.marginPresetSelection = nil
+        state.zoom = 1; state.userCSS = ""; state.useDocumentCSS = true
+        guard case .browser(let source) = state.document?.content else { throw ReadError("Expected browser fixture") }
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: 500),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        state.window = window
+        let delegate = ReaderCloseGuard(state: state, previous: nil)
+        window.delegate = delegate
+        window.contentView = NSHostingView(rootView: BrowserReader(state: state, source: source))
+        defer {
+            window.contentView = nil
+            state.windowClosed(); window.delegate = nil; window.close()
+            withExtendedLifetime((directory, delegate)) {}
+        }
+        try await waitForBrowser(window: window, state: state) { state.browserPageCount != nil }
+        let view = try XCTUnwrap(state.browserView)
+        XCTAssertTrue(ReaderWindows.states.contains { $0 === state })
+        try await body(state, view, window)
+    }
+
+    private func browserLayout(_ view: WKWebView) async throws -> [String: String] {
+        let result = try await view.callAsyncJavaScript("""
+            const style = getComputedStyle(document.body);
+            return {columns: style.columnCount, direction: style.direction};
+            """, arguments: [:], in: nil, contentWorld: .world(name: "SumraMarkup"))
+        return try XCTUnwrap(result as? [String: String])
+    }
+
+    private func waitForBrowser(window: NSWindow, state: ReaderState,
+                                file: StaticString = #filePath, line: UInt = #line,
+                                _ condition: () async throws -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            window.contentView?.layoutSubtreeIfNeeded()
+            if try await condition() { return }
+            if state.error != nil { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        } while Date() < deadline
+        let finished = try await condition()
+        XCTAssertTrue(finished, state.error ?? "Browser did not apply the reading setting", file: file, line: line)
     }
 
     private func snapshotDefaults() -> [(String, Any?)] {

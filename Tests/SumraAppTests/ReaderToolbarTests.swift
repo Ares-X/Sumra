@@ -165,6 +165,9 @@ final class ReaderToolbarTests: XCTestCase {
     }
 
     func testAutoHideRevealsWindowTitleWithItsControls() throws {
+        guard #unavailable(macOS 15) else {
+            throw XCTSkip("SwiftUI owns native title visibility on macOS 15+; the hosted native-title input test covers that path")
+        }
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/hover-title.txt"), content: .text("book"))
@@ -288,17 +291,48 @@ final class ReaderToolbarTests: XCTestCase {
         observer.pointerMoved(to: top)
         observer.pointerMoved(to: body)
         XCTAssertTrue(state.toolbarHoverVisible, "Leaving the edge must allow a gentle outro")
-        try await Task.sleep(nanoseconds: 50_000_000)
         observer.pointerMoved(to: top)
         try await Task.sleep(nanoseconds: 320_000_000)
         XCTAssertEqual(visibility, [true], "A quick return must not hide and remount the controls")
         XCTAssertEqual(state.toolbarHoverOpacity, 1)
 
+        // RunLoop reaches beforeWaiting only after ready MainActor work has
+        // drained and dismissal has suspended. Hold that actor until the sleep
+        // expires, then re-enter before its queued continuation can resume.
+        func returnAfterTimerExpires(_ duration: TimeInterval, start: () -> Void = {}) async {
+            let returned = expectation(description: "Re-entered before the expired dismissal resumed")
+            let idle = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, 0) { _, _ in
+                MainActor.assumeIsolated {
+                    Thread.sleep(forTimeInterval: duration + 0.05)
+                    observer.pointerMoved(to: top)
+                    returned.fulfill()
+                }
+            }!
+            defer {
+                CFRunLoopRemoveObserver(CFRunLoopGetMain(), idle, .defaultMode)
+                CFRunLoopObserverInvalidate(idle)
+            }
+            start()
+            // Register after the dismissal's initial main-queue job, so this
+            // idle callback cannot run before that task starts its sleep.
+            DispatchQueue.main.async { CFRunLoopAddObserver(CFRunLoopGetMain(), idle, .defaultMode) }
+            await fulfillment(of: [returned], timeout: 2)
+        }
+        await returnAfterTimerExpires(ReaderMotion.hoverDismissDelay) { observer.pointerMoved(to: body) }
+        try await Task.sleep(nanoseconds: 320_000_000)
+        XCTAssertEqual(visibility, [true], "An expired grace timer must not hide controls after re-entry")
+        XCTAssertEqual(state.toolbarHoverOpacity, 1, "A cancelled grace continuation must not fade the controls")
+
+        let fade = expectation(description: "Dismissal reached its fade target")
+        let fading = state.$toolbarHoverOpacity.dropFirst().filter { $0 == 0 }.prefix(1).sink { _ in fade.fulfill() }
+        defer { fading.cancel() }
         observer.pointerMoved(to: body)
-        try await Task.sleep(nanoseconds: 170_000_000)
+        await fulfillment(of: [fade], timeout: 2)
         XCTAssertTrue(state.toolbarHoverVisible)
         XCTAssertEqual(state.toolbarHoverOpacity, 0, "The fade target changes before the native toolbar is removed")
-        observer.pointerMoved(to: top)
+        // The completion timer can expire while MainActor is busy too.
+        // Deliver re-entry before allowing that queued completion to resume.
+        await returnAfterTimerExpires(ReaderMotion.dismissDuration)
         try await Task.sleep(nanoseconds: 320_000_000)
         XCTAssertEqual(visibility, [true], "Returning during a fade must cancel its old completion")
         XCTAssertEqual(state.toolbarHoverOpacity, 1)
@@ -414,9 +448,11 @@ final class ReaderToolbarTests: XCTestCase {
                                   "The fixture must have installed native chrome above the reading area")
                 func checkReservedChrome() {
                     let readingRect = scroll.contentView.convert(scroll.contentView.safeAreaRect, to: nil)
-                    let reservedMenu = fullscreen ? menuHeight : 0
-                    XCTAssertEqual(window.contentLayoutRect.maxY - readingRect.maxY, reservedMenu, accuracy: 0.1,
-                                   "Fullscreen must also reserve the menu above the installed toolbar and tabs; normal windows need no extra gap")
+                    let expectedTop = mode == .shown && !presentation
+                        ? window.contentLayoutRect.maxY - (fullscreen ? menuHeight : 0)
+                        : window.frame.height
+                    XCTAssertEqual(readingRect.maxY, expectedTop, accuracy: 0.1,
+                                   "Permanent chrome reserves its space; temporary chrome overlays the full reading viewport")
                     XCTAssertTrue(installedToolbar.isVisible, "Reader modes keep native chrome layout installed")
                 }
                 checkReservedChrome()
@@ -471,7 +507,7 @@ final class ReaderToolbarTests: XCTestCase {
             }
             XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
             XCTAssertTrue(window.titlebarAppearsTransparent)
-            XCTAssertEqual(window.titleVisibility, .hidden)
+            if #unavailable(macOS 15) { XCTAssertEqual(window.titleVisibility, .hidden) }
             XCTAssertEqual(window.titlebarSeparatorStyle, .none)
             XCTAssertEqual(window.contentView?.frame.maxY ?? 0, window.frame.height, accuracy: 0.1,
                            "The book must occupy the unused titlebar space")
@@ -650,6 +686,89 @@ final class ReaderToolbarTests: XCTestCase {
             }
         }
         for window in windows { XCTAssertEqual(window.alphaValue, 0); XCTAssertTrue(window.ignoresMouseEvents) }
+    }
+
+    func testClosingSelectedNativeTabKeepsStationaryPointerOverSurvivingTabBar() async throws {
+        final class DocumentWindow: NSWindow {
+            var receivesPointer = false
+            var pointer = NSPoint.zero
+            override var isKeyWindow: Bool { receivesPointer }
+            override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
+        }
+        _ = NSApplication.shared
+        let states = (0..<3).map { index in
+            let state = ReaderState(recordsHistory: false)
+            state.document = ReadingDocument(url: URL(fileURLWithPath: "/close-hover-\(index).txt"), content: .text("book"))
+            state.immersiveControls = false; state.toolbarDisplayMode = .auto
+            return state
+        }
+        let windows = (0..<3).map { index in
+            let window = DocumentWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0; window.ignoresMouseEvents = true
+            window.toolbar = NSToolbar(identifier: "close-hover-\(index)")
+            states[index].window = window
+            return window
+        }
+        windows[0].addTabbedWindow(windows[1], ordered: .above)
+        windows[0].addTabbedWindow(windows[2], ordered: .above)
+        let group = try XCTUnwrap(windows[0].tabGroup)
+        group.selectedWindow = windows[2]
+        let observers = states.enumerated().map { index, state in
+            let observer = ReaderToolbarWindow.Host()
+            observer.state = state; observer.reducedMotion = true
+            windows[index].contentView?.addSubview(observer)
+            return observer
+        }
+        let closeGuard = ReaderCloseGuard(state: states[2], previous: nil)
+        windows[2].delegate = closeGuard
+        defer {
+            for observer in observers { observer.detach() }
+            for window in windows { window.delegate = nil; window.contentView = nil; window.close() }
+            for state in states { state.windowClosed() }
+        }
+        let survivor = windows[0]
+        group.selectedWindow = survivor
+        observers[0].updateChrome()
+        survivor.contentView?.superview?.layoutSubtreeIfNeeded()
+        // The native tab row is below the toolbar, beyond the old 48 pt entry
+        // strip. Closing the selected sibling must reveal at that same point.
+        let content = try XCTUnwrap(survivor.contentView)
+        let nativeHeight = max(content.safeAreaInsets.top,
+            content.bounds.maxY - content.convert(survivor.contentLayoutRect, from: nil).maxY)
+        XCTAssertGreaterThan(nativeHeight, 48)
+        survivor.pointer = NSPoint(x: 350, y: survivor.frame.height - nativeHeight + 5)
+        group.selectedWindow = windows[2]
+        let closed = expectation(description: "Selected tab closes through document approval")
+        closeGuard.close(windows[2]) { allowed in
+            XCTAssertTrue(allowed)
+            closed.fulfill()
+        }
+        await fulfillment(of: [closed], timeout: 2)
+        XCTAssertFalse(group.windows.contains { $0 === windows[2] })
+        XCTAssertEqual(group.windows.count, 2, "Closing the new tab keeps the existing tab row")
+        group.selectedWindow = survivor
+        let layout = survivor.contentLayoutRect
+        survivor.receivesPointer = true
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: survivor)
+        await Task.yield()
+        observers[0].updateChrome()
+        XCTAssertTrue(states[0].toolbarShown, "The tab-row close position must reveal the surviving toolbar")
+        let accessories = survivor.titlebarAccessoryViewControllers.map(\.view)
+        XCTAssertFalse(accessories.isEmpty)
+        for view in accessories {
+            XCTAssertFalse(view.isHidden)
+            XCTAssertEqual(view.alphaValue, 1, accuracy: 0.001)
+        }
+        observers[0].pointerMoved(to: NSPoint(x: 350, y: 100))
+        observers[0].updateChrome()
+        XCTAssertFalse(states[0].toolbarShown, "Moving into the document still dismisses Auto Hide")
+        observers[0].pointerMoved(to: survivor.pointer)
+        observers[0].updateChrome()
+        XCTAssertTrue(states[0].toolbarShown, "The entire native tab row remains a reveal target after closing")
+        XCTAssertEqual(survivor.contentView?.alphaValue, 1)
+        XCTAssertEqual(survivor.contentLayoutRect, layout, "Revealing controls must preserve the surviving reading viewport")
     }
 
     func testSharedDetachedChromeKeepsSelectedTabOwnershipAcrossModeChanges() throws {
@@ -915,9 +1034,28 @@ final class ReaderToolbarTests: XCTestCase {
                 XCTAssertEqual(parent.contentLayoutRect, layout); XCTAssertEqual(companion.frame, companionFrame)
             }
         }
+        // Always Hide also reveals window buttons before the system menu bar
+        // appears. The visible companion must not reveal its reader children.
+        state.presentation = false; state.toolbarDisplayMode = .hidden
+        observer.pointerMoved(to: NSPoint(x: 350, y: parent.frame.height - 40))
+        XCTAssertTrue(state.toolbarHoverVisible)
+        observer.updateChrome(revealingNativeControls: false)
+        XCTAssertFalse(state.toolbarShown)
+        XCTAssertEqual(content.alphaValue, 1, accuracy: 0.001)
+        XCTAssertFalse(companion.ignoresMouseEvents)
+        XCTAssertFalse(close.isHidden)
+        for view in [tools, tabs.view] {
+            XCTAssertTrue(view.isHidden)
+            XCTAssertEqual(view.alphaValue, 0, accuracy: 0.001)
+            XCTAssertNil(view.hitTest(NSPoint(x: view.bounds.midX, y: view.bounds.midY)),
+                "Revealing window controls must not make hidden reader tools intercept clicks")
+        }
+        XCTAssertEqual(parent.frame, frame); XCTAssertEqual(parent.contentView?.frame, viewport)
+        XCTAssertEqual(parent.contentLayoutRect, layout); XCTAssertEqual(companion.frame, companionFrame)
+
         // Returning from native menu reveal must hand opacity back to the
         // companion without leaving a child toolbar at zero opacity.
-        state.presentation = false; state.toolbarDisplayMode = .auto
+        state.toolbarDisplayMode = .auto
         observer.pointerMoved(to: NSPoint(x: 350, y: parent.frame.height - 1))
         observer.updateChrome(revealingNativeControls: false)
         XCTAssertEqual(content.alphaValue, 1, accuracy: 0.001)
@@ -1079,7 +1217,7 @@ final class ReaderToolbarTests: XCTestCase {
                 XCTAssertEqual(state.toolbarOverlaysContent, mode != .shown || presentation)
                 observer.pointerMoved(to: top)
                 XCTAssertEqual(state.toolbarHoverVisible,
-                    !presentation && (mode == .auto || (mode == .hidden && state.usesFloatingChrome)))
+                    !presentation && (mode == .auto || mode == .hidden))
                 XCTAssertEqual(state.toolbarShown, !presentation && (mode == .auto || mode == .shown))
                 XCTAssertEqual(state.toolbarDisplayMode, mode)
                 observer.pointerMoved(to: NSPoint(x: top.x, y: window.frame.height + 1))
@@ -1163,6 +1301,9 @@ final class ReaderToolbarTests: XCTestCase {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: .titled, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        // Exercise the minimum entry strip here; the close-tab regression
+        // covers native rows taller than that strip.
+        window.toolbarStyle = .unifiedCompact
         let toolbar = NSToolbar(identifier: "toolbar-hover-hysteresis-test")
         window.toolbar = toolbar
         let observer = ReaderToolbarWindow.Host()

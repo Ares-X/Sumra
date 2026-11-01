@@ -12,18 +12,22 @@ Following the system appearance remains selected when a theme dialog is applied
 unchanged. A document's previously saved retired palette is shown only while it
 is selected; the built-in presets remain limited to five.
 
-Advanced Typography and CSS uses drafts until **Apply Margins and CSS** (or Return
-in the margins field). The panel names the current document and refreshes its
-drafts when another document replaces it. The basic margin slider follows the
-applied advanced margins; unequal edges are labelled **Custom**. Moving that
-slider sets equal edges and updates the advanced draft, so applying CSS does not
-restore an older margin value. Closing the panel discards unapplied drafts and
-retains changes already applied to the document.
+Font size, line height and all four margins have editable numeric fields beside
+their sliders in Reading Settings and Default Typography. Typing commits on
+Return or focus loss. Select **Custom** to edit margins; it stays Custom even if
+the entered values equal a preset. The shorthand margins draft commits with
+**Apply Margins** or Return; an empty draft restores document margins. CSS has
+its own **Apply CSS** action. The panel names the current document and refreshes
+its drafts when another document replaces it. Closing the panel discards
+unapplied drafts and retains changes already applied to the document.
 The plain-text CSS editor loads the saved draft when reopened and replaces its
 visible contents when the current document changes, including an empty draft.
 An open panel follows interface-language changes without discarding its drafts.
-Its compact margin label rounds for display; the advanced values retain their
-full precision.
+Numeric fields retain entered precision. An accepted value remains displayed while
+the settings binding publishes its update, so moving focus cannot resubmit a stale value.
+Consecutive edits to different margin sides retain every accepted value. A numeric
+draft belongs to the document in which editing began; replacing that document
+starts a fresh native editor for the incoming document's settings.
 
 Main **Settings** changes reading appearance and layout in every open reader
 immediately, including while Settings owns keyboard focus. Only the edited
@@ -37,6 +41,9 @@ silently replacing the global defaults during restoration. Opening policies and
 startup choices take effect at their named action. Advanced Apply and Import use
 the same live update path. The per-setting restore markers are internal,
 persist across app updates and stay out of public settings exports.
+In the compatible HTML/CHM reader, changing the default page spread or reading
+direction updates the visible layout immediately. Default-fit changes synchronize
+the rendered zoom with the current setting, including a combined settings import.
 
 The compact theme preview shows both pages, including the selected divider
 color; disabling the divider leaves uninterrupted paper. Text and links on each
@@ -50,10 +57,38 @@ do not replace the saved width.
 The document pane keeps at least 360 pt beside either sidebar. Narrow windows
 temporarily compress the sidebar; widening restores its saved width without
 changing the selected page layout.
+Every split pane reclaims the native top safe area before applying its own
+toolbar clearance. Contents and AI must reserve this space once, including
+empty contents, either sidebar edge and normal/floating toolbar round trips.
+The welcome page's recent-file menu offers Open and Open in New Window;
+Open in New Tab is reserved for the file browser in an occupied reader.
+Page-grid configuration rows use their controls' natural fitting heights, so
+numeric values and the Style picker remain fully visible in the native alert.
+Native contents and search-result lists have transparent backgrounds; the
+containing sidebar owns their theme surface. AppKit keeps native row selection
+and keyboard focus feedback, without adding a separate gray block below search.
 
-**Page Margins** offers Narrow (8 pt), Medium (16 pt) and Wide (24 pt)
-presets for reflowable books, plain text and browser documents. Presets set all
-four edges; the advanced controls still support unequal margins. An unset
+Close and Command-W use the document window's close capability, including in
+fullscreen when AppKit hides or disables its traffic-light button. An attached
+sheet blocks the document close command. Closing still follows the existing
+unsaved-changes confirmation and native delegate approval.
+Closing a native tab remounts the surviving tab bar through its public window
+group so the remaining tabs fill it while the pointer stays in place. Native
+titlebar accessories retain their own clicks; the window-drag region excludes
+their actual view hierarchy. On macOS 15 and later SwiftUI also owns removal of
+the native title item when the reading toolbar hides.
+
+Floating window controls keep AppKit's standard buttons and actions. Their
+public tracking area draws a small theme-aware ring around the hovered available
+button, without substituting a pressed state or reproducing system button
+symbols. Moving away clears it; native click and modifier behavior remains with
+the button.
+
+**Page Margins** is also available for PDF, comics and other fixed pages. Narrow,
+Medium and Wide use 8, 16 and 24 pt on each fixed-page edge. Reflowed text uses
+those vertical margins and twice that amount horizontally, restoring the
+comfortable 16/32 pt Medium proportions. Custom values apply exactly on all
+four edges. An unset
 override is labelled Custom and keeps the document's original margins. New
 profiles start with explicit Medium margins; upgrades retain existing implicit,
 custom and per-book settings. Preference migration is versioned and runs before
@@ -69,7 +104,11 @@ pagination, image coordinates or search locations.
 
 For fixed pages, **Keep scroll position when turning pages** preserves the visible
 origin as fractions of the displayed page dimensions, including rotated pages.
-It is off by default. **Keep current zoom when following links** is also optional. PDF link
+It is off by default.
+When **Trim Empty Margins** removes a saved point above the page's cropped
+content, restoring that point starts at the cropped page rather than entering
+the preceding page. Points within retained content keep their source location.
+**Keep current zoom when following links** is also optional. PDF link
 jumps briefly mark their destination; ebook links navigate without that marker.
 Back restores the recorded reading viewport. Hover previews remain passive,
 so the first click follows the source link. Previews fit the available space
@@ -122,13 +161,22 @@ supports a command list, reorder and symbol selection, retaining Advanced JSON.
 Add the custom button group through macOS **Customize Toolbar** if it is hidden.
 Settings → Toolbar → **Toolbar Display** is a single persisted choice shared by
 all reader windows and the View menu: **Always Show** (default), **Auto Hide**,
-or **Always Hide**. Auto Hide reveals controls within the top 48 points and
-keeps them available while the pointer remains within the top 96 points or edits
-the page field. Always Hide does not reveal controls on hover. Temporary controls
+or **Always Hide**. Auto Hide reveals controls across the full measured native
+toolbar and tab-bar height, with a minimum entry depth of 48 points. The retention
+region is at least 96 points and never shorter than the entry region, so closing
+a tab under a stationary pointer keeps the surviving controls reachable. Editing
+the page field also keeps controls available. Always Hide does not reveal reading
+controls on hover. Temporary controls
 overlay the book without changing its viewport or pagination, including in full
 screen. Presentation hides the reading toolbar, and leaving presentation
 restores the chosen mode. The earlier local
 hover preference migrates to Auto Hide when enabled, otherwise Always Show.
+Native reading, including fixed PDFs and reflowed text, uses the space beneath
+temporary chrome, retaining the selected page margin without an additional
+titlebar-sized blank band. PDF fitting and scrolling use that same unobscured
+viewport. Always Show reserves the native controls once. In paged and two-page
+TXT reading, vertical line commands align to complete TextKit lines; the facing
+page continues immediately after the last complete line on the leading page.
 Advanced settings export/import uses `toolbarDisplayMode` (`shown`, `auto`,
 `hidden`). Existing configured `toolbar` commands keep their show/hide semantics
 and change this same setting; they do not maintain a separate window override.
@@ -137,9 +185,32 @@ policy with this same visibility state, so the menu-bar hover area does not
 impose a second reveal threshold or leave hidden chrome covering the first line.
 Window close/full-screen controls remain owned by macOS; minimizing is unavailable
 while the native full-screen window is active.
+In native full screen, AppKit also owns those buttons' opacity and the document
+icon's visibility. The reader must not restore their windowed appearance over
+the full-screen title. Toolbar mode changes still release the button hiding
+owned by the reader, including when returning from Always Hide to Always Show.
+In a windowed native reader, Auto Hide and Always Hide retain an arrow cursor
+and window dragging over the native titlebar's empty area. The chrome host
+receives that band above the reading view, using the real native window-button
+container's bounds even when hidden toolbar layout expands into the document.
+Native controls installed after the reading view attaches join the same hiding
+and dragging behavior as soon as AppKit supplies them.
+Native controls keep their own input; the document below still supports text
+selection. This does not reserve extra page space or take over full-screen
+system controls.
+When the native toolbar appears above the document overlay, its filename and
+empty space also keep the arrow cursor and window dragging. The reader passes
+the original single mouse-down to AppKit for these areas; toolbar buttons and
+page inputs retain their own events. Double-click and Command-click remain
+native operations, including the document-title path menu.
+On macOS 15 and later, SwiftUI removes and restores the native title item with
+the reading tools. AppKit does not also change title visibility there: a later
+`navigationTitle` update could otherwise restore the title while the window
+buttons are hidden and leave it beneath those buttons on the next reveal.
 **Floating Reading Controls** is an optional setting, off by default. Home and
-initial loading pages use a fixed header in the window layout, with 16-point
-horizontal gutters around the window buttons and Open button. Home is an
+initial loading pages use a draggable header with native window buttons and
+16-point horizontal gutters. Home keeps its title and Open action in the main
+welcome content without duplicating them in that header. Home is an
 independent launch window; it has no document tabs or floating reading tools and
 does not change the reading setting. Floating reading controls replace
 the native strip with separate compact navigation, tab and reading-tool groups;
@@ -148,7 +219,12 @@ the native window group, retain their colors and reveal the selected tab. The
 three groups combine into one compact strip in narrow windows. Long filenames
 truncate in the middle, keeping both their beginning and extension; one open
 document shows its filename only once. Window buttons and reading controls
-retain their click areas. One document uses the available title width; fitting
+retain their click areas. Adding a floating tab keeps one visible set of window
+buttons; returning to the native toolbar restores its original controls.
+Show/Hide Tab Bar stays disabled while floating controls own the tabs, including
+when AppKit inserts or rebuilds the native menu item. Native toolbar mode keeps
+the command available.
+One document uses the available title width; fitting
 multiple tabs share the strip, and crowded tabs scroll horizontally while
 keeping their selection and close targets usable.
 The native full-screen toolbar follows automatic visibility while custom chrome
@@ -159,7 +235,8 @@ still reveals the three macOS window buttons, without changing the book viewport
 or restoring a native toolbar over them. Presentation hides those buttons too.
 Tab switching, batch closing, sessions and named groups read the complete native
 group even when its system tab bar is not shown.
-The floating progress bar is 26 points tall and 6 points from the bottom edge.
+The floating progress bar is 26 points tall and 16 points from the bottom edge,
+matching the top control inset.
 Small-book capsules are 472 points wide, with equal 12-point inner padding and
 16-point window gutters in narrow windows. The percentage and page label align
 to the outer ends in stable slots; the slider fills the remaining middle width
@@ -167,15 +244,31 @@ without shifting when the digits change during navigation or drag previews.
 Long page and chapter counters reserve their complete localized label width;
 the capsule grows by that difference when the window permits it. A held drag
 keeps its counter width and track geometry when background chapter pagination
-finishes. Multi-topic CHM progress navigates the whole file sequence; single-file
-browser documents retain within-file scrolling.
-Medium margins reserve a small gap around the floating controls; Narrow allows
-the controls to cover reading content; Wide keeps additional clearance. This
-reservation includes the book's own margin instead of adding a second full
-margin: the top content inset is 54 points for Medium and 62 for Wide, including
-the 36-point toolbar and its 16-point top inset. Window buttons stay below the
-system's window-sharing indicator band. The bottom inset is 34/40 points
-respectively. All toolbar groups stay in one row, including multiple tabs.
+finishes. Multi-topic CHM progress navigates the whole file sequence. HTML
+progress reports and seeks within the current file, including when its folder
+contains other HTML files; entering another file starts its local page count.
+**Content margins** and **Control clearance** are independent groups in Aa and
+Settings → Reading. The four content margins and Narrow/Medium/Wide presets
+change page geometry; they no longer choose floating-control clearance.
+Top and bottom clearance accept 0–200 pt independently, measured from the window
+edge. Defaults are 54 pt above and 44 pt below, retaining the former Medium
+layout. A value of 0 allows floating controls to overlap reading content.
+Each end uses the larger of its content margin and control clearance rather
+than adding both. A hidden toolbar or progress bar reserves no clearance at that
+end; Auto Hide retains the chosen area while the controls fade. Native toolbars
+continue to use their existing system layout. Find/edit/speech rows and sidebar
+buttons still clear the actual interactive controls even with clearance set to 0.
+When a docked Find, editing or speech row already clears the floating toolbar,
+Contents, search results and AI start below that row without adding the same
+top clearance again. Always Hide removes the configured extra sidebar clearance;
+the sidebar's interactive heading still clears the visible window buttons.
+Window buttons stay below the system's window-sharing indicator band. All
+toolbar groups stay in one row, including multiple tabs.
+The two values are remembered with the book and format settings. Use Changes as
+Defaults also saves them as defaults; explicit Settings edits update open readers
+and future documents without replacing content margins. Settings export/import
+includes `controlTopMargin` and `controlBottomMargin`; old exports that omit
+these fields leave the current clearance unchanged.
 The reservation does not change when controls appear or disappear. The floating
 hover area retains access to the full control group in narrow windows.
 Opening or replacing a book while the pointer stays in that area reveals Auto
@@ -184,9 +277,19 @@ During window resizing, paged reflowable books fit their existing pages to the
 changing viewport. Pagination and raster generation wait until the drag ends,
 then refresh at the final size while retaining the reading passage. Both halves
 of a spread adopt the new page dimensions together.
+PDF pages remain fixed-layout pages: **Fit Page** scales the paper, not its text
+flow. **Fit Width in Continuous View** selects single-page continuous reading
+and width fitting; **Trim Empty Margins** can additionally crop empty object
+bounds. Neither action rewraps PDF text or recognizes text in scanned images.
+An image covering the whole page keeps its internal scanned whitespace.
+**Use Document Layout** follows the file's preferred layout metadata; it does
+not select one or two pages in response to window width. A manually selected
+two-page layout stays selected when the window narrows.
 **New Tab** is available in the toolbar, Tabs menu and with Command-T. It selects
 files first and opens them as document tabs, independently of the default open
-policy; canceling creates nothing. The system tab-bar New Tab action uses the
+policy; canceling creates nothing. After selection, the new tab displays Opening
+until the file is ready. Welcome is reserved for windows opened without a file.
+The system tab-bar New Tab action uses the
 same command. **Home** opens or activates a separate launch window and retains
 all open books. Closing Home does not close their windows. Reopening the running
 app from the Dock restores an existing reader or creates Home when none remain,
@@ -206,12 +309,29 @@ input and preserve the reader's selection and keyboard focus.
 Selecting reader text shows nearby existing Copy, Read, Translate and available
 Highlight actions without taking keyboard focus from the reader.
 
+Saved groups follow the current New Window / New Tab / Replace Current opening
+policy. Restored tabs keep saved order after existing siblings. Empty groups
+cannot be restored; saving an existing name offers Replace, Rename or Cancel.
 Saved native tabs, including named tab groups, open their documents only when
 activated. A moved file retains its macOS identity where the filesystem supports
 it. Progress, bookmarks and saved tabs migrate to its new path. **File → Relocate File…** lets you choose a replacement when the original is unavailable.
 Explicitly selecting an existing file opens that selected pathname. Renaming a
 live PDF preserves native annotations and pending form input; saving refreshes
 bookmarks after the atomic file replacement.
+
+**Choose Page by Thumbnail** shows sequential pages around the current page,
+without the command palette's search and category controls or history sorting.
+The thumbnail chooser accepts Up/Down to change selection, Return to navigate,
+and Escape to close without changing the page. The full row is clickable in both
+surfaces. Custom Document Colors includes
+the page divider color and visibility; these overrides persist with the book,
+and **Use Theme** restores the theme's divider.
+
+**Send by Email** uses the macOS compose-email sharing service with the current
+document attached. Unavailable or failed sharing displays the system error;
+when a default email application is configured, the failure message names it
+and explains that attachment sharing support is required. The app does not
+change the system default email application.
 
 EPUB, MOBI/PRC, Kindle AZW/AZW3, FB2, CBZ, CBR, CBT and CB7 register
 read-only Quick Look thumbnail and preview extensions with the bundled app.
@@ -227,3 +347,32 @@ The [acceptance record](READER_ACCEPTANCE_20261023.md) separates observed contro
 from physical printer output.
 
 Mouse-moved events can carry either document/owned-child coordinates or, when AppKit supplies no associated window, screen coordinates. The existing toolbar owner converts the latter before its key-window and top-region hover decision.
+
+
+Browser-to-native Markdown links retain their explicit encoded heading fragment
+when switching renderers. That destination takes precedence over the target's
+saved reading position; ordinary browser sibling and same-file links keep their
+existing navigation path.
+
+Browser Read Aloud keeps true paragraph/block boundaries in its speech text,
+while text inside inline elements remains continuous. Speech highlighting maps
+its UTF-16 offsets back to the original text nodes, including gaps introduced
+for paragraph pauses. Find, Copy and the publication's DOM remain literal.
+Natural completion clears the last highlighted word in both the native and
+browser reader paths.
+
+The document file-browser sheet completes its native close notification before
+opening the selected document, including explicit new-window and new-tab actions.
+This lets AppKit give the destination its normal front-window and keyboard focus.
+
+Text thumbnails read only the initial 8,000 complete Swift Characters, with the
+following character needed to settle a chunk boundary. Full TXT opening still
+loads the document normally; sidecar covers remain preferred. Preview encoding
+detection uses the existing UTF-8-first/Foundation policy on the consumed prefix,
+so unseen later bytes cannot influence that heuristic.
+
+Overlay progress controls reserve their actual interaction height in Contents and
+AI sidebars, including the floating footer's hover area. Existing root padding
+and the status row count toward that clearance once. The reading canvas keeps its
+existing page margins and full-bleed behavior. Selecting the footer's Hidden
+display mode releases the sidebar space; Auto Hide keeps the hover area clear.

@@ -760,10 +760,17 @@ final class ReaderProgressFooterTests: XCTestCase {
         _ = state.applyChapterLayout(await pages.chapterLayout)
         state.updatePosition(destination)
         state.didHandleCommand(state.command.revision)
-        try await settle()
+        // Acknowledgement publishes on the next main-queue turn; wait for the
+        // resulting SwiftUI layout instead of assuming one 20 ms turn is enough.
+        let expectedLabel = state.readingProgress.percentage() + ", " + state.readingProgress.label()
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            try await settle()
+        } while Date() < deadline && (control.convert(control.bounds, to: host) == originalFrame
+            || control.accessibilityValueDescription() != expectedLabel)
         XCTAssertNotEqual(control.convert(control.bounds, to: host), originalFrame,
             "After the navigation handoff, current document measurements own the label width")
-        XCTAssertEqual(control.accessibilityValueDescription(), state.readingProgress.percentage() + ", " + state.readingProgress.label())
+        XCTAssertEqual(control.accessibilityValueDescription(), expectedLabel)
     }
 
     @MainActor

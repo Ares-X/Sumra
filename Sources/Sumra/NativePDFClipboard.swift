@@ -102,19 +102,28 @@ final class NativePDFClipboard {
         let result = try await pages.pdfPasteAnnotation(creation(page: page, at: point), removing: sameDocument ? cut : nil)
         pasted = true
         if source?.status == L("Annotation ready to move; paste to finish") { source?.status = "" }
+        // The destination already changed. Publish its dirty state and render
+        // before a separate document's deletion can fail.
+        if state.document?.id == targetID {
+            try await NativePDFAnnotations.refresh(page: page, id: result.id, state: state, pages: pages)
+        }
         var removedSource = result.removedSource
         if !sameDocument, let cut, let source, let sourcePages,
            source.document?.id == documentID, source.nativePDF === sourcePages, source.canEditPDF {
             do {
                 removedSource = try await sourcePages.pdfDeleteAnnotation(page: cut.page, matching: cut.annotation, stampImage: cut.stampImage)
-            } catch { throw ReadError("Annotation pasted, but the original could not be removed: " + error.localizedDescription) }
+            } catch {
+                throw NSError(domain: "Sumra.NativePDFClipboard", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "Annotation pasted, but the original could not be removed: " + error.localizedDescription,
+                    NSUnderlyingErrorKey: error
+                ])
+            }
             if removedSource, source.document?.id == documentID {
                 source.nativePDFSelection = nil; try await source.nativePDFDidChange(sourcePages)
             }
         }
         if state.document?.id == targetID {
-            try await NativePDFAnnotations.refresh(page: page, id: result.id, state: state, pages: pages)
-            if state.document?.id == targetID { state.status = L(source != nil && !removedSource ? "Annotation pasted as a copy" : "Annotation pasted") }
+            state.status = L(source != nil && !removedSource ? "Annotation pasted as a copy" : "Annotation pasted")
         }
     }
 }

@@ -50,12 +50,13 @@ final class ReaderMarginPresetTests: XCTestCase {
 
 @MainActor
 final class ReaderPreferencesMigrationTests: XCTestCase {
-    func testFreshProfileStartsMediumAndKeepsSchemaInternal() throws {
+    func testFreshProfileStartsMediumWithWiderSidesAndKeepsSchemaInternal() throws {
         try withDefaults { defaults in
             ReaderPreferences.migrate(defaults: defaults)
             XCTAssertEqual(defaults.double(forKey: "margin"), 16)
             let margins = try JSONDecoder().decode(PageMargins.self, from: XCTUnwrap(defaults.data(forKey: "pageMargins")))
-            XCTAssertEqual(margins.values, [16, 16, 16, 16])
+            XCTAssertEqual(margins.values, [16, 32, 16, 32])
+            XCTAssertEqual(defaults.string(forKey: "marginPresetSelection"), "medium")
             XCTAssertEqual(ReaderMarginPreset.current(pageMargins: margins), .medium)
             XCTAssertEqual(defaults.integer(forKey: "settingsSchemaVersion"), ReaderPreferences.settingsSchemaVersion)
             XCTAssertEqual(defaults.string(forKey: "toolbarDisplayMode"), "shown")
@@ -78,7 +79,7 @@ final class ReaderPreferencesMigrationTests: XCTestCase {
         }
     }
 
-    func testFreshMigrationAppliesSixteenPointNativeMarginsWhileLegacyKeepsPublisherMargins() throws {
+    func testFreshMigrationAppliesRoomierSideMarginsWhileLegacyKeepsPublisherMargins() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
         let input = directory.url.appendingPathComponent("ProfileMargins.html")
@@ -95,8 +96,8 @@ final class ReaderPreferencesMigrationTests: XCTestCase {
             ReaderPreferences.migrate(defaults: defaults)
             let margins = try JSONDecoder().decode(PageMargins.self, from: XCTUnwrap(defaults.data(forKey: "pageMargins")))
             let freshLeft = try leftEdge(margins)
-            XCTAssertEqual(publisherLeft - freshLeft, 28, accuracy: 0.1)
-            XCTAssertEqual(freshLeft, try leftEdge(PageMargins(cssValues: [16])), accuracy: 0.1)
+            XCTAssertEqual(publisherLeft - freshLeft, 12, accuracy: 0.1)
+            XCTAssertEqual(freshLeft, try leftEdge(PageMargins(cssValues: [16, 32])), accuracy: 0.1)
         }
         try withDefaults { defaults in
             defaults.set("light", forKey: "theme")
@@ -193,7 +194,7 @@ final class ReaderPreferencesMigrationTests: XCTestCase {
     func testNewReaderControlsAndMarginsRoundTripThroughPublicExport() throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard
-        let keys = ["toolbarDisplayMode", "progressDisplayMode", "documentOpenBehavior", "immersiveControls", "margin", "pageMargins"]
+        let keys = ["toolbarDisplayMode", "progressDisplayMode", "documentOpenBehavior", "immersiveControls", "margin", "pageMargins", "marginPresetSelection"]
         let cleanupKeys = keys + ["readingPreferenceRevisions"]
         let saved = cleanupKeys.map { ($0, defaults.object(forKey: $0)) }
         defer { for (key, value) in saved { defaults.set(value, forKey: key) } }

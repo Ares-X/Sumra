@@ -19,7 +19,9 @@ final class DocumentOpenBehaviorTests: XCTestCase {
         XCTAssertEqual(fixture.state.document?.id, original)
         XCTAssertFalse(fixture.state.busy)
         XCTAssertEqual(created.map(\.path), fixture.urls.map(\.path))
-        XCTAssertTrue(created.allSatisfy { $0.tabWith == nil && $0.tabIdentifier == nil })
+        XCTAssertTrue(created.allSatisfy { $0.tabWith == nil && $0.tabIdentifier != nil })
+        XCTAssertEqual(Set(created.compactMap(\.tabIdentifier)).count, created.count,
+                       "New Window must remain independent even when AppKit prefers tabs")
     }
 
     func testEveryPolicyFillsWelcomeBeforeOpeningRemainingFiles() async throws {

@@ -277,6 +277,79 @@ final class MarkupReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testSpeechParagraphBoundariesKeepInlineTextAndLiteralReaderContracts() async throws {
+        let publications = [
+            ("Book.html", "<!doctype html><meta charset='utf-8'><h1>Heading😀</h1>\n  <p>A😀<strong>B</strong><span>C</span></p>\n  <p>Next中<span>文</span></p>"),
+            ("Book.md", "# Heading😀\n\nA😀**B**C\n\nNext中文")
+        ]
+        for (name, body) in publications {
+            let (state, _, view) = try await reader([name: body], opened: name)
+            let result = try await evaluate("""
+                const paragraphs=document.querySelectorAll('p'),first=paragraphs[0],last=paragraphs[1],selection=getSelection();
+                const before=document.body.innerHTML,all=document.createRange();all.selectNodeContents(document.body);
+                const rawBefore=window.__sumatraFind.textFromRange(all);
+                const handler=window.webkit.messageHandlers.leaf,post=handler.postMessage,caret=document.caretRangeFromPoint;
+                const highlight=window.Highlight,registry=Object.getOwnPropertyDescriptor(CSS,'highlights');
+                let spoken,copied;
+                handler.postMessage=body=>{if(body.type==='readAloud')spoken=body.text;
+                    else if(body.type==='copy')copied=body.text;else post.call(handler,body)};
+                try {
+                    window.Highlight=class extends Set {constructor(...ranges){super(ranges)}};
+                    Object.defineProperty(CSS,'highlights',{configurable:true,value:new Map()});
+                    await window.leafCommand({name:'interaction',flags:{speechFollow:false}});
+                    selection.removeAllRanges();selection.addRange(all);
+                    const fullSelection=selection.toString();
+                    await window.leafCommand({name:'copy'});
+                    await window.leafCommand({name:'readAloud',source:'selection'});
+                    const fullSpoken=spoken,rows=[];
+                    const sentence=document.createRange();sentence.setStart(first.firstChild,0);
+                    sentence.setEnd(last.lastChild,last.lastChild.nodeType===Node.TEXT_NODE?last.lastChild.length:last.lastChild.childNodes.length);
+                    const sentenceText=sentence.toString(),sentenceStart=spoken.indexOf('A😀BC');
+                    await window.leafCommand({name:'speechHighlight',location:sentenceStart,length:spoken.length-sentenceStart});
+                    const sentenceHighlight=[...CSS.highlights.get('sumra-speech')][0].toString();
+                    const selectedUnchanged=selection.toString()===fullSelection;
+                    const partial=sentence.cloneRange();partial.setStart(first.firstChild,1);
+                    for(const source of ['selection','cursor','visible']) {
+                        const range=partial.cloneRange();if(source!=='selection')range.collapse(true);
+                        selection.removeAllRanges();selection.addRange(range);
+                        const selected=selection.toString(),anchor=selection.anchorNode,offset=selection.anchorOffset;
+                        // Pin the visible reading caret to the same passage so
+                        // all three command entry points have comparable starts.
+                        document.caretRangeFromPoint=()=>{const r=partial.cloneRange();r.collapse(true);return r};
+                        await window.leafCommand({name:'readAloud',source});
+                        await window.leafCommand({name:'speechHighlight',location:0,length:2});
+                        rows.push({spoken,word:[...CSS.highlights.get('sumra-speech')][0].toString(),
+                            selectionUnchanged:selection.toString()===selected&&selection.anchorNode===anchor&&selection.anchorOffset===offset});
+                    }
+                    const rawSentence=window.__sumatraFind.textFromRange(sentence);
+                    await window.__sumatraFind.start(rawSentence,true,false,900,0,false);
+                    return {fullSpoken,rows,copied,fullSelection,selectedUnchanged,sentenceText,sentenceHighlight,
+                        found:window.__sumatraFind.currentRange()?.toString(),rawSentence,
+                        rawUnchanged:rawBefore===window.__sumatraFind.textFromRange(all),bodyUnchanged:before===document.body.innerHTML};
+                } finally {
+                    handler.postMessage=post;document.caretRangeFromPoint=caret;window.Highlight=highlight;
+                    if(registry)Object.defineProperty(CSS,'highlights',registry);else delete CSS.highlights;
+                }
+                """, view) as? [String: Any]
+            XCTAssertEqual(result?["fullSpoken"] as? String, "Heading😀\n\nA😀BC\n\nNext中文", name)
+            let rows = try XCTUnwrap(result?["rows"] as? [[String: Any]])
+            XCTAssertEqual(rows.count, 3)
+            for row in rows {
+                XCTAssertEqual(row["spoken"] as? String, "😀BC\n\nNext中文", name)
+                XCTAssertEqual(row["word"] as? String, "😀", name)
+                XCTAssertEqual(row["selectionUnchanged"] as? Bool, true, name)
+            }
+            XCTAssertEqual(result?["copied"] as? String, result?["fullSelection"] as? String, name)
+            XCTAssertEqual(result?["selectedUnchanged"] as? Bool, true, name)
+            XCTAssertEqual(result?["sentenceHighlight"] as? String, result?["sentenceText"] as? String, name)
+            XCTAssertEqual(result?["found"] as? String, result?["rawSentence"] as? String, name)
+            XCTAssertEqual(result?["rawUnchanged"] as? Bool, true, name)
+            XCTAssertEqual(result?["bodyUnchanged"] as? Bool, true, name)
+            XCTAssertNil(state.error)
+        }
+    }
+
+    @MainActor
     func testShortSpeechSelectionsVisitOnlyTheirPassageAndPreserveUTF16Offsets() async throws {
         let surrounding = String(repeating: "<p>Unselected passage.</p>", count: 2000)
         let (state, _, view) = try await reader(["Book.html": """
@@ -304,7 +377,7 @@ final class MarkupReaderTests: XCTestCase {
                     await window.leafCommand({name:'readAloud',source:'selection'});
                     rows.push({spoken,visited,selectionUnchanged:selection.toString()===selected});
                     if(!elements) {
-                        await window.leafCommand({name:'speechHighlight',location:6,length:2});
+                        await window.leafCommand({name:'speechHighlight',location:8,length:2});
                         const emoji=document.createRange();emoji.setStart(end.firstChild,1);emoji.setEnd(end.firstChild,3);
                         const r=emoji.getBoundingClientRect();
                         rows[0].expected=[r.x,r.y,r.width,r.height];
@@ -316,7 +389,7 @@ final class MarkupReaderTests: XCTestCase {
             """, view) as? [String: Any]
         let rows = try XCTUnwrap(result?["rows"] as? [[String: Any]])
         XCTAssertEqual(rows.count, 2)
-        for (row, expected) in zip(rows, ["A😀BCD😀", "Skip A😀BCD😀E"]) {
+        for (row, expected) in zip(rows, ["A😀BC\n\nD😀", "Skip A😀BC\n\nD😀E"]) {
             XCTAssertEqual(row["spoken"] as? String, expected)
             XCTAssertLessThan(try XCTUnwrap(row["visited"] as? Int), 30, "A short selected passage must not visit thousands of unrelated nodes")
             XCTAssertEqual(row["selectionUnchanged"] as? Bool, true)
@@ -361,7 +434,8 @@ final class MarkupReaderTests: XCTestCase {
         let rows = try XCTUnwrap(result?["rows"] as? [[String: Any]])
         XCTAssertEqual(rows.count, 3)
         let fullText = String(repeating: "A😀BC", count: paragraphCount)
-        for (row, expected) in zip(rows, [fullText, fullText, String(fullText.dropFirst())]) {
+        let spokenText = Array(repeating: "A😀BC", count: paragraphCount).joined(separator: "\n\n")
+        for (row, expected) in zip(rows, [spokenText, fullText, String(spokenText.dropFirst())]) {
             XCTAssertEqual(row["text"] as? String, expected)
             XCTAssertLessThan(try XCTUnwrap(row["comparisons"] as? Int), 20,
                 "Reading a large passage must resolve its boundaries once instead of comparing every node with distant endpoints")
@@ -399,7 +473,8 @@ final class MarkupReaderTests: XCTestCase {
                 window.Highlight=class extends Set {constructor(range){super([range])}};
                 Object.defineProperty(CSS,'highlights',{configurable:true,value:new Map()});
                 const rows=[],total=spoken.length,cases=[[total-1,1,'C'],[0,1,'A'],[1,2,'😀'],[3,2,'中B'],
-                    [1,4,'😀中B'],[5,2,'CA'],[total/2+1,2,'😀'],[total,1,''],[0,0,'']];
+                    [1,4,'😀中B'],[5,4,'CA'],[8*2000+1,2,'😀'],[6,2,''],[6,3,'A'],
+                    [5,2,'C'],[total,1,''],[0,0,'']];
                 for(const [location,length,expected] of cases) {
                     offsetReads=0;await window.leafCommand({name:'speechHighlight',location,length});
                     const ranges=CSS.highlights.get('sumra-speech');
@@ -412,13 +487,13 @@ final class MarkupReaderTests: XCTestCase {
             }
             """, view) as? [String: Any]
         let rows = try XCTUnwrap(result?["rows"] as? [[String: Any]])
-        XCTAssertEqual(rows.count, 9)
+        XCTAssertEqual(rows.count, 12)
         for row in rows {
             XCTAssertEqual(row["text"] as? String, row["expected"] as? String)
             XCTAssertLessThan(try XCTUnwrap(row["offsetReads"] as? Int), 80,
                 "Each spoken word must use bounded offset lookup even near the beginning or end of a large passage")
         }
-        XCTAssertEqual(result?["spoken"] as? String, String(repeating: "A😀中BC", count: paragraphCount))
+        XCTAssertEqual(result?["spoken"] as? String, Array(repeating: "A😀中BC", count: paragraphCount).joined(separator: "\n\n"))
         XCTAssertEqual(result?["selectionUnchanged"] as? Bool, true)
         XCTAssertEqual(result?["bodyUnchanged"] as? Bool, true)
         XCTAssertNil(state.error)
@@ -455,12 +530,14 @@ final class MarkupReaderTests: XCTestCase {
             """, view) as? [String: Any]
         let rows = try XCTUnwrap(result?["rows"] as? [[String: Any]])
         XCTAssertEqual(rows.count, 6)
-        for (row, expected) in zip(rows, ["BCD", "😀BCDEFG", "DEFG", "BCD", "DEFG", "A😀BC"]) {
+        let rawText = ["BCD", "😀BCDEFG", "DEFG", "BCD", "DEFG", "A😀BC"]
+        let spokenText = ["BC\n\nD", "😀BC\n\nDEFG", "DEFG", "BC\n\nD", "DEFG", "A😀BC"]
+        for ((row, expected), spoken) in zip(zip(rows, rawText), spokenText) {
             XCTAssertEqual(row["text"] as? String, expected)
-            XCTAssertEqual(row["spoken"] as? String, expected)
+            XCTAssertEqual(row["spoken"] as? String, spoken)
             XCTAssertEqual(row["selectionUnchanged"] as? Bool, true)
         }
-        XCTAssertEqual(result?["cursorText"] as? String, "BCDEFGH")
+        XCTAssertEqual(result?["cursorText"] as? String, "BC\n\nDEFG\n\nH")
         XCTAssertEqual(result?["cursorUnchanged"] as? Bool, true)
         XCTAssertEqual(result?["bodyUnchanged"] as? Bool, true)
         XCTAssertNil(state.error)
@@ -481,7 +558,7 @@ final class MarkupReaderTests: XCTestCase {
                 return {spoken,selectionUnchanged:before===selection.toString()};
             } finally {handler.postMessage=post;}
             """, view) as? [String: Any]
-        XCTAssertEqual(result?["spoken"] as? String, "A😀BC")
+        XCTAssertEqual(result?["spoken"] as? String, "A😀B\n\nC")
         XCTAssertEqual(result?["selectionUnchanged"] as? Bool, true)
         XCTAssertNil(state.error)
     }
@@ -494,20 +571,16 @@ final class MarkupReaderTests: XCTestCase {
             """], opened: "Book.html")
         let result = try await evaluate("""
             window.Highlight = undefined;
+            const handler=window.webkit.messageHandlers.leaf,post=handler.postMessage;
+            let text;handler.postMessage=body=>{if(body.type==='readAloud')text=body.text;else post.call(handler,body)};
             const all = document.createRange(); all.selectNodeContents(document.body);
             getSelection().removeAllRanges(); getSelection().addRange(all);
             await window.leafCommand({name:'interaction', flags:{speechFollow:true}});
-            await window.leafCommand({name:'readAloud', source:'selection'});
+            try {await window.leafCommand({name:'readAloud', source:'selection'})} finally {handler.postMessage=post}
             const selectionRange = document.createRange(); selectionRange.selectNodeContents(document.getElementById('selection'));
             getSelection().removeAllRanges(); getSelection().addRange(selectionRange);
-            // Speech's offsets refer to its text walker, excluding whitespace-only
-            // nodes with no painted rectangles, rather than body.textContent.
-            const walker = window.__sumatraFind.textWalker(document.body);
-            let node, text = '';
-            while ((node = walker.nextNode())) {
-                const range = document.createRange(); range.selectNodeContents(node);
-                if (range.getClientRects().length) text += node.data;
-            }
+            // Highlight callbacks refer to the exact speech bridge payload,
+            // including its synthetic paragraph separators.
             await window.leafCommand({name:'speechHighlight', location:text.indexOf('FINALWORD'), length:9});
             const rect = document.getElementById('last').getBoundingClientRect();
             return {scrolled:scrollY > 0, visible:rect.top >= 0 && rect.bottom <= innerHeight,

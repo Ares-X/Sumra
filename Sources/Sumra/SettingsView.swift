@@ -24,6 +24,9 @@ struct SettingsView:View{
     @AppStorage("lineHeight") private var lineHeight=1.6
     @AppStorage("margin") private var margin = ReaderMarginPreset.medium.margin
     @AppStorage("pageMargins") private var pageMarginsData = Data()
+    @AppStorage("marginPresetSelection") private var marginPresetSelection = ""
+    @AppStorage("controlTopMargin") private var controlTopMargin = 54.0
+    @AppStorage("controlBottomMargin") private var controlBottomMargin = 44.0
     @AppStorage("sourceEditor") private var sourceEditor="[]"
     @AppStorage("disableHistory") private var disableHistory = false
     @AppStorage("disableReadingState") private var disableReadingState = false
@@ -130,26 +133,28 @@ struct SettingsView:View{
         }
         Section(L("Default typography")){
             ReaderFontPicker(selection: ReaderPreferences.live($font, keys: ["font"]))
-            LabeledContent(L("Font size")){Slider(value: ReaderPreferences.live($fontSize, keys: ["fontSize"]),in:10...36,step:1).frame(width:190);Text("\(Int(fontSize)) pt").monospacedDigit().frame(width:45)}
-            LabeledContent(L("Line height")){Slider(value: ReaderPreferences.live($lineHeight, keys: ["lineHeight"]),in:1...2.4,step:0.1).frame(width:190);Text(lineHeight,format:.number.precision(.fractionLength(1))).frame(width:30)}
-            Picker(L("Margins"), selection: Binding(get: {
-                ReaderMarginPreset.current(pageMargins: try? JSONDecoder().decode(PageMargins.self, from: pageMarginsData))
-            }, set: { preset in
-                if let preset {
-                    ReaderPreferences.setMargins(preset.margin)
-                }
+            ReaderNumericSetting(label: L("Font size"), value: ReaderPreferences.live($fontSize, keys: ["fontSize"]),
+                                 range: 10...36, step: 1, unit: "pt")
+            ReaderNumericSetting(label: L("Line height"), value: ReaderPreferences.live($lineHeight, keys: ["lineHeight"]),
+                                 range: 1...2.4, step: 0.1, unit: "×")
+        }
+        Section(L("Content margins")) {
+            Picker(L("Margins"), selection: Binding(get: { defaultMarginPreset }, set: { preset in
+                let margins = defaultMargins
+                ReaderPreferences.setMargins(preset?.margins(reflow: true) ?? margins, selection: preset?.rawValue ?? "custom")
             })) {
                 Text(L("Custom")).tag(nil as ReaderMarginPreset?)
                 ForEach(ReaderMarginPreset.allCases) { preset in Text(preset.title).tag(Optional(preset)) }
             }
-            LabeledContent(L("Margin")) {
-                Slider(value: Binding(get: { margin }, set: { value in
-                    ReaderPreferences.setMargins(value)
-                }), in: PageMargins.supportedRange, step: 1).frame(width: 190)
-                Text("\(Int(margin))").monospacedDigit().frame(width: 30)
-            }
-            Text(L("Adjusting margins overrides document styles on all four sides.")).font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            ReaderMarginsControls(margins: Binding(get: { defaultMargins }, set: { margins in
+                ReaderPreferences.setMargins(margins, selection: "custom")
+            }), fallback: margin, enabled: defaultMarginPreset == nil)
+            Text(L("Reflowed text uses wider side margins. Fixed pages use the preset's smaller margin on every side. Custom values apply exactly as entered."))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        Section(L("Control clearance")) {
+            ReaderControlMarginsControls(top: ReaderPreferences.live($controlTopMargin, keys: ["controlTopMargin"]),
+                                         bottom: ReaderPreferences.live($controlBottomMargin, keys: ["controlBottomMargin"]))
         }
     }.formStyle(.grouped).tabItem { Label(L("Reading"), systemImage: "book") }
         ShortcutSettings().tabItem { Label(L("Shortcuts"), systemImage: "keyboard") }
@@ -161,6 +166,20 @@ struct SettingsView:View{
         .onChange(of: zoomLevels) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: zoomIncrement) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: updateChannel) { _ in ReaderHelp.updateChannelChanged() }
+    }
+
+    private var defaultMarginPreset: ReaderMarginPreset? {
+        ReaderMarginPreset.current(pageMargins: try? JSONDecoder().decode(PageMargins.self, from: pageMarginsData),
+                                   selection: marginPresetSelection)
+    }
+
+    private var defaultMargins: PageMargins? {
+        // Side edits compose with the last accepted value before AppStorage
+        // publishes its next view snapshot.
+        let defaults = UserDefaults.standard
+        if let selection = defaults.string(forKey: "marginPresetSelection"),
+           let preset = ReaderMarginPreset(rawValue: selection) { return preset.margins(reflow: true) }
+        return defaults.data(forKey: "pageMargins").flatMap { try? JSONDecoder().decode(PageMargins.self, from: $0) }
     }
 
     private func manualLayout<Value>(_ binding: Binding<Value>, key: String) -> Binding<Value> {
@@ -262,15 +281,16 @@ enum ReaderPreferences {
             // The shipped implicit value is independent of today's presets.
             defaults.set(priorProfile ? 32 : ReaderMarginPreset.medium.margin, forKey: "margin")
             if !priorProfile {
-                defaults.set(PageMargins(cssValues: [ReaderMarginPreset.medium.margin]).flatMap { try? JSONEncoder().encode($0) }, forKey: "pageMargins")
+                defaults.set(try? JSONEncoder().encode(ReaderMarginPreset.medium.margins(reflow: true)), forKey: "pageMargins")
+                defaults.set(ReaderMarginPreset.medium.rawValue, forKey: "marginPresetSelection")
             }
         }
         _ = ReaderToolbarDisplayMode.load(from: defaults)
         defaults.set(settingsSchemaVersion, forKey: "settingsSchemaVersion")
     }
 
-    static let strings: Set<String> = Set(["appIcon", "theme", "customThemes", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "pageMargins", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "toolbarDisplayMode", "progressDisplayMode", "documentOpenBehavior", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
-    static let numbers: Set<String> = ["fontSize", "lineHeight", "margin", "speechRate", "contentsDepth", "sidebarWidth", "pageGridWidth", "pageGridHeight", "pageGridOffsetX", "pageGridOffsetY", "pageGridSubdivisions", "pageGridColor", "zoomIncrement"]
+    static let strings: Set<String> = Set(["appIcon", "theme", "customThemes", "flow", "fit", "font", "sourceEditor", "shortcuts", "externalCommands", "translationSource", "translationTarget", "translationEngine", "speechVoice", "userCSS", "pageMargins", "marginPresetSelection", "language", "formatDefaults", "pageGridStyle", "documentColors", "engineeringEnhance", "zoomLevels", "scrollbarMode", "toolbarButtons", "toolbarDisplayMode", "progressDisplayMode", "documentOpenBehavior", "customCommands", "updateChannel", "homePageViewMode"] + ReaderAIProvider.allCases.flatMap { ["aiModel:" + $0.id, "aiEffort:" + $0.id] })
+    static let numbers: Set<String> = ["fontSize", "lineHeight", "margin", "controlTopMargin", "controlBottomMargin", "speechRate", "contentsDepth", "sidebarWidth", "pageGridWidth", "pageGridHeight", "pageGridOffsetX", "pageGridOffsetY", "pageGridSubdivisions", "pageGridColor", "zoomIncrement"]
     static let booleans: Set<String> = ["spread", "rtl", "cover", "automaticLayout", "pageAspectLayout", "landscapeAsSpread", "invertColors", "grayscale", "preservePDFImages", "enhanceScannedPages", "inverseSearchEnabled", "disableHistory", "disableReadingState", "disableTabs", "restoreSession", "useDocumentCSS", "useFixedPageUI", "showContentsOnOpen", "sidebarRight", "fullPathTitle", "pageInTitle", "checkForUpdates", "homePageSortByFrequentlyRead", "findFloating", "preservePageTurnPosition", "keepZoomOnLinks", "immersiveControls"]
     static var keys: Set<String> { strings.union(numbers).union(booleans) }
 
@@ -307,6 +327,9 @@ enum ReaderPreferences {
         if let language = values["language"] as? String, ReaderLocalization.retiredLanguages.contains(language) {
             values["language"] = "system"
         }
+        if values["marginPresetSelection"] == nil, values["margin"] != nil || values["pageMargins"] != nil {
+            values["marginPresetSelection"] = "custom"
+        }
         let customThemes = try (values["customThemes"] as? String).map(ReaderTheme.decodeCustom) ?? ReaderTheme.custom()
         let previousCustomThemes = ReaderTheme.custom()
         var pageMarginsData: Data?
@@ -319,7 +342,7 @@ enum ReaderPreferences {
             if strings.contains(key), !(value is String) { throw ReadError("\(key) must be text") }
             if numbers.contains(key) {
                 guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else { throw ReadError("\(key) must be a finite number") }
-                let ranges = ["fontSize": 10.0...36.0, "lineHeight": 1.0...2.4, "margin": PageMargins.supportedRange, "speechRate": 90.0...540.0, "contentsDepth": 0.0...3.0, "sidebarWidth": 180.0...360.0, "pageGridWidth": 1.0...720.0, "pageGridHeight": 1.0...720.0, "pageGridOffsetX": -720.0...720.0, "pageGridOffsetY": -720.0...720.0, "pageGridSubdivisions": 1.0...32.0, "pageGridColor": 0.0...16777215.0, "zoomIncrement": 0.0...1000000.0]
+                let ranges = ["fontSize": 10.0...36.0, "lineHeight": 1.0...2.4, "margin": PageMargins.supportedRange, "controlTopMargin": PageMargins.supportedRange, "controlBottomMargin": PageMargins.supportedRange, "speechRate": 90.0...540.0, "contentsDepth": 0.0...3.0, "sidebarWidth": 180.0...360.0, "pageGridWidth": 1.0...720.0, "pageGridHeight": 1.0...720.0, "pageGridOffsetX": -720.0...720.0, "pageGridOffsetY": -720.0...720.0, "pageGridSubdivisions": 1.0...32.0, "pageGridColor": 0.0...16777215.0, "zoomIncrement": 0.0...1000000.0]
                 guard ranges[key]?.contains(number.doubleValue) == true else { throw ReadError("\(key) is outside its supported range") }
             }
             if booleans.contains(key), CFGetTypeID(value as CFTypeRef) != CFBooleanGetTypeID() { throw ReadError("\(key) must be true or false") }
@@ -333,7 +356,7 @@ enum ReaderPreferences {
             if key == "theme", let theme = value as? String, theme != "system",
                !customThemes.contains(where: { $0.id == theme }), ReaderTheme.resolve(theme)?.isCustom != false { throw ReadError("Unknown theme: \(theme)") }
             if key == "flow", let flow = value as? String, !["paged", "continuous"].contains(flow) { throw ReadError("Unknown layout: \(flow)") }
-            let choices = ["progressDisplayMode": ReaderToolbarDisplayMode.allCases.map(\.rawValue), "documentOpenBehavior": DocumentOpenBehavior.allCases.map(\.rawValue), "toolbarDisplayMode": ReaderToolbarDisplayMode.allCases.map(\.rawValue), "appIcon": AppIconStyle.allCases.map(\.rawValue), "pageGridStyle": ["dots", "dotted", "solid"], "documentColors": ["off", "smart", "legacy"], "engineeringEnhance": ["off", "auto", "on"], "scrollbarMode": ["smart", "shown", "hidden"], "updateChannel": ["stable", "prerelease"], "homePageViewMode": ["list", "thumbnails"]]
+            let choices = ["marginPresetSelection": ["", "custom"] + ReaderMarginPreset.allCases.map(\.rawValue), "progressDisplayMode": ReaderToolbarDisplayMode.allCases.map(\.rawValue), "documentOpenBehavior": DocumentOpenBehavior.allCases.map(\.rawValue), "toolbarDisplayMode": ReaderToolbarDisplayMode.allCases.map(\.rawValue), "appIcon": AppIconStyle.allCases.map(\.rawValue), "pageGridStyle": ["dots", "dotted", "solid"], "documentColors": ["off", "smart", "legacy"], "engineeringEnhance": ["off", "auto", "on"], "scrollbarMode": ["smart", "shown", "hidden"], "updateChannel": ["stable", "prerelease"], "homePageViewMode": ["list", "thumbnails"]]
             if let allowed = choices[key], let choice = value as? String, !allowed.contains(choice) { throw ReadError("Invalid value for \(key)") }
             if key == "zoomLevels", let string = value as? String { _ = try ReadingZoom.parseLevels(string) }
             if key == "sourceEditor", let string = value as? String { _ = try JSONDecoder().decode([String].self, from: Data(string.utf8)) }

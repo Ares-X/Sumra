@@ -356,7 +356,12 @@
         if (!mainFrame || !ready || restoring || printViewport) return
         snapPage()
         rememberReadingViewport()
+        const extent = readingExtent(), viewport = paged() ? innerWidth : innerHeight
+        const readingPageCount = Math.ceil(extent / viewport) + 1
+        const readingPage = extent > 0 && pageOffset() >= extent - 1 ? readingPageCount - 1
+            : Math.floor(pageOffset() / viewport)
         post('position', { page: currentPage, count: pages.length, label: String(currentPage + 1),
+            ...(!config.chm && !config.markdown ? {readingPage, readingPageCount} : {}),
             anchor: pageURL(), x: window.scrollX, y: window.scrollY, progress: readingProgress(), markdownPassage: savedReadingPassage() })
         // System WebKit saturates its root layout coordinates at this extent.
         // Automatic Markdown reading can reopen through the paged reader;
@@ -626,7 +631,7 @@
             : `:root{color-scheme:${dark ? 'dark' : 'light'};--bg:${dark ? '#111' : '#fff'};--fg:${dark ? '#ddd' : '#24292f'};--link:${dark ? '#4493f8' : '#0969da'};--muted:${dark ? '#9198a1' : '#57606a'};--border:${dark ? '#444' : '#d0d7de'};--code-bg:${dark ? '#222' : '#f6f8fa'}}
             body{font-family:${font}!important;font-size:${Number(size)}px!important;line-height:${Number(line)}!important;padding:${padding}!important;background-color:var(--bg)!important;color:var(--fg)!important}a{color:var(--link)}`
         const columns = paged() ? `@media screen{
-            html{direction:${rtl ? 'rtl' : 'ltr'}!important;overflow-x:auto!important;overflow-y:hidden!important}
+            html{direction:${rtl ? 'rtl' : 'ltr'}!important;overflow:hidden!important}
             body{box-sizing:border-box!important;width:100vw!important;max-width:none!important;height:100vh!important;
                 min-height:0!important;margin:0!important;padding:${padding}!important;
                 column-count:${spread ? 2 : 1}!important;column-width:1px!important;
@@ -810,14 +815,27 @@
             : cursor && pointer ? caret(pointer.x, pointer.y) : visibleRange()
         if (!range) throw Error('No text at the reading position')
         if (!selected) { range.collapse(true); range.setEnd(document.body, document.body.childNodes.length) }
-        speechNodes = []; let spoken = ''
+        speechNodes = []; let spoken = '', previousBlock = null
+        // Speech needs paragraph boundaries without changing the publication's
+        // text, Selection, or Find offsets. Cache ancestors within this passage.
+        const blocks = new WeakMap()
+        const speechBlock = element => {
+            if (blocks.has(element)) return blocks.get(element)
+            const block = /^(block|flow-root|list-item|table(?:-.+)?|flex|grid)$/.test(getComputedStyle(element).display)
+                || !element.parentElement ? element : speechBlock(element.parentElement)
+            blocks.set(element, block)
+            return block
+        }
         for (const node of finder.textNodesInRange(range, document.body)) {
             const from = range.startContainer === node ? range.startOffset : 0
             const to = range.endContainer === node ? range.endOffset : node.length
             if (to <= from) continue
             const part = document.createRange(); part.setStart(node, from); part.setEnd(node, to)
             if (!part.getClientRects().length) continue
+            const block = speechBlock(node.parentElement)
+            if (spoken && block !== previousBlock) spoken += '\n\n'
             speechNodes.push({ node, from, to, start: spoken.length }); spoken += node.data.slice(from, to)
+            previousBlock = block
         }
         if (!spoken) throw Error('No text in the selection')
         post('readAloud', { text: spoken, ...(selected ? {} : { page: currentPage }), startOffset: 0 })
@@ -827,8 +845,8 @@
         speechRange = null
         if (!command.length || !speechNodes.length) { publishRangeHighlights(true); return }
         const end = command.location + command.length
-        // Spoken UTF-16 offsets are ordered and contiguous. Locate both word
-        // boundaries without scanning the whole passage for every callback.
+        // Spoken UTF-16 spans are ordered, with gaps for paragraph separators.
+        // Locate intersecting text without scanning the passage per callback.
         const boundary = (offset, starts) => {
             let low = 0, high = speechNodes.length
             while (low < high) {
@@ -841,7 +859,7 @@
         }
         const first = speechNodes[boundary(command.location, false)]
         const last = speechNodes[boundary(end, true) - 1]
-        if (!first?.node.isConnected || !last?.node.isConnected) { publishRangeHighlights(true); return }
+        if (!first?.node.isConnected || !last?.node.isConnected || first.start >= end) { publishRangeHighlights(true); return }
         const range = document.createRange()
         range.setStart(first.node, first.from + Math.max(0, command.location - first.start))
         range.setEnd(last.node, Math.min(last.to, last.from + end - last.start))
@@ -1052,7 +1070,7 @@
         case 'page': return navigatePage(command.number)
         case 'progress': {
             const offset = Math.max(0, Math.min(1, command.value)) * readingExtent()
-            if (paged()) scrollTo({left: Math.round(offset / innerWidth) * innerWidth * pageDirection(), top: 0, behavior: 'instant'})
+            if (paged()) scrollTo({left: (command.value === 1 ? readingExtent() : Math.round(offset / innerWidth) * innerWidth) * pageDirection(), top: 0, behavior: 'instant'})
             else scrollTo({left: 0, top: offset, behavior: 'instant'})
             reportPosition(); break
         }
@@ -1533,10 +1551,12 @@
                 ['ArrowUp', 'ArrowDown'].includes(event.key) ? 'line' : event.altKey ? 'word' : 'character')
         }
         if (paged() && !interaction.keyboardSelection && !event.defaultPrevented && !event.altKey && !event.shiftKey &&
-            ['ArrowLeft', 'ArrowRight'].includes(event.key) && !nativeScrollTarget(event.target)) {
+            ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) && !nativeScrollTarget(event.target)) {
             event.preventDefault()
             readingViewport = null
-            const destination = turnPages((event.key === 'ArrowRight' ? 1 : -1) * pageDirection())
+            const vertical = event.key === 'ArrowUp' || event.key === 'ArrowDown'
+            const direction = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
+            const destination = turnPages(direction * (vertical ? 1 : pageDirection()))
             if (destination?.navigation) post('navigate', {href: destination.navigation})
         }
     })
