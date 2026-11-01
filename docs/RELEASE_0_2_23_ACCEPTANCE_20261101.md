@@ -139,17 +139,38 @@ Formal receipts are under `build/release-0.2.23-20261101/`:
   The unused task-owned 214,756,164-byte partial download was removed, recorded
   in `brave-preparation-cleanup.json`.
 
-Publication remains on hold. The release remains
-a draft and [PR #75](https://github.com/Ares-X/Sumra/pull/75) remains unmerged.
-Public release bytes, Sparkle update delivery and final installed-release
-acceptance are not yet verified. Product source has not changed after
-`4876792a802043101d78630268bc9c1234f1f0b7`; harness/documentation follow-ups do
-not require rebuilding the accepted signed bundle.
+## Public release and installed acceptance
+
+[PR #75](https://github.com/Ares-X/Sumra/pull/75) merged as
+`b0e41de807c4a9609a9f8bf77ca29a3d0330cca9`.
+[Publish run 41327222591](https://github.com/Ares-X/Sumra/actions/runs/41327222591)
+successfully promoted the same accepted bytes to
+[0.2.23](https://github.com/Ares-X/Sumra/releases/tag/v0.2.23). Release ID
+430481451 and all six asset IDs, sizes and digests stayed unchanged. The public
+ZIP was anonymously downloaded and matched SHA-256
+`da2b5ab1e922590acb749250df126caebcd11755d5971dd26dcbfacd3f6769ca`.
+The live feed matches the candidate feed and the public ZIP's Sparkle Ed25519
+signature verifies with the existing public update key.
+
+The actual installed 0.2.22 (24) found 0.2.23 through Help > Check for Updates;
+Install Update and Install and Relaunch completed on November 2 local time.
+The installed `/Applications/Sumra.app` is 0.2.23 (25): all 140 file hashes,
+91 directories and their modes, five symlink targets, and the deep strict code
+signature match the accepted bundle. A separate cold application launch opened
+the unchanged original PDF through the native Open dialog, identified 454 pages
+and followed its third-chapter bookmark to label 73 (physical page 87). The final
+Auto Hide body was visually reviewed. Receipts are `installed-bundle-check.json`,
+`installed-cold-original-check.json` and `public/` under the evidence directory.
+
+Product source remains `4876792a802043101d78630268bc9c1234f1f0b7`;
+the later harness/documentation commits do not rebuild or replace accepted bytes.
 
 ## Issue scope
 
-The 12 finite feedback issues are eligible for closure after public-byte and
-installed-release checks. Issue #55 remains the continuous review index.
+After those checks, #59, #60 and #65–#74 received scoped replies and were closed
+as completed, including the two original reporter threads #68 and #69.
+`issue-replies-posted.json` retains the comment links. Issue #55 received the
+batch update and remains the continuous review index.
 Acceptance is bounded by the recorded fixtures and environments; unobserved
 environments remain unknown rather than adding an unlimited release gate.
 Brave itself was not exercised. Representative performance measurements do not
