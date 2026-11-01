@@ -167,10 +167,20 @@ the later harness/documentation commits do not rebuild or replace accepted bytes
 
 ## Issue scope
 
-After those checks, #59, #60 and #65–#74 received scoped replies and were closed
-as completed, including the two original reporter threads #68 and #69.
-`issue-replies-posted.json` retains the comment links. Issue #55 received the
-batch update and remains the continuous review index.
+After those checks, maintainer-created audit issues #59, #60, #65–#67 and
+#70–#73 received scoped replies and were closed as completed. The maintainer's
+audit record #55 was also closed after its final batch update; this ends that
+record, not future review or all possible environment coverage.
+
+External reports #68, #69 and #74 were initially closed too early. They have
+been reopened pending reporter confirmation, with follow-up checks and focused
+questions about the mail handler and original EPUB spacing:
+[#68 confirmation request](https://github.com/Ares-X/Sumra/issues/68#issuecomment-6561004959),
+[#69 confirmation request](https://github.com/Ares-X/Sumra/issues/69#issuecomment-6561005715),
+[#74 confirmation request](https://github.com/Ares-X/Sumra/issues/74#issuecomment-6561006404).
+Maintainer acceptance is distinct from reporter acceptance. The original
+`issue-replies-posted.json` preserves the initial replies; the correction is
+recorded in `issue-confirmation-correction.json`.
 Acceptance is bounded by the recorded fixtures and environments; unobserved
 environments remain unknown rather than adding an unlimited release gate.
 Brave itself was not exercised. Representative performance measurements do not
