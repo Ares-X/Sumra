@@ -16,6 +16,16 @@ and automatic native large-Markdown route remain in effect. Browser compatibilit
 mode and ordinary HTML/CHM retain their HTML/CSS behavior. VoiceOver testing is
 user-deferred.
 
+## Feedback acceptance and issue closure
+
+Validate each reported item and record its observed result before publishing
+the accepted release. Close maintainer-created audit issues after their scoped
+repair and release acceptance pass. For reports opened by external users, reply
+with the released version, relevant checks and expected behavior, then keep the
+issue open until the reporter confirms the result. Maintainer acceptance does
+not substitute for reporter confirmation. Ask specific follow-up questions when
+the expected behavior, reproduction steps or environment remain unclear.
+
 ## Current implementation
 
 The acceptance baseline below belongs to [0.2.8](https://github.com/Ares-X/Sumra/releases/tag/v0.2.8),
