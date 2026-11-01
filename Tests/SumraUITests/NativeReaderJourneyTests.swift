@@ -752,11 +752,24 @@ final class NativeFixedPDFChromeAcceptanceTests: XCTestCase {
         XCTAssertTrue(waitFor { NSWorkspace.shared.frontmostApplication?.bundleURL?.standardizedFileURL == URL(fileURLWithPath: appPath).standardizedFileURL })
         let window = app.windows.matching(NSPredicate(format: "title == %@", title)).firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.windows.matching(NSPredicate(format: "title == %@", title)).count, 1)
+        func readerIsActive() -> Bool {
+            NSWorkspace.shared.frontmostApplication?.bundleURL?.standardizedFileURL
+                == URL(fileURLWithPath: appPath).standardizedFileURL
+        }
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        XCTAssertTrue(waitFor { readerIsActive() }, "The prepared reader must be active")
         func mode(_ name: String) {
             app.menuBars.menuBarItems["View"].click()
             let submenu = app.menuBars.menuItems["工具栏显示方式"]
             submenu.hover()
             submenu.menuItems[name].click()
+        }
+        func toggleFullscreen() {
+            app.menuBars.menuBarItems["View"].click()
+            let command = app.menuBars.menuItems["切换全屏"]
+            XCTAssertTrue(command.isEnabled)
+            command.click()
         }
         func capture(_ name: String) {
             let attachment = XCTAttachment(screenshot: window.screenshot())
@@ -766,29 +779,38 @@ final class NativeFixedPDFChromeAcceptanceTests: XCTestCase {
         }
         if environment["SUMRA_GUI_START_FULLSCREEN"] == "1" {
             let fullFrame = window.frame
-            window.typeKey("f", modifierFlags: [.command, .control])
+            toggleFullscreen()
             XCTAssertTrue(waitFor { window.frame.height < fullFrame.height - 10 }, "Prepared fullscreen must actually exit")
         }
         mode("始终显示")
+        let open = window.toolbars.buttons["打开文档"].firstMatch
+        XCTAssertTrue(waitFor { open.isHittable && readerIsActive() }, "Shown chrome must be usable in the active reader")
+        let pageField = window.toolbars.textFields["跳转到页码"]
+        let pageValue = pageField.value as? String
+        pageField.click()
+        pageField.typeKey(.tab, modifierFlags: [])
+        XCTAssertEqual(pageField.value as? String, pageValue, "Focusing the reader must preserve the page")
         let normalFrame = window.frame
         mode("自动隐藏")
+        XCTAssertTrue(waitFor { readerIsActive() }, "Changing toolbar mode must preserve the active reader")
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).hover()
-        let open = window.toolbars.buttons["打开文档"].firstMatch
         XCTAssertTrue(waitFor { !open.isHittable }, "Body hover must dismiss native auto chrome")
+        XCTAssertTrue(readerIsActive(), "Body hover must preserve the active reader")
         capture("normal-body")
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.006)).hover()
+        XCTAssertTrue(readerIsActive(), "Top hover must preserve the active reader")
         XCTAssertTrue(waitFor { open.isHittable }, "Top hover must reveal usable native chrome")
         capture("normal-top-hover")
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).hover()
         XCTAssertTrue(waitFor { !open.isHittable })
         XCTAssertEqual(window.frame, normalFrame, "Hover must preserve the window frame")
-        window.typeKey("f", modifierFlags: [.command, .control])
+        toggleFullscreen()
         app.activate()
         XCTAssertTrue(waitFor { window.frame.height > normalFrame.height + 10 })
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).hover()
         XCTAssertTrue(waitFor { !open.isHittable })
         capture("fullscreen-body")
-        window.typeKey("f", modifierFlags: [.command, .control])
+        toggleFullscreen()
         app.activate()
         XCTAssertTrue(waitFor { abs(window.frame.height - normalFrame.height) < 4 && abs(window.frame.width - normalFrame.width) < 4 })
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).hover()

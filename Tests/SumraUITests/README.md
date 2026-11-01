@@ -38,12 +38,25 @@ Manual tab dragging, printing, and real user files are not exercised.
 
 `NativeFixedPDFChromeAcceptanceTests/testOpenPDFChromeHoverAndFullscreenRoundTrip`
 attaches to an already-open public PDF named by `SUMRA_GUI_WINDOW_TITLE`. It
-verifies actual native toolbar hover and a full-screen round trip, then leaves
+verifies actual native toolbar hover and a native View-menu full-screen round trip, then leaves
 Auto Hide selected without closing the document. Set `SUMRA_GUI_START_FULLSCREEN=1`
 only when the prepared window is already full-screen. Select this class directly
 with `xcodebuild -only-testing`; the managed script selects the Journey class.
-The test reactivates Sumra after a full-screen transition before sending pointer
-input, so another application's existing window is left untouched.
+The test checks that the prepared reader is active, focuses its page field
+without changing the page, and uses the enabled native View > Toggle Full Screen
+command. It reactivates Sumra after a full-screen transition before sending
+pointer input, so another application's existing window is left untouched.
+This fixed-PDF journey currently uses Chinese reading-control/full-screen labels;
+prepare that language rather than assuming it is language-independent.
+
+For signed 0.2.23 (25), the cover-page keyboard round trip passed on macOS 27.0.1.
+Scrolled-text keyboard attempts failed during XCTest event synthesis, without
+evidence that the app's shortcut handler ran. After focus checks, the native
+View-menu round trip passed; its four phase captures and a later stable body
+capture were reviewed. The menu pass does not validate keyboard injection in
+that scrolled-text state. The exact-bundle macOS 26.6.2 guest separately covers
+hover reveal/body dismissal, not a guest full-screen round trip. See the linked
+release acceptance for candidate identity, receipt paths and publication limits.
 
 `testNativeTabAndOverviewEntries` and
 `testFullscreenNativeTabAndOverviewEntries` additionally exercise the native tab
