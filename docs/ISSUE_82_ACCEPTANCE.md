@@ -36,8 +36,17 @@ One earlier replay that switched from floating to normal controls before exiting
 
 ## Release checks
 
-The reader interaction fixes, consecutive resize and whitespace-only PDF corrections, and fullscreen toolbar correction were merged in three changes. [PR #83](https://github.com/Ares-X/Sumra/pull/83) · [PR #84](https://github.com/Ares-X/Sumra/pull/84) · [PR #85](https://github.com/Ares-X/Sumra/pull/85)
+The changes covered native tab and toolbar behavior, consecutive resizes, whitespace-only PDF labels, the fullscreen shadow and the misaligned first spread in the original C book. [PR #83](https://github.com/Ares-X/Sumra/pull/83) · [PR #84](https://github.com/Ares-X/Sumra/pull/84) · [PR #85](https://github.com/Ares-X/Sumra/pull/85) · [PR #89](https://github.com/Ares-X/Sumra/pull/89)
 
+The community-signed candidate was built from `8afc84e8b502f03efeab09e7423779dc2ccf7228`. GitHub did not allocate a macOS 15 runner for the preceding attempt. The release used a standard Xcode 27 runner with a temporary workflow reference that changed only the runner label. The application checkout, signing identity, source pins and publication workflow remained those in the repository. [Candidate build](https://github.com/Ares-X/Sumra/actions/runs/41508799191)
+
+The accepted manifest SHA-256 is `755327c6464688195902114b1a11b11c534562e1a5f6eb32b5e5a5c0c37c4698`. Verification covered 140 application files, five symbolic links, the existing signing certificate, both Quick Look extensions and the Sparkle update signature. The source archive contained 13,616 files and 17 symbolic links. All 593 project files matched their Git revision. Seven targeted original-book tests loaded the signed application's MuPDF library. In the signed application's first C spread, the artwork differed by at most one physical pixel across two held drags and release on the 2× display.
+
+The full local suite on the release source ran 1,562 cases: 1,558 passed, none failed and four were skipped. Two skipped fixtures require manual window input, one requires the legacy scrollbar configuration and one checks title behavior on an older macOS version. The corpus included 25 books and 4,942 comic pages. All 44 original inputs retained their hashes, sizes and modification times.
+
+A cold start from the signed bundle in Applications opened E, entered fullscreen and added C as a second tab. Moving the mouse to y=0 revealed the system menu without the stripe. After switching off floating controls and exiting fullscreen, the original reader was the focused native window. The first mouse click on Next changed the actual page field from 1:1 to 2:1 and painted the new page.
+
+A separate launch restored PDF, E and TXT in their saved order. Each selected title matched its document. Closing the leftmost PDF kept the pointer over the strip. Clicking the remaining TXT there displayed its first section. Cmd-W left E on screen and Close and Quit then terminated the app.
 
 ## Broader local workflows
 
