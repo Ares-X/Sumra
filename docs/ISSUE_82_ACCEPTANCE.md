@@ -40,7 +40,40 @@ menu no longer offered Show All Tabs after automatic tabbing was disabled
 globally. Switching tabs by keyboard or accessibility did not exercise this
 missing command. The application now leaves native tabbing enabled when the
 reader preference allows tabs; each requested window still controls its own
-placement.
+placement. On macOS 26.6.2 (25G83), the replacement build restored both
+View commands and all four Window tab commands. In fullscreen, Duplicate Tab
+added a second rendered Midnight PDF. The real View > Show All Tabs overview
+showed both PDF covers, E's blue page and the TXT body. Cmd-N from that
+overview created a separate Home window; both Home and the original reader
+were accessible through the Window menu. Leaving fullscreen returned E to
+its original 900 × 622 window with its body, controls and all four tabs visible.
+These observations were taken after each Space transition settled.
+
+With floating controls in a 560 pt window, a mouse click at y=75 in a tab
+spanning y=50–78 selected TXT and showed its first section. Sending a
+continuous horizontal wheel gesture over the four-tab strip scrolled the
+visible titles from EPUB/TXT to the two PDFs; the same TXT section stayed
+on screen. The gesture was injected in the VM; physical trackpad feel was
+not measured.
 
 Clean tabs now allow native Close and Quit to finish synchronously. Pending
 edits still go through the existing save/cancel confirmation.
+
+## Distribution
+
+[PR #83](https://github.com/Ares-X/Sumra/pull/83) merged as
+`bba387ce5714495372c6d7e4ba1254955cca09ac`.
+[Candidate build](https://github.com/Ares-X/Sumra/actions/runs/41474896231)
+produced 0.2.25 (27), a 17,036,049-byte arm64 ZIP with SHA-256
+`c6086ff355e979549c30a0bf78849a11b474e2a6397e7f6c4fa47c5d427ed980`.
+The existing community certificate, deep/strict code signature, both Quick Look
+extension bundles and the Sparkle Ed25519 update signature verified. The
+downloaded app matched the build inventory (140 files and five symlinks).
+
+Three original-sample tests were repeated with the signed bundle's MuPDF
+loaded (SHA-256 `b7ad389e2a5292e7ae9e9f233cac629fb59033a43991e66368f2a7b4a6994946`).
+At 1512 × 945, C/E and Midnight had facing heights within 2 pt and centered
+art within 0.5 pt. In the original FB2, first-paragraph x was within 1 pt of
+each requested 8/16/24 pt margin in both paged and continuous layouts. The
+original CBR and CBZ retained their always-visible footer under all three
+normal top-toolbar modes.

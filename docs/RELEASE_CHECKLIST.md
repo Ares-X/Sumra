@@ -28,6 +28,12 @@ the expected behavior, reproduction steps or environment remain unclear.
 
 ## Current implementation
 
+The [0.2.25 issue and release checks](ISSUE_82_ACCEPTANCE.md) cover restored
+tab identity, fullscreen overview and separate windows, mouse and wheel input,
+dialog selection, TXT scrolling and the reporter's original EPUB, PDF, FB2
+and comic files. The external report [#82](https://github.com/Ares-X/Sumra/issues/82)
+remains open for the reporter's own check.
+
 The [0.2.24 release acceptance](RELEASE_0_2_24_ACCEPTANCE_20261102.zh-CN.md)
 records the delivered EPUB facing-page pairing repair, signed-package GUI checks,
 anonymous public assets/feed verification and actual 0.2.23 → 0.2.24 Sparkle
