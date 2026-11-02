@@ -1024,6 +1024,7 @@ struct CommandPalette: View {
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityAddTraits(selected == item.id ? .isSelected : [])
                                 .accessibilityAction { activate(item) }
+                                .disabled(!item.enabled)
                                 .id(item.id)
                         }
                     }
