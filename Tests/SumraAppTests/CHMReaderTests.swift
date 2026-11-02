@@ -416,6 +416,8 @@ final class BrowserReaderTests: XCTestCase {
         let text = "Opening line\n\n" + String(repeating: "Readable words stay searchable. ", count: 400) + "\n\nFinal line"
         let (_, view) = try await loadedReaderFixture(topic: ("/topic1.txt", Data(text.utf8)), home: "/topic1.txt")
         let result = try await evaluate("""
+        // Pin scalar reader typography; fresh-profile presets use point-valued margins.
+        await window.leafCommand({name:'style',text:'system|17|1.6|32|light',pageMargins:[]});
         const pre = document.querySelector('pre');
         const metrics = () => {
             const body = getComputedStyle(document.body), style = getComputedStyle(pre), box = pre.getBoundingClientRect();
