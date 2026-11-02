@@ -838,7 +838,7 @@ actor Pages {
         }
         return migrated
     }
-    func prepareFacingPages(_ position: ReadingPosition, cover: Bool) throws -> ReadingPosition {
+    func prepareFacingPages(_ position: ReadingPosition, cover: Bool, pairingAnchor: PageLocation? = nil) throws -> ReadingPosition {
         guard document.native?.reflowable == true else { return position }
         var position = try document.native?.migratedMarkdownPosition(position) ?? position
         let location = position.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location }
@@ -852,7 +852,8 @@ actor Pages {
         }
         let table = chapterLayout
         let page = try index(location)
-        let row = PageRows.range(page: page, count: table.totalPages, spread: true, cover: cover)
+        let row = PageRows.range(page: page, count: table.totalPages, spread: true, cover: cover,
+            pairingStart: pairingAnchor.flatMap { table.page(for: $0) })
         if let last = table.location(page: row.upperBound - 1), last.chapter > location.chapter {
             try document.native?.ensureChapter(last.chapter)
         }
@@ -2809,11 +2810,11 @@ private struct ReaderKeyboardFocus: ViewModifier {
             if case .pages(let current) = state.document?.content, current === pages { clearSearch() }
         }
     }
-    private func applyLayout(_ table: ChapterTable) async throws {
+    private func applyLayout(_ table: ChapterTable, preservingFacingPages: Bool = true) async throws {
         try Task.checkCancellation()
         // Like SyncWithEngineLayout, snapshot the real viewport before page
         // numbers move. Scroll notifications may still be awaiting UI delivery.
-        guard state.applyChapterLayout(table, beforeRemapping: {
+        guard state.applyChapterLayout(table, preservingFacingPages: preservingFacingPages, beforeRemapping: {
             if let document = state.readerScrollView?.documentView { RasterCanvas.Canvas.recordPosition(in: document) }
         }) else { return }
         selectedMatch = selectedMatch.map(projectSearchMatch)
@@ -2852,9 +2853,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
     }
     private func row(_ indices: [Int], size: CGSize) -> some View {
         let next = finitePageDirection > 0 ? (indices.last ?? -1) + 1 : (indices.first ?? 0) - 1
-        let nextRow = (0..<state.count).contains(next) ? PageRows.range(page: next, count: state.count,
-            spread: state.spread && state.isFixed && !state.presentation, cover: state.cover,
-            landscape: state.landscapeAsSpread ? state.landscapePages : []) : nil
+        let nextRow = (0..<state.count).contains(next) ? state.pageRange(containing: next) : nil
         let predictedIndex = nextRow.map { finitePageDirection > 0 ? $0.lowerBound : $0.upperBound - 1 }
         let predictedLocation = predictedIndex.map { state.pageLocation($0) }
         let locations = indices.map { state.pageLocation($0) }
@@ -3547,7 +3546,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                             content: ReadingZoom.usesContent(state.fit) || state.trimEmptyMargins || state.showFitContentArea)
                     }
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
-                    try await applyLayout(table)
+                    try await applyLayout(table, preservingFacingPages: false)
                     estimatedBounds = bounds
                     finitePageGeometry = facingGeometry
                     state.renderRevision += 1
@@ -3612,7 +3611,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                         restored = try await pages.advance(next, by: (abs(distance) - 1) * (state.spread ? 2 : 1) * (forward ? 1 : -1))
                     }
                     if !state.continuousReflow, state.spread, !state.presentation {
-                        restored = try await pages.prepareFacingPages(restored, cover: state.cover)
+                        restored = try await pages.prepareFacingPages(restored, cover: state.cover, pairingAnchor: state.facingPageAnchor)
                     }
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     let table = await pages.chapterLayout
@@ -3641,7 +3640,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                 do {
                     var restored = try await pages.progressPosition(progress)
                     if !state.continuousReflow, state.spread, !state.presentation {
-                        restored = try await pages.prepareFacingPages(restored, cover: state.cover)
+                        restored = try await pages.prepareFacingPages(restored, cover: state.cover, pairingAnchor: state.facingPageAnchor)
                     }
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     let table = await pages.chapterLayout
@@ -3660,7 +3659,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     do {
                         var restored = try await pages.lastPosition()
                         if !state.continuousReflow, state.spread, !state.presentation {
-                            restored = try await pages.prepareFacingPages(restored, cover: state.cover)
+                            restored = try await pages.prepareFacingPages(restored, cover: state.cover, pairingAnchor: state.facingPageAnchor)
                         }
                         guard !Task.isCancelled, documentID == state.document?.id else { return }
                         let table = await pages.chapterLayout
@@ -3702,7 +3701,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     let revision = await pages.layoutRevision
                     var restored = try await pages.restore(saved, userCSS: state.effectiveUserCSS, theme: state.resolvedTheme, viewport: viewport)
                     if !state.continuousReflow, state.spread, !state.presentation {
-                        restored = try await pages.prepareFacingPages(restored, cover: state.cover)
+                        restored = try await pages.prepareFacingPages(restored, cover: state.cover, pairingAnchor: state.facingPageAnchor)
                     }
                     let updatedRevision = await pages.layoutRevision
                     let zoomLimit = try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
@@ -3750,7 +3749,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                         }
                         guard var position, !Task.isCancelled, documentID == state.document?.id else { return }
                         if !state.continuousReflow, state.spread, !state.presentation {
-                            position = try await pages.prepareFacingPages(position, cover: state.cover)
+                            position = try await pages.prepareFacingPages(position, cover: state.cover, pairingAnchor: state.facingPageAnchor)
                         }
                         let table = await pages.chapterLayout
                         guard !Task.isCancelled, documentID == state.document?.id else { return }
@@ -4049,7 +4048,8 @@ private struct RasterSpreadFrames: PreferenceKey {
         // requested display size, then anchor with the actual rounded transform.
         let row = Set(PageRows.range(page: state.pageNumber(anchor.location), count: state.count,
             spread: state.spread && !state.continuousReflow && !state.presentation, cover: state.cover,
-            landscape: state.landscapeAsSpread ? state.landscapePages : []).map { state.pageLocation($0) })
+            landscape: state.landscapeAsSpread ? state.landscapePages : [],
+            pairingStart: state.facingPageAnchor.flatMap { state.chapterLayout?.page(for: $0) }).map { state.pageLocation($0) })
         // The right page's origin depends on its sibling's width. Waiting only
         // for the selected page can finish the anchor while that width is old.
         for peer in candidates where peer === canvas || row.contains(peer.location) {

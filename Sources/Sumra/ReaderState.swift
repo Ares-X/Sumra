@@ -287,6 +287,7 @@ final class ReaderState: ObservableObject {
                 pdfEditingEnabled = false; nativePDFInfo = nil; nativePDFSelection = nil; nativePDFAnnotationTool = nil
                 nativePDFSignatureSelection = nil
                 nativePDFFormEditor?.cancel(); nativePDFFormPage = nil; fitPresetRestore = nil
+                facingPageAnchor = nil
             }
         }
     }
@@ -312,6 +313,7 @@ final class ReaderState: ObservableObject {
     @Published var browserPage: Int?
     @Published var browserPageCount: Int?
     var chapterLayout: ChapterTable?
+    private(set) var facingPageAnchor: PageLocation?
     private var nativePassageTask: Task<Void, Never>?
     @Published var zoom = 1.0
     @Published var zoomLimit = ReadingZoom.maximum
@@ -362,14 +364,14 @@ final class ReaderState: ObservableObject {
     @Published var searchCaseSensitive = false { didSet { if oldValue != searchCaseSensitive, !findQuery.isEmpty { findNext() } } }
     @Published var searchWholeWord = false { didSet { if oldValue != searchWholeWord, !findQuery.isEmpty { findNext() } } }
     @Published var logicalPageLabel: String?
-    @Published var spread = false { didSet { if oldValue != spread { fitPresetRestore = nil } } }
+    @Published var spread = false { didSet { if oldValue != spread { fitPresetRestore = nil; facingPageAnchor = nil } } }
     @Published var automaticLayout = false { didSet { if oldValue != automaticLayout { fitPresetRestore = nil } } }
     @Published var landscapeAsSpread = true
     @Published var landscapePages = Set<Int>()
     @Published var rtl = false
-    @Published var cover = false { didSet { if oldValue != cover { fitPresetRestore = nil } } }
+    @Published var cover = false { didSet { if oldValue != cover { fitPresetRestore = nil; facingPageAnchor = nil } } }
     @Published var fit = "page" { didSet { if oldValue != fit { fitPresetRestore = nil } } }
-    @Published var flow = "paged" { didSet { if oldValue != flow { fitPresetRestore = nil } } }
+    @Published var flow = "paged" { didSet { if oldValue != flow { fitPresetRestore = nil; facingPageAnchor = nil } } }
     private var fitPresetRestore: (fit: String, zoom: Double, flow: String, spread: Bool, automatic: Bool)?
     @Published var scrollbarMode = "smart"
     @Published var font = "system"
@@ -491,7 +493,7 @@ final class ReaderState: ObservableObject {
     @Published var modified = false {
         didSet { if modified { editRevision &+= 1 } }
     }
-    @Published var presentation = false
+    @Published var presentation = false { didSet { if oldValue != presentation { facingPageAnchor = nil } } }
     @Published var bookmarks: [ReaderBookmark] = []
     @Published var speechActive = false
     @Published var speechPaused = false
@@ -663,7 +665,12 @@ extension ReaderState {
         if isText, readerFocusView != nil { return !TextReader.isAtEnd(in: readerFocusView) }
         return visiblePages.upperBound < count
     }
-    var visiblePages: Range<Int> { PageRows.range(page: page, count: count, spread: spread && isFixed && !presentation, cover: cover, landscape: landscapeAsSpread ? landscapePages : []) }
+    var visiblePages: Range<Int> { pageRange(containing: page) }
+    func pageRange(containing page: Int) -> Range<Int> {
+        PageRows.range(page: page, count: count, spread: spread && isFixed && !presentation,
+            cover: cover, landscape: landscapeAsSpread ? landscapePages : [],
+            pairingStart: facingPageAnchor.flatMap { chapterLayout?.page(for: $0) })
+    }
     var canSaveCopy: Bool { document?.url.hasDirectoryPath == false }
 
     var canSave: Bool { isPDF && document?.hasSeparatePDFSource == false }
@@ -915,7 +922,8 @@ extension ReaderState {
     func pageNumber(_ location: PageLocation) -> Int { chapterLayout?.page(for: location) ?? location.page }
     // Returns whether pagination changed and viewport/search projections need
     // updating. A laidOut-only publication still advances the authoritative table.
-    @discardableResult func applyChapterLayout(_ table: ChapterTable, beforeRemapping: () -> Void = {}) -> Bool {
+    @discardableResult func applyChapterLayout(_ table: ChapterTable, preservingFacingPages: Bool = true, beforeRemapping: () -> Void = {}) -> Bool {
+        if !preservingFacingPages { facingPageAnchor = nil }
         guard chapterLayout != table, table.generation >= (chapterLayout?.generation ?? 0) else { return false }
         let old = chapterLayout
         // A one-page chapter changes only laidOut, not Sumatra's generation.
@@ -927,6 +935,10 @@ extension ReaderState {
             return false
         }
         beforeRemapping()
+        if preservingFacingPages, facingPageAnchor == nil, isNativeReflow,
+           !continuousReflow, spread, !presentation, visiblePages.count == 2 {
+            facingPageAnchor = old?.location(page: visiblePages.lowerBound)
+        }
         func remap(_ position: ReadingPosition) -> ReadingPosition {
             var position = position
             if let location = position.anchor.flatMap({ ChapterTable.bookmarkLocation($0)?.location }) ?? old?.location(page: position.page),
@@ -1428,7 +1440,7 @@ extension ReaderState {
         var range = visiblePages
         for _ in 0..<min(steps, count) {
             let target = delta > 0 ? min(count - 1, range.upperBound) : max(0, range.lowerBound - 1)
-            let next = PageRows.range(page: target, count: count, spread: spread && isFixed && !presentation, cover: cover, landscape: landscapeAsSpread ? landscapePages : [])
+            let next = pageRange(containing: target)
             if next == range { break }; range = next
         }
         let offset = UserDefaults.standard.bool(forKey: "preservePageTurnPosition") && !reflowable && flow != "continuous"

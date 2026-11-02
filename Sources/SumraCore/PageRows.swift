@@ -173,12 +173,17 @@ public enum PageRows {
         return Layout(pages: pages, canvas: canvas, rows: rows)
     }
 
-    public static func range(page: Int, count: Int, spread: Bool, cover: Bool = false, landscape: Set<Int> = []) -> Range<Int> {
+    public static func range(page: Int, count: Int, spread: Bool, cover: Bool = false, landscape: Set<Int> = [], pairingStart: Int? = nil) -> Range<Int> {
         guard count > 0 else { return 0..<0 }
         let page = min(count - 1, max(0, page))
         guard spread, !(cover && page == 0), !landscape.contains(page) else { return page..<(page+1) }
         // Every full-width landscape row restarts the ordinary two-page pairing.
-        let start = max(cover ? 1 : 0, (landscape.lazy.filter { $0 >= 0 && $0 < page }.max() ?? -1) + 1)
+        var start = max(cover ? 1 : 0, (landscape.lazy.filter { $0 >= 0 && $0 < page }.max() ?? -1) + 1)
+        // Lazy chapter counts can renumber a displayed EPUB spread. Keep its
+        // pairing phase for adjacent turns, without counting earlier chapters
+        // before the first paint. A leading unpaired page stays a single row.
+        if let pairingStart { start += (pairingStart - start) & 1 }
+        guard page >= start else { return page..<(page+1) }
         let first = start + (page-start)/2*2
         return first..<rowEnd(first, count: count, spread: spread, cover: cover, landscape: landscape)
     }

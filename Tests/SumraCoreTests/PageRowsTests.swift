@@ -207,6 +207,30 @@ final class PageRowsTests: XCTestCase {
         XCTAssertEqual(PageRows.range(page: 4, count: 5, spread: true), 4..<5)
         XCTAssertEqual(PageRows.range(page: 0, count: 0, spread: true), 0..<0)
     }
+
+    func testRenumberedSpreadKeepsPairingThroughAdjacentTurns() {
+        for cover in [false, true] {
+            let count = 12, start = cover ? 2 : 1
+            var page = 0, visited = [Int]()
+            while page < count {
+                let row = PageRows.range(page: page, count: count, spread: true, cover: cover, pairingStart: start)
+                XCTAssertTrue(row.contains(page))
+                for member in row {
+                    XCTAssertEqual(PageRows.range(page: member, count: count, spread: true, cover: cover, pairingStart: start), row)
+                }
+                visited.append(contentsOf: row)
+                if page > 0 {
+                    let previous = PageRows.range(page: page - 1, count: count, spread: true, cover: cover, pairingStart: start)
+                    XCTAssertEqual(previous.upperBound, row.lowerBound)
+                }
+                page = row.upperBound
+            }
+            XCTAssertEqual(visited, Array(0..<count), "Forward/backward traversal must not duplicate or omit pages")
+            if cover { XCTAssertEqual(PageRows.range(page: 0, count: count, spread: true, cover: true, pairingStart: start), 0..<1) }
+        }
+        XCTAssertEqual(PageRows.range(page: 7, count: 11, spread: true, pairingStart: 7), 7..<9)
+        XCTAssertEqual(PageRows.range(page: 9, count: 11, spread: true, pairingStart: 7), 9..<11)
+    }
     func testNavigationAndContinuousGroupingAgreeForEveryShortImageSequence() {
         for mask in 0..<256 {
             let wide = Set((0..<8).filter { mask & (1 << $0) != 0 })

@@ -7,6 +7,110 @@ import XCTest
 
 @MainActor
 final class NativeFacingChapterReaderTests: XCTestCase {
+    func testBackgroundChapterCountsKeepPaintedSpreadAndAdjacentTurns() async throws {
+        try await checkBackgroundChapterCounts(cover: false)
+        try await checkBackgroundChapterCounts(cover: true)
+    }
+
+    private func checkBackgroundChapterCounts(cover: Bool) async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let input = try makeLazyPairingBook(in: directory.url)
+        let pages = try Pages(input, format: .book, deferReflowLayout: true)
+        _ = try await pages.prepare()
+        let target = ReadingPosition(page: 6, anchor: "4:2:6")
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+            pageSize: CGSize(width: 398, height: 600))
+        _ = try await pages.prepareFacingPages(target, cover: cover)
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.reflowable = true; state.automaticLayout = false; state.searchable = true
+        state.flow = "paged"; state.spread = true; state.cover = cover; state.fit = "page"; state.zoom = 1
+        state.fontSize = 17; state.lineHeight = 1.4; state.font = "serif"; state.theme = "light"; state.margin = 32
+        state.pageMargins = nil; state.userCSS = ""; state.useDocumentCSS = true
+        state.freePan = false; state.uniformPageWidth = false; state.trimEmptyMargins = false
+        state.landscapeAsSpread = false; state.rtl = false; state.scrollbarMode = "hidden"
+        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+            userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 398, height: 600), readingPosition: target)
+        let position = try await pages.prepareFacingPages(target, cover: cover)
+        state.searchCounting = true // Hold the existing background count until both initial pages have actually painted.
+        state.applyChapterLayout(await pages.chapterLayout); state.updatePosition(position)
+        let initialBounds = try await pages.bounds(position.page)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages, initialBounds: initialBounds, initialPosition: position))
+        let window = NSWindow(contentRect: CGRect(x: -10000, y: -10000, width: 800, height: 600),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
+        func canvases(_ view: NSView) -> [RasterCanvas.Canvas] {
+            (view as? RasterCanvas.Canvas).map { [$0] } ?? view.subviews.flatMap(canvases)
+        }
+        func waitForPaint(_ expected: [PageLocation], complete: Bool, after revision: Int? = nil) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+                let drawn = canvases(host).filter { state.visiblePages.contains($0.page) }.sorted { $0.page < $1.page }
+                if revision.map({ state.renderRevision > $0 }) ?? true,
+                   state.chapterLayout?.complete == complete, drawn.map(\.location) == expected,
+                   drawn.allSatisfy(\.readingReady) { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Expected painted spread \(expected), got \(state.visiblePages.map { state.pageLocation($0) })")
+            throw CancellationError()
+        }
+        let first = cover ? 1 : 2
+        let initial = [PageLocation(chapter: 4, page: first), .init(chapter: 4, page: first + 1)]
+        try await waitForPaint(initial, complete: false)
+        XCTAssertEqual(state.chapterLayout?.pageCount(0), 1, "First paint must keep earlier chapters lazy")
+        state.searchCounting = false
+        try await waitForPaint(initial, complete: true)
+        XCTAssertEqual(state.chapterLayout?.pageCount(0), 2)
+        XCTAssertEqual(state.currentPosition.anchor.flatMap(ChapterTable.bookmarkLocation)?.location, .init(chapter: 4, page: 2))
+        state.turn(1)
+        try await waitForPaint([.init(chapter: 4, page: first + 2), .init(chapter: 4, page: first + 3)], complete: true)
+        state.turn(-1)
+        try await waitForPaint(initial, complete: true)
+        let previous: [PageLocation] = cover ? [.init(chapter: 3, page: 0), .init(chapter: 4, page: 0)]
+            : [.init(chapter: 4, page: 0), .init(chapter: 4, page: 1)]
+        let crossChapter: [PageLocation] = cover ? [.init(chapter: 1, page: 0), .init(chapter: 2, page: 0)]
+            : [.init(chapter: 2, page: 0), .init(chapter: 3, page: 0)]
+        state.turn(-1); try await waitForPaint(previous, complete: true)
+        state.turn(-1); try await waitForPaint(crossChapter, complete: true)
+        state.turn(1); try await waitForPaint(previous, complete: true)
+        state.turn(1); try await waitForPaint(initial, complete: true)
+        let revision = state.renderRevision
+        var resetAtRelayout = false
+        let commit = state.$renderRevision.sink { value in
+            if value > revision { resetAtRelayout = state.facingPageAnchor == nil }
+        }
+        defer { commit.cancel() }
+        state.fontSize = 18; state.send(.style)
+        try await waitForPaint(initial, complete: true, after: revision)
+        XCTAssertTrue(resetAtRelayout, "A real font reflow must commit its own pairing before warming counts")
+        state.cover = !cover
+        XCTAssertNil(state.facingPageAnchor, "An explicit layout change starts its own pairing")
+        XCTAssertNil(state.error)
+    }
+
+    private func makeLazyPairingBook(in directory: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
+        let counts = [2, 1, 1, 1, 6]
+        let manifest = counts.indices.map { "<item id='c\($0)' href='c\($0).xhtml' media-type='application/xhtml+xml'/>" }.joined()
+        let spine = counts.indices.map { "<itemref idref='c\($0)'/>" }.joined()
+        var files = ["mimetype": "application/epub+zip",
+            "META-INF/container.xml": "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>",
+            "content.opf": "<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata/><manifest>\(manifest)</manifest><spine>\(spine)</spine></package>"]
+        for (chapter, count) in counts.enumerated() {
+            let body = (0..<count).map { "<section style='page-break-before:always'><h1>CHAPTER \(chapter) / PAGE \($0)</h1><p>Distinct marker C\(chapter)P\($0).</p></section>" }.joined()
+            files["c\(chapter).xhtml"] = "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>body { margin:0 } section:first-child { page-break-before:auto!important }</style></head><body>\(body)</body></html>"
+        }
+        for (name, text) in files { try text.write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+        let zip = Process(); zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); zip.currentDirectoryURL = directory
+        zip.arguments = ["-q", "-0", "pairing.epub", "mimetype"] + files.keys.filter { $0 != "mimetype" }.sorted()
+        try runSumraProcess(zip); XCTAssertEqual(zip.terminationStatus, 0)
+        return directory.appendingPathComponent("pairing.epub")
+    }
+
     func testFacingChapterReaderSettlesAndKeepsSourceAcrossModes() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()
