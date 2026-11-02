@@ -73,7 +73,9 @@ final class HighVolumeSearchTests: XCTestCase {
         state.fontSize = 17; state.lineHeight = 1.4; state.font = "system"; state.theme = "light"; state.margin = 32
         state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil; state.scrollbarMode = "hidden"
         state.showContents = false; state.showAI = false; state.searchCaseSensitive = false; state.searchWholeWord = true
-        _ = state.applyChapterLayout(await pages.chapterLayout)
+        // ReaderView publishes the deferred document after its first native
+        // layout. Publishing a provisional chapter table here would mount page
+        // zero while the native document still has no laid-out pages.
         state.showFindPanel()
         let host = NSHostingView(rootView: ReaderView(state: state))
         // The open Find panel reserves the 22-point search-session status row.
@@ -89,17 +91,17 @@ final class HighVolumeSearchTests: XCTestCase {
                 clip.cacheDisplay(in: clip.bounds, to: bitmap)
             }
         }
-        func wait(_ reason: String, _ predicate: () -> Bool) async throws {
+        func wait(_ reason: String, _ predicate: () async -> Bool) async throws {
             let deadline = Date().addingTimeInterval(300)
             repeat {
                 paint()
-                if predicate() { return }
                 if let error = state.error {
                     report["waitFailure"] = "\(reason): \(error)"
                     report["resultCountAtWaitFailure"] = state.searchResults.count
                     try checkpoint("wait-error")
                     throw ReadError("\(reason): \(error)")
                 }
+                if await predicate() { return }
                 try await Task.sleep(nanoseconds: 5_000_000)
             } while Date() < deadline
             report["waitFailure"] = "Timed out: \(reason)"
@@ -114,6 +116,19 @@ final class HighVolumeSearchTests: XCTestCase {
         }
         try await wait("Initial reader and visible results sidebar") {
             state.readerFocusView != nil && state.readerScrollView != nil && state.showSearchResults && state.count > 0
+        }
+        // Set the native divider after the prepared reader mounts, just as a
+        // user drag does. Its initial loading allocation can be 180 points.
+        var ancestor: NSView? = state.readerScrollView
+        while let view = ancestor, (view as? NSSplitView)?.isVertical != true {
+            ancestor = view.superview
+        }
+        let split = try XCTUnwrap(ancestor as? NSSplitView)
+        split.setPosition(220, ofDividerAt: 0)
+        try await wait("Frozen reader layout and first painted page") {
+            let size = await pages.layoutPageSize
+            return size == CGSize(width: 779, height: 590) &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
         }
         try await settle()
         report["resultsSidebarMounted"] = state.showSearchResults && !defaults.bool(forKey: "findFloating")
