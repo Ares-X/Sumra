@@ -310,6 +310,9 @@ same command. **Home** opens or activates a separate launch window and retains
 all open books. Closing Home does not close their windows. Reopening the running
 app from the Dock restores an existing reader or creates Home when none remain,
 even if an auxiliary system window is still visible.
+**Move Tab Left/Right** moves the active book one position while retaining that
+book's window, reading position and selection. Native tab captions and their
+click targets follow the new order; moving beyond either end leaves it unchanged.
 **Open Documents** chooses New Window (the existing
 default), New Tab or Replace Current; replacing a modified document still uses
 the normal save/discard/cancel decision.
