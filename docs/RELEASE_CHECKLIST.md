@@ -28,12 +28,16 @@ the expected behavior, reproduction steps or environment remain unclear.
 
 ## Current implementation
 
-The [November 2 recheck](RECHECK_0_2_23_20261102.zh-CN.md) confirms an EPUB
-facing-page pairing defect in the 0.2.23 source and records its repair, actual
-AppKit images, affected regressions and formal-version GUI checks. That repair
-is a development acceptance build until a separately verified release includes
-it; #78 remains open through that handoff. External reports #68, #69 and #74
-remain open for their reporters' confirmation.
+The [0.2.24 release acceptance](RELEASE_0_2_24_ACCEPTANCE_20261102.zh-CN.md)
+records the delivered EPUB facing-page pairing repair, signed-package GUI checks,
+anonymous public assets/feed verification and actual 0.2.23 → 0.2.24 Sparkle
+installation. The installed app matches the accepted candidate and reopens the
+original PDF with working outline navigation. The [November 2 recheck](RECHECK_0_2_23_20261102.zh-CN.md)
+retains the actual AppKit red/green evidence and 51 affected regressions.
+Maintainer audit #78 is complete after this delivery; external reports #68, #69
+and #74 remain open for their reporters' confirmation. Natural packaged
+first-frame publication timing and the reporters' unexercised environments
+remain explicit limits in the release acceptance record.
 
 The acceptance baseline below belongs to [0.2.8](https://github.com/Ares-X/Sumra/releases/tag/v0.2.8),
 from accepted source `5b557d1a61d1b6b12b9eda03dcda2191dafad16f`.
