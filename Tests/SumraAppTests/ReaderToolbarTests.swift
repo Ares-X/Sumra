@@ -91,10 +91,16 @@ final class ReaderToolbarTests: XCTestCase {
             observer.handleMouseMoved(body)
             XCTAssertFalse(state.toolbarHoverVisible, "A key settings panel must not prevent the reader tracking its pointer")
             observer.pointerMoved(to: parent.pointer)
+            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: NSMenu())
             panel.key = false
             NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
             try await Task.sleep(nanoseconds: 10_000_000)
             XCTAssertFalse(state.toolbarHoverVisible, "Activating another app still hides the toolbar")
+            panel.key = true
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
+            try await Task.sleep(nanoseconds: 10_000_000)
+            observer.handleMouseMoved(body)
+            XCTAssertFalse(state.toolbarHoverVisible, "A menu from a deactivated settings panel must not latch future hovers")
             XCTAssertFalse(parent.isVisible)
         }
     }
@@ -657,7 +663,7 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertFalse(window.isVisible)
     }
 
-    func testNarrowToolbarHidesNativeOverflowWithoutChangingItsLayout() async throws {
+    func testNarrowToolbarOverflowFollowsVisibilityWithoutMovingTheBook() async throws {
         final class Items: NSObject, NSToolbarDelegate {
             func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
                 (0..<7).map { .init("overflow-\($0)") }
@@ -701,7 +707,7 @@ final class ReaderToolbarTests: XCTestCase {
             if view.accessibilityRole() == .toolbar { return view }
             return view.subviews.lazy.compactMap { toolbarView(in: $0) }.first
         }
-        let nativeToolbar = try XCTUnwrap(toolbarView(in: root))
+        var nativeToolbar = try XCTUnwrap(toolbarView(in: root))
         XCTAssertGreaterThan(toolbar.items.count, try XCTUnwrap(toolbar.visibleItems).count,
                              "The fixture must contain AppKit's real overflow control")
         let frame = window.frame, layout = window.contentLayoutRect, viewport = window.contentView?.frame
@@ -709,15 +715,26 @@ final class ReaderToolbarTests: XCTestCase {
             state.toolbarDisplayMode = mode
             observer.updateChrome()
             root.layoutSubtreeIfNeeded()
-            XCTAssertEqual(nativeToolbar.isHidden, mode != .shown)
-            XCTAssertEqual(nativeToolbar.alphaValue, mode == .shown ? 1 : 0, accuracy: 0.001)
-            if mode != .shown {
-                XCTAssertNil(nativeToolbar.hitTest(NSPoint(x: nativeToolbar.bounds.maxX - 20, y: nativeToolbar.bounds.midY)),
-                             "Hidden overflow must not intercept clicks on the book")
+            if mode == .hidden {
+                XCTAssertFalse(toolbar.isVisible, "Always Hide removes the native toolbar layout")
+                let point = nativeToolbar.convert(NSPoint(x: nativeToolbar.bounds.maxX - 20, y: nativeToolbar.bounds.midY), to: root)
+                if let hit = root.hitTest(point) {
+                    XCTAssertFalse(hit === nativeToolbar || hit.isDescendant(of: nativeToolbar),
+                                   "Removed overflow must not intercept clicks on the book")
+                }
+                XCTAssertGreaterThanOrEqual(window.contentLayoutRect.maxY, layout.maxY)
+            } else {
+                nativeToolbar = try XCTUnwrap(toolbarView(in: root))
+                XCTAssertEqual(nativeToolbar.isHidden, mode != .shown)
+                XCTAssertEqual(nativeToolbar.alphaValue, mode == .shown ? 1 : 0, accuracy: 0.001)
+                if mode != .shown {
+                    XCTAssertNil(nativeToolbar.hitTest(NSPoint(x: nativeToolbar.bounds.maxX - 20, y: nativeToolbar.bounds.midY)),
+                                 "Hidden overflow must not intercept clicks on the book")
+                }
+                XCTAssertTrue(toolbar.isVisible, "Auto Hide keeps its native hover layout installed")
+                XCTAssertEqual(window.contentLayoutRect, layout)
             }
-            XCTAssertTrue(toolbar.isVisible, "The native toolbar layout must remain installed")
             XCTAssertEqual(window.frame, frame)
-            XCTAssertEqual(window.contentLayoutRect, layout)
             XCTAssertEqual(window.contentView?.frame, viewport)
         }
         observer.pointerMoved(to: NSPoint(x: 280, y: window.frame.height - 1))

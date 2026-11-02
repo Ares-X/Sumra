@@ -70,8 +70,8 @@ struct ReaderImmersiveControlsToggle: View {
     }
 }
 
-// SwiftUI owns toolbar items and visibility. AppKit preserves window geometry,
-// reserves fullscreen menu space, and tracks native chrome.
+// SwiftUI owns toolbar items and requested visibility. AppKit enforces Always
+// Hide, preserves window geometry, and tracks native fullscreen/hover chrome.
 struct ReaderToolbarAppearance: ViewModifier {
     var shown: Bool
     var hidesNativeTitle: Bool
@@ -374,8 +374,7 @@ struct ReaderToolbarAppearance: ViewModifier {
                 if permanentlyHiddenToolbar == nil { permanentlyHiddenToolbar = (toolbar, toolbar.isVisible) }
                 if toolbar.isVisible { toolbar.isVisible = false }
             }
-            // SwiftUI owns toolbar visibility. Preserve the frame around its
-            // native setter and the titlebar changes owned here.
+            // Preserve the frame around native visibility and titlebar changes.
             let fullSize = hidden || original.fullSize
             if parent.styleMask.contains(.fullSizeContentView) != fullSize {
                 if fullSize { parent.styleMask.insert(.fullSizeContentView) }
@@ -657,7 +656,10 @@ struct ReaderToolbarAppearance: ViewModifier {
                 DispatchQueue.main.async { [weak self] in
                     guard let self, let parent = self.parent else { return }
                     if self.readerHasKeyFocus { self.pointerMoved(to: parent.mouseLocationOutsideOfEventStream) }
-                    else { self.setHoverVisible(false, immediately: true) }
+                    else {
+                        self.menuTracking = false
+                        self.setHoverVisible(false, immediately: true)
+                    }
                     self.updateChrome()
                 }
                 return
