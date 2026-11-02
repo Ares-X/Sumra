@@ -10,6 +10,9 @@ import XCTest
 final class CommandPaletteAccessibilityTests: XCTestCase {
     func testUnavailableCommandRowsExposeDisabledNativeAccessibility() async throws {
         _ = NSApplication.shared
+        let defaults = UserDefaults.standard, savedLanguage = defaults.object(forKey: "language")
+        defaults.set("en", forKey: "language")
+        defer { defaults.set(savedLanguage, forKey: "language") }
         for withDocument in [false, true] {
             let state = ReaderState(recordsHistory: false)
             if withDocument {
@@ -25,18 +28,32 @@ final class CommandPaletteAccessibilityTests: XCTestCase {
             window.contentView = host
             window.orderBack(nil)
             defer { window.orderOut(nil); window.contentView = nil; window.close(); state.windowClosed() }
-            try await Task.sleep(nanoseconds: 150_000_000)
-            host.layoutSubtreeIfNeeded()
-            let application = AXUIElementCreateApplication(getpid())
-            let windows = try XCTUnwrap(attribute(application, kAXWindowsAttribute) as? [AXUIElement])
-            let target = try XCTUnwrap(windows.first { attribute($0, kAXTitleAttribute) as? String == window.title })
-            for command in [ReaderMenuCommand.save, .saveTabGroup, .saveImage] {
-                let row = try XCTUnwrap(find("palette-row:" + command.id, in: target))
+            let commands = [ReaderMenuCommand.save, .saveTabGroup, .saveImage]
+            let rows = try await waitForRows(commands, window: window, host: host)
+            for (command, row) in zip(commands, rows) {
                 XCTAssertEqual(attribute(row, kAXRoleAttribute) as? String, kAXButtonRole)
                 XCTAssertEqual((attribute(row, kAXEnabledAttribute) as? NSNumber)?.boolValue, command.enabled(state),
                                "\(command.id) must advertise actual availability, document=\(withDocument)")
             }
         }
+    }
+
+    private func waitForRows<Content: View>(_ commands: [ReaderMenuCommand], window: NSWindow,
+                                          host: NSHostingView<Content>) async throws -> [AXUIElement] {
+        // Inspect only this process; no global accessibility-trust request or user input.
+        let application = AXUIElementCreateApplication(getpid())
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while Date() < deadline {
+            host.layoutSubtreeIfNeeded()
+            let windows = attribute(application, kAXWindowsAttribute) as? [AXUIElement] ?? []
+            if let target = windows.first(where: { attribute($0, kAXTitleAttribute) as? String == window.title }) {
+                let rows = commands.compactMap { find("palette-row:" + $0.id, in: target) }
+                if rows.count == commands.count { return rows }
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("The owned palette must publish its command rows")
+        throw NSError(domain: "CommandPaletteAccessibilityTests", code: 1)
     }
 
     private func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
