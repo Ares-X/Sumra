@@ -388,3 +388,5 @@ AI sidebars, including the floating footer's hover area. Existing root padding
 and the status row count toward that clearance once. The reading canvas keeps its
 existing page margins and full-bleed behavior. Selecting the footer's Hidden
 display mode releases the sidebar space; Auto Hide keeps the hover area clear.
+
+Command palette rows retain command availability: unavailable actions are disabled for pointer and accessibility input, while enabled rows keep single-click selection and double-click/Return activation.
