@@ -46,6 +46,38 @@ final class SavedTabGroupBehaviorTests: XCTestCase {
         XCTAssertNotEqual(created.first?.tabIdentifier, fixture.window.tabbingIdentifier)
     }
 
+    func testRestoreStartsAGroupWhenTheStandaloneParentHasNoTabGroup() throws {
+        // A Home window reused for a book can still return nil here on macOS
+        // 26. Newer hosts lazily expose the standalone group before the first add.
+        final class StandaloneWindow: NSWindow {
+            private var standalone = true
+            override var tabGroup: NSWindowTabGroup? { standalone ? nil : super.tabGroup }
+            override func addTabbedWindow(_ window: NSWindow, ordered: NSWindow.OrderingMode) {
+                standalone = false
+                super.addTabbedWindow(window, ordered: ordered)
+            }
+        }
+        _ = NSApplication.shared
+        let frame = CGRect(x: 2200, y: 100, width: 640, height: 480)
+        let parent = StandaloneWindow(contentRect: frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        let child = NSWindow(contentRect: frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        let saved = WindowPayload(path: "/restored.txt")
+        _ = ReaderWindows.prepareRestoration([saved])
+        for window in [parent, child] {
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0
+            window.ignoresMouseEvents = true
+        }
+        defer {
+            _ = ReaderWindows.prepareRestoration([])
+            child.close(); parent.close()
+        }
+        XCTAssertNil(parent.tabGroup)
+        ReaderWindows.placeTab(child, beside: parent, restorationID: saved.id)
+        XCTAssertEqual(parent.tabGroup?.windows, [parent, child])
+        XCTAssertTrue(child.tabGroup === parent.tabGroup)
+    }
+
     func testRestoredTabsKeepExistingNativeSiblingsAheadOfAppendedGroup() async throws {
         let fixture = try Fixture()
         defer { fixture.close() }
