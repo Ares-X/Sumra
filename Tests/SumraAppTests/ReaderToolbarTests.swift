@@ -1311,6 +1311,75 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertTrue(parent.factoryClose?.isEnabled == true)
     }
 
+    func testFloatingFullscreenFindsCompanionThroughNativeAccessoryWhenFactoryIsFirstLookup() throws {
+        final class FullscreenWindow: NSWindow {
+            var factoryClose: NSButton?
+            override var styleMask: NSWindow.StyleMask {
+                get { super.styleMask.union(.fullScreen) }
+                set { super.styleMask = newValue.subtracting(.fullScreen) }
+            }
+            override func standardWindowButton(_ type: NSWindow.ButtonType) -> NSButton? {
+                if type == .closeButton, let factoryClose { return factoryClose }
+                return super.standardWindowButton(type)
+            }
+        }
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/already-fullscreen-new-tab.txt"), content: .text("book"))
+        state.immersiveControls = true; state.toolbarDisplayMode = .shown
+        let parent = FullscreenWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        let companion = NSWindow(contentRect: CGRect(x: 2000, y: 600, width: 700, height: 82),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false; companion.isReleasedWhenClosed = false
+        parent.alphaValue = 0; companion.alphaValue = 0
+        companion.hasShadow = true; companion.isOpaque = true; companion.backgroundColor = .white
+        let reader = try XCTUnwrap(parent.contentView), content = try XCTUnwrap(companion.contentView)
+        let nativeClose = try XCTUnwrap(parent.standardWindowButton(.closeButton))
+        let nativeSuperview = try XCTUnwrap(nativeClose.superview), nativeFrame = nativeClose.frame
+        content.addSubview(nativeClose)
+        parent.addChildWindow(companion, ordered: .above)
+        let controls = ReaderFloatingWindowButtons.Buttons(frame: CGRect(x: 16, y: 16, width: 54, height: 20))
+        reader.addSubview(controls)
+        parent.factoryClose = try XCTUnwrap(controls.subviews.compactMap { $0 as? NSButton }.first {
+            $0.tag == Int(NSWindow.ButtonType.closeButton.rawValue)
+        })
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = NSView(frame: CGRect(x: 0, y: 0, width: 700, height: 28))
+        parent.addTitlebarAccessoryViewController(accessory)
+        content.addSubview(accessory.view)
+        // A newly created fullscreen tab can mount after native controls have
+        // already left its frame, while standard lookup already finds a factory.
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        reader.addSubview(observer)
+        defer {
+            observer.detach(); controls.stopObservingWindow(); parent.factoryClose = nil
+            nativeSuperview.addSubview(nativeClose); nativeClose.frame = nativeFrame
+            parent.removeChildWindow(companion); companion.close()
+            parent.contentView = nil; parent.close(); state.windowClosed()
+        }
+        XCTAssertTrue(parent.standardWindowButton(.closeButton)?.superview === controls)
+        XCTAssertTrue(parent.titlebarAccessoryViewControllers.first?.view.window === companion)
+        let frame = parent.frame
+        for menuVisible in [false, true, false] {
+            observer.updateChrome(revealingNativeControls: menuVisible)
+            XCTAssertFalse(companion.hasShadow, "The real native companion must not cast a full-width shadow")
+            XCTAssertFalse(companion.isOpaque)
+            XCTAssertEqual(companion.backgroundColor.alphaComponent, 0)
+            XCTAssertEqual(content.alphaValue, 0)
+            XCTAssertTrue(companion.ignoresMouseEvents)
+            XCTAssertEqual(reader.alphaValue, 1)
+            XCTAssertFalse(controls.isHiddenOrHasHiddenAncestor)
+            XCTAssertEqual(parent.frame, frame)
+        }
+        state.immersiveControls = false
+        observer.updateChrome(revealingNativeControls: true)
+        XCTAssertTrue(companion.hasShadow); XCTAssertTrue(companion.isOpaque)
+        XCTAssertEqual(companion.backgroundColor, .white); XCTAssertEqual(content.alphaValue, 1)
+        XCTAssertFalse(companion.ignoresMouseEvents)
+    }
+
     func testThreeModesControlHoverAndPresentationWithoutChangingTheChoice() throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)

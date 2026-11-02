@@ -185,6 +185,8 @@ and change this same setting; they do not maintain a separate window override.
 In full screen, the active reader synchronizes the native toolbar presentation
 policy with this same visibility state, so the menu-bar hover area does not
 impose a second reveal threshold or leave hidden chrome covering the first line.
+With floating controls, moving the pointer to the very top reveals the macOS
+menu bar. The book remains visible below it when switching or creating tabs.
 Window close/full-screen controls remain owned by macOS; minimizing is unavailable
 while the native full-screen window is active.
 In native full screen, AppKit also owns those buttons' opacity and the document
