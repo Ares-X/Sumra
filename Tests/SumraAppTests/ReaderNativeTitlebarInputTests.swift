@@ -30,10 +30,12 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
         window.contentView?.addSubview(observer)
         defer { observer.detach(); window.contentView = nil; window.close(); state.windowClosed() }
         let titlebar = try XCTUnwrap(window.standardWindowButton(.closeButton)?.superview)
-        let point = titlebar.convert(NSPoint(x: titlebar.bounds.midX, y: titlebar.bounds.midY), to: nil)
         for mode in ReaderToolbarDisplayMode.allCases {
             state.toolbarDisplayMode = mode
             observer.updateChrome()
+            window.contentView?.superview?.layoutSubtreeIfNeeded()
+            // Hiding the native toolbar changes the titlebar's current bounds.
+            let point = titlebar.convert(NSPoint(x: titlebar.bounds.midX, y: titlebar.bounds.midY), to: nil)
             window.key = false
             let before = window.activations
             let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
