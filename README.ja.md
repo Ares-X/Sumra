@@ -118,7 +118,7 @@ Issue の報告、コードの提供、レビューを通じて Sumra を改善�
 
 | 貢献者 | 貢献内容 |
 | --- | --- |
-| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Sumra/issues/31) [Issue #42](https://github.com/Ares-X/Sumra/issues/42) |
+| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Sumra/issues/31) [Issue #42](https://github.com/Ares-X/Sumra/issues/42) [Issue #82](https://github.com/Ares-X/Sumra/issues/82) |
 | <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [Issue #48](https://github.com/Ares-X/Sumra/issues/48) |
 
 <!-- community-contributors:end -->

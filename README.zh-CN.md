@@ -120,7 +120,7 @@ README 提供英文、简体中文、繁体中文和日语版本。以 [README.m
 
 | 贡献者 | 贡献记录 |
 | --- | --- |
-| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [问题 #31](https://github.com/Ares-X/Sumra/issues/31) [问题 #42](https://github.com/Ares-X/Sumra/issues/42) |
+| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [问题 #31](https://github.com/Ares-X/Sumra/issues/31) [问题 #42](https://github.com/Ares-X/Sumra/issues/42) [问题 #82](https://github.com/Ares-X/Sumra/issues/82) |
 | <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [问题 #48](https://github.com/Ares-X/Sumra/issues/48) |
 
 <!-- community-contributors:end -->
