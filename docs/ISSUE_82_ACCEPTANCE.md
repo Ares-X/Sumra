@@ -1,79 +1,35 @@
-# Issue 82: reader interactions and book layout
+# Reader interactions and book layout in 0.2.25
 
-[Issue #82](https://github.com/Ares-X/Sumra/issues/82) reports behavior on public
-0.2.24 (26). The reporter's list of features that already work is not a list of
-regressions. The results below distinguish local AppKit/engine checks from
-the actual application. Internal verification does not replace reporter confirmation.
+The reporter verified these problems in 0.2.24 (26). The table pairs the reported actions with the observed behavior. App replays used a macOS 26.6.2 (25G83) virtual machine. Hosted checks used actual AppKit controls and rendering, with window input supplied by the test harness. [Original report](https://github.com/Ares-X/Sumra/issues/82)
 
-| Report | Check and result |
+| Reported action | Behavior and verification |
 | --- | --- |
-| Restored tabs change titles/order, then Close and Quit fail | AppKit restoration opens the selected document, then loads dormant documents on activation. The regression selects each window, checks its URL, represented URL and native group order, closes the selected document, and checks the remaining saved session during quit. |
-| Floating strip intercepts clicks/scroll incorrectly; middle or left native tab close disturbs survivors | Floating buttons cover the full tab row and wheel routing checks the topmost scroll owner. Closing a clean native tab completes in the original AppKit close event without removing/reinserting neighboring windows. Tests exercise hit routing, group identity/order, and close of multiple native tabs. Physical trackpad feel requires a device. |
-| Normal-toolbar click activation, hidden toolbar rectangle, settings flicker and floating controls | Native titlebar clicks activate the owner without stealing tab or button actions. The native toolbar visibility and separate settings panel are exercised across visibility modes. The settings panel opens immediately, and listing installed fonts waits for interaction with the font picker. Actual hover pixel comparisons cover the floating close/minimize/fullscreen buttons. |
-| PDF page field blank after Enter | A real PDF can declare a label range without a prefix or numbering style. MuPDF returns an empty string for that range; the reader now displays the physical number and preserves nonempty Roman labels. The public 0.2.24 app reproduced the blank field on a three-page PDF with legal empty labels while the page body and total remained visible. The reporter's 164-page PDF was not attached. Midnight PDF alone did not reproduce a blank field in 0.2.24. |
-| Normal progress control looks right aligned; hiding the toolbar takes space from comics | The screenshot shows a centered *track*, with a longer label on its right. The rendered bounds of the percentage, track and page label together are now centered. Both original CBR and CBZ kept a separate bottom row with the progress bar always visible, in all three top-toolbar modes. |
-| FB2 margins differ from other formats | The original formatsampler FB2 has no author stylesheet. Its FictionBook root received an additional default 1em margin. Native glyph-position tests now measure the requested margins in paged and continuous layout; publisher defaults, authored indentation and user CSS remain available. |
-| EPUB cover versus facing image and unequal top/bottom margins; mixed-size PDF pages | Rendered the original C/E EPUBs and seven-page Midnight PDF. In C the two image tops differed by less than 0.5 pt at both tested widths. In E a 400×800 layout with 24 pt vertical margins measured 24 pt above and below the art. At 1512×945 both facing Midnight PDF pages filled the available height. Mixed crop boxes, RTL, solo cover, actual-size mode, and live-resize coverage also exercised the shared geometry. |
-| Palette and thumbnail selection; Open panel disappears | Reproduced the vanishing Open panel in the public app. In a macOS VM the development app kept the chooser open on the first click, and its Open panel remained visible after double-clicking the selected row. Both choosers separate selecting a row from committing it. Commands that open another window are handed off at the native end-of-sheet notification. A separate Current Page label remains when selection moves. |
-| Light dialog selection is hard to see | The field editor uses the system's selected-content background and corresponding foreground. AppKit tested selection across two fields under Aqua and Dark Aqua. |
-| Long TXT scrollbar reverses on first traversal | The native thumb now tracks the source range visible in TextKit's viewport. A standalone AppKit comparison used 80 forward steps: three runs each produced nine reverse thumb movements on 3,500 lines and 25 on 51.61 MB; the new mapping produced zero on both. Native dragging reached 0/1 and the three intermediate targets within 0.00054. The reader still uses lazy layout. Application tests exercise line/page traversal, revisits and knob dragging across continuous, single and facing layouts. |
-| Scrollbar ends hidden behind reading controls | Native scroller insets account for the part of the track actually under the controls. Legacy/overlay scroller and hosted reader checks verify the track clears them without shrinking the document viewport. |
+| Restore a group from Home, then visit unopened tabs | Public 0.2.24 restored PDF, EPUB, TXT as PDF, TXT, EPUB and subsequently detached EPUB. The corrected app created one native group in the saved order, selected the middle EPUB and matched each mouse-selected title to its body. The test also checks document and represented URLs. |
+| Close a middle or left native tab, keep the pointer in the bar and switch again | A five-tab AppKit test closes each position and checks the identity, order and frame of the survivors. In the VM, clicking the middle EPUB's close control kept PDF and TXT together. Clicking the surviving PDF from the same strip selected its actual content. AppKit temporarily kept the old tab widths under the pointer. |
+| Close and quit after restoring and visiting tabs | Cmd-W closed the selected PDF and kept the other documents usable. Clean restored sessions quit normally. The existing save/cancel flow handles modified documents. |
+| Click or scroll the floating tab strip | In a 560 pt window, clicking at y=75 inside a tab spanning y=50–78 selected TXT. A continuous horizontal wheel gesture scrolled the four-tab strip from EPUB/TXT to two PDFs while the TXT remained on the same section. Clicking the lower edge of the newly exposed PDF showed its cover. The VM injected mouse and wheel events. |
+| Open and duplicate tabs in fullscreen | New Tab, opening another book in a fullscreen tab and Duplicate Tab displayed real documents. A duplicate Midnight PDF retained its window controls. In floating fullscreen the top-edge hover exposed the controls on a nonfirst tab, and moving back to the book removed the temporary native chrome. |
+| Open a new window from fullscreen tab overview, then return and exit | The native View menu opened an overview containing two Midnight PDF covers, E's blue page and the TXT body. Cmd-N created an independent Home window. Selecting the original reader from Window and exiting fullscreen returned its four tabs, controls and painted EPUB to the original 900 × 622 frame. |
+| Restore a group while already in fullscreen | With new-tab opening enabled, restoring PDF, EPUB, TXT appended all three in order to the five open tabs, selected the saved EPUB and preserved the fullscreen frame. After the newly opened documents finished loading, TXT showed Section 1 and the PDF showed the Midnight cover. Each selected tab title matched its content. In a fresh replay the same restored PDF stayed focused on exit. A mouse click advanced from its painted cover to page 2 without first reselecting the window. |
+| Enter a page number on the normal toolbar | A three-page PDF with legal empty labels reproduced the blank input on public 0.2.24. In the corrected reader, typing 2 and pressing Return left 2 / 3 visible beside a body labeled Physical page 2 of 3. The PDF tests cover an empty label rule, an all-space prefix, a meaningful padded prefix and Roman numbering. The reporter's 164-page PDF was pictured, but was not attached. |
+| Activate an inactive window from different points in the normal toolbar | Hosted native mouse events at 18 points in each of Always Show, Auto Hide and Always Hide activated the owner. The signed app also transferred key status from Home to TXT in each mode when the pointer clicked (250, 42), 12 pt below the inactive reader’s top edge. Toolbar items and visible native tabs retained their own input. The blank title region retained window dragging. |
+| Open Reading Settings from Aa, then click Aa again | In the signed app the second click reused the same Settings panel while the toolbar remained visible. Hosted checks sampled 32 points in time per tested mode and found no loss of hover, toolbar opacity or window frame during the calls. Installed fonts are enumerated when interacting with the font picker. |
+| Hover over Always Hide with multiple normal tabs | Across four hosted hover cycles in a three-tab window, 40 samples showed the native toolbar hidden. The header pixels outside the traffic lights did not change. The hidden native tab accessory did not receive clicks. |
+| Hover over the traffic lights on Home and in the floating reader | Native root hit testing and rendered pixels verified close, minimize and fullscreen for both kinds of window in Aqua and Dark Aqua. The symbols appeared together and cleared when the pointer left. |
+| Center the normal progress controls | A rendered short-label and long-label check compared the leftmost and rightmost text ink. The percentage, track and position label were centered as a group within four pixels. On a signed light-mode TXT reader at zero progress, the group occupied x=352–776, centered at 564 px, also the window center. The full unfilled rail was visible. The track stays at a fixed position while dragging through changing values. |
+| Hide the top toolbar while a comic's normal progress bar is always shown | The original CBR and CBZ kept their reserved footer in Always Show, Auto Hide and Always Hide. Repeated with the MuPDF library from the signed candidate. |
+| Apply the same reader margins to FB2 as to other books | The original sampler FB2 had an extra default FictionBook root margin. With the signed MuPDF, its first paragraph began within 1 pt of each requested 8, 16 and 24 pt margin in both paged and continuous layouts. Author formatting remains available. |
+| Display C and E as facing pages and resize the window | Rendering the original EPUBs measured art centers and edges. In C, widening the mounted window from 904 to 1154 pt used to separate the image tops by more than 75 pt during dragging. After the follow-up the difference stayed below 0.5 pt across six width changes and through the handover to new pagination. A second drag before the first finished repaginating also kept the images aligned within 1 pt. |
+| Display the cover alone with equal top and bottom margins | In E the signed engine was exercised at two viewport sizes with zero and 24 pt requested margins. The requested intrinsic margins were equal. Centering the fitted artwork also left equal top and bottom space on screen. |
+| Fit the mixed-size Midnight PDF as a spread | The original seven-page PDF produced a painted cover and facing page in the signed app. Both filled the available 945 pt height at 1512 × 945. The geometry checks also exercised mixed crop boxes, RTL and a standalone cover. |
+| Select then activate rows in Command Palette, including at their edges | An actual click inside the left padding selected Go To. Clicking inside the right padding selected the Open command, confirmed by its accessibility identifier. Return then opened the standard file picker, which survived a later capture. The development app also kept the picker open following double-click. Public 0.2.24 reproduced the disappearing picker. |
+| Choose a page by thumbnail with mouse or Return | Single-clicking page 3 moved its highlight while page 2 kept the separate Current Page subtitle. Return on page 1 navigated to a body labeled page 1. A double-click on page 3 navigated to the body labeled page 3. |
+| See selected text in light dialogs | Save Tab Group, Configure Page Grid, Custom Document Colors and Customize Theme use the same native field editor. AppKit checks covered first and second fields in Aqua and Dark Aqua. In the signed Save Tab Group dialog, selected text rendered white on blue beside the white unselected input area. The shared active Aqua selection fill contrasted with the unselected field background by 5.37:1. |
+| Scroll or page through a long TXT for the first time | Three 80-step forward traversals on each file gave nine reversed thumb movements on a 3,500-line file and 25 on a 51.61 MB file before the fix. The new source-position mapping gave zero on both. Native knob dragging reached both endpoints and three intermediate positions within 0.00054. Continuous, single and facing layouts, revisiting a passage, and line/page movement were exercised. |
+| Keep the ends of the scrollbar clear of floating or auto-hidden controls | In a hosted reader the visible native track cleared the top and bottom controls, including when hover state changed. At the scroll-view level the checks covered both legacy and overlay scrollers and confirmed that the document viewport retained its size. |
 
-On macOS 26.6.2 the public app restored a group saved as PDF, EPUB, TXT
-in the order PDF, TXT, EPUB, and the selected EPUB subsequently separated.
-An early development build also left the three documents in separate windows.
-The reused Home window was allowed to accept tabs but had no native tab group
-yet. Attaching the first document to the neighboring window created the
-group (native counts 2, then 3); the next replay showed PDF, EPUB, TXT in
-one native tab strip, with the middle EPUB selected. In a fresh launch of the
-uninstrumented development app, mouse clicks switched from EPUB to TXT, PDF
-and back to EPUB. Each window displayed the correct body and title. Closing
-the middle EPUB, keeping the pointer in the tab strip and clicking the
-surviving PDF also worked. AppKit held the old tab widths temporarily under
-the pointer. An earlier replay recorded ignored clicks; it did not recur in
-this clean run. Cmd-W closed the selected PDF without disturbing the others.
+One early native-tab replay recorded ignored mouse clicks. In fresh launches, independent mouse events selected each document and a surviving tab after a close. The virtual machine did not measure a physical trackpad's feel. The issue remains open for the reporter to test on their own system.
 
-Direct New Tab, fullscreen Duplicate Tab, and opening another file in a
-fullscreen tab rendered their documents during development acceptance. The
-subsequent fullscreen check caught a separate regression: the native View
-menu no longer offered Show All Tabs after automatic tabbing was disabled
-globally. Switching tabs by keyboard or accessibility did not exercise this
-missing command. The application now leaves native tabbing enabled when the
-reader preference allows tabs; each requested window still controls its own
-placement. On macOS 26.6.2 (25G83), the replacement build restored both
-View commands and all four Window tab commands. In fullscreen, Duplicate Tab
-added a second rendered Midnight PDF. The real View > Show All Tabs overview
-showed both PDF covers, E's blue page and the TXT body. Cmd-N from that
-overview created a separate Home window; both Home and the original reader
-were accessible through the Window menu. Leaving fullscreen returned E to
-its original 900 × 622 window with its body, controls and all four tabs visible.
-These observations were taken after each Space transition settled.
+## Release checks
 
-With floating controls in a 560 pt window, a mouse click at y=75 in a tab
-spanning y=50–78 selected TXT and showed its first section. Sending a
-continuous horizontal wheel gesture over the four-tab strip scrolled the
-visible titles from EPUB/TXT to the two PDFs; the same TXT section stayed
-on screen. The gesture was injected in the VM; physical trackpad feel was
-not measured.
-
-Clean tabs now allow native Close and Quit to finish synchronously. Pending
-edits still go through the existing save/cancel confirmation.
-
-## Distribution
-
-[PR #83](https://github.com/Ares-X/Sumra/pull/83) merged as
-`bba387ce5714495372c6d7e4ba1254955cca09ac`.
-[Candidate build](https://github.com/Ares-X/Sumra/actions/runs/41474896231)
-produced 0.2.25 (27), a 17,036,049-byte arm64 ZIP with SHA-256
-`c6086ff355e979549c30a0bf78849a11b474e2a6397e7f6c4fa47c5d427ed980`.
-The existing community certificate, deep/strict code signature, both Quick Look
-extension bundles and the Sparkle Ed25519 update signature verified. The
-downloaded app matched the build inventory (140 files and five symlinks).
-
-Three original-sample tests were repeated with the signed bundle's MuPDF
-loaded (SHA-256 `b7ad389e2a5292e7ae9e9f233cac629fb59033a43991e66368f2a7b4a6994946`).
-At 1512 × 945, C/E and Midnight had facing heights within 2 pt and centered
-art within 0.5 pt. In the original FB2, first-paragraph x was within 1 pt of
-each requested 8/16/24 pt margin in both paged and continuous layouts. The
-original CBR and CBZ retained their always-visible footer under all three
-normal top-toolbar modes.
+The first implementation and the follow-up resize and blank-page-label fixes were merged before publication. [PR #83](https://github.com/Ares-X/Sumra/pull/83) · [PR #84](https://github.com/Ares-X/Sumra/pull/84)
