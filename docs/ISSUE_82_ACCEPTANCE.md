@@ -18,3 +18,16 @@ the actual application. Internal verification does not replace reporter confirma
 | Light dialog selection is hard to see | The field editor uses the system's selected-content background and corresponding foreground. AppKit tested selection across two fields under Aqua and Dark Aqua. |
 | Long TXT scrollbar reverses on first traversal | The native thumb now tracks the source range visible in TextKit's viewport. A standalone AppKit comparison used 80 forward steps: three runs each produced nine reverse thumb movements on 3,500 lines and 25 on 51.61 MB; the new mapping produced zero on both. Native dragging reached 0/1 and the three intermediate targets within 0.00054. The reader still uses lazy layout. Application tests exercise line/page traversal, revisits and knob dragging across continuous, single and facing layouts. |
 | Scrollbar ends hidden behind reading controls | Native scroller insets account for the part of the track actually under the controls. Legacy/overlay scroller and hosted reader checks verify the track clears them without shrinking the document viewport. |
+
+On macOS 26.6.2 the public app restored a group saved as PDF, EPUB, TXT
+in the order PDF, TXT, EPUB, and the selected EPUB subsequently separated.
+An early development build also left the three documents in separate windows.
+The reused Home window was allowed to accept tabs but had no native tab group
+yet. Attaching the first document to the neighboring window created the
+group (native counts 2, then 3); the next replay showed PDF, EPUB, TXT in
+one native tab strip, with the middle EPUB selected. Direct New Tab,
+fullscreen Duplicate Tab, and opening another file in a fullscreen tab
+also rendered their documents during development acceptance.
+
+Clean tabs now allow native Close and Quit to finish synchronously. Pending
+edits still go through the existing save/cancel confirmation.
