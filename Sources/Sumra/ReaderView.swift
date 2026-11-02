@@ -86,6 +86,10 @@ struct ReaderView: View {
             }
         }
         .background(state.hasDocument ? Color(nsColor: ReaderTheme.color(state.palette.background)) : Color(nsColor: .windowBackgroundColor))
+        .background(ReaderScrollbarClearance(state: state,
+            top: state.usesFloatingChrome ? ReaderFloatingControls.topInset + ReaderFloatingControls.height : (reclaimsNativeInsets ? nativeTopClearance : 0),
+            bottom: overlaysProgress && state.hasDocument && !state.presentation && progressDisplayMode != .hidden
+                ? ReaderProgressFooter.layoutHeight(floating: state.usesFloatingChrome) : 0))
         .overlay(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion, fullscreenMenuInset: $fullscreenMenuInset, nativeTopClearance: $nativeTopClearance))
         .onChange(of: colorScheme) { _ in
             if state.theme == "system", state.isText || state.isBrowser || state.reflowable {
@@ -93,10 +97,11 @@ struct ReaderView: View {
             }
         }
         .toolbar(id: "reader") { toolbar }
-        // Fullscreen policy is chosen on entry. Keep document chrome installed
-        // across reader modes; its owned views/window control visible opacity.
-        .toolbar(state.usesCustomChrome ? .hidden : .visible, for: .windowToolbar)
-        .modifier(ReaderToolbarAppearance(shown: state.toolbarShown && !state.usesCustomChrome, hidesNativeTitle: state.usesCustomChrome, background: ReaderTheme.color(state.palette.background)))
+        // Auto Hide keeps the native layout installed for hover. Always Hide
+        // removes the toolbar; the window buttons keep their own hover owner.
+        .toolbar(state.usesCustomChrome || (state.hasDocument && state.toolbarDisplayMode == .hidden) ? .hidden : .visible, for: .windowToolbar)
+        .modifier(ReaderToolbarAppearance(shown: state.toolbarShown && !state.usesCustomChrome, hidesNativeTitle: state.usesCustomChrome,
+                                          permanentlyHidden: state.toolbarDisplayMode == .hidden, background: ReaderTheme.color(state.palette.background)))
         .onChange(of: reducedMotion) { _ in state.toolbarHoverVisible = false }
         .onChange(of: state.presentation) {
             state.toolbarHoverVisible = false
@@ -119,8 +124,7 @@ struct ReaderView: View {
         }
         .background(ReaderSelectionToolbar(state: state).frame(width: 0, height: 0))
         .background(ReaderFindPanel(state: state, isPresented: state.showFind && findFloating && !state.presentation).frame(width: 0, height: 0))
-        .sheet(isPresented: $state.showPalette) { CommandPalette(state: state, open: openFiles) }
-        .modifier(DocumentFileBrowserSheet(state: state))
+        .modifier(ReaderCommandSheets(state: state, open: openFiles))
         .contextMenu { contextMenu }
         .dropDestination(for: URL.self) { urls, _ in
             guard !urls.isEmpty else { return false }
@@ -144,7 +148,9 @@ struct ReaderView: View {
     private var reclaimsNativeInsets: Bool {
         state.extendsReadingUnderChrome && !state.usesFloatingChrome
     }
-    private var overlaysProgress: Bool { state.usesFloatingChrome || reclaimsNativeInsets }
+    private var overlaysProgress: Bool {
+        state.usesFloatingChrome || (progressDisplayMode == .auto && reclaimsNativeInsets)
+    }
     private func floatingTopClearance(forControls: Bool) -> CGFloat {
         guard state.usesFloatingChrome, state.toolbarDisplayMode != .hidden else { return 0 }
         // The book already reserves its own page margin. Add only the space

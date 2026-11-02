@@ -8,7 +8,7 @@ import XCTest
 
 @MainActor
 final class NativeReflowSpreadTests: XCTestCase {
-    func testMixedCoverAndTextShareFitScaleDuringAndAfterLiveResize() async throws {
+    func testMixedCoverAndTextFitTheirSlotsDuringAndAfterLiveResize() async throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
         let input = try fixture(in: directory.url)
@@ -51,20 +51,20 @@ final class NativeReflowSpreadTests: XCTestCase {
             XCTFail(state.error ?? "Mixed EPUB spread did not settle")
             throw CancellationError()
         }
-        func assertSharedFit(line: UInt = #line) throws {
+        func assertSlotFit(line: UInt = #line) throws {
             let pair = visible()
             XCTAssertEqual(pair.count, 2, line: line)
             let first = try XCTUnwrap(pair.first), second = try XCTUnwrap(pair.last)
             XCTAssertNotEqual(first.pageBounds.height, second.pageBounds.height, "Exercise a natural cover canvas beside a finite text page", line: line)
             let clip = try XCTUnwrap(first.enclosingScrollView?.contentView)
             let slot = (clip.safeAreaRect.width - 4) / 2
-            let scale = pair.map { min(slot / $0.pageBounds.width, clip.safeAreaRect.height / $0.pageBounds.height) }.min()!
             for canvas in pair {
+                let scale = min(slot / canvas.pageBounds.width, clip.safeAreaRect.height / canvas.pageBounds.height)
                 XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width * scale, accuracy: 0.5, line: line)
                 XCTAssertEqual(canvas.bounds.height, canvas.pageBounds.height * scale, accuracy: 0.5, line: line)
                 XCTAssertTrue(clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5).contains(canvas.convert(canvas.bounds, to: clip)), line: line)
             }
-            XCTAssertEqual(first.convert(.zero, to: host).y, second.convert(.zero, to: host).y, accuracy: 0.5, line: line)
+            XCTAssertEqual(first.convert(first.bounds, to: host).midY, second.convert(second.bounds, to: host).midY, accuracy: 0.5, line: line)
         }
         try await settle()
         // Initial mounting can paint its prepared bitmap before the viewport's
@@ -74,14 +74,14 @@ final class NativeReflowSpreadTests: XCTestCase {
             state.send(.style, completed: { continuation.resume() })
         }
         try await settle()
-        try assertSharedFit()
+        try assertSlotFit()
         let revision = await pages.layoutRevision
         let images = visible().map(\.image)
         NotificationCenter.default.post(name: NSWindow.willStartLiveResizeNotification, object: window)
         for size in [CGSize(width: 620, height: 450), CGSize(width: 920, height: 480), CGSize(width: 560, height: 700)] {
             window.setContentSize(size)
             for _ in 0..<5 {
-                paint(); try assertSharedFit()
+                paint(); try assertSlotFit()
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
             let currentRevision = await pages.layoutRevision
@@ -92,7 +92,7 @@ final class NativeReflowSpreadTests: XCTestCase {
         }
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
         try await settle(after: revision)
-        try assertSharedFit()
+        try assertSlotFit()
         state.cover = true
         try await settle(count: 1)
         let singleRevision = await pages.layoutRevision
@@ -111,6 +111,34 @@ final class NativeReflowSpreadTests: XCTestCase {
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
         try await settle(count: 1, after: singleRevision)
         XCTAssertNil(state.error)
+    }
+
+    func testOriginalIssue82ArtAndPDFHeightsInFitPage() async throws {
+        guard let path = ProcessInfo.processInfo.environment["SUMRA_ISSUE82_SPREAD_SAMPLES"] else {
+            throw XCTSkip("Set SUMRA_ISSUE82_SPREAD_SAMPLES to the original EPUB C/E and Midnight PDF directory")
+        }
+        let directory = URL(fileURLWithPath: path), viewport = CGSize(width: 1512, height: 945)
+        for (name, format) in [("repeat-misalignedepubsecondroundC.epub", Format.book),
+                               ("repeat-misalignedepubE.epub", .book), ("Midnight-pages-1-7.pdf", .pdf)] {
+            let pages = try Pages(directory.appendingPathComponent(name), format: format)
+            if format == .book {
+                _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 0, font: "serif", theme: "light",
+                    pageMargins: PageMargins(cssValues: [0]), pageSize: RasterReader.pageSize(in: viewport, spread: true))
+                _ = try await pages.prepareFacingPages(.init(page: 0), cover: false)
+            }
+            var heights = [CGFloat]()
+            for page in 0...1 {
+                let result = try await pages.render(page, viewport: viewport, scale: 1, columns: 2,
+                    rotation: 0, fit: "page", zoom: 1, facingPage: 1 - page)
+                XCTAssertNotNil(result.image)
+                let art = format == .book ? try await pages.imageBounds(page).first : result.bounds
+                let bounds = try XCTUnwrap(art)
+                let factor = result.display.height / result.bounds.height
+                XCTAssertEqual(bounds.midY * factor, result.display.height / 2, accuracy: 0.5, name)
+                heights.append(bounds.height * factor)
+            }
+            XCTAssertEqual(heights[0], heights[1], accuracy: 2, name)
+        }
     }
 
     func testFixedImageMarginsReduceTheActualFitViewport() async throws {

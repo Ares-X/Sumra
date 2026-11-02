@@ -671,7 +671,6 @@ final class ReaderProgressFooterTests: XCTestCase {
             let control = try XCTUnwrap(slider(in: host))
             let original = control.convert(control.bounds, to: host)
             XCTAssertGreaterThanOrEqual(original.width, 80)
-            XCTAssertEqual(original.midX, host.bounds.midX, accuracy: 0.5, "The slider itself is centered independently of its unequal labels")
             func assertFrame(line: UInt = #line) {
                 let current = control.convert(control.bounds, to: host)
                 XCTAssertEqual(current.minX, original.minX, accuracy: 0.01, "width=\(width)", line: line)

@@ -745,6 +745,7 @@
 
 "Replace Current Document" = "استبدال المستند الحالي";
 
+"New Sumra Window" = "نافذة Sumra جديدة";
 "New Tab" = "علامة تبويب جديدة";
 
 "Close Tab" = "إغلاق علامة التبويب";
@@ -782,3 +783,4 @@
 "Control clearance" = "الخلوص حول عناصر التحكم";
 "Top clearance" = "الخلوص العلوي";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "المساحة المحجوزة من حافة النافذة لعناصر التحكم العائمة. اضبطها على 0 للسماح بالتداخل. تُحتسب هوامش المحتوى مرة واحدة؛ ولا تحجز عناصر التحكم المخفية أي مساحة.";
+"Current Page" = "الصفحة الحالية";

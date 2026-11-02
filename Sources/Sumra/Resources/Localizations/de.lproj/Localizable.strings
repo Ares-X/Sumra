@@ -743,6 +743,7 @@
 
 "Replace Current Document" = "Aktuelles Dokument ersetzen";
 
+"New Sumra Window" = "Neues Sumra-Fenster";
 "New Tab" = "Neuer Tab";
 
 "Close Tab" = "Tab schließen";
@@ -780,3 +781,4 @@
 "Control clearance" = "Abstand für Bedienelemente";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Abstand vom Fensterrand für schwebende Bedienelemente. Auf 0 setzen, um Überlappungen zuzulassen. Inhaltsränder werden nur einmal berücksichtigt; ausgeblendete Bedienelemente benötigen keinen Platz.";
 "Top clearance" = "Oberer Abstand";
+"Current Page" = "Aktuelle Seite";

@@ -1468,6 +1468,11 @@ final class ReaderNavigationTests: XCTestCase {
         }
 
         try await settle(0)
+        let overlay = NSScrollView(frame: host.bounds)
+        host.addSubview(overlay, positioned: .above, relativeTo: nil)
+        XCTAssertFalse(try wheel(0, x: -2, phase: .began, dispatch: false),
+                       "Horizontal scroll over floating controls belongs to their scroll view")
+        overlay.removeFromSuperview()
         state.restore(.init(page: 1))
         try await settle(1)
         XCTAssertTrue(try wheel(1))

@@ -745,6 +745,7 @@
 
 "Replace Current Document" = "현재 문서 바꾸기";
 
+"New Sumra Window" = "새 Sumra 윈도우";
 "New Tab" = "새 탭";
 
 "Close Tab" = "탭 닫기";
@@ -782,3 +783,4 @@
 "Control clearance" = "컨트롤 여유 공간";
 "Top clearance" = "위쪽 여유 공간";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "플로팅 컨트롤을 위해 윈도우 가장자리에서 확보하는 공간입니다. 겹침을 허용하려면 0으로 설정하세요. 콘텐츠 여백은 한 번만 계산되며, 숨겨진 컨트롤은 공간을 차지하지 않습니다.";
+"Current Page" = "현재 페이지";

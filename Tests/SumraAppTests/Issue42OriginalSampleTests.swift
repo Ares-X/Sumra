@@ -134,6 +134,37 @@ final class Issue42OriginalSampleTests: XCTestCase {
         XCTAssertNil(state.error)
     }
 
+    func testOriginalComicsKeepTheShownProgressBarOutsideThePageWhenToolbarHides() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard, saved = defaults.object(forKey: "progressDisplayMode")
+        defaults.set("shown", forKey: "progressDisplayMode")
+        defer { defaults.set(saved, forKey: "progressDisplayMode") }
+        let originals = try fixtureCheckpoints()
+        for source in originals.map(\.url) where ["cbr", "cbz"].contains(source.pathExtension) {
+            let document = try ReadingDocument.open(source)
+            guard case .pages(let pages) = document.content else { return XCTFail("Expected comic pages") }
+            let state = ReaderState(recordsHistory: false)
+            state.document = document; state.count = await pages.count
+            state.immersiveControls = false; state.presentation = false; state.flow = "paged"
+            state.automaticLayout = false; state.spread = false; state.fit = "page"
+            state.pageMargins = .init(cssValues: [0]); state.marginPresetSelection = "custom"
+            state.showFind = false; state.showAI = false; state.showContents = false
+            let host = NSHostingView(rootView: ReaderView(state: state))
+            let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 800, height: 600),
+                                  styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host; state.window = window
+            defer { state.windowClosed(); window.contentView = nil; window.close() }
+            for mode: ReaderToolbarDisplayMode in [.shown, .auto, .hidden] {
+                state.toolbarDisplayMode = mode
+                try await settle(host, state: state, pages: pages)
+                let clip = try XCTUnwrap(state.readerScrollView?.contentView)
+                let bottom = clip.convert(clip.bounds, to: nil).minY - host.convert(host.bounds, to: nil).minY
+                XCTAssertGreaterThanOrEqual(bottom, ReaderProgressFooter.height - 1,
+                    "The always-visible footer needs its own row even when the top toolbar is hidden.")
+            }
+        }
+    }
+
     private func settle(_ host: NSView, state: ReaderState, pages: Pages,
                         chapter: String? = nil, after revision: Int? = nil) async throws {
         let deadline = Date().addingTimeInterval(15)

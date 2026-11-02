@@ -749,6 +749,7 @@
 
 "Replace Current Document" = "現在の書類を置き換える";
 
+"New Sumra Window" = "新しいSumraウインドウ";
 "New Tab" = "新規タブ";
 
 "Close Tab" = "タブを閉じる";
@@ -786,3 +787,4 @@
 "Control clearance" = "コントロールの余白";
 "Top clearance" = "上部の余白";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "フローティングコントロール用にウインドウの端から確保するスペースです。重なりを許可するには0に設定します。コンテンツの余白は一度だけ計算され、非表示のコントロールはスペースを確保しません。";
+"Current Page" = "現在のページ";

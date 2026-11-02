@@ -745,6 +745,7 @@
 
 "Replace Current Document" = "Заменить текущий документ";
 
+"New Sumra Window" = "Новое окно Sumra";
 "New Tab" = "Новая вкладка";
 
 "Close Tab" = "Закрыть вкладку";
@@ -782,3 +783,4 @@
 "Control clearance" = "Отступ для элементов управления";
 "Top clearance" = "Отступ сверху";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Пространство от края окна, зарезервированное для плавающих элементов управления. Установите 0, чтобы разрешить перекрытие. Поля содержимого учитываются один раз; скрытые элементы управления не занимают место.";
+"Current Page" = "Текущая страница";

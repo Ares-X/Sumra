@@ -19,18 +19,18 @@ final class NativeTabClosingTests: XCTestCase {
             let keyWindow = NSApp.keyWindow, mainWindow = NSApp.mainWindow
             let visibility = remaining.map(\.isVisible)
             fixture.windows[closing].performClose(nil)
-            try await waitFor { fixture.closed.contains(closing) }
+            XCTAssertTrue(fixture.closed.contains(closing), "An ordinary close must finish in AppKit’s original event")
             XCTAssertEqual(group.windows, remaining)
             XCTAssertTrue(group.isTabBarVisible)
             XCTAssertEqual(remaining.map(\.frame), frames)
             XCTAssertTrue(NSApp.keyWindow === keyWindow)
             XCTAssertTrue(NSApp.mainWindow === mainWindow)
             for (index, window) in remaining.enumerated() where window !== group.selectedWindow {
-                XCTAssertEqual(window.isVisible, visibility[index], "Remounting must not expose background readers")
+                XCTAssertEqual(window.isVisible, visibility[index], "Closing a tab must not expose background readers")
             }
             for index in fixture.states.indices where index != closing {
                 XCTAssertEqual(fixture.states[index].document?.id, documentIDs[index])
-                XCTAssertEqual(fixture.states[index].generation, generations[index], "Remounting must not load or replace surviving documents")
+                XCTAssertEqual(fixture.states[index].generation, generations[index], "Closing a tab must not load or replace surviving documents")
             }
             let selected = try XCTUnwrap(group.selectedWindow)
             XCTAssertTrue(remaining.contains(selected))

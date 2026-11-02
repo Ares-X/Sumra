@@ -354,13 +354,16 @@ final class NativeReaderJourneyTests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.typeKey("a", modifierFlags: .command)
         search.typeText("> " + localized("Go to Page…").replacingOccurrences(of: "…", with: ""))
-        let command = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", localized("Go to Page…"), ",")).firstMatch
+        let command = app.descendants(matching: .any).matching(identifier: "palette-row:goToPage").firstMatch
         XCTAssertTrue(command.waitForExistence(timeout: 5))
         XCTAssertGreaterThan(command.frame.width, 300, "The palette must expose the full command row")
         capturePhase("palette-before-blank-click", window: original)
-        command.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).click()
+        command.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).click()
+        XCTAssertTrue(search.exists, "A single click on the row's blank right edge must only select the command")
+        XCTAssertTrue(command.isSelected, "The clicked command must retain its selection highlight")
+        command.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).doubleClick()
         let goToPage = app.dialogs.firstMatch
-        XCTAssertTrue(goToPage.waitForExistence(timeout: 5), "Clicking the command row's right blank area must open Page input")
+        XCTAssertTrue(goToPage.waitForExistence(timeout: 5), "Double-clicking the command row's blank left edge must open Page input")
         XCTAssertTrue(goToPage.staticTexts.matching(NSPredicate(format: "value BEGINSWITH %@", localized("Go to Page…"))).firstMatch.exists)
         XCTAssertTrue(goToPage.textFields.firstMatch.exists)
         capturePhase("palette-page-input", window: original)
@@ -368,6 +371,43 @@ final class NativeReaderJourneyTests: XCTestCase {
         XCTAssertTrue(cancel.exists)
         cancel.click()
         XCTAssertTrue(waitUntil { !goToPage.exists })
+
+        original.typeKey("p", modifierFlags: [.command, .shift])
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.typeKey("a", modifierFlags: .command)
+        search.typeText("> " + localized("Open…"))
+        let openCommand = app.descendants(matching: .any).matching(identifier: "palette-row:open").firstMatch
+        XCTAssertTrue(openCommand.waitForExistence(timeout: 5))
+        openCommand.click()
+        XCTAssertTrue(search.exists, "Selecting Open must leave the palette visible")
+        search.typeKey(.return, modifierFlags: [])
+        let panel = openPanel
+        XCTAssertTrue(panel.waitForExistence(timeout: 5), "Return must open the selected command after dismissing the palette")
+        app.typeKey("g", modifierFlags: [.command, .shift])
+        let path = panel.textFields["PathTextField"]
+        XCTAssertTrue(path.waitForExistence(timeout: 5), "The Open panel must remain interactive after the palette disappears")
+        path.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitUntil { !path.exists })
+        let panelCancel = panel.buttons["Cancel"]
+        XCTAssertTrue(panelCancel.exists)
+        panelCancel.click()
+        XCTAssertTrue(waitUntil { !panel.exists })
+
+        original.typeKey("p", modifierFlags: [.command, .shift])
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.typeKey("a", modifierFlags: .command)
+        search.typeText("> " + localized("Choose Page by Thumbnail…"))
+        search.typeKey(.return, modifierFlags: [])
+        let thumbnail = app.descendants(matching: .any).matching(identifier: "palette-row:page:0").firstMatch
+        XCTAssertTrue(thumbnail.waitForExistence(timeout: 5))
+        XCTAssertTrue(thumbnail.label.contains(localized("Current Page")), "Current page must have its own label in the thumbnail chooser")
+        let go = app.buttons[localized("Go")]
+        XCTAssertTrue(go.exists)
+        thumbnail.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).click()
+        XCTAssertTrue(go.exists, "A single thumbnail click must leave the chooser open")
+        XCTAssertTrue(thumbnail.isSelected)
+        thumbnail.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).doubleClick()
+        XCTAssertTrue(waitUntil { !go.exists }, "A double-click must commit the chosen page and close the chooser")
     }
 
     func testFloatingHoverPressedAndCenteredFullscreen() throws {
@@ -575,7 +615,7 @@ final class NativeReaderJourneyTests: XCTestCase {
 
     private func openHomeFromFileMenu() {
         app.menuBars.menuBarItems["File"].click()
-        let command = app.menuItems["New Sumra Window"]
+        let command = app.menuItems[localized("New Sumra Window")]
         XCTAssertTrue(command.waitForExistence(timeout: 5), "File must expose the native New Sumra Window command")
         XCTAssertTrue(command.isEnabled)
         command.click()

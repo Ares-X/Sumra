@@ -95,7 +95,7 @@ import XCTest
         XCTAssertFalse(state.toolbarShown)
     }
 
-    func testNormalProgressTrackStaysCenteredForShortAndLongPositionLabels() async throws {
+    func testNormalProgressLabelsAndTrackAreCenteredAsAGroup() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard
         let previous = defaults.object(forKey: "progressDisplayMode")
@@ -108,25 +108,27 @@ import XCTest
             let state = ReaderState(recordsHistory: false)
             state.document = ReadingDocument(url: URL(fileURLWithPath: "/progress.txt"), content: .text("Book"))
             state.count = count
-            let host = NSHostingView(rootView: ReaderProgressFooter(state: state))
+            state.theme = "light"
+            let host = NSHostingView(rootView: ReaderProgressFooter(state: state).background(Color.white))
             let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 1000, height: 26),
                 styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host
             defer { state.windowClosed(); window.contentView = nil; window.close() }
-            func slider(in view: NSView) -> ReaderProgressSliderControl? {
-                if let slider = view as? ReaderProgressSliderControl { return slider }
-                return view.subviews.lazy.compactMap { slider(in: $0) }.first
-            }
+            state.page = count - 1  // both visible labels fill their allocated widths
             try await Task.sleep(nanoseconds: 20_000_000)
             host.layoutSubtreeIfNeeded()
-            let slider = try XCTUnwrap(slider(in: host))
-            for page in [0, count / 2, count - 1] {
-                state.page = page
-                host.layoutSubtreeIfNeeded()
-                let frame = slider.convert(slider.bounds, to: host)
-                XCTAssertEqual(frame.midX, host.bounds.midX, accuracy: 1,
-                    "Unequal percentage and position text lengths must not displace the track")
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            func hasTextInk(_ x: Int) -> Bool {
+                (0..<bitmap.pixelsHigh).contains { y in
+                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+                    return max(color.redComponent, color.greenComponent, color.blueComponent) < 0.6
+                }
             }
+            let first = try XCTUnwrap((0..<bitmap.pixelsWide).first(where: hasTextInk))
+            let last = try XCTUnwrap((0..<bitmap.pixelsWide).last(where: hasTextInk))
+            XCTAssertEqual(first, bitmap.pixelsWide - last - 1, accuracy: 4,
+                "Center the visible percentage, track, and position together, including long line counts")
         }
     }
 

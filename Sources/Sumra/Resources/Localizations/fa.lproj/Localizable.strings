@@ -738,6 +738,7 @@
 
 "Replace Current Document" = "جایگزینی سند فعلی";
 
+"New Sumra Window" = "پنجرهٔ جدید Sumra";
 "New Tab" = "زبانه جدید";
 
 "Close Tab" = "بستن زبانه";
@@ -775,3 +776,4 @@
 "Control clearance" = "فاصلهٔ کنترل‌ها";
 "Top clearance" = "فاصلهٔ بالا";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "فضای رزروشده از لبهٔ پنجره برای کنترل‌های شناور. برای مجاز کردن هم‌پوشانی، آن را روی 0 بگذارید. حاشیه‌های محتوا فقط یک بار محاسبه می‌شوند؛ کنترل‌های پنهان فضایی رزرو نمی‌کنند.";
+"Current Page" = "صفحهٔ کنونی";

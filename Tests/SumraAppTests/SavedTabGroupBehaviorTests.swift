@@ -302,11 +302,12 @@ final class SavedTabGroupBehaviorTests: XCTestCase {
         var requests = 0, created = [WindowPayload]()
         fixture.state.createWindow = { created.append($0) }
         ReaderMenuCommand.newTab.run(fixture.state, choose: { receive in
+            XCTAssertFalse(group.isOverviewVisible, "The document owns its sheet after overview closes")
             requests += 1
             receive([])
         })
         let closingDeadline = Date().addingTimeInterval(3)
-        while group.isOverviewVisible, Date() < closingDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        while group.isOverviewVisible || requests == 0, Date() < closingDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertFalse(group.isOverviewVisible, "The native overview dismissal must finish after the chooser request")
         XCTAssertEqual(requests, 1)
         XCTAssertTrue(created.isEmpty, "Cancelling the chooser must keep the two existing tabs")

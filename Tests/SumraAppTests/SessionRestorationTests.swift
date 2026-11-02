@@ -72,6 +72,9 @@ final class SessionRestorationTests: XCTestCase {
         let previous = keys.map { defaults.object(forKey: $0) }
         let recent = NSDocumentController.shared.recentDocumentURLs
         let previousCapture = ScreenshotHotkey.capture
+        let automaticTabbing = NSWindow.allowsAutomaticWindowTabbing
+        NSWindow.allowsAutomaticWindowTabbing = false
+        let terminating = ReaderWindows.isTerminating
         defaults.set(false, forKey: "disableHistory")
         defaults.set(true, forKey: "disableReadingState")
         defaults.set(false, forKey: "disableTabs")
@@ -95,6 +98,8 @@ final class SessionRestorationTests: XCTestCase {
             }
             ReaderFiles.setRecent(recent)
             ScreenshotHotkey.capture = previousCapture
+            NSWindow.allowsAutomaticWindowTabbing = automaticTabbing
+            ReaderWindows.isTerminating = terminating
             for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) }
             withExtendedLifetime((directory, application)) {}
         }
@@ -114,7 +119,7 @@ final class SessionRestorationTests: XCTestCase {
         XCTAssertEqual(current.document?.url, urls[1])
         XCTAssertEqual(current.zoom, 1.5)
         try await waitFor {
-            currentWindow.tabGroup?.selectedWindow === currentWindow &&
+            !ReaderWindows.isRestoringWindows && currentWindow.tabGroup?.selectedWindow === currentWindow &&
                 currentWindow.tabbedWindows?.compactMap { ($0.delegate as? ReaderCloseGuard)?.state }.compactMap(ReaderWindows.payload).map(\.path) == urls.map { Optional($0.path) }
         }
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: currentWindow)
@@ -140,6 +145,27 @@ final class SessionRestorationTests: XCTestCase {
         XCTAssertEqual(background.zoom, 1.5)
         XCTAssertNil(last.document)
         XCTAssertEqual(last.generation, 0)
+
+        let order = [windows[1], currentWindow, windows[2]]
+        let group = try XCTUnwrap(currentWindow.tabGroup)
+        for index in [2, 0, 1] {
+            let tab = order[index]
+            group.selectedWindow = tab
+            tab.makeKeyAndOrderFront(nil)
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: tab)
+            try await waitFor { (tab.delegate as? ReaderCloseGuard)?.state?.document?.url == urls[index] }
+            XCTAssertEqual(group.windows, order, "Loading or revisiting a tab must keep its native slot")
+            XCTAssertTrue(group.selectedWindow === tab)
+            XCTAssertTrue((tab.delegate as? ReaderCloseGuard)?.state?.window === tab)
+            try await waitFor { tab.representedURL == urls[index] }
+        }
+        ReaderMenuCommand.close.run(current)
+        try await waitFor { current.isWindowClosed }
+        XCTAssertEqual(group.windows, [windows[1], windows[2]])
+        let mayQuit: Bool = await application.prepareToTerminate(NSApplication.shared)
+        XCTAssertTrue(mayQuit)
+        XCTAssertEqual(ReaderWindows.saved("session").compactMap(\.path).filter { $0.hasPrefix(directory.url.path) },
+                       [urls[0].path, urls[2].path], "Quit saves the surviving documents in their original order")
     }
 
     private func waitFor(_ condition: () -> Bool, line: UInt = #line) async throws {

@@ -2162,7 +2162,8 @@ enum RasterLayout {
         let targetWidth = content.map { rotated ? $0.height : $0.width } ?? width
         let targetHeight = content.map { rotated ? $0.width : $0.height } ?? height
         var requested = mode == "custom" ? ReadingZoom.clamp(zoom, limit: limit) : min(limit, ReadingZoom.fitScale(width: Double(targetWidth), height: Double(targetHeight), viewportWidth: Double(slot), viewportHeight: Double(viewport.height), mode: mode))
-        if let facing, mode != "custom", mode != "actual" {
+        // Fit Page gives each page its own slot, including mixed-resolution scans.
+        if let facing, mode != "custom", mode != "actual", fit != "page" {
             let other = rotated ? CGSize(width: facing.bounds.height, height: facing.bounds.width) : facing.bounds.size
             if ReadingZoom.usesContent(mode) {
                 // ZoomRealFromVirtualForPage fits the union across the row,
@@ -2590,7 +2591,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     }
                     else {
                         ScrollView([.horizontal, .vertical]) {
-                            row(Array(state.visiblePages), size: pageViewport)
+                            row(state.visiblePages, size: pageViewport)
                                 .frame(minWidth: pageViewport.width, minHeight: pageViewport.height)
                                 .padding(.horizontal, state.freePan ? pageViewport.width / 2 : 0)
                                 .padding(.vertical, state.freePan ? pageViewport.height / 2 : 0)
@@ -2851,18 +2852,22 @@ private struct ReaderKeyboardFocus: ViewModifier {
         replaceScrollRequest(nil)
         state.discardNativePassage()
     }
-    private func row(_ indices: [Int], size: CGSize) -> some View {
+    private func row(_ indices: Range<Int>, size: CGSize) -> some View {
+        func columns(_ row: Range<Int>) -> Int {
+            if pages.isPDF && state.spread && !(state.cover && row.lowerBound == 0) { return 2 }
+            return row.count
+        }
         let next = finitePageDirection > 0 ? (indices.last ?? -1) + 1 : (indices.first ?? 0) - 1
         let nextRow = (0..<state.count).contains(next) ? state.pageRange(containing: next) : nil
         let predictedIndex = nextRow.map { finitePageDirection > 0 ? $0.lowerBound : $0.upperBound - 1 }
         let predictedLocation = predictedIndex.map { state.pageLocation($0) }
         let locations = indices.map { state.pageLocation($0) }
-        return HStack(alignment: .top, spacing: state.spread ? 4 : 0) {
-            ForEach((state.rtl ? Array(indices.reversed()) : indices).map { state.pageLocation($0) }, id: \.self) { location in
+        return HStack(alignment: state.fit == "page" ? .center : .top, spacing: state.spread ? 4 : 0) {
+            ForEach(state.rtl ? Array(locations.reversed()) : locations, id: \.self) { location in
                 let index = state.pageNumber(location)
                 RasterPage(state: state, pages: pages, index: index, location: location, viewport: size, scale: scale,
                            continuousReflow: false,
-                           columns: pages.isPDF && state.spread ? 2 : indices.count,
+                           columns: columns(indices),
                            facingPage: pages.isPDF ? indices.first { $0 != index } : nil, match: selectedMatch?.contains(index) == true ? selectedMatch : nil, scrollRequest: scrollRequestBinding,
                            cancelNavigation: cancelNavigation,
                            selections: selections,
@@ -2871,7 +2876,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                            finitePrediction: index == indices.first && liveResizeViewport == nil && scrollRequest == nil && indices.count < 3 && size.width > 0 && size.height > 0
                                ? predictedLocation.map { target in
                                    RasterPage.FinitePrediction(target: target, visible: Set(indices.map { state.pageLocation($0) }),
-                                       columns: pages.isPDF && state.spread ? 2 : nextRow!.count,
+                                       columns: columns(nextRow!),
                                        facingPage: pages.isPDF ? nextRow!.first { $0 != predictedIndex! } : nil)
                                } : nil,
                            frozenRenderViewport: liveResizeViewport,
@@ -4379,7 +4384,7 @@ private struct WindowScale: NSViewRepresentable {
             }
             return .listed(PageRows.layout(displaySizes: sizes, viewport: key.viewport, page: owner.state.page,
                 continuous: true, spread: key.spread, cover: key.cover, rtl: key.rtl, landscape: key.landscape,
-                freePan: key.freePan, spacing: CGSize(width: 4, height: key.continuousReflow ? 0 : 4), inset: .zero))
+                freePan: key.freePan, centerFacingPages: key.fit == "page", spacing: CGSize(width: 4, height: key.continuousReflow ? 0 : 4), inset: .zero))
         }
         private func rowFrame(_ row: Range<Int>) -> CGRect {
             row.reduce(CGRect.null) { result, index in geometry?.frame(page: index).map { result.union($0) } ?? result }

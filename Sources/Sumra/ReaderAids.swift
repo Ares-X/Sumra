@@ -18,7 +18,7 @@ extension ReaderState {
 
     func editTheme(_ base: ReaderTheme) {
         let editor = ReaderThemeEditorView(theme: base)
-        let alert = ReaderThemeAlert(); alert.messageText = L("Customize Theme…")
+        let alert = ReaderInputAlert(); alert.messageText = L("Customize Theme…")
         alert.accessoryView = editor
         let save = alert.addButton(withTitle: L("Save and Apply"))
         alert.addButton(withTitle: L("Cancel"))
@@ -47,7 +47,7 @@ extension ReaderState {
 
     func configureDocumentColors() {
         let documentID = document?.id
-        let alert = ReaderThemeAlert(); alert.messageText = L("Custom Document Colors…")
+        let alert = ReaderInputAlert(); alert.messageText = L("Custom Document Colors…")
         let editor = ReaderThemeEditorView(theme: palette, editsName: false)
         alert.accessoryView = editor
         let apply = alert.addButton(withTitle: L("Apply"))
@@ -71,7 +71,7 @@ extension ReaderState {
     }
 
     func configurePageGrid() {
-        let alert = ReaderThemeAlert(); alert.messageText = L("Configure Page Grid…")
+        let alert = ReaderInputAlert(); alert.messageText = L("Configure Page Grid…")
         alert.informativeText = L("Dimensions accept pt, in or mm (72 pt = 1 in).")
         let values = [pageGridWidth, pageGridHeight, pageGridOffsetX, pageGridOffsetY, Double(pageGridSubdivisions)]
         let fields = values.map { NSTextField(string: String(format: "%g", $0)) }
@@ -936,9 +936,9 @@ final class ReaderThemeColorInput: NSStackView, NSTextFieldDelegate {
     }
 }
 
-// NSAlert is its window's delegate. Supply its literal text fields with a field
-// editor that cannot synchronize text formatting into the active color panel.
-private final class ReaderThemeAlert: NSAlert, NSWindowDelegate {
+// Keep literal dialog text separate from the color panel and use a clearly
+// contrasting selection in both light and dark appearances.
+final class ReaderInputAlert: NSAlert, NSWindowDelegate {
     private let colorFieldEditor: NSTextView = {
         let editor = FieldEditor(frame: .zero)
         editor.isFieldEditor = true
@@ -951,6 +951,8 @@ private final class ReaderThemeAlert: NSAlert, NSWindowDelegate {
             // AppKit configures field-editor attributes for each new field.
             // Set this after that configuration, before it updates the panel.
             usesFontPanel = false
+            selectedTextAttributes = [.backgroundColor: NSColor.selectedContentBackgroundColor,
+                                      .foregroundColor: NSColor.alternateSelectedControlTextColor]
             return super.becomeFirstResponder()
         }
     }

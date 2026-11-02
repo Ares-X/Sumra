@@ -9,8 +9,40 @@ import XCTest
 final class ReaderNativeTitlebarInputTests: XCTestCase {
     private final class DragWindow: NSWindow {
         var dragEvents: [NSEvent] = []
-        override var isKeyWindow: Bool { true }
+        var key = true
+        var activations = 0
+        override var isKeyWindow: Bool { key }
+        override func makeKeyAndOrderFront(_ sender: Any?) { key = true; activations += 1 }
         override func performDrag(with event: NSEvent) { dragEvents.append(event) }
+    }
+
+    func testNativeTitlebarClicksActivateTheWindowInEveryToolbarMode() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/inactive-toolbar.txt"), content: .text("book"))
+        state.immersiveControls = false
+        let window = DragWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "inactive-toolbar")
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); window.contentView = nil; window.close(); state.windowClosed() }
+        let titlebar = try XCTUnwrap(window.standardWindowButton(.closeButton)?.superview)
+        let point = titlebar.convert(NSPoint(x: titlebar.bounds.midX, y: titlebar.bounds.midY), to: nil)
+        for mode in ReaderToolbarDisplayMode.allCases {
+            state.toolbarDisplayMode = mode
+            observer.updateChrome()
+            window.key = false
+            let before = window.activations
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            _ = observer.handleMouseDown(event)
+            XCTAssertTrue(window.isKeyWindow, "Clicking native titlebar space must activate \(mode)")
+            XCTAssertEqual(window.activations, before + 1)
+        }
+        XCTAssertFalse(window.isVisible)
     }
 
     private final class DraggableAccessoryView: NSView {

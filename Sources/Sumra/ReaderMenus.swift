@@ -649,17 +649,18 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .closeAndQuit:
             guard let window = state.window else { return }
             if ReaderWindows.states.filter({ $0.window != nil }).count == 1 { NSApp.terminate(nil) }
-            else { window.performClose(nil) }
+            else { ReaderWindows.close(window) }
         case .scrollbarsSmart: state.scrollbarMode = "smart"; if state.isBrowser { state.send(.style) }
         case .scrollbarsShown: state.scrollbarMode = "shown"; if state.isBrowser { state.send(.style) }
         case .scrollbarsHidden: state.scrollbarMode = "hidden"; if state.isBrowser { state.send(.style) }
         case .copyPath: state.copyPath()
-        case .close: state.window?.performClose(nil)
+        case .close: if let window = state.window { ReaderWindows.close(window) }
         case .newTab:
-            state.window?.tabGroup?.isOverviewVisible = false
             let choose = choose ?? { receive in chooseDocuments(allowDirectories: false, in: state.window, receive) }
-            choose { urls in
-                ReaderWindows.open(urls, in: state, behavior: .newTab) { state.createWindow?($0) }
+            ReaderWindows.leaveOverview(of: state.window) {
+                choose { urls in
+                    ReaderWindows.open(urls, in: state, behavior: .newTab) { state.createWindow?($0) }
+                }
             }
         case .duplicateTab: state.duplicate(inTab: true)
         case .duplicateWindow: state.duplicate(inTab: false)
@@ -847,9 +848,7 @@ struct ReaderCommandButton: View {
                 Button(command == .close ? L("Close") : command.title) {
                     if command == .open { open() }
                     else if command == .close {
-                        // About, Settings and Find have no focused ReaderState.
-                        // AppKit closes the key window through its existing delegate.
-                        NSApp.sendAction(#selector(NSWindow.performClose(_:)), to: nil, from: nil)
+                        if let window = NSApp.keyWindow { ReaderWindows.close(window) }
                     }
                     else if let state { command.run(state) }
                     else if command == .copy || command == .selectAll {
@@ -861,7 +860,7 @@ struct ReaderCommandButton: View {
         .keyboardShortcut(readerShortcut(readerShortcutBindings(overrides[command.id] ?? command.defaultShortcut).first ?? ""))
         // Fullscreen can move or disable the native titlebar control while the
         // document window remains closable. Validate the command's real owner.
-        .disabled(!command.enabled(state, window: command == .close ? state?.window ?? NSApp.keyWindow : nil))
+        .disabled(!command.enabled(state, window: command == .close ? NSApp.keyWindow : nil))
     }
 }
 
@@ -870,14 +869,16 @@ struct CommandPalette: View {
     @ObservedObject var state: ReaderState
     @AppStorage("language") private var language = "system"
     let open: () -> Void
+    let perform: (@escaping () -> Void) -> Void
     @State private var query = "> "
     @State private var selected: String?
     @State private var nativeAnnotations: [(page: Int, annotation: PDFAnnotationSnapshot)] = []
     @Environment(\.dismiss) private var dismiss
 
-    init(state: ReaderState, open: @escaping () -> Void) {
+    init(state: ReaderState, open: @escaping () -> Void, perform: @escaping (@escaping () -> Void) -> Void) {
         self.state = state
         self.open = open
+        self.perform = perform
         _selected = State(initialValue: state.paletteMode == "& " ? "page:\(state.page)" : nil)
     }
 
@@ -957,7 +958,8 @@ struct CommandPalette: View {
             recent.removeAll { $0 == item.id }; recent.insert(item.id, at: 0)
             UserDefaults.standard.set(Array(recent.prefix(50)), forKey: "paletteMRU")
         }
-        dismiss(); item.action()
+        perform(item.action)
+        dismiss()
     }
 
     private func moveSelection(_ direction: MoveCommandDirection) {
@@ -973,7 +975,14 @@ struct CommandPalette: View {
     private func row(_ item: Item) -> some View {
         HStack {
             if let page = item.page { ReaderPagePreview(state: state, index: page).frame(width: 56, height: 70) }
-            Text(item.title).lineLimit(2); Spacer(); Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title).lineLimit(2)
+                if item.page == state.page {
+                    Text(L("Current Page")).font(.caption).italic().foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -995,42 +1004,39 @@ struct CommandPalette: View {
                 }.font(.caption)
             }
             ScrollViewReader { proxy in
-                Group {
-                    if thumbnailOnly {
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(items) { item in
-                                    Button { activate(item) } label: {
-                                        row(item)
-                                            .padding(.horizontal, 8)
-                                            .frame(height: 78)
-                                            .contentShape(Rectangle())
-                                            .background {
-                                                if selected == item.id {
-                                                    RoundedRectangle(cornerRadius: 5).fill(Color.accentColor.opacity(0.2))
-                                                }
-                                            }
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(items) { item in
+                            row(item)
+                                .padding(.horizontal, 8)
+                                .frame(minHeight: item.page == nil ? 32 : 78)
+                                .background {
+                                    if selected == item.id {
+                                        RoundedRectangle(cornerRadius: 5).fill(Color.accentColor.opacity(0.2))
                                     }
-                                    .buttonStyle(.plain)
-                                    .accessibilityAddTraits(selected == item.id ? .isSelected : [])
-                                    .id(item.id)
                                 }
-                            }
-                            .padding(.horizontal, 8)
-                        }
-                        .background {
-                            ThumbnailPaletteKeys(move: moveSelection, submit: activateSelection, close: { dismiss() })
-                                .accessibilityHidden(true)
-                        }
-                        .onAppear {
-                            if let selected { proxy.scrollTo(selected, anchor: .center) }
-                        }
-                    } else {
-                        List(items, selection: $selected) { item in
-                            Button { activate(item) } label: { row(item) }
-                                .disabled(!item.enabled).buttonStyle(.plain).tag(item.id).id(item.id)
+                                .contentShape(Rectangle())
+                                .onTapGesture(count: 2) { selected = item.id; activate(item) }
+                                .onTapGesture { selected = item.id }
+                                .foregroundStyle(item.enabled ? Color.primary : Color.secondary)
+                                .accessibilityElement(children: .combine)
+                                .accessibilityIdentifier("palette-row:" + item.id)
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityAddTraits(selected == item.id ? .isSelected : [])
+                                .accessibilityAction { activate(item) }
+                                .id(item.id)
                         }
                     }
+                    .padding(.horizontal, 8)
+                }
+                .background {
+                    if thumbnailOnly {
+                        ThumbnailPaletteKeys(move: moveSelection, submit: activateSelection, close: { dismiss() })
+                            .accessibilityHidden(true)
+                    }
+                }
+                .onAppear {
+                    if let selected { proxy.scrollTo(selected, anchor: .center) }
                 }
                 .onChange(of: selected) { selection in
                     if let selection { proxy.scrollTo(selection) }

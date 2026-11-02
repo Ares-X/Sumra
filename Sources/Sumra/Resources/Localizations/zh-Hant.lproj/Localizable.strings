@@ -789,6 +789,7 @@
 
 "Replace Current Document" = "取代目前文件";
 
+"New Sumra Window" = "新增 Sumra 視窗";
 "New Tab" = "新增分頁";
 
 "Close Tab" = "關閉分頁";
@@ -831,3 +832,4 @@
 "Bottom clearance" = "底部避讓";
 
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "從視窗邊緣為浮動控制項預留的距離。設為 0 可允許覆蓋正文。正文邊距不會重複累加；隱藏控制項不佔空間。";
+"Current Page" = "目前頁面";
