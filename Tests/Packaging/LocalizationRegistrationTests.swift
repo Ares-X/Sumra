@@ -27,16 +27,19 @@ info["CFBundleIdentifier"] = "dev.aresx.sumra.test.locale"
 info["CFBundlePackageType"] = "APPL"
 try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
     .write(to: app.appendingPathComponent("Contents/Info.plist"))
-for (preference, expected, open, save, colors) in [
-    ("zh-Hans", "zh-Hans", "打开", "保存", "颜色"),
-    ("en", "en", "Open", "Save", "Colors"),
-    ("fr", "fr", "Ouvrir", "Enregistrer", "Couleurs"),
-    ("eo", "en", "Open", "Save", "Colors")
-] {
+var panelStrings = [String: [String]]()
+for (preference, expected) in [("zh-Hans", "zh-Hans"), ("en", "en"), ("fr", "fr"), ("eo", "en")] {
     // This argument affects only the probe process; no user or global defaults change.
     let output = try run([executable.path, "-AppleLanguages", "(\(preference))", "-language", "zh-Hans"])
     let result = try JSONSerialization.jsonObject(with: Data(output.utf8)) as! [String: String]
     precondition(result["preferred"] == expected, "\(preference): \(output)")
-    precondition(result["open"] == open && result["save"] == save && result["colors"] == colors, "\(preference): \(output)")
+    let strings = ["open", "save", "colors"].map { result[$0]! }
+    precondition(strings.allSatisfy { !$0.isEmpty }, "\(preference): \(output)")
+    panelStrings[preference] = strings
 }
+// Apple owns the translations and may revise their wording between OS releases.
+// Check language negotiation against this runtime's English result instead.
+precondition(panelStrings["eo"] == panelStrings["en"])
+precondition(panelStrings["zh-Hans"] != panelStrings["en"])
+precondition(panelStrings["fr"] != panelStrings["en"])
 print("Localization registration and nonvisible AppKit panels passed: Chinese, English, French, unsupported-language English fallback; in-app override leaves AppKit unchanged.")
