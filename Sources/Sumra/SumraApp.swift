@@ -264,6 +264,7 @@ struct WindowTabs: NSViewRepresentable {
                 let parent = tabWith.flatMap { number in readers.first { $0.windowNumber == number } }
                     ?? readers.first { $0.tabbingIdentifier == (groupIdentifier ?? "SumraReader") }
                 window.tabbingIdentifier = groupIdentifier ?? parent?.tabbingIdentifier ?? "SumraReader"
+                documentOpenLog.info("tab-place window=\(window.windowNumber, privacy: .public) requested-parent=\(self.tabWith ?? -1, privacy: .public) resolved-parent=\(parent?.windowNumber ?? -1, privacy: .public) enabled=\(window.tabbingMode != .disallowed, privacy: .public) existing-count=\(parent?.tabGroup?.windows.count ?? 0, privacy: .public)")
                 if !guardDelegate.isHome, window.tabbingMode != .disallowed, let parent {
                     ReaderWindows.placeTab(window, beside: parent, restorationID: guardDelegate.restorationID)
                 }
@@ -685,32 +686,43 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
-        Task {
-            defer { terminationPending = false }
-            let approved = await prepareToTerminate(sender)
-            sender.reply(toApplicationShouldTerminate: approved)
+        var decision: NSApplication.TerminateReply?
+        var insideDelegate = true
+        prepareToTerminate { approved in
+            self.terminationPending = false
+            if insideDelegate { decision = approved ? .terminateNow : .terminateCancel }
+            else { sender.reply(toApplicationShouldTerminate: approved) }
         }
-        return .terminateLater
+        insideDelegate = false
+        return decision ?? .terminateLater
     }
 
-    func prepareToTerminate(_ sender: NSApplication) async -> Bool {
+    private func prepareToTerminate(completion: @escaping (Bool) -> Void) {
         ReaderWindows.isTerminating = false
-        let states = sender.windows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state }
+        let states = ReaderWindows.states
         var approved: [(ReaderState, UUID?, Int, Int)] = []
-        for state in states {
-            guard await state.confirmClose() else { return false }
-            approved.append((state, state.document?.id, state.generation, state.editRevision))
-        }
-        // Later sheets/field validation can pump events in another window.
-        let current = sender.windows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state }
-        guard current.allSatisfy({ state in
-            approved.contains { previous, id, generation, revision in
-                state === previous && state.document?.id == id && state.generation == generation && state.editRevision == revision && state.nativePDFFormEditor == nil
+        func confirmNext() {
+            if approved.count < states.count {
+                let state = states[approved.count]
+                state.confirmClose { allowed in
+                    guard allowed else { completion(false); return }
+                    approved.append((state, state.document?.id, state.generation, state.editRevision))
+                    confirmNext()
+                }
+                return
             }
-        }) else { return false }
-        ReaderWindows.saveSession(current)
-        ReaderWindows.isTerminating = true
-        return true
+            // A save or modal form editor can pump events in another window.
+            let current = ReaderWindows.states
+            guard current.allSatisfy({ state in
+                approved.contains { previous, id, generation, revision in
+                    state === previous && state.document?.id == id && state.generation == generation && state.editRevision == revision && state.nativePDFFormEditor == nil
+                }
+            }) else { completion(false); return }
+            ReaderWindows.saveSession(current)
+            ReaderWindows.isTerminating = true
+            completion(true)
+        }
+        confirmNext()
     }
 }
 
@@ -899,18 +911,21 @@ enum ReaderWindows {
     }
 
     static func placeTab(_ window: NSWindow, beside parent: NSWindow, restorationID: UUID?) {
-        guard let group = parent.tabGroup, !group.windows.contains(window) else { return }
-        guard let restorationID, let index = restorationPayloads.firstIndex(where: { $0.id == restorationID }) else {
+        let siblings = parent.tabGroup?.windows ?? [parent]
+        guard !siblings.contains(window) else { return }
+        if let restorationID, let index = restorationPayloads.firstIndex(where: { $0.id == restorationID }) {
+            // An independent native window can have no tab group yet. Add to
+            // the actual neighboring window so AppKit creates the group too.
+            let following = Set(restorationPayloads.dropFirst(index + 1).map(\.id))
+            if let next = siblings.first(where: { ($0.delegate as? ReaderCloseGuard)?.restorationID.map(following.contains) == true }) {
+                next.addTabbedWindow(window, ordered: .below)
+            } else {
+                (siblings.last ?? parent).addTabbedWindow(window, ordered: .above)
+            }
+        } else {
             parent.addTabbedWindow(window, ordered: .above)
-            return
         }
-        // Insert each new tab once at its saved position, even when the active
-        // book opens first. Existing tabs never leave their fullscreen Space.
-        let following = Set(restorationPayloads.dropFirst(index + 1).map(\.id))
-        let insertion = group.windows.firstIndex { tab in
-            (tab.delegate as? ReaderCloseGuard)?.restorationID.map(following.contains) == true
-        } ?? group.windows.count
-        group.insertWindow(window, at: insertion)
+        documentOpenLog.info("tab-placed window=\(window.windowNumber, privacy: .public) parent=\(parent.windowNumber, privacy: .public) group-count=\(parent.tabGroup?.windows.count ?? 0, privacy: .public)")
     }
 
     static func restoredWindowReady(_ window: NSWindow, payload: WindowPayload) {

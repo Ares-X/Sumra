@@ -162,8 +162,8 @@ final class SessionRestorationTests: XCTestCase {
         ReaderMenuCommand.close.run(current)
         try await waitFor { current.isWindowClosed }
         XCTAssertEqual(group.windows, [windows[1], windows[2]])
-        let mayQuit: Bool = await application.prepareToTerminate(NSApplication.shared)
-        XCTAssertTrue(mayQuit)
+        XCTAssertEqual(application.applicationShouldTerminate(NSApplication.shared), .terminateNow,
+                       "An unedited restored group must accept Quit in the original AppKit event")
         XCTAssertEqual(ReaderWindows.saved("session").compactMap(\.path).filter { $0.hasPrefix(directory.url.path) },
                        [urls[0].path, urls[2].path], "Quit saves the surviving documents in their original order")
     }
