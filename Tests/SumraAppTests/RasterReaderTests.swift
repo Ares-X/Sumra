@@ -450,7 +450,7 @@ final class RasterReaderTests: XCTestCase {
             throw XCTSkip("Set SUMRA_ISSUE42_RESIZE_EPUB to misalignedepubsecondroundC.epub")
         }
         try requireMuPDF()
-        try await checkFiniteSpreadResize(URL(fileURLWithPath: path))
+        try await checkFiniteSpreadResize(URL(fileURLWithPath: path), pairedArtwork: true)
     }
 
     @MainActor
@@ -466,7 +466,7 @@ final class RasterReaderTests: XCTestCase {
     }
 
     @MainActor
-    private func checkFiniteSpreadResize(_ input: URL, cover: Bool = false) async throws {
+    private func checkFiniteSpreadResize(_ input: URL, cover: Bool = false, pairedArtwork: Bool = false) async throws {
         _ = NSApplication.shared
         let visibleCount = cover ? 1 : 2
         let state = ReaderState(recordsHistory: false)
@@ -488,8 +488,11 @@ final class RasterReaderTests: XCTestCase {
         _ = try await reference.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
             userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 298, height: 500))
         _ = try await reference.prepareFacingPages(.init(page: 0), cover: cover)
-        var finalBounds = [Int: CGRect]()
-        for page in 0..<visibleCount { finalBounds[page] = try await reference.bounds(page) }
+        var finalBounds = [Int: CGRect](), finalArtwork = [Int: [CGRect]]()
+        for page in 0..<visibleCount {
+            finalBounds[page] = try await reference.bounds(page)
+            finalArtwork[page] = try await reference.imageBounds(page)
+        }
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages, initialBounds: initialBounds))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: .borderless, backing: .buffered, defer: false)
@@ -499,7 +502,8 @@ final class RasterReaderTests: XCTestCase {
             (view as? RasterCanvas.Canvas).map { [$0] } ?? view.subviews.flatMap(canvases)
         }
         var compareEveryPaint = false
-        var originalBounds = [Int: CGRect]()
+        var originalBounds = [Int: CGRect](), originalArtwork = [Int: [CGRect]]()
+        var originalDisplay = [Int: CGSize]()
         func matches(_ visible: [RasterCanvas.Canvas], _ expected: [Int: CGRect]) -> Bool {
             visible.count == visibleCount && visible.allSatisfy { canvas in
                 guard let bounds = expected[canvas.page] else { return false }
@@ -517,19 +521,53 @@ final class RasterReaderTests: XCTestCase {
                     XCTAssertEqual(visible[0].convert(visible[0].bounds, to: host).midY,
                         visible[1].convert(visible[1].bounds, to: host).midY, accuracy: 0.5)
                 }
+                let frozen = matches(visible, originalBounds)
+                let artwork = frozen ? originalArtwork : finalArtwork
+                var paintedArtwork = [CGRect]()
                 for canvas in visible {
                     if let clip = canvas.enclosingScrollView?.contentView {
                         let viewport = clip.safeAreaRect.size
                         let slotWidth = visibleCount == 2 ? (viewport.width-4)/2 : viewport.width
-                        let fitScale = min(slotWidth / canvas.pageBounds.width, viewport.height / canvas.pageBounds.height)
+                        let display = canvas.visibleBounds.size
+                        // Native media boxes still identify an atomic layout above.
+                        // Fit Page uses the presentation canvas; a paired cover
+                        // borrows the facing page's paper and artwork margins.
+                        let expected: CGSize
+                        if frozen {
+                            let factor = originalDisplay.values.map { min(slotWidth/$0.width, viewport.height/$0.height) }.min()!
+                            let original = originalDisplay[canvas.page]!
+                            expected = CGSize(width: original.width*factor, height: original.height*factor)
+                        } else {
+                            let fitScale = min(slotWidth/display.width, viewport.height/display.height)
+                            expected = CGSize(width: display.width*fitScale, height: display.height*fitScale)
+                        }
                         let pixel = 1/window.backingScaleFactor
-                        XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width*fitScale, accuracy: pixel,
-                            "Each facing page must fit its slot in the current viewport")
-                        XCTAssertEqual(canvas.bounds.height, canvas.pageBounds.height*fitScale, accuracy: pixel,
-                            "Each facing page must fit its slot in the current viewport")
+                        XCTAssertEqual(canvas.bounds.width, expected.width, accuracy: pixel,
+                            "Each facing presentation canvas must fit its slot in the current viewport")
+                        XCTAssertEqual(canvas.bounds.height, expected.height, accuracy: pixel,
+                            "Each facing presentation canvas must fit its slot in the current viewport")
+                        let viewportBounds = clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5)
                         let displayed = canvas.convert(canvas.bounds, to: clip)
-                        XCTAssertTrue(clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5).contains(displayed),
-                            "Fit Page must keep the entire source page in the current clip during every painted resize frame: \(displayed), \(clip.safeAreaRect)")
+                        XCTAssertTrue(viewportBounds.contains(displayed),
+                            "Fit Page must keep the presentation canvas in the current clip during every painted resize frame: \(displayed), \(clip.safeAreaRect)")
+                        let media = canvas.pageBounds.applying(canvas.pageTransform)
+                        XCTAssertTrue(viewportBounds.contains(canvas.convert(media, to: clip)),
+                            "These ordinary and paired-cover fixtures must retain their entire source page in the viewport")
+                        for image in artwork[canvas.page] ?? [] {
+                            let painted = image.applying(canvas.pageTransform)
+                            XCTAssertTrue(viewportBounds.contains(canvas.convert(painted, to: clip)),
+                                "The actual image extent must stay fully visible on every painted frame")
+                            XCTAssertEqual(painted.width, painted.height * image.width/image.height, accuracy: pixel,
+                                "Artwork must retain its native aspect within a display pixel")
+                            paintedArtwork.append(canvas.convert(painted, to: host))
+                        }
+                    }
+                }
+                if pairedArtwork {
+                    XCTAssertEqual(paintedArtwork.count, 2, "Exercise both real page images")
+                    if paintedArtwork.count == 2 {
+                        XCTAssertEqual(paintedArtwork[0].minY, paintedArtwork[1].minY, accuracy: 1)
+                        XCTAssertEqual(paintedArtwork[0].maxY, paintedArtwork[1].maxY, accuracy: 1)
                     }
                 }
             }
@@ -547,6 +585,21 @@ final class RasterReaderTests: XCTestCase {
         try await wait { canvases(host).filter { state.visiblePages.contains($0.page) && $0.readingReady }.count == visibleCount }
         let revision = await pages.layoutRevision
         originalBounds = Dictionary(uniqueKeysWithValues: canvases(host).filter { state.visiblePages.contains($0.page) }.map { ($0.page, $0.pageBounds) })
+        let firstCanvases = canvases(host).filter { state.visiblePages.contains($0.page) }
+        for canvas in firstCanvases {
+            originalArtwork[canvas.page] = try await pages.imageBounds(canvas.location)
+            let clip = try XCTUnwrap(canvas.enclosingScrollView?.contentView)
+            let slot = visibleCount == 2 ? (clip.safeAreaRect.width-4)/2 : clip.safeAreaRect.width
+            let fitScale = min(slot/canvas.visibleBounds.width, clip.safeAreaRect.height/canvas.visibleBounds.height)
+            let fitted = CGSize(width: canvas.visibleBounds.width*fitScale, height: canvas.visibleBounds.height*fitScale)
+            originalDisplay[canvas.page] = fitted
+            XCTAssertEqual(canvas.bounds.width, fitted.width, accuracy: 0.5)
+            XCTAssertEqual(canvas.bounds.height, fitted.height, accuracy: 0.5)
+            if !pairedArtwork { XCTAssertEqual(canvas.visibleBounds, canvas.pageBounds, "Ordinary pages retain the source-paper fit invariant") }
+        }
+        if pairedArtwork {
+            XCTAssertTrue(firstCanvases.contains { $0.visibleBounds != $0.pageBounds }, "Exercise the normalized cover's facing presentation canvas")
+        }
         let originalImages = Dictionary(uniqueKeysWithValues: canvases(host).filter { state.visiblePages.contains($0.page) }
             .compactMap { canvas in canvas.image.map { (canvas.page, $0) } })
         XCTAssertEqual(originalImages.count, visibleCount)
@@ -560,9 +613,10 @@ final class RasterReaderTests: XCTestCase {
             for canvas in visible {
                 XCTAssertTrue(canvas.image === originalImages[canvas.page],
                     "Display fit must scale the existing frozen-layout bitmap during a drag rather than rerasterizing each window size")
-                let slotWidth = visibleCount == 2 ? (size.width-4)/2 : size.width
-                let expectedScale = visible.map { min(slotWidth/$0.pageBounds.width, size.height/$0.pageBounds.height) }.min()!
-                XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width*expectedScale, accuracy: 0.5,
+                let viewport = try XCTUnwrap(canvas.enclosingScrollView?.contentView).safeAreaRect.size
+                let slotWidth = visibleCount == 2 ? (viewport.width-4)/2 : viewport.width
+                let expectedScale = originalDisplay.values.map { min(slotWidth/$0.width, viewport.height/$0.height) }.min()!
+                XCTAssertEqual(canvas.bounds.width, originalDisplay[canvas.page]!.width*expectedScale, accuracy: 0.5,
                     "Fit Page must use the current viewport rather than its frozen native layout viewport")
             }
             let intermediateRevision = await pages.layoutRevision

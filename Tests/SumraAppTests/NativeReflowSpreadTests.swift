@@ -92,7 +92,8 @@ final class NativeReflowSpreadTests: XCTestCase {
             XCTFail(state.error ?? "Mixed EPUB spread did not settle")
             throw CancellationError()
         }
-        var artwork: [CGRect] = []
+        var artwork = [PageLocation: CGRect]()
+        var artworkNativeRevision = -1
         func assertSlotFit(resizing original: [CGSize]? = nil, line: UInt = #line) throws {
             let pair = visible()
             XCTAssertEqual(pair.count, 2, line: line)
@@ -118,12 +119,13 @@ final class NativeReflowSpreadTests: XCTestCase {
             }
             XCTAssertEqual(first.convert(first.bounds, to: host).midY, second.convert(second.bounds, to: host).midY, accuracy: 0.5, line: line)
             if checkArtwork {
-                let displayed = zip(pair, artwork).map { canvas, art in
-                    canvas.convert(art.applying(canvas.pageTransform), to: host)
+                let displayed = try pair.map { canvas in
+                    canvas.convert(try XCTUnwrap(artwork[canvas.location]).applying(canvas.pageTransform), to: host)
                 }
-                XCTAssertEqual(displayed[0].minY, displayed[1].minY, accuracy: 1, "Art top edges at \(host.bounds.size)", line: line)
-                XCTAssertEqual(displayed[0].maxY, displayed[1].maxY, accuracy: 1, "Art bottom edges at \(host.bounds.size)", line: line)
-                for (canvas, art) in zip(pair, artwork) {
+                XCTAssertEqual(displayed[0].minY, displayed[1].minY, accuracy: 1, "Art top edges at \(host.bounds.size), native revision \(artworkNativeRevision), render revision \(state.renderRevision)", line: line)
+                XCTAssertEqual(displayed[0].maxY, displayed[1].maxY, accuracy: 1, "Art bottom edges at \(host.bounds.size), native revision \(artworkNativeRevision), render revision \(state.renderRevision)", line: line)
+                for canvas in pair {
+                    let art = try XCTUnwrap(artwork[canvas.location])
                     let displayed = art.applying(canvas.pageTransform)
                     XCTAssertEqual(displayed.width, displayed.height * art.width / art.height, accuracy: 0.5, "Artwork must retain its aspect within a display pixel", line: line)
                     XCTAssertTrue(clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5).contains(canvas.convert(displayed, to: clip)), "Artwork must remain inside its viewport", line: line)
@@ -140,17 +142,43 @@ final class NativeReflowSpreadTests: XCTestCase {
         try await settle()
         func measureArtwork() async throws {
             guard checkArtwork else { return }
-            artwork.removeAll()
-            for canvas in visible() {
-                let boxes = try await pages.imageBounds(canvas.location)
-                artwork.append(try XCTUnwrap(boxes.first))
-            }
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                let pair = visible()
+                // The decoder can advance ahead of SwiftUI publication. Read
+                // both image boxes in one actor turn and use them only with
+                // canvases displaying that exact native page geometry.
+                let snapshot = try await pages.spreadArtworkSources(pair.map(\.location))
+                let sources = snapshot.sources
+                paint()
+                let painted = visible()
+                if painted.count == 2, painted.allSatisfy({ canvas in
+                    canvas.readingReady && canvas.renderRevision == state.renderRevision &&
+                        sources[canvas.location]?.bounds == canvas.pageBounds
+                }) {
+                    artworkNativeRevision = snapshot.revision
+                    artwork = try Dictionary(uniqueKeysWithValues: painted.map { canvas in
+                        (canvas.location, try XCTUnwrap(sources[canvas.location]?.image))
+                    })
+                    return
+                }
+                try await Task.sleep(nanoseconds: 1_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail(state.error ?? "Artwork source did not match the displayed spread")
+            throw CancellationError()
         }
         try await measureArtwork()
         try assertSlotFit()
         let revision = await pages.layoutRevision
         let images = visible().map(\.image)
-        let original = visible().map { $0.bounds.size }
+        let original = try visible().map { canvas in
+            let clip = try XCTUnwrap(canvas.enclosingScrollView?.contentView)
+            let slot = (clip.safeAreaRect.width - 4) / 2
+            let scale = min(slot / canvas.visibleBounds.width, clip.safeAreaRect.height / canvas.visibleBounds.height)
+            // Derive the starting fit before AppKit rounds its display frame.
+            // Scaling an already rounded frame can amplify a half-pixel error.
+            return CGSize(width: canvas.visibleBounds.width * scale, height: canvas.visibleBounds.height * scale)
+        }
         let originalBounds = visible().map(\.pageBounds)
         NotificationCenter.default.post(name: NSWindow.willStartLiveResizeNotification, object: window)
         for size in sizes {
@@ -294,6 +322,16 @@ final class NativeReflowSpreadTests: XCTestCase {
         try runSumraProcess(archive)
         XCTAssertEqual(archive.terminationStatus, 0)
         return directory.appendingPathComponent("book.epub")
+    }
+}
+
+private extension Pages {
+    func spreadArtworkSources(_ locations: [PageLocation]) throws -> (revision: Int, sources: [PageLocation: (bounds: CGRect, image: CGRect?)]) {
+        var sources = [PageLocation: (bounds: CGRect, image: CGRect?)]()
+        for location in locations {
+            sources[location] = (try bounds(location), try imageBounds(location).first)
+        }
+        return (layoutRevision, sources)
     }
 }
 #endif
