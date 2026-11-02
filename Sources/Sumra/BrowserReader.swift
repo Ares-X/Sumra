@@ -427,12 +427,12 @@ struct BrowserReader: NSViewRepresentable {
                 guard let self, let view, self.isCurrent, self.ready,
                       self.state.flow == "paged" || self.state.spread,
                       event.window === view.window, let window = view.window, window.attachedSheet == nil,
-                      view.bounds.contains(view.convert(event.locationInWindow, from: nil)),
                       event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
                       !self.textInputFocused, !self.wheelTargetScrollable else { return event }
                 if event.phase.contains(.began) || event.phase.contains(.mayBegin) ||
                     (event.phase.isEmpty && event.momentumPhase.isEmpty) { self.wheelTurnedPage = false }
                 if !event.momentumPhase.isEmpty { return self.wheelTurnedPage ? nil : event }
+                guard let hit = ReaderState.hitView(for: event), hit === view || hit.isDescendant(of: view) else { return event }
                 if event.phase.contains(.ended) || event.phase.contains(.cancelled) { return event }
                 guard !self.wheelTurnedPage else { return nil }
                 let horizontal = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)

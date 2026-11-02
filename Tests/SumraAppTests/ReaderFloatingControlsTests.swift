@@ -32,33 +32,45 @@ import SumraCore
                 modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
                 eventNumber: 0, trackingNumber: 0, userData: nil))
         }
-        func raster() throws -> Data {
+        func raster(_ button: NSButton? = nil) throws -> Data {
             host.layoutSubtreeIfNeeded()
             host.needsDisplay = true; controls.needsDisplay = true
             buttons.forEach { $0.needsDisplay = true }
-            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let rect = button.map { $0.convert($0.bounds, to: host) } ?? host.bounds
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: rect))
+            host.cacheDisplay(in: rect, to: bitmap)
             return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         }
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             window.appearance = NSAppearance(named: appearance)
             controls.mouseExited(with: try pointer(.mouseExited, at: .zero))
             let baseline = try raster()
+            let buttonBaselines = try buttons.map { try raster($0) }
             for (button, action) in zip(buttons, actions) {
                 let point = NSPoint(x: button.frame.midX, y: button.frame.midY)
                 XCTAssertTrue(controls.hitTest(controls.convert(point, to: host)) === button)
                 controls.mouseEntered(with: try pointer(.mouseEntered, at: point))
-                XCTAssertNotEqual(try raster(), baseline, "Hover must visibly paint in \(appearance.rawValue)")
+                let hovered = try raster()
+                XCTAssertNotEqual(hovered, baseline, "Hover must visibly paint in \(appearance.rawValue)")
+                for (member, unhovered) in zip(buttons, buttonBaselines) {
+                    XCTAssertNotEqual(try raster(member), unhovered, "All three window-control symbols must appear together")
+                }
                 XCTAssertTrue(button.target === window)
                 XCTAssertEqual(button.action, action, "AppKit keeps ownership of window actions and modifier semantics")
                 XCTAssertFalse(button.isHighlighted, "Hover must not masquerade as the native pressed state")
                 controls.mouseMoved(with: try pointer(.mouseMoved, at: NSPoint(x: 18, y: 10)))
-                XCTAssertEqual(try raster(), baseline, "Moving between native hit regions clears the feedback")
+                XCTAssertEqual(try raster(), hovered, "Native hover stays visible across the whole traffic-light group")
                 controls.mouseEntered(with: try pointer(.mouseEntered, at: point))
                 controls.mouseExited(with: try pointer(.mouseExited, at: .zero))
                 XCTAssertEqual(try raster(), baseline, "Exit removes the feedback")
             }
             controls.mouseEntered(with: try pointer(.mouseEntered, at: NSPoint(x: 27, y: 10)))
+            let normalZoom = try raster(buttons[2])
+            let normalClose = try raster(buttons[0])
+            controls.modifierFlagsChanged(.option)
+            XCTAssertNotEqual(try raster(buttons[2]), normalZoom, "Option changes the green control to its zoom symbol")
+            XCTAssertEqual(try raster(buttons[0]), normalClose)
+            controls.modifierFlagsChanged([])
             controls.removeFromSuperview()
             host.addSubview(controls)
             XCTAssertEqual(try raster(), baseline, "Unmounting clears a retained hover")
@@ -67,9 +79,10 @@ import SumraCore
         controls.updateButtons()
         let minimize = buttons[1]
         XCTAssertFalse(minimize.isEnabled)
-        let disabledBaseline = try raster()
+        let disabled = try raster(minimize)
         controls.mouseEntered(with: try pointer(.mouseEntered, at: NSPoint(x: minimize.frame.midX, y: minimize.frame.midY)))
-        XCTAssertEqual(try raster(), disabledBaseline, "Unavailable actions must not receive hover emphasis")
+        XCTAssertEqual(try raster(minimize), disabled, "Disabled traffic lights must not receive an enabled action symbol")
+        XCTAssertFalse(minimize.isHighlighted, "Group hover must leave disabled controls unavailable")
         XCTAssertFalse(window.isVisible)
     }
 

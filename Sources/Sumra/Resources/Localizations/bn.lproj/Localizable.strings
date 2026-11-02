@@ -745,6 +745,7 @@
 
 "Replace Current Document" = "বর্তমান নথি প্রতিস্থাপন";
 
+"New Sumra Window" = "নতুন Sumra উইন্ডো";
 "New Tab" = "নতুন ট্যাব";
 
 "Close Tab" = "ট্যাব বন্ধ করুন";
@@ -782,3 +783,4 @@
 "Control clearance" = "কন্ট্রোলের ফাঁকা স্থান";
 "Top clearance" = "ওপরের ফাঁকা স্থান";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "ভাসমান কন্ট্রোলের জন্য উইন্ডোর কিনারা থেকে সংরক্ষিত স্থান। ওভারল্যাপের অনুমতি দিতে 0 সেট করুন। কনটেন্ট মার্জিন একবারই গণনা করা হয়; লুকানো কন্ট্রোল কোনো স্থান সংরক্ষণ করে না।";
+"Current Page" = "বর্তমান পৃষ্ঠা";

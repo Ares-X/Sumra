@@ -7,7 +7,7 @@ import XCTest
 @testable import Sumra
 
 final class EPUBCoverAspectTests: XCTestCase {
-    private func fixture(in directory: URL, coverDocument: String? = nil, guide: Bool = false) throws -> URL {
+    private func fixture(in directory: URL, coverDocument: String? = nil, guide: Bool = false, titleDocument: String? = nil) throws -> URL {
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
         let context = try XCTUnwrap(CGContext(data: nil, width: 200, height: 300, bitsPerComponent: 8, bytesPerRow: 800,
@@ -48,6 +48,11 @@ final class EPUBCoverAspectTests: XCTestCase {
                 files["content.opf"] = files["content.opf"]?.replacingOccurrences(of: "id='c0'", with: "id='Cover'")
                     .replacingOccurrences(of: "idref='c0'", with: "idref='Cover' linear='no'")
             }
+        }
+        if let titleDocument {
+            files["c1.xhtml"] = titleDocument
+            files["content.opf"] = files["content.opf"]?.replacingOccurrences(of: "</guide>",
+                with: "<reference type='title-page' title='Title Page' href='c1.xhtml#title'/></guide>")
         }
         for (name, contents) in files { try contents.write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8) }
         let zip = Process(); zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); zip.currentDirectoryURL = directory
@@ -156,6 +161,29 @@ final class EPUBCoverAspectTests: XCTestCase {
         }
     }
 
+    func testImageOnlyCoverAndDeclaredTitlePageFitInsideTheirSelectedMargins() throws {
+        let directory = try TemporaryDirectory()
+        let cover = "<html><body><img id='cover' src='cover.png'/></body></html>"
+        let title = "<html><head><style>div,img{width:100%}img{height:auto}</style></head><body><div><p>&#160;<img id='title' src='cover.png'/></p></div></body></html>"
+        let file = try NativeFile(fixture(in: directory.url, coverDocument: cover, guide: true, titleDocument: title), engine: .mupdf)
+        defer { withExtendedLifetime(directory) {} }
+        let margins = PageMargins(cssValues: [24, 48, 24, 48])!
+        _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light", pageMargins: margins,
+            pageSize: CGSize(width: 400, height: 800))
+        for chapter in [0, 1] {
+            let page = try file.page(.init(chapter: chapter, page: 0))
+            let image = try file.image(page, width: 400)
+            let ink = try coloredBounds(image)
+            XCTAssertEqual(ink.minX, 48, accuracy: 1)
+            XCTAssertEqual(400 - ink.maxX, 48, accuracy: 1)
+            XCTAssertEqual(ink.minY, 24, accuracy: 1)
+            XCTAssertEqual(CGFloat(image.height) - ink.maxY, 24, accuracy: 1)
+            XCTAssertEqual(ink.width / ink.height, 2.0 / 3.0, accuracy: 0.01)
+            XCTAssertEqual(file.chapterTable?.pageCount(chapter), 1)
+        }
+        XCTAssertEqual(try file.resolve("c1.xhtml#title")?.page, 1)
+    }
+
     func testKeepTogetherFigureReservesItsCaptionAfterEarlierText() throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
@@ -183,7 +211,7 @@ final class EPUBCoverAspectTests: XCTestCase {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
         let pictures = (0..<4).map { "<p><a id='art\($0)'/><img src='cover.png'/></p>" }.joined()
-        let html = "<html><head><style>@page{margin:0}body,p{margin:0}img{width:auto;height:auto}</style></head><body>\(pictures)</body></html>"
+        let html = "<html><head><style>@page{margin:0}body{margin:0}p{margin:1em 0}img{width:auto;height:auto}</style></head><body>\(pictures)</body></html>"
         let file = try NativeFile(fixture(in: directory.url, coverDocument: html), engine: .mupdf)
         for useDocumentCSS in [true, false] {
             for userCSS in ["", "@page{margin:24px!important}body{margin:11px!important}"] {
@@ -211,6 +239,11 @@ final class EPUBCoverAspectTests: XCTestCase {
                 }
             }
         }
+        _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light",
+                              pageMargins: PageMargins(cssValues: [24, 48]), pageSize: CGSize(width: 720, height: 480))
+        let art = try XCTUnwrap(file.imageBounds(0).first)
+        XCTAssertEqual(art.minY, 24, accuracy: 0.03)
+        XCTAssertEqual(art.maxY, 456, accuracy: 0.03)
         _ = try file.relayout(fontSize: 17, lineHeight: 1.2, font: "system", theme: "light",
                               pageSize: CGSize(width: 360, height: 0))
         XCTAssertEqual(file.chapterTable?.pageCount(0), 1)

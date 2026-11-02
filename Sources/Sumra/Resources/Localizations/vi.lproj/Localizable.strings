@@ -743,6 +743,7 @@
 
 "Replace Current Document" = "Thay thế tài liệu hiện tại";
 
+"New Sumra Window" = "Cửa sổ Sumra mới";
 "New Tab" = "Tab mới";
 
 "Close Tab" = "Đóng tab";
@@ -780,3 +781,4 @@
 "Control clearance" = "Khoảng trống cho điều khiển";
 "Top clearance" = "Khoảng trống phía trên";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Khoảng trống được chừa từ mép cửa sổ cho các điều khiển nổi. Đặt thành 0 để cho phép chồng lấp. Lề nội dung chỉ được tính một lần; điều khiển bị ẩn không chiếm chỗ.";
+"Current Page" = "Trang hiện tại";

@@ -119,7 +119,7 @@ public enum PageRows {
     /// uses AppKit points and never measures or renders document pages.
     public static func layout(displaySizes: [CGSize], viewport: CGSize, page: Int, continuous: Bool,
                               spread: Bool, cover: Bool, rtl: Bool, landscape: Set<Int> = [], freePan: Bool = false,
-                              spacing: CGSize = CGSize(width: 8, height: 8),
+                              centerFacingPages: Bool = false, spacing: CGSize = CGSize(width: 8, height: 8),
                               inset: CGSize = CGSize(width: 4, height: 4)) -> Layout {
         var pages = [CGRect?](repeating: nil, count: displaySizes.count)
         guard !displaySizes.isEmpty,
@@ -142,6 +142,9 @@ public enum PageRows {
                     columns[column] = max(columns[column], size.width)
                 }
                 height = max(height, size.height)
+            }
+            if centerFacingPages && row.count == 2 {
+                for index in row { pages[index]?.origin.y += (height - displaySizes[index].height) / 2 }
             }
             y += height + spacing.height
         }

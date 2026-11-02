@@ -738,6 +738,7 @@
 
 "Replace Current Document" = "Gantikan dokumen semasa";
 
+"New Sumra Window" = "Tetingkap Sumra baharu";
 "New Tab" = "Tab baharu";
 
 "Close Tab" = "Tutup tab";
@@ -775,3 +776,4 @@
 "Control clearance" = "Jarak kawalan";
 "Top clearance" = "Jarak atas";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Ruang yang disediakan dari tepi tetingkap untuk kawalan terapung. Tetapkan kepada 0 untuk membenarkan pertindihan. Margin kandungan dikira sekali sahaja; kawalan tersembunyi tidak menggunakan ruang.";
+"Current Page" = "Halaman Semasa";

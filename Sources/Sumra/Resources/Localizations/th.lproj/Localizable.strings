@@ -745,6 +745,7 @@
 
 "Replace Current Document" = "แทนที่เอกสารปัจจุบัน";
 
+"New Sumra Window" = "หน้าต่าง Sumra ใหม่";
 "New Tab" = "แท็บใหม่";
 
 "Close Tab" = "ปิดแท็บ";
@@ -782,3 +783,4 @@
 "Control clearance" = "ระยะเว้นสำหรับตัวควบคุม";
 "Top clearance" = "ระยะเว้นด้านบน";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "พื้นที่ที่เว้นจากขอบหน้าต่างสำหรับตัวควบคุมแบบลอย ตั้งค่าเป็น 0 เพื่อให้ซ้อนทับได้ ระยะขอบเนื้อหาจะนับเพียงครั้งเดียว ส่วนตัวควบคุมที่ซ่อนไว้จะไม่จองพื้นที่";
+"Current Page" = "หน้าปัจจุบัน";

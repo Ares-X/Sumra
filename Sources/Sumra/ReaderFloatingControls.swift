@@ -176,7 +176,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 4) {
                             ForEach(tabs) { tab in
-                                HStack(spacing: 6) {
+                                ZStack(alignment: .trailing) {
                                     Button { selectTab(tab.id) } label: {
                                         HStack(spacing: 6) {
                                             if let color = tab.color {
@@ -185,6 +185,8 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
                                             Text(tab.title).lineLimit(1).truncationMode(.middle)
                                                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                                         }
+                                        .padding(.leading, 8)
+                                        .padding(.trailing, 34) // Leave space for the separate close target.
                                         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                                         .contentShape(Rectangle())
                                     }
@@ -192,14 +194,14 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
                                     .help(tab.title).accessibilityLabel(tab.title)
                                     .accessibilityValue(tab.id == state.window?.windowNumber ? L("Selected") : "")
                                     closeButton(window(tab.id), title: tab.title)
+                                        .padding(.trailing, 8)
                                 }
-                                .padding(.horizontal, 8)
                                 .frame(width: max(120, (geometry.size.width - CGFloat(tabs.count - 1) * 4) / CGFloat(tabs.count)), height: 28)
                                 .background(Color(nsColor: ReaderTheme.color(state.palette.text))
                                     .opacity(tab.id == state.window?.windowNumber ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 5))
                                 .id(tab.id)
                                 .contextMenu {
-                                    Button(L("Close Tab")) { window(tab.id)?.performClose(nil) }
+                                    Button(L("Close Tab")) { if let tabWindow = window(tab.id) { ReaderWindows.close(tabWindow) } }
                                     Button(L("Move Tab to New Window")) { window(tab.id)?.moveTabToNewWindow(nil) }
                                 }
                             }
@@ -224,7 +226,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
     }
 
     private func closeButton(_ window: NSWindow?, title: String? = nil) -> some View {
-        Button { window?.performClose(nil) } label: {
+        Button { if let window { ReaderWindows.close(window) } } label: {
             Image(systemName: "xmark").font(.system(size: 9, weight: .medium))
                 .frame(width: 20, height: 20).contentShape(Rectangle())
         }
@@ -295,15 +297,16 @@ struct ReaderFloatingSurface: ViewModifier {
         var readerWindow: NSWindow? { window }
         override var mouseDownCanMoveWindow: Bool { false }
         private weak var observedWindow: NSWindow?
-        private weak var hoveredButton: NSButton? {
-            didSet { if hoveredButton !== oldValue { needsDisplay = true } }
-        }
+        private var pointerInside = false
         private var pointerTracking: NSTrackingArea?
+        private var modifierMonitor: Any?
+        private var optionDown = false
+        private var fullscreen = false
+        private let glyphs = HoverGlyphs(frame: .zero)
         override init(frame: NSRect) {
             super.init(frame: frame)
             for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                 let button = NSWindow.standardWindowButton(type, for: [.titled, .closable, .miniaturizable, .resizable])!
-                // Leave room for the hover ring within the 54-point group.
                 button.frame.origin = NSPoint(x: 2 + index * 18, y: 3)
                 button.tag = Int(type.rawValue)
                 button.setAccessibilityElement(true)
@@ -318,6 +321,10 @@ struct ReaderFloatingSurface: ViewModifier {
                 button.setAccessibilityLabel(NSAccessibility.Role.button.description(with: subrole))
                 addSubview(button)
             }
+            glyphs.owner = self
+            glyphs.frame = bounds
+            glyphs.autoresizingMask = [.width, .height]
+            addSubview(glyphs)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override func viewDidMoveToWindow() {
@@ -333,38 +340,43 @@ struct ReaderFloatingSurface: ViewModifier {
             addTrackingArea(tracking)
             pointerTracking = tracking
         }
-        override func mouseEntered(with event: NSEvent) { updateHover(with: event) }
-        override func mouseMoved(with event: NSEvent) { updateHover(with: event) }
-        override func mouseExited(with event: NSEvent) { hoveredButton = nil }
-        private func updateHover(with event: NSEvent) {
-            let point = convert(event.locationInWindow, from: nil)
-            hoveredButton = subviews.compactMap { $0 as? NSButton }.first {
-                $0.isEnabled && $0.hitTest(point) === $0
-            }
+        override func mouseEntered(with event: NSEvent) {
+            modifierFlagsChanged(event.modifierFlags)
+            setPointerInside(true)
         }
-        override func draw(_ dirtyRect: NSRect) {
-            super.draw(dirtyRect)
-            if let button = hoveredButton, button.isEnabled {
-                NSColor.labelColor.withAlphaComponent(0.6).setStroke()
-                let ring = NSBezierPath(ovalIn: button.frame.insetBy(dx: -1.5, dy: -1.5))
-                ring.lineWidth = 1
-                ring.stroke()
-            }
+        override func mouseMoved(with event: NSEvent) {
+            modifierFlagsChanged(event.modifierFlags)
+            setPointerInside(bounds.contains(convert(event.locationInWindow, from: nil)))
         }
-        override func viewDidChangeEffectiveAppearance() {
-            super.viewDidChangeEffectiveAppearance()
-            needsDisplay = true
+        override func mouseExited(with event: NSEvent) { setPointerInside(false) }
+        private func setPointerInside(_ inside: Bool) {
+            guard pointerInside != inside else { return }
+            pointerInside = inside
+            glyphs.needsDisplay = true
+        }
+        func modifierFlagsChanged(_ flags: NSEvent.ModifierFlags) {
+            let option = flags.contains(.option)
+            if optionDown != option {
+                optionDown = option
+                glyphs.needsDisplay = true
+            }
         }
         func stopObservingWindow() {
             NotificationCenter.default.removeObserver(self)
             observedWindow = nil
-            hoveredButton = nil
+            if let modifierMonitor { NSEvent.removeMonitor(modifierMonitor) }
+            modifierMonitor = nil
+            setPointerInside(false)
         }
         @objc func updateButtons() {
             if observedWindow !== window {
                 stopObservingWindow()
                 observedWindow = window
                 if let window {
+                    modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                        self?.modifierFlagsChanged(event.modifierFlags)
+                        return event
+                    }
                     for name in [NSWindow.didUpdateNotification, NSWindow.didEnterFullScreenNotification,
                                  NSWindow.didExitFullScreenNotification] {
                         NotificationCenter.default.addObserver(self, selector: #selector(updateButtons), name: name, object: window)
@@ -372,6 +384,8 @@ struct ReaderFloatingSurface: ViewModifier {
                 }
             }
             let capabilities = readerWindow?.styleMask ?? []
+            let isFullscreen = capabilities.contains(.fullScreen)
+            if fullscreen != isFullscreen { fullscreen = isFullscreen; glyphs.needsDisplay = true }
             for button in subviews.compactMap({ $0 as? NSButton }) {
                 // Keep the action supplied by AppKit's standard button. In
                 // particular, the green button owns its system modifier and
@@ -384,11 +398,61 @@ struct ReaderFloatingSurface: ViewModifier {
                     enabled = capabilities.contains(.miniaturizable) && !capabilities.contains(.fullScreen)
                 default: enabled = capabilities.contains(.resizable) || capabilities.contains(.fullScreen)
                 }
-                if button.isEnabled != enabled { button.isEnabled = enabled }
+                if button.isEnabled != enabled { button.isEnabled = enabled; glyphs.needsDisplay = true }
             }
-            if hoveredButton?.isEnabled == false { hoveredButton = nil }
         }
-        deinit { NotificationCenter.default.removeObserver(self) }
+        // Standard factory buttons keep native rendering, hit regions, actions,
+        // and pressed states. AppKit's shared titlebar hover owner isn't public;
+        // draw only its familiar group symbols above the unmodified controls.
+        private final class HoverGlyphs: NSView {
+            weak var owner: Buttons?
+            override func hitTest(_ point: NSPoint) -> NSView? { nil }
+            override func draw(_ dirtyRect: NSRect) {
+                guard let owner, owner.pointerInside else { return }
+                NSColor.black.withAlphaComponent(0.7).setStroke()
+                NSColor.black.withAlphaComponent(0.7).setFill()
+                for button in owner.subviews.compactMap({ $0 as? NSButton }) where button.isEnabled {
+                    let center = CGPoint(x: button.frame.midX, y: button.frame.midY)
+                    let path = NSBezierPath()
+                    path.lineWidth = 1.15
+                    path.lineCapStyle = .round
+                    switch NSWindow.ButtonType(rawValue: UInt(button.tag))! {
+                    case .closeButton:
+                        path.move(to: CGPoint(x: center.x - 2.4, y: center.y - 2.4))
+                        path.line(to: CGPoint(x: center.x + 2.4, y: center.y + 2.4))
+                        path.move(to: CGPoint(x: center.x - 2.4, y: center.y + 2.4))
+                        path.line(to: CGPoint(x: center.x + 2.4, y: center.y - 2.4))
+                        path.stroke()
+                    case .miniaturizeButton:
+                        path.move(to: CGPoint(x: center.x - 3, y: center.y))
+                        path.line(to: CGPoint(x: center.x + 3, y: center.y))
+                        path.stroke()
+                    default:
+                        if owner.optionDown && !owner.fullscreen {
+                            path.move(to: CGPoint(x: center.x - 3, y: center.y))
+                            path.line(to: CGPoint(x: center.x + 3, y: center.y))
+                            path.move(to: CGPoint(x: center.x, y: center.y - 3))
+                            path.line(to: CGPoint(x: center.x, y: center.y + 3))
+                            path.stroke()
+                        } else {
+                            for direction in [CGFloat(-1), 1] {
+                                let corner = (owner.fullscreen ? 0.5 : 3) * direction
+                                let edge = (owner.fullscreen ? 3 : -0.5) * direction
+                                path.move(to: CGPoint(x: center.x + corner, y: center.y + corner))
+                                path.line(to: CGPoint(x: center.x + corner, y: center.y + edge))
+                                path.line(to: CGPoint(x: center.x + edge, y: center.y + corner))
+                                path.close()
+                            }
+                            path.fill()
+                        }
+                    }
+                }
+            }
+        }
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+            if let modifierMonitor { NSEvent.removeMonitor(modifierMonitor) }
+        }
     }
 }
 #endif

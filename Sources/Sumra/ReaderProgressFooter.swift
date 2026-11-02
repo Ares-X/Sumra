@@ -255,10 +255,14 @@ struct ReaderProgressFooter: View {
         let progress = drag?.presentation ?? seeking?.presentation ?? state.readingProgress
         let preview = drag?.value ?? seeking?.value
         let labelWidth = max(floating ? 84 : 0, progress.labelWidth)
-        let normalSideWidth = max(54, labelWidth)
+        // Reserve the widest labels for this document so the complete visible control
+        // is centered and dragging never moves the track under the pointer.
+        let percentWidth = ceil((progress.percentage(at: 1) as NSString).size(withAttributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        ]).width)
         return HStack(spacing: 12) {
             Text(progress.percentage(at: preview))
-                .frame(width: floating ? 42 : normalSideWidth, alignment: floating ? .leading : .trailing)
+                .frame(width: floating ? 42 : percentWidth, alignment: floating ? .leading : .trailing)
             ReaderProgressSlider(value: preview ?? progress.value, step: progress.step, backwardStep: progress.backwardStep, enabled: progress.enabled,
                 accessibilityValue: progress.percentage(at: preview) + ", " + progress.label(at: preview),
                 accessibilityHelp: progress.help,
@@ -276,7 +280,7 @@ struct ReaderProgressFooter: View {
                 .frame(minWidth: floating ? 0 : 80, maxWidth: floating ? .infinity : 320)
             Text(progress.label(at: preview)).lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(width: floating ? labelWidth : normalSideWidth, alignment: floating ? .trailing : .leading)
+                .frame(width: labelWidth, alignment: floating ? .trailing : .leading)
                 .help(progress.label(at: preview))
         }
         .font(.system(size: 11)).monospacedDigit()

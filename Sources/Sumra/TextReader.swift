@@ -29,7 +29,7 @@ import SumraCore
         scroll.documentView = view; scroll.hasVerticalScroller = true
         let c = context.coordinator
         host.reader = c; host.addSubview(scroll); c.host = host
-        host.leading = scroll
+        host.leading = scroll; scroll.reader = c
         view.isEditable = false
         view.isSelectable = true
         view.usesFindBar = true
@@ -348,7 +348,7 @@ import SumraCore
             second.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
             container.widthTracksTextView = true
             second.delegate = self; second.reader = self; secondary = second
-            let scroll = TextPageScrollView(); scroll.documentView = second
+            let scroll = TextPageScrollView(); scroll.reader = self; scroll.documentView = second
             scroll.automaticallyAdjustsContentInsets = !state.extendsReadingUnderChrome
             host.trailing = scroll; host.addSubview(scroll)
             if let delegate = manager.textViewportLayoutController.delegate {
@@ -409,7 +409,7 @@ import SumraCore
         private func updateFacingPage() {
             guard !updatingFacing, !restoring, host?.resizing != true, let view else { return }
             updatingFacing = true
-            defer { updatingFacing = false }
+            defer { updatingFacing = false; reflectNativeScrollbar() }
             fitPageViewport(view)
             guard state.spread, !state.presentation, let second = secondary,
                   let clip = second.enclosingScrollView?.contentView, clip.bounds.width > 0, clip.bounds.height > 0,
@@ -766,6 +766,48 @@ import SumraCore
             return max(0, lo - 1)
         }
 
+        private struct ScrollSource {
+            let start: Double, end: Double, length: Double
+            var span: Double { end - start }
+            var value: Double { length > span ? start / (length - span) : 0 }
+            var proportion: CGFloat { length > 0 ? span / length : 1 }
+            func offset(at value: Double) -> Double { value * (length - span) }
+        }
+        private func scrollSource() -> ScrollSource? {
+            guard let view, let length = view.textContentStorage?.textStorage?.length else { return nil }
+            let visible = visibleLines()
+            guard let first = visible.first, let last = visible.last else { return nil }
+            let top = view.visibleRect.minY - view.textContainerOrigin.y
+            let bottom = view.visibleRect.maxY - view.textContainerOrigin.y
+            func offset(in line: (range: NSRange, rect: CGRect), at y: CGFloat) -> Double {
+                let fraction = min(1, max(0, (y - line.rect.minY) / line.rect.height))
+                return Double(line.range.location) + fraction * Double(line.range.length)
+            }
+            return ScrollSource(start: offset(in: first, at: top), end: offset(in: last, at: bottom), length: Double(length))
+        }
+        fileprivate func reflectNativeScrollbar() {
+            guard isCurrent, indexed, !restoring, !updatingFacing,
+                  let scroll = view?.enclosingScrollView as? TextPageScrollView,
+                  !scroll.movingScrollbar, let scroller = scroll.verticalScroller,
+                  let source = scrollSource() else { return }
+            // TextKit's estimated pixel extent changes as new fragments are
+            // visited. Native scrolling keeps its lazy viewport layout; only
+            // the scrollbar's value and visible proportion use stable UTF-16
+            // source coordinates, matching text bookmarks and restoration.
+            scroller.doubleValue = isAtEnd(view) ? 1 : source.value
+            scroller.knobProportion = source.proportion
+        }
+        fileprivate func moveNativeScrollbar(_ value: Double) {
+            guard let source = scrollSource() else { return }
+            if value == 0 { restore(.init(page: 0)); return }
+            if value == 1 { restore(.init(anchor: String(Int(source.length)))); return }
+            let offset = source.offset(at: value)
+            let character = Int(offset)
+            guard let line = line(at: character) else { return }
+            let fraction = (offset - Double(line.range.location)) / Double(line.range.length)
+            restore(.init(y: fraction * line.rect.height, anchor: String(character)))
+        }
+
         private func visiblePosition() -> ReadingPosition? {
             guard let view, let line = visibleLines().first else { return nil }
             var character = line.range.location
@@ -874,10 +916,33 @@ import SumraCore
 // Keep both native text containers equally wide. A paged viewport ends at a
 // complete line; the remaining paper is ordinary scroll-view background.
 @MainActor private final class TextPageScrollView: NSScrollView {
+    weak var reader: TextReader.Coordinator?
+    private(set) var movingScrollbar = false
+    override func reflectScrolledClipView(_ clip: NSClipView) {
+        let trackedValue = movingScrollbar ? verticalScroller?.doubleValue : nil
+        let trackedProportion = movingScrollbar ? verticalScroller?.knobProportion : nil
+        super.reflectScrolledClipView(clip)
+        if let trackedValue { verticalScroller?.doubleValue = trackedValue }
+        if let trackedProportion { verticalScroller?.knobProportion = trackedProportion }
+        reader?.reflectNativeScrollbar()
+    }
+    @objc private func moveScrollbar(_ scroller: NSScroller) {
+        switch scroller.hitPart {
+        case .decrementPage: reader?.scroll(.up, amount: .page, count: 1)
+        case .incrementPage: reader?.scroll(.down, amount: .page, count: 1)
+        default:
+            movingScrollbar = true
+            reader?.moveNativeScrollbar(scroller.doubleValue)
+            movingScrollbar = false
+        }
+        reader?.reflectNativeScrollbar()
+    }
     var pageHeight: CGFloat?
     private(set) var availableHeight: CGFloat = 0
     override func tile() {
         super.tile()
+        verticalScroller?.target = self
+        verticalScroller?.action = #selector(moveScrollbar(_:))
         var frame = contentView.frame
         availableHeight = frame.height
         if let pageHeight {

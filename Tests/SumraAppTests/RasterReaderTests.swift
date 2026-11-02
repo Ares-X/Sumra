@@ -514,20 +514,19 @@ final class RasterReaderTests: XCTestCase {
                 XCTAssertTrue(matches(visible, originalBounds) || matches(visible, finalBounds),
                     "Every painted pair must belong entirely to the old or the new native layout: \(visible.map { ($0.page, $0.pageBounds) })")
                 if visibleCount == 2 {
-                    XCTAssertEqual(visible[0].bounds.width, visible[1].bounds.width, accuracy: 0.5,
-                        "These equal-width native pages must resize together")
-                    XCTAssertEqual(visible[0].convert(.zero, to: host).y, visible[1].convert(.zero, to: host).y, accuracy: 0.5)
+                    XCTAssertEqual(visible[0].convert(visible[0].bounds, to: host).midY,
+                        visible[1].convert(visible[1].bounds, to: host).midY, accuracy: 0.5)
                 }
                 for canvas in visible {
                     if let clip = canvas.enclosingScrollView?.contentView {
                         let viewport = clip.safeAreaRect.size
                         let slotWidth = visibleCount == 2 ? (viewport.width-4)/2 : viewport.width
-                        let fitScale = visible.map { min(slotWidth/$0.pageBounds.width, viewport.height/$0.pageBounds.height) }.min()!
+                        let fitScale = min(slotWidth / canvas.pageBounds.width, viewport.height / canvas.pageBounds.height)
                         let pixel = 1/window.backingScaleFactor
                         XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width*fitScale, accuracy: pixel,
-                            "Facing pages must share the fit scale for the current viewport")
+                            "Each facing page must fit its slot in the current viewport")
                         XCTAssertEqual(canvas.bounds.height, canvas.pageBounds.height*fitScale, accuracy: pixel,
-                            "Facing pages must share the fit scale for the current viewport")
+                            "Each facing page must fit its slot in the current viewport")
                         let displayed = canvas.convert(canvas.bounds, to: clip)
                         XCTAssertTrue(clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5).contains(displayed),
                             "Fit Page must keep the entire source page in the current clip during every painted resize frame: \(displayed), \(clip.safeAreaRect)")
@@ -1233,7 +1232,7 @@ final class RasterReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testPDFMixedFacingPagesKeepPhysicalScaleAcrossPagedAndContinuousModes() async throws {
+    func testPDFMixedFacingPagesFitTheirSlotsAcrossPagedAndContinuousModes() async throws {
         try requireMuPDF()
         _ = NSApplication.shared
         let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("mixed-facing-modes.pdf")
@@ -1287,7 +1286,8 @@ final class RasterReaderTests: XCTestCase {
                     let large = rotated ? CGSize(width: 800, height: 400) : CGSize(width: 400, height: 800)
                     let scale = fit == "width" ? (viewport.width - 4) / (2 * large.width)
                         : min((viewport.width - 4) / (2 * large.width), viewport.height / large.height)
-                    let expectedFirst = fit == "actual" ? small : CGSize(width: small.width * scale, height: small.height * scale)
+                    let firstScale = fit == "page" ? min((viewport.width - 4) / (2 * small.width), viewport.height / small.height) : scale
+                    let expectedFirst = fit == "actual" ? small : CGSize(width: small.width * firstScale, height: small.height * firstScale)
                     let expectedSecond = fit == "actual" ? small : CGSize(width: large.width * scale, height: large.height * scale)
                     if state.flow == flow, state.command.action == .none,
                        abs(first.bounds.width - expectedFirst.width) <= tolerance,
@@ -1329,7 +1329,7 @@ final class RasterReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testPDFMixedCropFacingPagesShareFitScaleAndKeepUniformRTLGeometry() async throws {
+    func testPDFMixedCropFacingPagesFitTheirSlotsAndKeepUniformRTLGeometry() async throws {
         try requireMuPDF()
         _ = NSApplication.shared
         let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("mixed-facing.pdf")
@@ -1421,8 +1421,7 @@ final class RasterReaderTests: XCTestCase {
             }
             return true
         }
-        // DisplayModel::GetZoomReal takes the smaller PDF facing-page scale.
-        // The authored CropBox and intrinsic rotation determine physical size.
+        // Authored CropBox and intrinsic rotation determine the fitted page shape.
         // Content spans x=20...504 in LTR, but x=100...524 in RTL.
         // The pinned logical-order union misses asymmetric RTL margins; use
         // the actual columns. Fit Visible adds two points at each outer edge.
@@ -1445,8 +1444,9 @@ final class RasterReaderTests: XCTestCase {
                     default: factor = (viewport.width - 4) / ((rtl ? 420 : 480) + (fit == "visible" ? 4 : 0))
                     }
                     let other = views.first { $0 !== current }
-                    return abs(current.bounds.width - 200 * factor) <= pixelTolerance &&
-                        abs(current.bounds.height - 400 * factor) <= pixelTolerance &&
+                    let firstScale = fit == "page" ? min((viewport.width - 4) / 400, viewport.height / 400) : factor
+                    return abs(current.bounds.width - 200 * firstScale) <= pixelTolerance &&
+                        abs(current.bounds.height - 400 * firstScale) <= pixelTolerance &&
                         abs((other?.bounds.width ?? 0) - 400 * factor) <= pixelTolerance &&
                         abs((other?.bounds.height ?? 0) - 800 * factor) <= pixelTolerance &&
                         (rtl ? views.last === current : views.first === current)
@@ -1483,13 +1483,13 @@ final class RasterReaderTests: XCTestCase {
             state.rotation = rotation
             try await waitFor { let views = canvases(); return views.count == 2 && views.allSatisfy { $0.bounds.size == expected } }
         }
-        // A lone cover or last page still occupies one facing slot. It must
-        // not double in size simply because the adjacent slot is empty.
+        // A paged cover has the whole viewport. An unpaired trailing page
+        // retains its original column in the book.
         state.rotation = 0; state.uniformPageWidth = false; state.cover = true; try await setFit("width")
         try await waitFor {
             let views = canvases()
             guard views.count == 1, let viewport = state.readerScrollView?.contentView.bounds.size else { return false }
-            return abs(views[0].bounds.width - (viewport.width - 4) / 2) <= pixelTolerance
+            return abs(views[0].bounds.width - viewport.width) <= pixelTolerance
         }
         state.send(.page(3)); state.send(.none)
         try await waitFor {

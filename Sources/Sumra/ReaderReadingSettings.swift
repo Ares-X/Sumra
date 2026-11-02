@@ -4,7 +4,7 @@ import QuartzCore
 import SwiftUI
 import SumraCore
 
-@MainActor final class ReaderReadingSettingsPanel: NSPanel {
+@MainActor class ReaderReadingSettingsPanel: NSPanel {
     private var motionRevision = 0
     private var dismissing = false
     static func show(for state: ReaderState) {
@@ -36,13 +36,12 @@ import SumraCore
         NotificationCenter.default.addObserver(self, selector: #selector(parentClosed), name: NSWindow.willCloseNotification, object: parent)
     }
 
-    func reveal(reducedMotion: Bool = ReaderMotion.reducedMotion) {
+    func reveal() {
         motionRevision += 1
         dismissing = false
         ignoresMouseEvents = false
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = reducedMotion ? 0 : ReaderMotion.revealDuration
-            context.timingFunction = ReaderMotion.timingFunction
+            context.duration = 0
             animator().alphaValue = 1
         }
     }
@@ -370,7 +369,7 @@ import SumraCore
         let combo = NSComboBox()
         combo.isEditable = true
         combo.completes = true
-        combo.addItems(withObjectValues: ["system", "serif", "sans-serif", "monospace"] + ReaderFontPicker.families)
+        combo.addItems(withObjectValues: ["system", "serif", "sans-serif", "monospace"])
         combo.setAccessibilityLabel(label)
         combo.delegate = context.coordinator
         combo.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -384,7 +383,15 @@ import SumraCore
 
     @MainActor final class Coordinator: NSObject, NSComboBoxDelegate {
         var selection: Binding<String>
+        private var fontsLoaded = false
         init(selection: Binding<String>) { self.selection = selection }
+        func comboBoxWillPopUp(_ notification: Notification) { loadFonts(notification.object as? NSComboBox) }
+        func controlTextDidBeginEditing(_ notification: Notification) { loadFonts(notification.object as? NSComboBox) }
+        private func loadFonts(_ combo: NSComboBox?) {
+            guard let combo, !fontsLoaded else { return }
+            fontsLoaded = true
+            combo.addItems(withObjectValues: ReaderFontPicker.families)
+        }
         func comboBoxSelectionDidChange(_ notification: Notification) {
             guard let combo = notification.object as? NSComboBox,
                   let family = combo.objectValueOfSelectedItem as? String else { return }

@@ -1114,7 +1114,7 @@ final class NativeFile {
         let palette = ReaderTheme.resolve(theme) ?? ReaderTheme.builtins[0]
         let colors = palette.css
         let margins = pageMargins.map {
-            "@page{-sumra-reader-margins:yes;margin:\($0.css) !important;}\nhtml,body{-sumra-reader-margins:yes;margin:0!important;padding:0!important;min-width:0!important;width:auto!important;max-width:none!important;}\n"
+            "@page{-sumra-reader-margins:yes;margin:\($0.css) !important;}\nhtml,body,FictionBook{-sumra-reader-margins:yes;margin:0!important;padding:0!important;min-width:0!important;width:auto!important;max-width:none!important;}\n"
         } ?? ""
         // Compact empty prose rows during reader reflow while retaining source
         // nodes, hard newlines, preformatted text and table/image geometry.

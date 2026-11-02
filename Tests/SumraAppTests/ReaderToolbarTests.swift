@@ -7,6 +7,104 @@ import SwiftUI
 
 @MainActor
 final class ReaderToolbarTests: XCTestCase {
+    func testAlwaysHideRemovesHostedNativeToolbarWhileHoverRetainsWindowControls() async throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/always-hidden-toolbar.txt"), content: .text("book"))
+        state.immersiveControls = false; state.toolbarDisplayMode = .shown
+        state.showContents = false; state.showAI = false; state.showFind = false
+        let controller = NSHostingController(rootView: ReaderView(state: state))
+        let window = NSWindow(contentViewController: controller)
+        window.styleMask.formUnion([.titled, .closable, .resizable])
+        window.setContentSize(CGSize(width: 800, height: 600))
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        state.window = window
+        window.orderBack(nil)
+        defer { state.windowClosed(); window.orderOut(nil); window.contentViewController = nil; window.close() }
+        func observer(in view: NSView) -> ReaderToolbarWindow.Host? {
+            (view as? ReaderToolbarWindow.Host) ?? view.subviews.lazy.compactMap { observer(in: $0) }.first
+        }
+        for mode in [ReaderToolbarDisplayMode.shown, .auto, .hidden, .shown, .hidden] {
+            state.toolbarDisplayMode = mode
+            for _ in 0..<20 {
+                controller.view.layoutSubtreeIfNeeded()
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            let toolbar = try XCTUnwrap(window.toolbar)
+            XCTAssertEqual(toolbar.isVisible, mode != .hidden, "Always Hide must remove the toolbar owned by SwiftUI")
+            if mode == .hidden {
+                let host = try XCTUnwrap(observer(in: controller.view))
+                host.pointerMoved(to: CGPoint(x: 400, y: window.frame.height - 10))
+                host.updateChrome(revealingNativeControls: false)
+                XCTAssertFalse(toolbar.isVisible, "Hover must reveal only window controls")
+                XCTAssertFalse(try XCTUnwrap(window.standardWindowButton(.closeButton)).isHidden)
+            }
+        }
+    }
+
+    func testSettingsKeyFocusKeepsAutoHideTrackingItsReaderWithoutBlinking() async throws {
+        final class ReaderWindow: NSWindow {
+            var key = true
+            var pointer = NSPoint.zero
+            override var isKeyWindow: Bool { key }
+            override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
+        }
+        final class SettingsPanel: ReaderReadingSettingsPanel {
+            var key = false
+            override var isKeyWindow: Bool { key }
+        }
+        _ = NSApplication.shared
+        for floating in [false, true] {
+            let state = ReaderState(recordsHistory: false)
+            state.document = ReadingDocument(url: URL(fileURLWithPath: "/settings-hover.txt"), content: .text("book"))
+            state.immersiveControls = floating; state.toolbarDisplayMode = .auto
+            let parent = ReaderWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            let panel = SettingsPanel(contentRect: CGRect(x: 2300, y: 150, width: 430, height: 420),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            parent.isReleasedWhenClosed = false; panel.isReleasedWhenClosed = false
+            state.window = parent
+            let observer = ReaderToolbarWindow.Host()
+            observer.state = state; observer.reducedMotion = true
+            parent.contentView?.addSubview(observer)
+            panel.attach(to: parent)
+            defer {
+                panel.dismiss(reducedMotion: true); observer.detach()
+                parent.contentView = nil; parent.close(); state.windowClosed()
+            }
+            parent.pointer = NSPoint(x: 350, y: parent.frame.height - 30)
+            observer.pointerMoved(to: parent.pointer)
+            var transitions = [Bool]()
+            let subscription = state.$toolbarHoverVisible.dropFirst().sink { transitions.append($0) }
+            defer { subscription.cancel() }
+            for _ in 0..<2 {
+                parent.key = false; panel.key = true
+                NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: parent)
+                NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
+                try await Task.sleep(nanoseconds: 10_000_000)
+                XCTAssertTrue(state.toolbarHoverVisible)
+                XCTAssertTrue(transitions.isEmpty, "Settings activation must not hide and remount the hovered toolbar")
+            }
+            let body = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: CGPoint(x: 350, y: 100),
+                modifierFlags: [], timestamp: 0, windowNumber: parent.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 0, pressure: 0))
+            observer.handleMouseMoved(body)
+            XCTAssertFalse(state.toolbarHoverVisible, "A key settings panel must not prevent the reader tracking its pointer")
+            observer.pointerMoved(to: parent.pointer)
+            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: NSMenu())
+            panel.key = false
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: panel)
+            try await Task.sleep(nanoseconds: 10_000_000)
+            XCTAssertFalse(state.toolbarHoverVisible, "Activating another app still hides the toolbar")
+            panel.key = true
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: panel)
+            try await Task.sleep(nanoseconds: 10_000_000)
+            observer.handleMouseMoved(body)
+            XCTAssertFalse(state.toolbarHoverVisible, "A menu from a deactivated settings panel must not latch future hovers")
+            XCTAssertFalse(parent.isVisible)
+        }
+    }
+
     func testFloatingTitleOwnerSurvivesDynamicTitlesAndResizeThenRestoresNativeTitle() async throws {
         guard #available(macOS 15, *) else { throw XCTSkip("The public default toolbar-title policy requires macOS 15") }
         final class Titles: ObservableObject { @Published var value = "Floating title initial" }
@@ -453,7 +551,8 @@ final class ReaderToolbarTests: XCTestCase {
                         : window.frame.height
                     XCTAssertEqual(readingRect.maxY, expectedTop, accuracy: 0.1,
                                    "Permanent chrome reserves its space; temporary chrome overlays the full reading viewport")
-                    XCTAssertTrue(installedToolbar.isVisible, "Reader modes keep native chrome layout installed")
+                    XCTAssertEqual(installedToolbar.isVisible, mode != .hidden,
+                                   "Always Hide removes native toolbar layout; Auto Hide retains it")
                 }
                 checkReservedChrome()
                 for shown in [true, false, true, false] {
@@ -564,7 +663,7 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertFalse(window.isVisible)
     }
 
-    func testNarrowToolbarHidesNativeOverflowWithoutChangingItsLayout() async throws {
+    func testNarrowToolbarOverflowFollowsVisibilityWithoutMovingTheBook() async throws {
         final class Items: NSObject, NSToolbarDelegate {
             func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
                 (0..<7).map { .init("overflow-\($0)") }
@@ -608,7 +707,7 @@ final class ReaderToolbarTests: XCTestCase {
             if view.accessibilityRole() == .toolbar { return view }
             return view.subviews.lazy.compactMap { toolbarView(in: $0) }.first
         }
-        let nativeToolbar = try XCTUnwrap(toolbarView(in: root))
+        var nativeToolbar = try XCTUnwrap(toolbarView(in: root))
         XCTAssertGreaterThan(toolbar.items.count, try XCTUnwrap(toolbar.visibleItems).count,
                              "The fixture must contain AppKit's real overflow control")
         let frame = window.frame, layout = window.contentLayoutRect, viewport = window.contentView?.frame
@@ -616,15 +715,26 @@ final class ReaderToolbarTests: XCTestCase {
             state.toolbarDisplayMode = mode
             observer.updateChrome()
             root.layoutSubtreeIfNeeded()
-            XCTAssertEqual(nativeToolbar.isHidden, mode != .shown)
-            XCTAssertEqual(nativeToolbar.alphaValue, mode == .shown ? 1 : 0, accuracy: 0.001)
-            if mode != .shown {
-                XCTAssertNil(nativeToolbar.hitTest(NSPoint(x: nativeToolbar.bounds.maxX - 20, y: nativeToolbar.bounds.midY)),
-                             "Hidden overflow must not intercept clicks on the book")
+            if mode == .hidden {
+                XCTAssertFalse(toolbar.isVisible, "Always Hide removes the native toolbar layout")
+                let point = nativeToolbar.convert(NSPoint(x: nativeToolbar.bounds.maxX - 20, y: nativeToolbar.bounds.midY), to: root)
+                if let hit = root.hitTest(point) {
+                    XCTAssertFalse(hit === nativeToolbar || hit.isDescendant(of: nativeToolbar),
+                                   "Removed overflow must not intercept clicks on the book")
+                }
+                XCTAssertGreaterThanOrEqual(window.contentLayoutRect.maxY, layout.maxY)
+            } else {
+                nativeToolbar = try XCTUnwrap(toolbarView(in: root))
+                XCTAssertEqual(nativeToolbar.isHidden, mode != .shown)
+                XCTAssertEqual(nativeToolbar.alphaValue, mode == .shown ? 1 : 0, accuracy: 0.001)
+                if mode != .shown {
+                    XCTAssertNil(nativeToolbar.hitTest(NSPoint(x: nativeToolbar.bounds.maxX - 20, y: nativeToolbar.bounds.midY)),
+                                 "Hidden overflow must not intercept clicks on the book")
+                }
+                XCTAssertTrue(toolbar.isVisible, "Auto Hide keeps its native hover layout installed")
+                XCTAssertEqual(window.contentLayoutRect, layout)
             }
-            XCTAssertTrue(toolbar.isVisible, "The native toolbar layout must remain installed")
             XCTAssertEqual(window.frame, frame)
-            XCTAssertEqual(window.contentLayoutRect, layout)
             XCTAssertEqual(window.contentView?.frame, viewport)
         }
         observer.pointerMoved(to: NSPoint(x: 280, y: window.frame.height - 1))
@@ -975,6 +1085,7 @@ final class ReaderToolbarTests: XCTestCase {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/native-menu-toolbar.txt"), content: .text("book"))
+        state.toolbarDisplayMode = .shown
         let parent = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         let companion = NSWindow(contentRect: CGRect(x: 2000, y: 600, width: 700, height: 70),
@@ -1004,6 +1115,7 @@ final class ReaderToolbarTests: XCTestCase {
         }
         let frame = parent.frame, viewport = parent.contentView?.frame, layout = parent.contentLayoutRect
         let companionFrame = companion.frame
+        let companionShadow = companion.hasShadow
         for mode in [ReaderToolbarDisplayMode.hidden, .auto, .shown] {
             state.toolbarDisplayMode = mode
             for presentation in [false, true] {
@@ -1018,6 +1130,8 @@ final class ReaderToolbarTests: XCTestCase {
                                "Presentation must suppress toolbar state even when an Auto Hide hover is still set")
                 XCTAssertEqual(content.alphaValue, 1, accuracy: 0.001)
                 XCTAssertFalse(companion.ignoresMouseEvents, "Native controls must remain interactive on menu reveal")
+                XCTAssertEqual(companion.hasShadow, mode == .hidden ? false : companionShadow,
+                               "Always Hide must not leave a rectangular native toolbar shadow")
                 XCTAssertFalse(close.isHidden)
                 for view in [tools, tabs.view] {
                     XCTAssertEqual(view.isHidden, !readerVisible)

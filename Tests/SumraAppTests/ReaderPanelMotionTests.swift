@@ -10,7 +10,7 @@ import XCTest
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         settings.isReleasedWhenClosed = false
         settings.contentView = NSView(); settings.attach(to: parent)
-        settings.reveal(reducedMotion: true)
+        settings.reveal()
         XCTAssertEqual(settings.alphaValue, 1)
         settings.dismiss(reducedMotion: true)
         XCTAssertNil(settings.contentView)

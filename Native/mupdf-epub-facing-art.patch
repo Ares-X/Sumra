@@ -1,0 +1,101 @@
+--- a/source/html/html-layout.c
++++ b/source/html/html-layout.c
+@@ -3455,6 +3455,11 @@
+ 							if (style->title_default_margin & (1 << side)) margin[side] = 0;
+ 						break;
+ 					}
++			/* An image-only chapter presents each picture on its own page.
++			 * Explicit reader margins replace its paragraph spacing. */
++			if (tree->image_page_sequence && ld->page[B] > ld->page[T] &&
++				tree->root->style->title_reader_margin && !strcmp(box->tag, "p"))
++				margin[T] = margin[R] = margin[B] = margin[L] = 0;
+ 			if (box->compact_empty_prose)
+ 				margin[T] = margin[B] = 0;
+ 
+@@ -4061,7 +4066,11 @@
+ 		html->page_w = 72; /* enforce a minimum page size! */
+ 	if (h > 0)
+ 	{
+-		html->page_h = h - html->page_margin[T] - html->page_margin[B];
++		/* The image fills the width inside its margins. Give that content
++		 * its natural height before adding the outer top and bottom margins. */
++		html->page_h = html->tree.image_cover_aspect > 0
++			? fz_max(1, html->page_w) / html->tree.image_cover_aspect
++			: h - html->page_margin[T] - html->page_margin[B];
+ 		if (!html->fixed_layout && html->tree.image_cover_aspect == 0 && html->page_h <= 72)
+ 			html->page_h = 72; /* enforce a minimum page size! */
+ 	}
+--- a/source/html/epub-doc.c
++++ b/source/html/epub-doc.c
+@@ -1081,7 +1081,7 @@
+ 	char base_uri[2048];
+ 	const char *full_path;
+ 	const char *version;
+-	char ncx[2048], s[2048], cover[2048] = "", cover_image[2048] = "";
++	char ncx[2048], s[2048], cover[2048] = "", cover_image[2048] = "", title_page[2048] = "";
+ 	const char *cover_id = NULL;
+ 	char *prefixed_full_path = NULL;
+ 	size_t prefix_len;
+@@ -1177,11 +1177,12 @@
+ 		for (fz_xml *ref = fz_xml_find_down(guide, "reference"); ref; ref = fz_xml_find_next(ref, "reference"))
+ 		{
+ 			const char *type = fz_xml_att(ref, "type"), *href = fz_xml_att(ref, "href");
+-			if (type && !strcmp(type, "cover") && href)
++			if (type && href && (!strcmp(type, "cover") || !strcmp(type, "title-page")))
+ 			{
+-				fz_snprintf(cover, sizeof cover, "%s/%s", base_uri, href);
+-				fz_cleanname(fz_urldecode(cover));
+-				char *fragment = strchr(cover, '#');
++				char *path = !strcmp(type, "cover") ? cover : title_page;
++				fz_snprintf(path, sizeof cover, "%s/%s", base_uri, href);
++				fz_cleanname(fz_urldecode(path));
++				char *fragment = strchr(path, '#');
+ 				if (fragment) *fragment = 0;
+ 			}
+ 		}
+@@ -1207,7 +1208,7 @@
+ 		}
+ 		if (cover_image[0]) doc->cover_image = fz_strdup(ctx, cover_image);
+ 
+-		/* Only the first linear spine item is a structural cover candidate.
++		/* Without a declared cover, the first linear item is a cover candidate.
+ 		 * Its HTML normalizer leaves authored text and captions untouched. */
+ 		fz_xml *first_linear = fz_xml_find_down(spine, "itemref");
+ 		while (first_linear)
+@@ -1251,7 +1252,7 @@
+ 					const char *idref = fz_xml_att(itemref, "idref");
+ 					doc->spine[i]->cover = !strcmp(s, cover) ||
+ 						(i == 0 && idref && !fz_strcasecmp(idref, "cover"));
+-					doc->spine[i]->cover_candidate = !cover[0] && itemref == first_linear;
++					doc->spine[i]->cover_candidate = (!cover[0] && itemref == first_linear) || !strcmp(s, title_page);
+ 					doc->spine[i]->fixed_layout = fixed || (!reflow && fixed_layout);
+ 					if (doc->spine[i]->fixed_layout)
+ 						++doc->fixed_chapters;
+--- a/source/html/html-parse.c
++++ b/source/html/html-parse.c
+@@ -2452,8 +2452,13 @@
+ 		}
+ 		else if (fz_xml_text(node))
+ 		{
+-			const unsigned char *text = (const unsigned char *)fz_xml_text(node);
+-			while (*text) if (*text++ > 32) return 0;
++			const char *text = fz_xml_text(node);
++			while (*text)
++			{
++				int rune;
++				text += fz_chartorune(&rune, text);
++				if (!fz_is_unicode_whitespace(rune)) return 0;
++			}
+ 		}
+ 		else if (!cover_image(fz_xml_down(node), image))
+ 			return 0;
+@@ -2824,7 +2829,8 @@
+ 
+ 		fz_match_css_at_page(ctx, &root_match, g.css);
+ 		fz_apply_css_style(ctx, g.set, &style, &root_match);
+-		if (g.fb2_title_page || g.generated_title_page) title_margin_origins(&g, &style, &root_match, 0);
++		if (g.fb2_title_page || g.generated_title_page || root_match.value[PRO_SUMRA_READER_MARGINS])
++			title_margin_origins(&g, &style, &root_match, 0);
+ 
+ 		g.pool = tree->pool;
+ 		g.tree = tree;

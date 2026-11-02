@@ -743,6 +743,7 @@
 
 "Replace Current Document" = "Huidig document vervangen";
 
+"New Sumra Window" = "Nieuw Sumra-venster";
 "New Tab" = "Nieuw tabblad";
 
 "Close Tab" = "Tabblad sluiten";
@@ -780,3 +781,4 @@
 "Control clearance" = "Ruimte voor bedieningselementen";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Ruimte vanaf de vensterrand die is gereserveerd voor zwevende bedieningselementen. Stel in op 0 om overlap toe te staan. Marges van de inhoud worden één keer meegerekend; verborgen bedieningselementen nemen geen ruimte in.";
 "Top clearance" = "Ruimte bovenaan";
+"Current Page" = "Huidige pagina";

@@ -7,6 +7,51 @@ import SumraCore
 
 final class TextLayoutTests: XCTestCase {
     @MainActor
+    func testLargeDocumentKeepsItsNativeScrollbarSourcePositionDuringFirstTraversal() async throws {
+        let text = (0..<3_500).map { index in
+            "Line \(index): " + String(repeating: "A passage with variable wrapping. ", count: 1 + index % 7)
+        }.joined(separator: "\n")
+        for mode in ["continuous", "paged", "spread"] {
+            let (window, host, view, state) = try await makeReader(text, withDocument: true)
+            defer { close(window) }
+            window.setContentSize(NSSize(width: 900, height: 600))
+            window.alphaValue = 0; window.ignoresMouseEvents = true; window.orderBack(nil)
+            state.flow = mode == "continuous" ? "continuous" : "paged"
+            state.spread = mode == "spread"; state.scrollbarMode = "shown"
+            try await navigate(.style, state: state, host: host)
+            await settle(host)
+            let scroller = try XCTUnwrap(view.enclosingScrollView?.verticalScroller)
+            var previous = scroller.doubleValue
+            for amount in Array(repeating: ReaderScrollAmount.line, count: 6) + Array(repeating: .page, count: 6) {
+                try await navigate(.scroll(.down, amount), state: state, host: host)
+                await settle(host)
+                XCTAssertGreaterThan(scroller.doubleValue, previous, "\(mode): the thumb must advance with the source on the first traversal")
+                previous = scroller.doubleValue
+            }
+            let lines = Array(stride(from: 500, through: 3_000, by: 500))
+            var firstTraversal: [(Double, CGFloat)] = []
+            for line in lines {
+                try await navigate(.page(line), state: state, host: host)
+                await settle(host)
+                firstTraversal.append((scroller.doubleValue, scroller.knobProportion))
+            }
+            for (line, expected) in zip(lines, firstTraversal) {
+                try await navigate(.page(line), state: state, host: host)
+                await settle(host)
+                XCTAssertEqual(scroller.doubleValue, expected.0, accuracy: 0.000_01,
+                    "Previously visited fragments must not change the scrollbar's source position")
+                XCTAssertEqual(scroller.knobProportion, expected.1, accuracy: 0.000_01)
+            }
+            for target in [0.8, 0.1, 0.5, 1.0, 0.0] {
+                try dragNativeScrollbar(scroller, to: target, in: window)
+                await settle(host)
+                XCTAssertEqual(scroller.doubleValue, target, accuracy: 0.002,
+                    "Native scrollbar actions must seek by source, including in newly visited text")
+            }
+        }
+    }
+
+    @MainActor
     func testNamedInstalledFontAppliesToTextAndKeepsSourcePosition() async throws {
         let text = (0..<300).map { "Line \($0): Reading with an installed font." }.joined(separator: "\n")
         let (window, host, view, state) = try await makeReader(text, withDocument: true)
@@ -891,6 +936,24 @@ final class TextLayoutTests: XCTestCase {
         try await navigate(.selectAll, state: state, host: host)
         XCTAssertEqual(view.selectedRange(), NSRange(location: 0, length: (text as NSString).length))
         XCTAssertNotNil(view.textLayoutManager)
+    }
+
+    @MainActor
+    private func dragNativeScrollbar(_ scroller: NSScroller, to fraction: Double, in window: NSWindow) throws {
+        let knob = scroller.rect(for: .knob), slot = scroller.rect(for: .knobSlot)
+        let start = scroller.convert(NSPoint(x: knob.midX, y: knob.midY), to: nil)
+        let target = scroller.convert(NSPoint(x: slot.midX,
+            y: slot.minY + knob.height / 2 + fraction * (slot.height - knob.height)), to: nil)
+        func event(_ type: NSEvent.EventType, at point: NSPoint, number: Int) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: number, clickCount: 1, pressure: 1))
+        }
+        // NSScroller owns its normal trackKnob loop, consuming these events
+        // for this invisible fixture window without moving the system pointer.
+        NSApp.postEvent(try event(.leftMouseDragged, at: target, number: 2), atStart: false)
+        NSApp.postEvent(try event(.leftMouseUp, at: target, number: 3), atStart: false)
+        scroller.mouseDown(with: try event(.leftMouseDown, at: start, number: 1))
     }
 
     @MainActor

@@ -76,7 +76,13 @@ struct SumraCommands: Commands {
             Button(L("Contribute Translation")) { ReaderHelp.contributeTranslation() }
             Button(L("Check for Updates…")) { ReaderHelp.checkForUpdates() }
         }
-        CommandGroup(after: .newItem) {
+        CommandGroup(replacing: .newItem) {
+            Button(L("New Sumra Window")) {
+                ReaderWindows.leaveOverview(of: ReaderWindows.newTabState?.window) {
+                    openWindow(id: "reader", value: WindowPayload())
+                }
+            }.keyboardShortcut("n")
+
             ReaderCommandButton(command: .open, open: openFiles)
             buttons([.files, .openNoHistory, .reopenClosed])
             ExternalCommandMenu()

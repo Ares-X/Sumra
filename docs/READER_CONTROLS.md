@@ -72,8 +72,8 @@ Close and Command-W use the document window's close capability, including in
 fullscreen when AppKit hides or disables its traffic-light button. An attached
 sheet blocks the document close command. Closing still follows the existing
 unsaved-changes confirmation and native delegate approval.
-Closing a native tab remounts the surviving tab bar through its public window
-group so the remaining tabs fill it while the pointer stays in place. Native
+AppKit completes ordinary tab closes synchronously and keeps the surviving
+document windows in their existing group. Native
 titlebar accessories retain their own clicks; the window-drag region excludes
 their actual view hierarchy. On macOS 15 and later SwiftUI also owns removal of
 the native title item when the reading toolbar hides.
@@ -165,8 +165,8 @@ or **Always Hide**. Auto Hide reveals controls across the full measured native
 toolbar and tab-bar height, with a minimum entry depth of 48 points. The retention
 region is at least 96 points and never shorter than the entry region, so closing
 a tab under a stationary pointer keeps the surviving controls reachable. Editing
-the page field also keeps controls available. Always Hide does not reveal reading
-controls on hover. Temporary controls
+the page field also keeps controls available. Auto Hide keeps the normal toolbar
+installed; Always Hide removes it and reveals only the window buttons on hover. Temporary controls
 overlay the book without changing its viewport or pagination, including in full
 screen. Presentation hides the reading toolbar, and leaving presentation
 restores the chosen mode. The earlier local
@@ -174,8 +174,10 @@ hover preference migrates to Auto Hide when enabled, otherwise Always Show.
 Native reading, including fixed PDFs and reflowed text, uses the space beneath
 temporary chrome, retaining the selected page margin without an additional
 titlebar-sized blank band. PDF fitting and scrolling use that same unobscured
-viewport. Always Show reserves the native controls once. In paged and two-page
-TXT reading, vertical line commands align to complete TextKit lines; the facing
+viewport. Native scrollbar tracks end clear of overlaid reading controls while
+the document can still use the space underneath. Always Show reserves the native controls once. In paged and two-page
+TXT reading, the scroll thumb follows the visible range in the source text as
+TextKit lays out more lines. Vertical line commands align to complete TextKit lines; the facing
 page continues immediately after the last complete line on the leading page.
 Advanced settings export/import uses `toolbarDisplayMode` (`shown`, `auto`,
 `hidden`). Existing configured `toolbar` commands keep their show/hide semantics
@@ -235,6 +237,9 @@ still reveals the three macOS window buttons, without changing the book viewport
 or restoring a native toolbar over them. Presentation hides those buttons too.
 Tab switching, batch closing, sessions and named groups read the complete native
 group even when its system tab bar is not shown.
+With a normal toolbar, Always Show reserves a row below the document for the
+progress bar even when the top toolbar hides. The percentage, slider and page
+label are centered together; the slider stays still as page numbers change.
 The floating progress bar is 26 points tall and 16 points from the bottom edge,
 matching the top control inset.
 Small-book capsules are 472 points wide, with equal 12-point inner padding and
@@ -277,6 +282,10 @@ During window resizing, paged reflowable books fit their existing pages to the
 changing viewport. Pagination and raster generation wait until the drag ends,
 then refresh at the final size while retaining the reading passage. Both halves
 of a spread adopt the new page dimensions together.
+In a paged, facing layout, **Fit Page** fits each page into its own half of the
+spread and centers the two vertically. **Cover on Its Own** gives the separate
+PDF cover the full viewport for fitting.
+
 PDF pages remain fixed-layout pages: **Fit Page** scales the paper, not its text
 flow. **Fit Width in Continuous View** selects single-page continuous reading
 and width fitting; **Trim Empty Margins** can additionally crop empty object
@@ -322,8 +331,8 @@ bookmarks after the atomic file replacement.
 **Choose Page by Thumbnail** shows sequential pages around the current page,
 without the command palette's search and category controls or history sorting.
 The thumbnail chooser accepts Up/Down to change selection, Return to navigate,
-and Escape to close without changing the page. The full row is clickable in both
-surfaces. Custom Document Colors includes
+and Escape to close without changing the page. Single-click anywhere on a row to select it in either chooser; double-click or
+press Return to open it. A separate *Current Page* subtitle marks the page being read. Custom Document Colors includes
 the page divider color and visibility; these overrides persist with the book,
 and **Use Theme** restores the theme's divider.
 

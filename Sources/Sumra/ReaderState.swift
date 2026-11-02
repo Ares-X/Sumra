@@ -744,7 +744,7 @@ extension ReaderState {
 
     var pageLabel: String {
         guard count > 0 else { return "—" }
-        if let label = logicalPageLabel { return label }
+        if let label = logicalPageLabel, !label.isEmpty { return label }
         if reflowable, let anchor = location.anchor, let label = Self.chapterInput(anchor, offset: 1) { return label }
         return String(min(page + 1, count))
     }
@@ -1370,6 +1370,14 @@ extension ReaderState {
     }
     func scroll(_ direction: ReaderScrollDirection, amount: ReaderScrollAmount = .line, count: Int = 1) { send(.scroll(direction, amount, count: count)) }
 
+    // A floating tab strip or sidebar can sit over a full-size reader. Use the
+    // window's hit, including its overlays, before intercepting AppKit input.
+    static func hitView(for event: NSEvent) -> NSView? {
+        guard let root = event.window?.contentView?.superview else { return nil }
+        let point = root.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+        return root.hitTest(point)
+    }
+
     func handleScrollWheel(_ event: NSEvent) -> Bool {
         guard event.type == .scrollWheel else { return false }
         if event.phase.contains(.began) || event.phase.contains(.mayBegin) ||
@@ -1387,8 +1395,7 @@ extension ReaderState {
         guard clip.safeAreaRect.contains(clip.convert(event.locationInWindow, from: nil)) else { return false }
         // Cover the whole reader, including page margins, without stealing a
         // form editor's nested scroll view or the native scrollbar itself.
-        let point = scroll.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-        guard let hit = scroll.hitTest(point), hit === scroll || hit.enclosingScrollView === scroll else { return false }
+        guard let hit = Self.hitView(for: event), hit === scroll || hit.enclosingScrollView === scroll else { return false }
         if event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 { discardNativePassage() }
         guard flow != "continuous" || presentation else { return false }
         let horizontal = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)

@@ -330,8 +330,11 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         let combo = try XCTUnwrap(fonts)
         assertClickable(combo, in: content)
         XCTAssertTrue(combo.isEditable)
-        XCTAssertTrue(combo.objectValues.contains { ($0 as? String) == "Georgia" })
         let delegate = try XCTUnwrap(combo.delegate as? ReaderFontNamePicker.Coordinator)
+        XCTAssertEqual(combo.objectValues as? [String], ["system", "serif", "sans-serif", "monospace"],
+                       "Showing Reading Settings must not enumerate installed fonts")
+        delegate.comboBoxWillPopUp(Notification(name: NSComboBox.willPopUpNotification, object: combo))
+        XCTAssertTrue(combo.objectValues.contains { ($0 as? String) == "Georgia" })
         combo.selectItem(withObjectValue: "Georgia")
         delegate.comboBoxSelectionDidChange(Notification(name: NSComboBox.selectionDidChangeNotification, object: combo))
         XCTAssertEqual(state.font, "Georgia")
@@ -373,11 +376,12 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         let combo = try XCTUnwrap(fonts)
         XCTAssertTrue(combo.isEditable)
         XCTAssertEqual(combo.stringValue, "Iowan Old Style")
+        let delegate = try XCTUnwrap(combo.delegate as? ReaderFontNamePicker.Coordinator)
+        delegate.comboBoxWillPopUp(Notification(name: NSComboBox.willPopUpNotification, object: combo))
         if FileManager.default.fileExists(atPath: "/System/Library/Fonts/Supplemental/Iowan Old Style.ttc") {
             XCTAssertTrue(combo.objectValues.contains { $0 as? String == "Iowan Old Style" })
         }
         combo.selectItem(withObjectValue: "Georgia")
-        let delegate = try XCTUnwrap(combo.delegate as? ReaderFontNamePicker.Coordinator)
         delegate.comboBoxSelectionDidChange(Notification(name: NSComboBox.selectionDidChangeNotification, object: combo))
         XCTAssertEqual(defaults.string(forKey: "font"), "Georgia")
     }
