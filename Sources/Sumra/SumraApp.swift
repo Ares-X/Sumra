@@ -1698,7 +1698,12 @@ extension ReaderState {
         guard let window, let group = window.tabGroup, let index = group.windows.firstIndex(of: window) else { return }
         let destination = index + direction
         guard group.windows.indices.contains(destination) else { return }
-        group.insertWindow(window, at: destination)
+        // Moving an existing group entry leaves AppKit's native tab captions
+        // in their old slots. Reattach the neighbor on the opposite side,
+        // keeping the selected reader in its window and fullscreen Space.
+        let neighbor = group.windows[destination]
+        group.removeWindow(neighbor)
+        window.addTabbedWindow(neighbor, ordered: direction < 0 ? .above : .below)
         window.makeKeyAndOrderFront(nil)
     }
     func closeTabs(_ subset: String) {
