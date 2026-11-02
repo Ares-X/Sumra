@@ -184,7 +184,7 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
         }
     }
 
-    func testCompletedSearchSelectionAndResultsStayTogetherDuringLazyChapterPagination() async throws {
+    func testHostedSearchAfterContentsAndQueuedReflowKeepsSelectionInResults() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory(), query = "合计四十九营二万五千人之"
         let input = try fixture(in: directory.url, query: query, ordinaryParagraphs: 240)
@@ -196,7 +196,6 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
         state.userCSS = ""; state.useDocumentCSS = true; state.scrollbarMode = "hidden"
         state.trimEmptyMargins = false; state.uniformPageWidth = false; state.freePan = false
         state.landscapeAsSpread = false; state.rtl = false
-        var completedSelection: String?, completedWithLazyChapters = false
         var mismatchedSelections = [String]()
         let subscription = state.$selectedSearchTarget.sink { target in
             guard let target else { return }
@@ -205,18 +204,12 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
                 mismatchedSelections.append("selected=\(target) published=\(state.searchResults.map(\.target))")
             }
         }
-        let completion = state.$searchCounting.dropFirst().sink { counting in
-            if !counting, state.searchResults.count == 4 {
-                completedSelection = state.selectedSearchTarget
-                completedWithLazyChapters = state.chapterLayout?.complete == false
-            }
-        }
         let host = NSHostingView(rootView: ReaderView(state: state))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer {
-            subscription.cancel(); completion.cancel(); state.windowClosed(); window.makeFirstResponder(nil)
+            subscription.cancel(); state.windowClosed(); window.makeFirstResponder(nil)
             window.contentView = nil; window.close(); withExtendedLifetime(directory) {}
         }
         func wait(_ reason: String, _ condition: () -> Bool) async throws {
@@ -246,10 +239,8 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
         try await wait("Close Contents and finish preceding pagination") {
             state.chapterLayout?.complete == true && painted()
         }
-        // Contents can finish background pagination before the next command,
-        // and its preceding painted surface can satisfy the wait above. Queue
-        // a real typography reflow while find is pending so this test always
-        // starts its completed-search handoff with lazy negative chapters.
+        // Queue a real typography reflow while find is pending. This hosted
+        // workflow permits background pagination to finish at any point.
         let searchReflowRevision = state.renderRevision
         state.send(.find(query))
         state.fontSize = 18
@@ -262,11 +253,102 @@ final class EPUBSearchReflowHandoffTests: XCTestCase {
             }
             return false
         }
-        XCTAssertNotNil(completedSelection)
-        XCTAssertTrue(completedWithLazyChapters,
-                      "The search must complete before earlier negative chapters are laid out")
-        XCTAssertNotEqual(completedSelection, state.selectedSearchTarget,
-                          "Background chapter layout after completed search must change the selected page projection")
+        XCTAssertTrue(mismatchedSelections.isEmpty, mismatchedSelections.joined(separator: "\n"))
+        XCTAssertEqual(state.searchCountText, "1 / 4")
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testCompletedSearchSelectionAndResultsStayTogetherDuringLazyChapterPagination() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), query = "LAZY_PUBLICATION_NEEDLE"
+        let input = try fixture(in: directory.url, query: query, ordinaryParagraphs: 240)
+        let pages = try Pages(input, format: .book, deferReflowLayout: true)
+        let state = ReaderState(recordsHistory: false)
+        state.flow = "paged"; state.spread = false; state.cover = false
+        state.fit = "page"; state.zoom = 1; state.automaticLayout = false
+        state.fontSize = 18; state.lineHeight = 1.4; state.margin = 32
+        state.font = "system"; state.theme = "light"; state.pageMargins = nil
+        state.userCSS = ""; state.useDocumentCSS = true; state.scrollbarMode = "hidden"
+        state.trimEmptyMargins = false; state.uniformPageWidth = false; state.freePan = false
+        state.landscapeAsSpread = false; state.rtl = false
+        _ = try await pages.relayout(fontSize: state.fontSize, lineHeight: state.lineHeight,
+            margin: state.margin, font: state.font, theme: state.resolvedTheme,
+            userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 800, height: 600))
+        let initialBounds = try await pages.bounds(0)
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.reflowable = true; state.searchable = true
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        var mismatchedSelections = [String]()
+        let subscription = state.$selectedSearchTarget.sink { target in
+            guard let target, !state.searchCounting, !state.searchResults.isEmpty else { return }
+            if !state.searchResults.contains(where: { $0.target == target }) {
+                mismatchedSelections.append("selected=\(target) published=\(state.searchResults.map(\.target))")
+            }
+        }
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages, initialBounds: initialBounds))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer {
+            subscription.cancel(); state.windowClosed(); window.makeFirstResponder(nil)
+            window.contentView = nil; window.close(); withExtendedLifetime(directory) {}
+        }
+        func wait(_ reason: String, paint: Bool = false, _ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(15)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if paint, let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                }
+                if let error = state.error { throw ReadError(error) }
+                if condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline
+            throw ReadError("\(reason): \(state.searchCountText)")
+        }
+        // Production speculative pagination starts only after first paint.
+        // Mount and search without painting, so negative chapters stay lazy
+        // until this test explicitly invokes the same native publication owner.
+        try await wait("Mounted reader") { state.readerFocusView != nil }
+        state.send(.find(query))
+        try await wait("Completed search before first paint") {
+            state.searchResults.count == 4 && !state.searchCounting &&
+                RasterReader.highlightedMatch(in: state.readerFocusView)?.source != nil
+        }
+        let before = try XCTUnwrap(state.chapterLayout)
+        let selected = try XCTUnwrap(RasterReader.highlightedMatch(in: state.readerFocusView))
+        let location = try XCTUnwrap(selected.location)
+        XCTAssertEqual(location.chapter, 13)
+        XCTAssertTrue((1..<location.chapter).allSatisfy { !before.isLaidOut($0) },
+                      "Earlier negative chapters must remain lazy before the controlled publication")
+        let originalTarget = try XCTUnwrap(state.selectedSearchTarget)
+        var matches = [RasterMatch]()
+        for page in 0..<before.pageCount(location.chapter) {
+            matches += try await pages.matches(query, location: .init(chapter: location.chapter, page: page))
+        }
+        XCTAssertEqual(matches.count, 4)
+        XCTAssertTrue(matches.allSatisfy { $0.source != nil })
+        XCTAssertEqual(selected.source, matches.first?.source)
+        func targets(_ table: ChapterTable) throws -> [String] {
+            try matches.map { match in
+                let page = try XCTUnwrap(table.page(for: XCTUnwrap(match.location)))
+                return "raster-search:\(page):\(match.index)"
+            }
+        }
+        XCTAssertEqual(state.searchResults.map(\.target), try targets(before))
+        // No ReaderState setter here: the native layout notification must flow
+        // through mounted RasterReader and its asynchronous result projection.
+        let complete = try await pages.ensureFullLayout()
+        XCTAssertTrue(complete.complete)
+        XCTAssertNotEqual(before.page(for: location), complete.page(for: location))
+        let expected = try targets(complete)
+        try await wait("Selected result and native source after lazy publication", paint: true) {
+            state.chapterLayout == complete && state.selectedSearchTarget == expected.first &&
+                state.searchResults.map(\.target) == expected &&
+                RasterReader.highlightedMatch(in: state.readerFocusView)?.source == selected.source &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: location)
+        }
+        XCTAssertNotEqual(originalTarget, state.selectedSearchTarget)
         XCTAssertTrue(mismatchedSelections.isEmpty, mismatchedSelections.joined(separator: "\n"))
         XCTAssertEqual(state.searchCountText, "1 / 4")
         XCTAssertFalse(window.isVisible)
