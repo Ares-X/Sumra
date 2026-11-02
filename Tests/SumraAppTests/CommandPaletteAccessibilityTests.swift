@@ -10,6 +10,7 @@ import XCTest
 final class CommandPaletteAccessibilityTests: XCTestCase {
     func testUnavailableCommandRowsExposeDisabledNativeAccessibility() async throws {
         _ = NSApplication.shared
+        NSApp.finishLaunching()
         let defaults = UserDefaults.standard, savedLanguage = defaults.object(forKey: "language")
         defaults.set("en", forKey: "language")
         defer { defaults.set(savedLanguage, forKey: "language") }
