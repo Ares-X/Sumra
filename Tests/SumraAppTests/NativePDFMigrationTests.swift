@@ -101,17 +101,21 @@ final class NativePDFMigrationTests: XCTestCase {
     }
 
     func testBlankPublisherPageLabelDisplaysItsPhysicalPageNumber() async throws {
-        let directory = try TemporaryDirectory(), source = directory.url.appendingPathComponent("labels.pdf")
+        let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
-        try fixture(catalog: "/PageLabels << /Nums [0 << >> 1 << /S /r >>] >>").write(to: source)
-        let pages = try Pages(source, format: .pdf)
-        let state = ReaderState(recordsHistory: false)
-        state.document = ReadingDocument(url: source, content: .pages(pages)); state.count = 2
-        defer { state.windowClosed() }
-        for (page, visibleLabel) in ["1", "i"].enumerated() {
-            state.page = page
-            state.logicalPageLabel = try await pages.pdfPageLabel(page)
-            XCTAssertEqual(state.pageLabel, visibleLabel)
+        let cases = [("<< >>", "1"), ("<< /P ( ) >>", "1"), ("<< /P ( Part A ) >>", " Part A ")]
+        for (index, (rule, firstLabel)) in cases.enumerated() {
+            let source = directory.url.appendingPathComponent("labels-\(index).pdf")
+            try fixture(catalog: "/PageLabels << /Nums [0 \(rule) 1 << /S /r >>] >>").write(to: source)
+            let pages = try Pages(source, format: .pdf)
+            let state = ReaderState(recordsHistory: false)
+            state.document = ReadingDocument(url: source, content: .pages(pages)); state.count = 2
+            defer { state.windowClosed() }
+            for (page, visibleLabel) in [firstLabel, "i"].enumerated() {
+                state.page = page
+                state.logicalPageLabel = try await pages.pdfPageLabel(page)
+                XCTAssertEqual(state.pageLabel, visibleLabel, rule)
+            }
         }
     }
 

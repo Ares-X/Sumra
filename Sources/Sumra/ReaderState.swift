@@ -744,7 +744,7 @@ extension ReaderState {
 
     var pageLabel: String {
         guard count > 0 else { return "—" }
-        if let label = logicalPageLabel, !label.isEmpty { return label }
+        if let label = logicalPageLabel, label.contains(where: { !$0.isWhitespace }) { return label }
         if reflowable, let anchor = location.anchor, let label = Self.chapterInput(anchor, offset: 1) { return label }
         return String(min(page + 1, count))
     }
