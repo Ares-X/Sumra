@@ -511,9 +511,16 @@ struct ReaderToolbarAppearance: ViewModifier {
             // the fullscreen companion. Follow the original native container
             // into that window so its first appearance is hidden as well.
             let owner = factoryControl ? nativeControlsContainer?.window : button?.window
+            // A tab created in fullscreen can mount its floating factory after
+            // native controls have already left the document frame. Its native
+            // accessory still identifies that tab's own fullscreen companion.
+            let accessories = parent.styleMask.contains([.titled, .fullScreen])
+                ? parent.titlebarAccessoryViewControllers.map { $0.view.window } : []
+            let owners = [owner] + accessories
             let detached: NSWindow?
-            if let owner, owner !== parent, !(owner.delegate is ReaderCloseGuard) { detached = owner }
-            else if state?.usesCustomChrome == true, parent.styleMask.contains(.fullScreen) {
+            if let owner = owners.compactMap({ $0 }).first(where: { $0 !== parent && !($0.delegate is ReaderCloseGuard) }) {
+                detached = owner
+            } else if state?.usesCustomChrome == true, parent.styleMask.contains(.fullScreen) {
                 // Keep this host's identified companion while AppKit swaps
                 // its standard-button lookup during the fullscreen transition.
                 detached = toolbarWindow
