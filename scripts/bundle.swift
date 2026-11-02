@@ -138,6 +138,12 @@ func quickLookRegistration() -> (exported: [[String: Any]], imported: [[String: 
             ["org.idpf.epub-container"] + (exported + imported).map { $0.0 })
 }
 
+func localizationRegistration(in directory: URL) throws -> [String: Any] {
+    let languages = try files.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        .filter { $0.pathExtension == "lproj" }.map { $0.deletingPathExtension().lastPathComponent }.sorted()
+    return ["CFBundleDevelopmentRegion": "en", "CFBundleLocalizations": languages]
+}
+
 func package() throws {
     // The certificate and its existing private key can live in different
     // Keychains. Unlock the configured key owner only for this signing run.
@@ -266,6 +272,9 @@ func package() throws {
         "LSSupportsOpeningDocumentsInPlace": true, "LSMultipleInstancesProhibited": true,
         "CFBundleIconFile": "Sumra-Light.icns"
     ]
+    // Catalogs live below Localizations rather than the bundle root. Declare them
+    // so AppKit can negotiate the system language for its menus and panels too.
+    info.merge(try localizationRegistration(in: contents.appendingPathComponent("Resources/Localizations"))) { _, value in value }
     // Dedicated book/comic UTIs keep ordinary ZIP/RAR/7z archives out of Quick Look.
     let quickLook = quickLookRegistration()
     info["UTExportedTypeDeclarations"] = quickLook.exported
