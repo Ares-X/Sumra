@@ -280,8 +280,9 @@ Opening or replacing a book while the pointer stays in that area reveals Auto
 Hide controls when the book becomes ready, without requiring another mouse move.
 During window resizing, paged reflowable books fit their existing pages to the
 changing viewport. Pagination and raster generation wait until the drag ends,
-then refresh at the final size while retaining the reading passage. Both halves
-of a spread adopt the new page dimensions together.
+then refresh at the final size while retaining the reading passage. While a
+facing spread is in **Fit Page**, both existing pages scale together until the
+new layout is ready. This keeps neighboring artwork aligned throughout the drag.
 In a paged, facing layout, **Fit Page** fits each page into its own half of the
 spread and centers the two vertically. **Cover on Its Own** gives the separate
 PDF cover the full viewport for fitting.
