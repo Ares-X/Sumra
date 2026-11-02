@@ -1816,9 +1816,9 @@ struct SumraApp: App {
     @NSApplicationDelegateAdaptor(ReaderApplicationDelegate.self) private var delegate
     init() {
         ReaderPreferences.migrate()
-        // ReaderWindows places each requested tab explicitly. AppKit must not
-        // also place new SwiftUI scenes in the currently active fullscreen group.
-        NSWindow.allowsAutomaticWindowTabbing = false
+        // AppKit installs View's tab overview and Window's tab commands only
+        // when tabbing is enabled. Each scene still owns its requested placement.
+        NSWindow.allowsAutomaticWindowTabbing = !UserDefaults.standard.bool(forKey: "disableTabs")
         ReaderTheme.applyAppearance(UserDefaults.standard.string(forKey: "theme") ?? ReaderTheme.builtins[0].id)
         AppIcon.apply(UserDefaults.standard.string(forKey: "appIcon") ?? "light")
         if UserDefaults.standard.bool(forKey: "restoreSession") { Self.restoring = ReaderWindows.prepareRestoration(ReaderWindows.saved("session")) }

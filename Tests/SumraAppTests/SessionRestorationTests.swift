@@ -73,7 +73,7 @@ final class SessionRestorationTests: XCTestCase {
         let recent = NSDocumentController.shared.recentDocumentURLs
         let previousCapture = ScreenshotHotkey.capture
         let automaticTabbing = NSWindow.allowsAutomaticWindowTabbing
-        NSWindow.allowsAutomaticWindowTabbing = false
+        NSWindow.allowsAutomaticWindowTabbing = true
         let terminating = ReaderWindows.isTerminating
         defaults.set(false, forKey: "disableHistory")
         defaults.set(true, forKey: "disableReadingState")

@@ -63,6 +63,7 @@ extension ReaderPreferences {
 
         for reader in ReaderWindows.states { applyReadingDefaults(to: reader, changed: changed) }
         if changed.contains("disableTabs") {
+            NSWindow.allowsAutomaticWindowTabbing = !defaults.bool(forKey: "disableTabs")
             for reader in ReaderWindows.states {
                 guard let window = reader.window, let owner = window.delegate as? ReaderCloseGuard else { continue }
                 window.tabbingMode = defaults.bool(forKey: "disableTabs") || owner.isHome ? .disallowed : .preferred

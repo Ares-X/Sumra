@@ -25,9 +25,22 @@ An early development build also left the three documents in separate windows.
 The reused Home window was allowed to accept tabs but had no native tab group
 yet. Attaching the first document to the neighboring window created the
 group (native counts 2, then 3); the next replay showed PDF, EPUB, TXT in
-one native tab strip, with the middle EPUB selected. Direct New Tab,
-fullscreen Duplicate Tab, and opening another file in a fullscreen tab
-also rendered their documents during development acceptance.
+one native tab strip, with the middle EPUB selected. In a fresh launch of the
+uninstrumented development app, mouse clicks switched from EPUB to TXT, PDF
+and back to EPUB. Each window displayed the correct body and title. Closing
+the middle EPUB, keeping the pointer in the tab strip and clicking the
+surviving PDF also worked. AppKit held the old tab widths temporarily under
+the pointer. An earlier replay recorded ignored clicks; it did not recur in
+this clean run. Cmd-W closed the selected PDF without disturbing the others.
+
+Direct New Tab, fullscreen Duplicate Tab, and opening another file in a
+fullscreen tab rendered their documents during development acceptance. The
+subsequent fullscreen check caught a separate regression: the native View
+menu no longer offered Show All Tabs after automatic tabbing was disabled
+globally. Switching tabs by keyboard or accessibility did not exercise this
+missing command. The application now leaves native tabbing enabled when the
+reader preference allows tabs; each requested window still controls its own
+placement.
 
 Clean tabs now allow native Close and Quit to finish synchronously. Pending
 edits still go through the existing save/cancel confirmation.
