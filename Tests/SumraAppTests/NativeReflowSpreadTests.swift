@@ -11,25 +11,40 @@ final class NativeReflowSpreadTests: XCTestCase {
     func testMixedCoverAndTextFitTheirSlotsDuringAndAfterLiveResize() async throws {
         let directory = try TemporaryDirectory()
         defer { withExtendedLifetime(directory) {} }
-        let input = try fixture(in: directory.url)
+        try await checkLiveResize(try fixture(in: directory.url), start: CGSize(width: 800, height: 600),
+            sizes: [CGSize(width: 620, height: 450), CGSize(width: 920, height: 480), CGSize(width: 560, height: 700)])
+    }
+
+    func testOriginalIssue82CoverAndFacingArtworkStayAlignedDuringWidthChanges() async throws {
+        guard let path = ProcessInfo.processInfo.environment["SUMRA_ISSUE82_SPREAD_SAMPLES"] else {
+            throw XCTSkip("Set SUMRA_ISSUE82_SPREAD_SAMPLES to the original reporter books")
+        }
+        let url = URL(fileURLWithPath: path).appendingPathComponent("repeat-misalignedepubsecondroundC.epub")
+        for start in [CGSize(width: 904, height: 740), CGSize(width: 1512, height: 945)] {
+            let sizes = [-100, 100, 250].map { CGSize(width: start.width + CGFloat($0), height: start.height) }
+            try await checkLiveResize(url, start: start, sizes: sizes, checkArtwork: true)
+        }
+    }
+
+    private func checkLiveResize(_ input: URL, start: CGSize, sizes: [CGSize], checkArtwork: Bool = false) async throws {
         let state = ReaderState(recordsHistory: false)
         let defaults = UserDefaults.standard
         let saved = ["flow", "spread"].map { ($0, defaults.object(forKey: $0)) }
         defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
         state.flow = "paged"; state.spread = true; state.cover = false; state.fit = "page"
         state.fontSize = 17; state.lineHeight = 1.4; state.font = "serif"; state.theme = "light"; state.margin = 32
-        state.pageMargins = nil; state.marginPresetSelection = nil; state.userCSS = ""; state.useDocumentCSS = true
+        state.pageMargins = checkArtwork ? PageMargins(cssValues: [0]) : nil; state.marginPresetSelection = checkArtwork ? "custom" : nil; state.userCSS = ""; state.useDocumentCSS = true
         state.automaticLayout = false; state.freePan = false; state.uniformPageWidth = false
         state.trimEmptyMargins = false; state.landscapeAsSpread = false; state.rtl = false; state.scrollbarMode = "hidden"
         let pages = try Pages(input, format: .book, deferReflowLayout: true)
         _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
-            userCSS: state.effectiveUserCSS, pageSize: CGSize(width: 398, height: 600))
+            userCSS: state.effectiveUserCSS, pageMargins: state.pageMargins, pageSize: RasterReader.pageSize(in: start, spread: true))
         _ = try await pages.prepareFacingPages(.init(page: 0), cover: false)
         state.document = ReadingDocument(url: input, content: .pages(pages)); state.reflowable = true
         _ = state.applyChapterLayout(await pages.chapterLayout)
         let initialBounds = try await pages.bounds(0)
         let host = NSHostingView(rootView: RasterReader(state: state, pages: pages, initialBounds: initialBounds))
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: start),
             styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
         defer { state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close() }
@@ -45,26 +60,49 @@ final class NativeReflowSpreadTests: XCTestCase {
             repeat {
                 paint()
                 let current = await pages.layoutRevision
-                if visible().count == count, visible().allSatisfy(\.readingReady), revision.map({ current > $0 }) ?? true { return }
+                let painted = visible()
+                if painted.count == count, painted.allSatisfy(\.readingReady), revision.map({ current > $0 }) ?? true {
+                    // The decoder can finish repagination before the new canvases mount.
+                    var currentBounds = [CGRect]()
+                    for canvas in painted { currentBounds.append(try await pages.bounds(canvas.location)) }
+                    if painted.map(\.pageBounds) == currentBounds { return }
+                }
                 try await Task.sleep(nanoseconds: 10_000_000)
             } while Date() < deadline && state.error == nil
             XCTFail(state.error ?? "Mixed EPUB spread did not settle")
             throw CancellationError()
         }
-        func assertSlotFit(line: UInt = #line) throws {
+        var artwork: [CGRect] = []
+        func assertSlotFit(resizing original: [CGSize]? = nil, line: UInt = #line) throws {
             let pair = visible()
             XCTAssertEqual(pair.count, 2, line: line)
             let first = try XCTUnwrap(pair.first), second = try XCTUnwrap(pair.last)
-            XCTAssertNotEqual(first.pageBounds.height, second.pageBounds.height, "Exercise a natural cover canvas beside a finite text page", line: line)
+            XCTAssertNotEqual(first.pageBounds.height, second.pageBounds.height, "Exercise a natural cover beside a finite chapter page", line: line)
             let clip = try XCTUnwrap(first.enclosingScrollView?.contentView)
             let slot = (clip.safeAreaRect.width - 4) / 2
+            if let original {
+                let factor = original.map { min(slot / $0.width, clip.safeAreaRect.height / $0.height) }.min()!
+                for (canvas, size) in zip(pair, original) {
+                    XCTAssertEqual(canvas.bounds.width, size.width * factor, accuracy: 0.5, line: line)
+                    XCTAssertEqual(canvas.bounds.height, size.height * factor, accuracy: 0.5, line: line)
+                }
+            } else {
+                for canvas in pair {
+                    let scale = min(slot / canvas.pageBounds.width, clip.safeAreaRect.height / canvas.pageBounds.height)
+                    XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width * scale, accuracy: 0.5, line: line)
+                    XCTAssertEqual(canvas.bounds.height, canvas.pageBounds.height * scale, accuracy: 0.5, line: line)
+                }
+            }
             for canvas in pair {
-                let scale = min(slot / canvas.pageBounds.width, clip.safeAreaRect.height / canvas.pageBounds.height)
-                XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width * scale, accuracy: 0.5, line: line)
-                XCTAssertEqual(canvas.bounds.height, canvas.pageBounds.height * scale, accuracy: 0.5, line: line)
                 XCTAssertTrue(clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5).contains(canvas.convert(canvas.bounds, to: clip)), line: line)
             }
             XCTAssertEqual(first.convert(first.bounds, to: host).midY, second.convert(second.bounds, to: host).midY, accuracy: 0.5, line: line)
+            if checkArtwork {
+                let edges = zip(pair, artwork).map { canvas, art in
+                    canvas.convert(art.applying(canvas.pageTransform), to: host).maxY
+                }
+                XCTAssertEqual(edges[0], edges[1], accuracy: 1, "Art edges at \(host.bounds.size)", line: line)
+            }
         }
         try await settle()
         // Initial mounting can paint its prepared bitmap before the viewport's
@@ -74,14 +112,25 @@ final class NativeReflowSpreadTests: XCTestCase {
             state.send(.style, completed: { continuation.resume() })
         }
         try await settle()
+        func measureArtwork() async throws {
+            guard checkArtwork else { return }
+            artwork.removeAll()
+            for canvas in visible() {
+                let boxes = try await pages.imageBounds(canvas.location)
+                artwork.append(try XCTUnwrap(boxes.first))
+            }
+        }
+        try await measureArtwork()
         try assertSlotFit()
         let revision = await pages.layoutRevision
         let images = visible().map(\.image)
+        let original = visible().map { $0.bounds.size }
+        let originalBounds = visible().map(\.pageBounds)
         NotificationCenter.default.post(name: NSWindow.willStartLiveResizeNotification, object: window)
-        for size in [CGSize(width: 620, height: 450), CGSize(width: 920, height: 480), CGSize(width: 560, height: 700)] {
+        for size in sizes {
             window.setContentSize(size)
             for _ in 0..<5 {
-                paint(); try assertSlotFit()
+                paint(); try assertSlotFit(resizing: original)
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
             let currentRevision = await pages.layoutRevision
@@ -91,7 +140,23 @@ final class NativeReflowSpreadTests: XCTestCase {
             }
         }
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        if checkArtwork {
+            // Start another drag before the decoder can replace the first spread.
+            NotificationCenter.default.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+            window.setContentSize(CGSize(width: start.width + 125, height: start.height))
+            paint()
+            XCTAssertEqual(visible().map(\.pageBounds), originalBounds)
+            try assertSlotFit(resizing: original)
+            NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        }
+        for _ in 0..<10 {
+            paint()
+            if visible().map(\.pageBounds) != originalBounds { break }
+            try assertSlotFit(resizing: original)
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
         try await settle(after: revision)
+        try await measureArtwork()
         try assertSlotFit()
         state.cover = true
         try await settle(count: 1)

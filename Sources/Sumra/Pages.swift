@@ -2494,7 +2494,11 @@ private struct ReaderKeyboardFocus: ViewModifier {
     @State private var viewportFrame = CGSize.zero
     @State private var liveResizeViewport: CGSize?
     @State private var liveResizePosition: ReadingPosition?
-    @State private var pendingResizePosition: ReadingPosition?
+    private struct PendingResize: Equatable {
+        let position: ReadingPosition
+        let viewport: CGSize
+    }
+    @State private var pendingResize: PendingResize?
     @State private var renderedFlow: String
     @State private var renderedLayoutRevision: Int?
     @State private var lastFinitePage: Int?
@@ -2557,9 +2561,10 @@ private struct ReaderKeyboardFocus: ViewModifier {
             if let document = state.readerScrollView?.documentView { RasterCanvas.Canvas.recordPosition(in: document) }
             liveResizePosition = scrollRequest?.position ?? state.currentPosition
             liveResizeViewport = readingViewport
-        } else if liveResizeViewport != nil {
-            if reflowPageSize != reflowPageSize(in: readingViewport) {
-                pendingResizePosition = liveResizePosition
+        } else if let start = liveResizeViewport {
+            if reflowPageSize != reflowPageSize(in: readingViewport), let position = liveResizePosition {
+                // A second drag can finish while the first spread is still on screen.
+                pendingResize = PendingResize(position: position, viewport: pendingResize?.viewport ?? start)
             }
             if let position = liveResizePosition { replaceScrollRequest(.init(position)) }
             liveResizePosition = nil
@@ -2879,7 +2884,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                                        columns: columns(nextRow!),
                                        facingPage: pages.isPDF ? nextRow!.first { $0 != predictedIndex! } : nil)
                                } : nil,
-                           frozenRenderViewport: liveResizeViewport,
+                           frozenRenderViewport: pendingResize?.viewport ?? liveResizeViewport,
                            finiteGeometry: state.reflowable ? finitePageGeometry[location].map { geometry in
                                let peer = locations.first { $0 != location }.flatMap { other in
                                    finitePageGeometry[other].map { RasterLayout.FacingPage(bounds: state.trimEmptyMargins ? $0.content ?? $0.bounds : $0.bounds,
@@ -3491,8 +3496,8 @@ private struct ReaderKeyboardFocus: ViewModifier {
             let layoutViewport = readingViewport
             let pageSize = state.reflowable && reflowPageSize.width > 0 && layoutViewport.height > 0 ? reflowPageSize : nil
             let capturedReflowPosition = state.pendingReflowPosition
-            let capturedResizePosition = pendingResizePosition
-            let layoutPosition = capturedReflowPosition ?? capturedResizePosition ?? scrollRequest?.position ?? state.currentPosition
+            let capturedResize = pendingResize
+            let layoutPosition = capturedReflowPosition ?? capturedResize?.position ?? scrollRequest?.position ?? state.currentPosition
             styleTask = Task {
                 defer {
                     if styleCommandRevision == command.revision { styleCommandRevision = nil }
@@ -3513,7 +3518,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     if changed == nil, renderedFlow == layoutFlow, renderedLayoutRevision == layoutRevision {
                         if state.pendingReflowPosition == capturedReflowPosition { state.pendingReflowPosition = nil }
-                        if pendingResizePosition == capturedResizePosition { pendingResizePosition = nil }
+                        if pendingResize == capturedResize { pendingResize = nil }
                         styleCommandRevision = nil
                         if case .find(let query, let backwards, let options, let selection, let inResults) = reflowFindIntent {
                             reflowFindIntent = nil; reflowCountPending = false
@@ -3570,7 +3575,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     // A menu action may have captured the next source while
                     // this style awaited its native work. Finish only our handoff.
                     if state.pendingReflowPosition == capturedReflowPosition { state.pendingReflowPosition = nil }
-                    if pendingResizePosition == capturedResizePosition { pendingResizePosition = nil }
+                    if pendingResize == capturedResize { pendingResize = nil }
                     // A different query can arrive after searchRevision was
                     // captured. Its queued intent belongs to this committed
                     // surface, independently of the old selection's generation.
@@ -4818,6 +4823,19 @@ private struct WindowScale: NSViewRepresentable {
     private var finiteDisplaySize: CGSize? {
         guard let finiteGeometry else { return nil }
         let visible = state.trimEmptyMargins ? finiteGeometry.content ?? finiteGeometry.bounds : finiteGeometry.bounds
+        if let start = frozenRenderViewport, let peer = finiteGeometry.facing, state.fit == "page" {
+            // Scale the two already fitted pages together until pagination resumes.
+            // The facing sheet can contain letterboxing which the cover canvas omits.
+            func fitted(_ page: CGSize, in viewport: CGSize) -> CGSize {
+                RasterLayout.size(page: page, viewport: viewport, columns: columns, rotation: state.rotation,
+                    fit: "page", zoom: 1, limit: state.zoomLimit)
+            }
+            let original = fitted(visible.size, in: start)
+            let peerOriginal = fitted(peer.bounds.size, in: start)
+            let factor = min(fitted(visible.size, in: viewport).width / original.width,
+                             fitted(peer.bounds.size, in: viewport).width / peerOriginal.width)
+            return CGSize(width: original.width * factor, height: original.height * factor)
+        }
         return RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation,
             fit: state.fit, zoom: state.rasterZoom, content: finiteGeometry.content, limit: state.zoomLimit,
             uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin,
