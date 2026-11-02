@@ -56,6 +56,47 @@ final class EPUBAuthoredImagePageTests: XCTestCase {
         return try XCTUnwrap(images.first)
     }
 
+    func testFacingCoverPresentationKeepsAuthoredPaperAndOptOuts() async throws {
+        let cases = [
+            ("<p><img src='art.png'/></p>", true),
+            ("<p><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 120'><image href='art.png' width='300' height='120' preserveAspectRatio='none'/></svg></p>", true),
+            ("<p><img src='art.png'/> Caption remains authored prose.</p>", false),
+            ("<p><img style='width:120px;height:auto' src='art.png'/></p>", false),
+            ("<div style='height:80vh'><img style='height:100%' src='art.png'/></div>", false)
+        ]
+        for (body, paired) in cases {
+            let directory = try TemporaryDirectory(); defer { withExtendedLifetime(directory) {} }
+            let html = "<html><head><style>@page{margin:7px 19px}body{margin:11px 23px}p{margin:13px 17px}</style></head><body>\(body)</body></html>"
+            let url = try fixture(in: directory.url, chapters: [cover, html])
+            let pages = try Pages(url, format: .book, deferReflowLayout: true)
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.6, margin: 32, font: "system", theme: "light",
+                pageSize: CGSize(width: 448, height: 590))
+            _ = try await pages.prepareFacingPages(.init(page: 0), cover: false)
+            let locations = [PageLocation(chapter: 0, page: 0), PageLocation(chapter: 1, page: 0)]
+            let original = try await pages.pageGeometry(locations, content: true)
+            let facing = try await pages.pageGeometry(locations, content: true, fitCover: true)
+            XCTAssertEqual(facing[locations[0]]?.facingCanvas != nil, paired)
+            XCTAssertNil(facing[locations[1]]?.facingCanvas, "The publisher's facing page is unchanged")
+            if paired {
+                let canvas = try XCTUnwrap(facing[locations[0]]?.facingCanvas)
+                let paper = try XCTUnwrap(facing[locations[1]]?.bounds)
+                let coverImages = try await pages.imageBounds(locations[0]), peerImages = try await pages.imageBounds(locations[1])
+                let coverArt = try XCTUnwrap(coverImages.first), peerArt = try XCTUnwrap(peerImages.first)
+                let presented = coverArt.applying(RasterLayout.transform(bounds: canvas, size: paper.size, rotation: 0))
+                XCTAssertEqual(presented.width, presented.height * coverArt.width / coverArt.height, accuracy: 0.01)
+                XCTAssertTrue(peerArt.insetBy(dx: -0.01, dy: -0.01).contains(presented))
+                if body.contains("<svg") { XCTAssertGreaterThan(abs(coverArt.width / coverArt.height - peerArt.width / peerArt.height), 1) }
+            }
+            let solo = try await pages.pageGeometry([locations[0]], content: true, fitCover: true)
+            XCTAssertNil(solo[locations[0]]?.facingCanvas, "Cover on Its Own keeps intrinsic fitting")
+            let after = try await pages.pageGeometry(locations, content: true)
+            for location in locations {
+                XCTAssertEqual(after[location]?.bounds, original[location]?.bounds)
+                XCTAssertEqual(after[location]?.content, original[location]?.content)
+            }
+        }
+    }
+
     func testViewportHeightIllustrationTracksGrowingAndReturningWindow() throws {
         let directory = try TemporaryDirectory(); defer { withExtendedLifetime(directory) {} }
         let html = "<html><head><style>@page{margin:0}html,body{margin:0}.frame{height:98vh;text-align:center}img{height:100%;max-width:100%;max-height:100%}</style></head><body><div class='frame'><img src='art.png'/></div></body></html>"

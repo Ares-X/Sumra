@@ -1760,6 +1760,17 @@ API int lf_image_dimensions_at(SumraMuPDFDocument *d, int chapter, int index, in
     fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); return -1; }
     return found;
 }
+// Share the HTML layout owner's classification with facing-page presentation.
+API int lf_page_art_kind_at(SumraMuPDFDocument *d, int chapter, int index, char *error) {
+    fz_page *page = NULL; int kind = 0; fz_var(page); fz_var(kind);
+    fz_try(d->ctx) {
+        page = fz_load_chapter_page(d->ctx, d->doc, chapter, index);
+        kind = fz_html_page_art_kind(page);
+    }
+    fz_always(d->ctx) { fz_drop_page(d->ctx, page); }
+    fz_catch(d->ctx) { snprintf(error, 512, "%s", fz_convert_error(d->ctx, NULL)); return -1; }
+    return kind;
+}
 API char *lf_image_bounds_at(SumraMuPDFDocument *d, int chapter, int index, char *error) {
     fz_stext_page *text = NULL; SumraJSON j = {0}; fz_var(text); fz_var(j);
     fz_try(d->ctx) {

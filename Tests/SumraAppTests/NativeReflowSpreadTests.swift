@@ -20,30 +20,50 @@ final class NativeReflowSpreadTests: XCTestCase {
             throw XCTSkip("Set SUMRA_ISSUE82_SPREAD_SAMPLES to the original reporter books")
         }
         let url = URL(fileURLWithPath: path).appendingPathComponent("repeat-misalignedepubsecondroundC.epub")
-        for start in [CGSize(width: 904, height: 740), CGSize(width: 1512, height: 945)] {
-            let sizes = [-100, 100, 250].map { CGSize(width: start.width + CGFloat($0), height: start.height) }
-            try await checkLiveResize(url, start: start, sizes: sizes, checkArtwork: true)
+        for margins in [nil, PageMargins(cssValues: [32]), PageMargins(cssValues: [12, 24, 36, 48])] {
+            for start in [CGSize(width: 904, height: 524), CGSize(width: 1512, height: 847)] {
+                let sizes = [-100, 100, 250].map { CGSize(width: start.width + CGFloat($0), height: start.height) }
+                try await checkLiveResize(url, start: start, sizes: sizes, checkArtwork: true, margins: margins)
+            }
         }
     }
 
-    private func checkLiveResize(_ input: URL, start: CGSize, sizes: [CGSize], checkArtwork: Bool = false) async throws {
+    func testOriginalIssue82EFirstSpreadKeepsItsNaturalCoverPairing() async throws {
+        guard let path = ProcessInfo.processInfo.environment["SUMRA_ISSUE82_SPREAD_SAMPLES"] else {
+            throw XCTSkip("Set SUMRA_ISSUE82_SPREAD_SAMPLES to the original reporter books")
+        }
+        try await checkLiveResize(URL(fileURLWithPath: path).appendingPathComponent("repeat-misalignedepubE.epub"),
+            start: CGSize(width: 904, height: 524), sizes: [CGSize(width: 660, height: 524), CGSize(width: 1512, height: 847)], checkArtwork: true)
+    }
+
+    private func checkLiveResize(_ input: URL, start: CGSize, sizes: [CGSize], checkArtwork: Bool = false, margins: PageMargins? = nil) async throws {
         let state = ReaderState(recordsHistory: false)
         let defaults = UserDefaults.standard
         let saved = ["flow", "spread"].map { ($0, defaults.object(forKey: $0)) }
         defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
         state.flow = "paged"; state.spread = true; state.cover = false; state.fit = "page"
         state.fontSize = 17; state.lineHeight = 1.4; state.font = "serif"; state.theme = "light"; state.margin = 32
-        state.pageMargins = checkArtwork ? PageMargins(cssValues: [0]) : nil; state.marginPresetSelection = checkArtwork ? "custom" : nil; state.userCSS = ""; state.useDocumentCSS = true
+        state.pageMargins = margins; state.marginPresetSelection = margins == nil ? nil : "custom"; state.userCSS = ""; state.useDocumentCSS = true
         state.automaticLayout = false; state.freePan = false; state.uniformPageWidth = false
         state.trimEmptyMargins = false; state.landscapeAsSpread = false; state.rtl = false; state.scrollbarMode = "hidden"
         let pages = try Pages(input, format: .book, deferReflowLayout: true)
-        _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
-            userCSS: state.effectiveUserCSS, pageMargins: state.pageMargins, pageSize: RasterReader.pageSize(in: start, spread: true))
-        _ = try await pages.prepareFacingPages(.init(page: 0), cover: false)
-        state.document = ReadingDocument(url: input, content: .pages(pages)); state.reflowable = true
-        _ = state.applyChapterLayout(await pages.chapterLayout)
-        let initialBounds = try await pages.bounds(0)
-        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages, initialBounds: initialBounds))
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        let root: AnyView
+        if checkArtwork {
+            // Exercise the normal document-entry owner with its unprepared
+            // native document and real reader controls/clearances.
+            state.font = "system"; state.lineHeight = 1.6
+            state.controlTopMargin = 54; state.controlBottomMargin = 44
+            root = AnyView(ReaderView(state: state))
+        } else {
+            _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+                userCSS: state.effectiveUserCSS, pageMargins: state.pageMargins, pageSize: RasterReader.pageSize(in: start, spread: true))
+            _ = try await pages.prepareFacingPages(.init(page: 0), cover: false)
+            state.reflowable = true
+            _ = state.applyChapterLayout(await pages.chapterLayout)
+            root = AnyView(RasterReader(state: state, pages: pages, initialBounds: try await pages.bounds(0)))
+        }
+        let host = NSHostingView(rootView: root)
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: start),
             styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
@@ -88,9 +108,9 @@ final class NativeReflowSpreadTests: XCTestCase {
                 }
             } else {
                 for canvas in pair {
-                    let scale = min(slot / canvas.pageBounds.width, clip.safeAreaRect.height / canvas.pageBounds.height)
-                    XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width * scale, accuracy: 0.5, line: line)
-                    XCTAssertEqual(canvas.bounds.height, canvas.pageBounds.height * scale, accuracy: 0.5, line: line)
+                    let scale = min(slot / canvas.visibleBounds.width, clip.safeAreaRect.height / canvas.visibleBounds.height)
+                    XCTAssertEqual(canvas.bounds.width, canvas.visibleBounds.width * scale, accuracy: 0.5, line: line)
+                    XCTAssertEqual(canvas.bounds.height, canvas.visibleBounds.height * scale, accuracy: 0.5, line: line)
                 }
             }
             for canvas in pair {
@@ -98,10 +118,16 @@ final class NativeReflowSpreadTests: XCTestCase {
             }
             XCTAssertEqual(first.convert(first.bounds, to: host).midY, second.convert(second.bounds, to: host).midY, accuracy: 0.5, line: line)
             if checkArtwork {
-                let edges = zip(pair, artwork).map { canvas, art in
-                    canvas.convert(art.applying(canvas.pageTransform), to: host).maxY
+                let displayed = zip(pair, artwork).map { canvas, art in
+                    canvas.convert(art.applying(canvas.pageTransform), to: host)
                 }
-                XCTAssertEqual(edges[0], edges[1], accuracy: 1, "Art edges at \(host.bounds.size)", line: line)
+                XCTAssertEqual(displayed[0].minY, displayed[1].minY, accuracy: 1, "Art top edges at \(host.bounds.size)", line: line)
+                XCTAssertEqual(displayed[0].maxY, displayed[1].maxY, accuracy: 1, "Art bottom edges at \(host.bounds.size)", line: line)
+                for (canvas, art) in zip(pair, artwork) {
+                    let displayed = art.applying(canvas.pageTransform)
+                    XCTAssertEqual(displayed.width, displayed.height * art.width / art.height, accuracy: 0.5, "Artwork must retain its aspect within a display pixel", line: line)
+                    XCTAssertTrue(clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5).contains(canvas.convert(displayed, to: clip)), "Artwork must remain inside its viewport", line: line)
+                }
             }
         }
         try await settle()
@@ -167,9 +193,9 @@ final class NativeReflowSpreadTests: XCTestCase {
             paint()
             let canvas = try XCTUnwrap(visible().first), clip = try XCTUnwrap(canvas.enclosingScrollView?.contentView)
             XCTAssertEqual(visible().count, 1)
-            let scale = min(clip.safeAreaRect.width / canvas.pageBounds.width, clip.safeAreaRect.height / canvas.pageBounds.height)
-            XCTAssertEqual(canvas.bounds.width, canvas.pageBounds.width * scale, accuracy: 0.5)
-            XCTAssertEqual(canvas.bounds.height, canvas.pageBounds.height * scale, accuracy: 0.5)
+            let scale = min(clip.safeAreaRect.width / canvas.visibleBounds.width, clip.safeAreaRect.height / canvas.visibleBounds.height)
+            XCTAssertEqual(canvas.bounds.width, canvas.visibleBounds.width * scale, accuracy: 0.5)
+            XCTAssertEqual(canvas.bounds.height, canvas.visibleBounds.height * scale, accuracy: 0.5)
             XCTAssertTrue(clip.safeAreaRect.insetBy(dx: -0.5, dy: -0.5).contains(canvas.convert(canvas.bounds, to: clip)))
             try await Task.sleep(nanoseconds: 10_000_000)
         }

@@ -1083,6 +1083,17 @@ final class NativeFile {
         return String(cString: pointer)
     }
     func links(_ page: Int) throws -> [RasterLink] { try pageJSON("lf_links", page: page, as: [RasterLink].self) ?? [] }
+    enum PageArtKind: Int32 { case ordinary, cover, sequence }
+    func pageArtKind(_ page: Int) throws -> PageArtKind {
+        guard reflowable else { return .ordinary }
+        typealias Get = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, UnsafeMutablePointer<CChar>) -> Int32
+        guard let fn = symbol("lf_page_art_kind_at", Get.self) else { throw ReadError("Incompatible MuPDF engine: lf_page_art_kind_at") }
+        let location = try preparedLocation(page)
+        var error = [CChar](repeating: 0, count: 512)
+        let result = fn(document, Int32(location.chapter), Int32(location.page), &error)
+        guard result >= 0 else { throw Self.failure(error, "Cannot read page artwork geometry") }
+        return PageArtKind(rawValue: result)!
+    }
     func imageBounds(_ page: Int) throws -> [CGRect] {
         guard engine == .mupdf else { return [] }
         return try (pageJSON("lf_image_bounds", page: page, as: [[Double]].self) ?? []).map(CGRect.init(raster:))
