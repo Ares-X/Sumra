@@ -140,6 +140,15 @@ final class NativeReflowSpreadTests: XCTestCase {
             }
         }
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        if checkArtwork {
+            // Start another drag before the decoder can replace the first spread.
+            NotificationCenter.default.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+            window.setContentSize(CGSize(width: start.width + 125, height: start.height))
+            paint()
+            XCTAssertEqual(visible().map(\.pageBounds), originalBounds)
+            try assertSlotFit(resizing: original)
+            NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        }
         for _ in 0..<10 {
             paint()
             if visible().map(\.pageBounds) != originalBounds { break }

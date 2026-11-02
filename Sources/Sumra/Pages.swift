@@ -2563,7 +2563,8 @@ private struct ReaderKeyboardFocus: ViewModifier {
             liveResizeViewport = readingViewport
         } else if let start = liveResizeViewport {
             if reflowPageSize != reflowPageSize(in: readingViewport), let position = liveResizePosition {
-                pendingResize = PendingResize(position: position, viewport: start)
+                // A second drag can finish while the first spread is still on screen.
+                pendingResize = PendingResize(position: position, viewport: pendingResize?.viewport ?? start)
             }
             if let position = liveResizePosition { replaceScrollRequest(.init(position)) }
             liveResizePosition = nil
