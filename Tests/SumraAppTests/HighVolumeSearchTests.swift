@@ -120,7 +120,7 @@ final class HighVolumeSearchTests: XCTestCase {
         // Set the native divider after the prepared reader mounts, just as a
         // user drag does. Its initial loading allocation can be 180 points.
         var ancestor: NSView? = state.readerScrollView
-        while let view = ancestor, !(view is NSSplitView && (view as! NSSplitView).isVertical) {
+        while let view = ancestor, (view as? NSSplitView)?.isVertical != true {
             ancestor = view.superview
         }
         let split = try XCTUnwrap(ancestor as? NSSplitView)
