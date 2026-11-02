@@ -286,8 +286,12 @@ then refresh at the final size while retaining the reading passage. While a
 facing spread is in **Fit Page**, both existing pages scale together until the
 new layout is ready. This keeps neighboring artwork aligned throughout the drag.
 In a paged, facing layout, **Fit Page** fits each page into its own half of the
-spread and centers the two vertically. **Cover on Its Own** gives the separate
-PDF cover the full viewport for fitting.
+spread and centers the two vertically. When a normalized EPUB cover faces an
+image-only page, the cover fits the facing artwork's frame, including its book
+or reader margins. Both pictures retain their aspect ratio. This presentation
+applies to the paired **Fit Page** view; solo covers, prose, author-sized
+illustrations and other zoom modes retain their document geometry.
+**Cover on Its Own** gives the separate cover the full viewport for fitting.
 
 PDF pages remain fixed-layout pages: **Fit Page** scales the paper, not its text
 flow. **Fit Width in Continuous View** selects single-page continuous reading

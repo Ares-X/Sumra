@@ -1,0 +1,20 @@
+--- a/include/mupdf/fitz/html.h
++++ b/include/mupdf/fitz/html.h
+@@ -94 +94,4 @@
++/* Existing semantic page-art classification: normalized cover / image sequence. */
++int fz_html_page_art_kind(fz_page *page);
++
+ typedef enum fz_html_flavor
+--- a/source/html/html-doc.c
++++ b/source/html/html-doc.c
+@@ -267 +267,10 @@
++int fz_html_page_art_kind(fz_page *page)
++{
++	int number;
++	fz_html *html = html_text_page(page, &number);
++	if (!html || html->fixed_layout) return 0;
++	if (html->tree.image_cover_aspect > 0) return 1;
++	return html->tree.image_page_sequence ? 2 : 0;
++}
++
+ int fz_run_html_page_region(fz_context *ctx, fz_page *page, fz_device *dev, fz_matrix ctm, fz_rect region, fz_cookie *cookie)
