@@ -12,3 +12,7 @@ swift -D PACKAGING_TESTS "$test_source"
 tail -n +2 scripts/bundle.swift > "$test_source"
 cat Tests/Packaging/QuickLookRegistrationTests.swift >> "$test_source"
 swift -D BUNDLE_METADATA_TESTS "$test_source" "$test_directory"
+# Verify AppKit's process-start language negotiation in isolated, nonvisible apps.
+tail -n +2 scripts/bundle.swift > "$test_source"
+cat Tests/Packaging/LocalizationRegistrationTests.swift >> "$test_source"
+swift -D BUNDLE_METADATA_TESTS "$test_source" "$test_directory" "$PWD/Sources/Sumra/Resources/Localizations"

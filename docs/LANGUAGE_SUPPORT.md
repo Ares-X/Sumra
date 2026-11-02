@@ -76,6 +76,14 @@ uses source text. The other 48 interface catalogs were removed; saved choices
 and old exported settings resolve to System. Document reading remains independent
 of the interface language list.
 
+The app bundle declares these shipped catalog languages to macOS. With System
+selected, managed labels and standard AppKit menus/panels follow macOS's preferred
+supported language at application launch, with English as the development-language
+fallback. Changing macOS preferred languages requires relaunching Sumra. An explicit
+in-app language choice updates Sumra-managed labels immediately; it does not change
+macOS/provider preferences or relocalize standard AppKit menus and system panels.
+Those continue to use the language macOS selected at launch.
+
 This is source-key coverage, not proof of translation or typography quality.
 Native-speaker review remains welcome. [The October 24 follow-up](LOCALIZATION_UX_20261024.md)
 describes settings compatibility, translation provenance and actual checks.
