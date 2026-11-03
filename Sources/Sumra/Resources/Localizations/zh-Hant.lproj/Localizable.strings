@@ -833,3 +833,7 @@
 
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "從視窗邊緣為浮動控制項預留的距離。設為 0 可允許覆蓋正文。正文邊距不會重複累加；隱藏控制項不佔空間。";
 "Current Page" = "目前頁面";
+
+"Waiting for %@…" = "正在等待 %@ 回覆…";
+
+"Type a search term to see matches." = "輸入搜尋詞以查看相符結果。";

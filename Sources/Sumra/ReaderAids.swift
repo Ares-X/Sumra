@@ -713,6 +713,9 @@ struct BookmarkBrowser: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.buttonStyle(.plain)
             }
+            .overlay {
+                if items.isEmpty { Text(L("No results")).foregroundStyle(.secondary).padding() }
+            }
         }.padding().frame(minWidth: 320, minHeight: 240)
         .navigationTitle(L("Bookmarks"))
     }
@@ -754,10 +757,11 @@ struct AnnotationList: View {
         let _ = language
         let revision = "\(state.document?.id.uuidString ?? ""):\(state.editRevision)"
         let all = rows.revision == revision ? rows.values : []
+        let visible = all.filter { (kind == "All" || $0.type == kind) && (query.isEmpty || $0.text.localizedCaseInsensitiveContains(query)) }
         VStack {
             TextField(L("Search annotations"), text: $query).padding([.top, .horizontal], 8)
             Picker(L("Type"), selection: $kind) { Text(L("All")).tag("All"); ForEach(Array(Set(all.map(\.type))).sorted(), id: \.self) { Text($0).tag($0) } }.padding(.horizontal, 8)
-            List(all.filter { (kind == "All" || $0.type == kind) && (query.isEmpty || $0.text.localizedCaseInsensitiveContains(query)) }) { row in
+            List(visible) { row in
                 Button { state.send(.selectAnnotation(page: row.page, index: row.index)) } label: {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(String(format: L("Page %d"), row.page + 1) + " · " + row.type).font(.caption).foregroundStyle(.secondary)
@@ -765,6 +769,11 @@ struct AnnotationList: View {
                     }
                 }.buttonStyle(.plain)
             }.listStyle(.sidebar)
+            .overlay {
+                if visible.isEmpty, state.nativePDF == nil || rows.revision == revision {
+                    Text(L("No results")).foregroundStyle(.secondary).padding()
+                }
+            }
         }
         .task(id: revision) {
             if let pages = state.nativePDF {

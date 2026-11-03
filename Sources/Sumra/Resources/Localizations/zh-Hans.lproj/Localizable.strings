@@ -1032,3 +1032,7 @@
 
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "从窗口边缘为悬浮控件预留的距离。设为 0 可允许覆盖正文。正文边距不会重复累加；隐藏控件不占空间。";
 "Current Page" = "当前页";
+
+"Waiting for %@…" = "正在等待 %@ 回复…";
+
+"Type a search term to see matches." = "输入搜索词以查看匹配结果。";

@@ -7,6 +7,140 @@ import XCTest
 
 @MainActor
 final class ReaderFloatingNativeIntegrationTests: XCTestCase {
+    func testPositiveFullscreenReadingClearanceCountsMenuOnceAndZeroAllowsOverlap() async throws {
+        final class FullscreenWindow: NSWindow {
+            var fullscreen = false
+            override var styleMask: NSWindow.StyleMask {
+                get { fullscreen ? super.styleMask.union(.fullScreen) : super.styleMask }
+                set { super.styleMask = newValue.subtracting(.fullScreen) }
+            }
+        }
+        final class MeasuredMenu: NSMenu {
+            var measuredHeight: CGFloat = 0
+            override var menuBarHeight: CGFloat { measuredHeight }
+        }
+        _ = NSApplication.shared; NSApp.finishLaunching()
+        let defaults = UserDefaults.standard
+        let keys = ["progressDisplayMode", "findFloating"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defaults.set("hidden", forKey: "progressDisplayMode"); defaults.set(false, forKey: "findFloating")
+        let originalMenu = NSApp.mainMenu
+        if NSApp.mainMenu == nil { NSApp.mainMenu = NSMenu(title: "Sumra") }
+        let menu = MeasuredMenu(title: "Sumra")
+        menu.measuredHeight = try XCTUnwrap(NSApp.mainMenu).menuBarHeight
+        XCTAssertGreaterThan(menu.measuredHeight, 0)
+        NSApp.mainMenu = menu
+        defer {
+            NSApp.mainMenu = originalMenu
+            for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) }
+        }
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/fullscreen-reading-clearance.txt"),
+            content: .text("Heading must remain readable below the floating toolbar.\n" + String(repeating: "A paragraph for reading.\n", count: 30)))
+        state.immersiveControls = true; state.flow = "continuous"; state.spread = false
+        state.theme = "light"
+        state.showFind = false; state.showContents = false; state.showAI = false
+        state.controlBottomMargin = 0; state.scrollbarMode = "hidden"
+        let controller = NSHostingController(rootView: ReaderView(state: state))
+        let window = FullscreenWindow(contentViewController: controller)
+        window.styleMask.formUnion([.titled, .closable, .resizable])
+        window.setFrame(CGRect(x: 2200, y: 100, width: 1000, height: 700), display: false)
+        window.title = "Positive fullscreen reading clearance"
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        state.window = window; window.orderBack(nil)
+        defer { state.windowClosed(); window.orderOut(nil); window.contentViewController = nil; window.close() }
+        func observer(in view: NSView) -> ReaderToolbarWindow.Host? {
+            (view as? ReaderToolbarWindow.Host) ?? view.subviews.lazy.compactMap { observer(in: $0) }.first
+        }
+        func settle() async throws {
+            for _ in 0..<15 {
+                controller.view.layoutSubtreeIfNeeded()
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            if let bitmap = controller.view.bitmapImageRepForCachingDisplay(in: controller.view.bounds) {
+                controller.view.cacheDisplay(in: controller.view.bounds, to: bitmap)
+            }
+        }
+        func firstGlyph() throws -> CGRect {
+            let text = try XCTUnwrap(state.readerFocusView as? NSTextView)
+            let manager = try XCTUnwrap(text.textLayoutManager)
+            let content = try XCTUnwrap(text.textContentStorage)
+            var firstLine: CGRect?
+            manager.enumerateTextLayoutFragments(from: content.documentRange.location, options: [.ensuresLayout]) { fragment in
+                if let line = fragment.textLineFragments.first {
+                    firstLine = line.typographicBounds.offsetBy(dx: fragment.layoutFragmentFrame.minX + text.textContainerOrigin.x,
+                        dy: fragment.layoutFragmentFrame.minY + text.textContainerOrigin.y)
+                }
+                return false
+            }
+            // Inspect the first laid-out line's rendered ink, including the
+            // reader's actual container origin. IME candidate rectangles are
+            // not the painted glyph bounds for this inset native text view.
+            let rect = try XCTUnwrap(firstLine)
+            let bitmap = try XCTUnwrap(text.bitmapImageRepForCachingDisplay(in: rect))
+            text.cacheDisplay(in: rect, to: bitmap)
+            var ink = CGRect.null
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    if let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                       color.alphaComponent > 0.5, max(color.redComponent, color.greenComponent, color.blueComponent) < 0.5 {
+                        ink = ink.union(CGRect(x: x, y: y, width: 1, height: 1))
+                    }
+                }
+            }
+            XCTAssertFalse(ink.isNull, "The actual first text line must paint visible ink")
+            let local = CGRect(x: rect.minX + ink.minX * rect.width / CGFloat(bitmap.pixelsWide),
+                y: rect.minY + ink.minY * rect.height / CGFloat(bitmap.pixelsHigh),
+                width: ink.width * rect.width / CGFloat(bitmap.pixelsWide),
+                height: ink.height * rect.height / CGFloat(bitmap.pixelsHigh))
+            return window.convertToScreen(text.convert(local, to: nil))
+        }
+        try await settle()
+        let host = try XCTUnwrap(observer(in: controller.view)); host.reducedMotion = true
+        let cases: [(Double, Double, ReaderToolbarDisplayMode)] = [
+            (16, 0, .shown), (16, 1, .auto), (16, 54, .shown), (16, 54, .auto),
+            (16, 200, .auto), (100, 54, .auto), (100, 0, .shown), (16, 54, .hidden)
+        ]
+        for (pageMargin, clearance, mode) in cases {
+            state.pageMargins = .init(cssValues: [pageMargin]); state.marginPresetSelection = "custom"
+            state.toolbarDisplayMode = mode; state.controlTopMargin = 0
+            window.fullscreen = false; host.updateChrome(revealingNativeControls: false)
+            try await settle()
+            let baselineGlyph = try firstGlyph()
+            let scroll = try XCTUnwrap(state.readerScrollView)
+            let baselineFrame = scroll.convert(scroll.bounds, to: nil)
+            window.fullscreen = true; state.controlTopMargin = clearance
+            host.updateChrome(revealingNativeControls: false)
+            let effective = mode == .hidden || clearance == 0 ? 0 : clearance + menu.measuredHeight
+            let expectedExtra = max(0, effective - pageMargin)
+            var readingFrame: CGRect?
+            var readingOffset: CGPoint?
+            for menuVisible in [false, true, false] {
+                host.pointerMoved(to: CGPoint(x: window.frame.width / 2, y: window.frame.height - 1))
+                host.updateChrome(revealingNativeControls: menuVisible)
+                try await settle()
+                let glyph = try firstGlyph()
+                let frame = scroll.convert(scroll.bounds, to: nil)
+                XCTAssertEqual(baselineFrame.maxY - frame.maxY, expectedExtra, accuracy: 1)
+                XCTAssertEqual(baselineGlyph.maxY - glyph.maxY, expectedExtra, accuracy: 1,
+                    "Positive clearance must count the menu once while zero preserves overlap")
+                if let readingFrame { XCTAssertEqual(frame, readingFrame, "Hover must not move the reading viewport") }
+                else { readingFrame = frame }
+                if let readingOffset { XCTAssertEqual(scroll.contentView.bounds.origin, readingOffset, "Hover must preserve the reading position") }
+                else { readingOffset = scroll.contentView.bounds.origin }
+                if clearance == 54, pageMargin == 16, mode != .hidden {
+                    let elements = try accessibleElements(in: window)
+                    let toolbar = try XCTUnwrap(elements.first { $0.identifier == "floating-navigation" }).frame
+                    XCTAssertLessThanOrEqual(glyph.maxY, toolbar.minY,
+                        "The actual first text glyph must clear the default fullscreen toolbar")
+                }
+                print("Fullscreen reading clearance: mode=\(mode.rawValue) content=\(pageMargin) clearance=\(clearance) menu=\(menu.measuredHeight) frame=\(frame) glyph=\(glyph)")
+            }
+        }
+        XCTAssertEqual(window.alphaValue, 0, "The AX-registered fixture must remain invisible on the desktop")
+        XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
     func testFullscreenFloatingTargetsClearMenuWithoutMovingBookOnReveal() async throws {
         final class FullscreenWindow: NSWindow {
             var fullscreen = false
@@ -70,14 +204,18 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
                 try XCTUnwrap(observer(in: controller.view)).updateChrome(revealingNativeControls: false)
                 try await settle()
                 let scroll = try XCTUnwrap(state.readerScrollView)
-                let bookFrame = scroll.convert(scroll.bounds, to: nil)
+                let windowedBookFrame = scroll.convert(scroll.bounds, to: nil)
                 window.fullscreen = true
                 let host = try XCTUnwrap(observer(in: controller.view))
                 host.reducedMotion = true
                 host.updateChrome(revealingNativeControls: false)
                 try await settle()
-                XCTAssertEqual(scroll.convert(scroll.bounds, to: nil), bookFrame,
-                    "Floating fullscreen menu clearance belongs to controls, not a second root inset on the book")
+                let bookFrame = scroll.convert(scroll.bounds, to: nil)
+                let menuClearance = mode == .hidden || margin == 0 ? 0 : menuHeight
+                let expectedFrame = CGRect(x: windowedBookFrame.minX, y: windowedBookFrame.minY,
+                    width: windowedBookFrame.width, height: windowedBookFrame.height - menuClearance)
+                XCTAssertEqual(bookFrame, expectedFrame,
+                    "Positive reading clearance counts the fullscreen menu once; zero and Always Hide add no reservation")
                 let viewport = scroll.contentView.safeAreaRect.size
                 let trackInsets = scroll.scrollerInsets
                 var targets = [CGRect]()

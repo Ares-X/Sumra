@@ -8,6 +8,54 @@ import XCTest
 
 @MainActor
 final class ReaderFindLayoutTests: XCTestCase {
+    func testDockedQueryStaysCompactAndLeadingWhenWindowResizes() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let saved = defaults.object(forKey: "findFloating")
+        defaults.set(false, forKey: "findFloating")
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/compact-find.txt"), content: .text("Find stays compact."))
+        state.immersiveControls = false; state.toolbarDisplayMode = .shown
+        state.showContents = false; state.showAI = false; state.showFindPanel()
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 760, height: 600),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0; window.ignoresMouseEvents = true
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        state.window = window; window.contentView = host; window.orderBack(nil)
+        defer {
+            state.windowClosed(); window.orderOut(nil); window.contentView = nil; window.close()
+            defaults.set(saved, forKey: "findFloating")
+        }
+        var baseline: CGRect?
+        for width: CGFloat in [760, 1200, 900, 760] {
+            window.setContentSize(CGSize(width: width, height: 600))
+            let deadline = Date().addingTimeInterval(5)
+            var previous: CGRect?
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let input = state.findInputField, abs(host.bounds.width - width) < 1 {
+                    let frame = input.convert(input.bounds, to: host)
+                    if frame.width > 0, frame == previous { break }
+                    previous = frame
+                }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline
+            XCTAssertEqual(host.bounds.width, width, accuracy: 1)
+            let input = try XCTUnwrap(state.findInputField)
+            let frame = input.convert(input.bounds, to: host)
+            XCTAssertGreaterThan(frame.width, 150, "The query remains usable")
+            XCTAssertLessThan(frame.width, host.bounds.width / 2, "Docked Find leaves most reader width free")
+            XCTAssertLessThanOrEqual(frame.minX, 12, "Docked Find starts at the reader's leading edge")
+            if let baseline {
+                XCTAssertEqual(frame.minX, baseline.minX, accuracy: 1, "Resizing must preserve the query's leading alignment")
+                XCTAssertEqual(frame.width, baseline.width, accuracy: 1, "Extra reader width must not enlarge the docked query")
+            } else { baseline = frame }
+            print("Compact Find width=\(width), query=\(frame)")
+        }
+        XCTAssertFalse(window.isKeyWindow)
+    }
+
     func testFindStatusChangesKeepNativeReadingGeometryAndLayout() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()

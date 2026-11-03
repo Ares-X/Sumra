@@ -784,3 +784,7 @@
 "Top clearance" = "ऊपर की जगह";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "फ़्लोटिंग कंट्रोल के लिए विंडो के किनारे से आरक्षित जगह। ओवरलैप की अनुमति देने के लिए इसे 0 पर सेट करें। कंटेंट मार्जिन केवल एक बार गिने जाते हैं; छिपे हुए कंट्रोल कोई जगह आरक्षित नहीं करते।";
 "Current Page" = "वर्तमान पृष्ठ";
+
+"Waiting for %@…" = "%@ के उत्तर की प्रतीक्षा में…";
+
+"Type a search term to see matches." = "मिलते-जुलते परिणाम देखने के लिए खोज शब्द टाइप करें।";

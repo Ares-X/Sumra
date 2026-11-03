@@ -144,6 +144,9 @@ private struct SignatureOptions {
         var rows: [[NSView]] = [[NSTextField(labelWithString: L("Field (existing or new)")), field], [NSTextField(labelWithString: L("Page")), pageField], [NSTextField(labelWithString: L("Bounds (top-left pt)")), bounds], [NSTextField(labelWithString: L("Reason")), reason], [NSTextField(labelWithString: L("Location")), location]]
         if case .pkcs12 = identity { rows.insert([NSTextField(labelWithString: L("Certificate password")), password], at: 0) }
         let grid = NSGridView(views: rows)
+        grid.column(at: 1).width = 300
+        grid.columnSpacing = 12
+        grid.rowSpacing = 6
         let selectedBounds = NSButton(checkboxWithTitle: String(format: L("Use selected rectangle on page %d"), page + 1), target: nil, action: nil)
         selectedBounds.state = selection == nil ? .off : .on
         let choices: [(String, PDFSignatureAppearance)] = [("Labels", .labels), ("Name", .textName), ("Date", .date), ("Distinguished name", .distinguishedName), ("Graphic name", .graphicName), ("Logo", .logo)]
@@ -158,7 +161,7 @@ private struct SignatureOptions {
         views += flags; views.append(image)
         let stack = NSStackView(views: views)
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
-        stack.frame = NSRect(x: 0, y: 0, width: 480, height: 400)
+        stack.frame = NSRect(x: 0, y: 0, width: 480, height: stack.fittingSize.height)
         alert.accessoryView = stack
         alert.addButton(withTitle: L("Continue")); alert.addButton(withTitle: L("Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn, isCurrent() else { return nil }

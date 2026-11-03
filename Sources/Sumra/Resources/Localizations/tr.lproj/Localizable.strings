@@ -784,3 +784,7 @@
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Yüzen denetim öğeleri için pencere kenarından ayrılan boşluk. Üst üste gelmelerine izin vermek için 0 olarak ayarlayın. İçerik kenar boşlukları yalnızca bir kez hesaba katılır; gizli denetim öğeleri boşluk ayırmaz.";
 "Top clearance" = "Üst boşluk";
 "Current Page" = "Geçerli Sayfa";
+
+"Waiting for %@…" = "%@ yanıtı bekleniyor…";
+
+"Type a search term to see matches." = "Eşleşmeleri görmek için bir arama terimi yazın.";

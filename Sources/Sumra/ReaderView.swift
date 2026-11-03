@@ -174,9 +174,12 @@ struct ReaderView: View {
         // allows the toolbar to overlap reading content.
         // Fixed pages consume the same margins outside their native canvas.
         let pageMargin = !forControls ? state.contentMargins?.top ?? 0 : 0
+        // Positive reading clearance starts below the fullscreen menu band;
+        // zero still lets the book extend beneath the floating controls.
+        let readingClearance = state.controlTopMargin > 0 ? state.controlTopMargin + fullscreenMenuInset : 0
         let clearance = forControls
             ? max(state.controlTopMargin, floatingControlsClearance)
-            : state.controlTopMargin
+            : readingClearance
         return max(0, clearance - pageMargin)
     }
     private var sidebarTopClearance: CGFloat {
@@ -794,7 +797,7 @@ private struct ReaderFindControls: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 ReaderFindInput(state: state, floating: floating, close: close)
-                    .layoutPriority(1)
+                    .frame(minWidth: 0, maxWidth: floating ? .infinity : 248)
                 Menu {
                     ForEach(history.queries, id: \.self) { query in
                         Button(query) { state.updateFindQuery(query); state.findNext(inResults: floating) }
@@ -822,9 +825,14 @@ private struct ReaderFindControls: View {
                 .accessibilityLabel(L(floating ? "Find in Reader" : "Open Find in a Window"))
                 Button(action: close) { Image(systemName: "xmark") }
                     .help(L("Close Find")).accessibilityLabel(L("Close Find"))
+                if !state.findQuery.isEmpty {
+                    Text(state.searchCountText)
+                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                }
             }
-            HStack {
-                if state.supportsSearchPageRange {
+            if state.supportsSearchPageRange {
+                HStack {
                     Text(L("Pages"))
                     TextField(L("All pages"), text: Binding(get: { state.searchPageRange }, set: state.setSearchPageRange))
                         .textFieldStyle(.roundedBorder).frame(width: 150)
@@ -832,12 +840,10 @@ private struct ReaderFindControls: View {
                         .help(L("Page range, for example 3, 4-6, 18-"))
                         .accessibilityLabel(L("Search Page Range"))
                 }
-                Spacer()
-                Text(state.searchCountText)
-                    .font(.caption).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onExitCommand(perform: close)
     }
 }
@@ -905,7 +911,22 @@ struct ReaderFindInput: NSViewRepresentable {
     }
 }
 
-struct ReaderSearchResults: NSViewRepresentable {
+struct ReaderSearchResults: View {
+    @ObservedObject var state: ReaderState
+
+    var body: some View {
+        ReaderSearchResultsTable(state: state)
+            .overlay(alignment: .topLeading) {
+                if state.findQuery.isEmpty && state.searchResults.isEmpty {
+                    Text(L("Type a search term to see matches."))
+                        .font(.callout).foregroundStyle(.secondary).padding(12)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+private struct ReaderSearchResultsTable: NSViewRepresentable {
     @ObservedObject var state: ReaderState
     func makeCoordinator() -> Coordinator { Coordinator(state) }
     func makeNSView(context: Context) -> NSScrollView {

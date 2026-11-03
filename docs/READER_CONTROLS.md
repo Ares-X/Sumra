@@ -157,11 +157,23 @@ the requested direction. Paged and right-to-left layouts use the same source
 order and wrap at the beginning or end of the document.
 
 The Find magnifier in either toolbar toggles the complete Find controls and
-results. Command-F opens or refocuses Find. Close Find and Escape return focus
+results. Docked Find groups its field, buttons and match count at the leading
+edge of the reader. Documents with page-range search show that filter below.
+Command-F opens or refocuses Find. Close Find and Escape return focus
 to the reader, cancel delayed and active search, and remove its controls,
 results and highlights. Escape also ends a Command-G search while Find is
 closed; the retained query remains available for the next Command-G. Text
 input keeps native Escape handling, including input-method composition.
+
+Ask Document clears the submitted question when it enters the conversation.
+You can draft your next question while the selected CLI responds. If the
+selected passage has no readable text, the draft stays in the editor. Cancel
+ends the request and keeps any text already received. Codex can reconnect an
+interrupted stream within the same turn.
+
+The command palette, bookmark browser and annotations list show a message
+when their filtered list is empty. PDF annotations are checked after the
+current document revision finishes loading.
 
 Settings → Keyboard Shortcuts supports command search, recording an actual key
 combination, conflict feedback, and resetting one command. Custom Toolbar Buttons
@@ -268,6 +280,8 @@ change page geometry; they no longer choose floating-control clearance.
 Top and bottom clearance accept 0–200 pt independently, measured from the window
 edge. Defaults are 54 pt above and 44 pt below, retaining the former Medium
 layout. A value of 0 allows floating controls to overlap reading content.
+With floating controls in full screen, positive top clearance starts below the native menu-bar band;
+0 still reserves no control clearance, and hovering never changes the reservation.
 Each end uses the larger of its content margin and control clearance rather
 than adding both. A hidden toolbar or progress bar reserves no clearance at that
 end; Auto Hide retains the chosen area while the controls fade. Native toolbars
