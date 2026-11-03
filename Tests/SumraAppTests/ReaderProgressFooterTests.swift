@@ -699,6 +699,45 @@ final class ReaderProgressFooterTests: XCTestCase {
     }
 
     @MainActor
+    func testCompletedPaginationDuringDragCommitsThePreviewedChapter() async throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = try nativePDFReadingFixture(pageCount: 1)
+        state.reflowable = true; state.flow = "paged"; state.spread = false
+        var table = ChapterTable(chapters: 2)
+        table.setPageCount(chapter: 0, count: 2)
+        _ = state.applyChapterLayout(table)
+        state.updatePosition(.init(page: 0, anchor: table.bookmark(.init(chapter: 0, page: 0))))
+        let host = NSHostingView(rootView: ReaderProgressFooter(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: ReaderProgressFooter.height),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); window.contentView = nil; window.close() }
+        func slider(in view: NSView) -> ReaderProgressSliderControl? {
+            if let control = view as? ReaderProgressSliderControl { return control }
+            return view.subviews.lazy.compactMap { slider(in: $0) }.first
+        }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        host.layoutSubtreeIfNeeded()
+        let control = try XCTUnwrap(slider(in: host))
+        let unchanged = ReaderProgressDrag(document: state.document?.id, value: 0, presentation: state.readingProgress)
+        control.began?(); control.changed?(0.25)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(try XCTUnwrap(control.accessibilityValueDescription()).contains("1 / 2"))
+        table.setPageCount(chapter: 1, count: 98)
+        _ = state.applyChapterLayout(table)
+        XCTAssertTrue(table.complete)
+        XCTAssertNil(unchanged.action(in: state))
+        XCTAssertEqual(unchanged.action(in: state, includingCurrent: true), .progress(0),
+                       "An in-flight seek can still be superseded by a return to the current position")
+        control.ended?()
+        XCTAssertEqual(state.command.action, .progress(0.25),
+                       "The committed chapter coordinate must match the frozen chapter preview")
+        XCTAssertEqual(table.location(progress: 0.25), .init(chapter: 0, page: 1))
+    }
+
+    @MainActor
     func testChapterWarmDuringDragKeepsThePresentationUntilSeekAcknowledgement() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("drag-chapter-warm.md")
