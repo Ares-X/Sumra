@@ -282,6 +282,7 @@ final class ReaderState: ObservableObject {
         didSet {
             if document != nil { restoredPayload = nil }
             if document?.id != oldValue?.id {
+                aiQuestion = ""
                 browserProgress = nil; browserPage = nil; browserPageCount = nil
                 scrollProgress.update(nil)
                 pdfEditingEnabled = false; nativePDFInfo = nil; nativePDFSelection = nil; nativePDFAnnotationTool = nil
@@ -430,6 +431,7 @@ final class ReaderState: ObservableObject {
     @Published var paletteContentsVisible = false
     @Published var tabColor: UInt32? { didSet { applyTabColor() } }
     @Published var showAI = false
+    @Published var aiQuestion = ""
     @Published var recentSidebarIsAI = true
     var compactSidebars = false
 

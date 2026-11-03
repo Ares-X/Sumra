@@ -846,7 +846,6 @@ struct ReaderAISidebar: View {
     @State private var providerModel = ""
     @State private var effort = "medium"
     @State private var entireDocument = false
-    @State private var question = ""
     @State private var preparing = false
     @State private var requestID = UUID()
     @State private var sending: Task<Void, Never>?
@@ -938,7 +937,7 @@ struct ReaderAISidebar: View {
                     if let id = messages.last?.id { proxy.scrollTo(id, anchor: .bottom) }
                 }
             }.frame(minHeight: 0, maxHeight: .infinity)
-            TextEditor(text: $question).font(.body).frame(height: 85)
+            TextEditor(text: $state.aiQuestion).font(.body).frame(height: 85)
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3)))
                 .accessibilityLabel(L("Question about the document"))
             HStack {
@@ -951,7 +950,7 @@ struct ReaderAISidebar: View {
                 if model.busy || preparing { Button(L("Cancel"), action: cancel) }
                 else {
                     Button(L("Send")) { send(entireDocument: entireDocument) }
-                        .disabled(!state.hasDocument || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(!state.hasDocument || state.aiQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
@@ -971,7 +970,7 @@ struct ReaderAISidebar: View {
             }
         }
         .onAppear(perform: loadPreferences)
-        .onChange(of: state.document?.id) { _ in cancel(); model.clear(); question = ""; showHistory = false; entireDocument = false }
+        .onChange(of: state.document?.id) { _ in cancel(); model.clear(); showHistory = false; entireDocument = false }
         .onChange(of: provider) { _ in cancel(); model.clear(); loadPreferences() }
         .onDisappear { cancel(); model.clear() }
     }
@@ -1011,7 +1010,7 @@ struct ReaderAISidebar: View {
     }
 
     private func send(entireDocument: Bool, prompt: String? = nil) {
-        let draft = question
+        let draft = state.aiQuestion
         let submitted = (prompt ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !submitted.isEmpty, !preparing, !model.busy, let documentID = state.document?.id, let directory else { return }
         let id = UUID()
@@ -1027,7 +1026,7 @@ struct ReaderAISidebar: View {
                     throw ReadError(L("No readable text at this position"))
                 }
                 preparing = false
-                if prompt == nil, question == draft { question = "" }
+                if prompt == nil, state.aiQuestion == draft { state.aiQuestion = "" }
                 await model.send(context: context, question: submitted, provider: provider, directory: directory)
             } catch is CancellationError { }
             catch { if requestID == id { model.error = error.localizedDescription } }
