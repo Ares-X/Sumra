@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+import Combine
+import CoreText
 import SwiftUI
 import XCTest
 @testable import Sumra
@@ -7,6 +9,65 @@ import XCTest
 @MainActor
 final class ReaderFindLifecycleTests: XCTestCase {
     private static var accessibilityLaunched = false
+    func testNativePDFReopenSearchRestoresResultsAndRangeWithoutRefocusAdvancing() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory(), input = directory.url.appendingPathComponent("find-reopen.pdf")
+        var box = CGRect(x: 0, y: 0, width: 300, height: 400)
+        let writer = try XCTUnwrap(CGContext(input as CFURL, mediaBox: &box, nil))
+        for _ in 0..<9 {
+            writer.beginPDFPage(nil); writer.textPosition = CGPoint(x: 20, y: 350)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: Array(repeating: "needle", count: 8).joined(separator: " "),
+                attributes: [.font: NSFont.systemFont(ofSize: 9)]))
+            CTLineDraw(line, writer); writer.endPDFPage()
+        }
+        writer.closePDF()
+        let pages = try Pages(input, format: .pdf), state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.flow = "paged"; state.fit = "page"; state.spread = false; state.automaticLayout = false
+        state.showContents = false; state.showAI = false
+        let window = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 865, height: 512),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        state.window = window; window.contentView = host
+        defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
+        func waitFor(_ condition: () -> Bool, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            XCTFail("PDF Find did not settle: \(state.error ?? state.searchCountText)", line: line)
+            throw CancellationError()
+        }
+        try await waitFor { state.count == 9 && state.readerFocusView != nil }
+        state.showFindPanel(); state.updateFindQuery("needle"); state.findNext()
+        try await waitFor { state.searchResults.count == 72 && !state.searchCounting && state.selectedSearchTarget != nil }
+        state.setSearchPageRange("2-3")
+        try await waitFor { state.searchResults.count == 16 && !state.searchCounting && state.selectedSearchTarget != nil }
+        state.closeFind()
+        try await waitFor { !state.showFind && state.searchResults.isEmpty && !state.searchCounting }
+        XCTAssertEqual(state.findQuery, "needle")
+        XCTAssertEqual(state.searchPageRange, "2-3")
+        state.showFindPanel()
+        try await waitFor { state.searchResults.count == 16 && !state.searchCounting && state.selectedSearchTarget != nil }
+        XCTAssertEqual(state.searchResults.filter { $0.target.hasPrefix("raster-search:1:") }.count, 8)
+        XCTAssertEqual(state.searchResults.filter { $0.target.hasPrefix("raster-search:2:") }.count, 8)
+        let selected = state.selectedSearchTarget
+        var findCommands = 0
+        let observation = state.$command.dropFirst().sink { command in
+            if case .find = command.action { findCommands += 1 }
+        }
+        defer { observation.cancel() }
+        state.showFindPanel()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(findCommands, 0, "Refocusing an open Find panel must not start or advance a search")
+        XCTAssertEqual(state.selectedSearchTarget, selected)
+        XCTAssertEqual(state.searchResults.count, 16)
+        XCTAssertFalse(window.isVisible)
+    }
+
     func testToolbarFindTogglesButFindCommandReselectsExistingInput() {
         let state = ReaderState(recordsHistory: false)
         defer { state.windowClosed() }
