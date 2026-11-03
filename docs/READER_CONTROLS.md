@@ -354,7 +354,10 @@ change the system default email application.
 
 EPUB, MOBI/PRC, Kindle AZW/AZW3, FB2, CBZ, CBR, CBT and CB7 register
 read-only Quick Look thumbnail and preview extensions with the bundled app.
-Select a file in Finder and press Space; use the preview's arrows to navigate. The operating system manages extension enablement
+Select a file in Finder and press Space. Use the arrows below the preview to
+turn pages. If a page fails to render, the error appears below the last readable
+page. Its arrows still work, so you can retry or return to another readable page.
+The operating system manages extension enablement
 and which provider handles a file. These extensions do not register PDF or plain
 ZIP/RAR/7z files and do not create reader history. Reading and preview use the
 same bundled decoder libraries; a bare `swift run` does not install extensions.

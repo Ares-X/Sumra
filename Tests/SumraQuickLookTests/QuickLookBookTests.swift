@@ -50,6 +50,127 @@ final class QuickLookBookTests: XCTestCase {
                        CGRect(x: 75, y: 0, width: 150, height: 300))
     }
 
+    func testComicForwardFailureKeepsLastSuccessfulCursor() async throws {
+        let size = CGSize(width: 100, height: 100)
+        let url = try archive(["01.png": png(20, 40, red: 1), "02.png": Data("broken image".utf8),
+                               "03.png": png(80, 40, red: 0.5)], suffix: "cbz")
+        let book = try QuickLookBook(url: url)
+        let first = try await book.image(maximum: size)
+        do {
+            _ = try await book.image(maximum: size, direction: 1)
+            XCTFail("The corrupt middle page must fail decoding")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("02.png")) }
+        let afterForwardFailure = try await book.image(maximum: size)
+        XCTAssertEqual(afterForwardFailure.label, first.label)
+        XCTAssertFalse(afterForwardFailure.hasPrevious); XCTAssertTrue(afterForwardFailure.hasNext)
+
+    }
+
+    func testComicBackwardFailureKeepsLastSuccessfulCursor() async throws {
+        let size = CGSize(width: 100, height: 100)
+        let url = try archive(["01.png": png(20, 40, red: 1), "02.png": Data("broken image".utf8),
+                               "03.png": png(80, 40, red: 0.5)], suffix: "cbz")
+        let book = try QuickLookBook(url: url)
+        // Direct model navigation selects the good page beyond the bad entry.
+        let last = try await book.image(maximum: size, direction: 2)
+        XCTAssertEqual(last.label, "3/3")
+        do {
+            _ = try await book.image(maximum: size, direction: -1)
+            XCTFail("Backward decoding must report the corrupt page too")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("02.png")) }
+        let afterFailure = try await book.image(maximum: size)
+        XCTAssertEqual(afterFailure.label, last.label)
+        XCTAssertTrue(afterFailure.hasPrevious); XCTAssertFalse(afterFailure.hasNext)
+        let recovered = try await book.image(maximum: size, direction: -2)
+        XCTAssertEqual(recovered.label, "1/3")
+    }
+
+    @MainActor
+    private func previewControls(_ controller: PreviewViewController) throws -> (NSButton, NSTextField, NSButton, QuickLookPageView) {
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let views = descendants(controller.view)
+        return (try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "‹" }),
+                try XCTUnwrap(views.compactMap { $0 as? NSTextField }.first),
+                try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "›" }),
+                try XCTUnwrap(views.compactMap { $0 as? QuickLookPageView }.first))
+    }
+
+    @MainActor
+    private func waitForPreview(_ description: String, condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(3)
+        while !condition(), Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(condition(), description)
+    }
+
+    @MainActor
+    func testPreviewButtonsAndKeyboardRecoverAfterCorruptPage() async throws {
+        _ = NSApplication.shared
+        let url = try archive(["01.png": png(20, 40, red: 1), "02.png": png(80, 40, red: 0.5),
+                               "03.png": Data("broken image".utf8)], suffix: "cbz")
+        let controller = PreviewViewController()
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 800),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = controller
+        defer { controller.viewDidDisappear(); window.contentViewController = nil; window.close() }
+        try await controller.preparePreviewOfFile(at: url)
+        let (previous, label, next, pageView) = try previewControls(controller)
+        XCTAssertFalse(previous.isEnabled); XCTAssertTrue(next.isEnabled)
+        next.performClick(nil)
+        try await waitForPreview("Next button must display page 2") { label.stringValue == "2/3" }
+        let lastImage = try XCTUnwrap(pageView.image)
+        XCTAssertTrue(previous.isEnabled); XCTAssertTrue(next.isEnabled)
+        next.performClick(nil)
+        try await waitForPreview("Decode failure must be visible") { label.stringValue.contains("03.png") }
+        XCTAssertTrue(pageView.image === lastImage, "A failed page must retain the successful bitmap")
+        XCTAssertTrue(previous.isEnabled); XCTAssertTrue(next.isEnabled)
+        XCTAssertTrue(window.makeFirstResponder(controller.view))
+        let left = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "\u{f702}", charactersIgnoringModifiers: "\u{f702}",
+            isARepeat: false, keyCode: 123))
+        try XCTUnwrap(window.firstResponder).keyDown(with: left)
+        try await waitForPreview("Left key must return from the failed page to page 1") { label.stringValue == "1/3" }
+        XCTAssertFalse(previous.isEnabled); XCTAssertTrue(next.isEnabled)
+        let right = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "\u{f703}", charactersIgnoringModifiers: "\u{f703}",
+            isARepeat: false, keyCode: 124))
+        try XCTUnwrap(window.firstResponder).keyDown(with: right)
+        try await waitForPreview("Right key remains usable after recovery") { label.stringValue == "2/3" }
+        previous.performClick(nil)
+        try await waitForPreview("Previous button remains usable after recovery") { label.stringValue == "1/3" }
+    }
+
+    @MainActor
+    func testFirstPageFailureAndReplacementDoNotLockNavigation() async throws {
+        _ = NSApplication.shared
+        let first = try archive(["01.png": png(20, 40, red: 1), "02.png": Data("broken image".utf8)], suffix: "cbz")
+        let replacement = try archive(["01.png": png(80, 40, red: 0.5), "02.png": png(40, 40, red: 0.2)], suffix: "cbz")
+        let controller = PreviewViewController()
+        defer { controller.viewDidDisappear() }
+        try await controller.preparePreviewOfFile(at: first)
+        let (previous, label, next, pageView) = try previewControls(controller)
+        let firstImage = try XCTUnwrap(pageView.image)
+        next.performClick(nil)
+        try await waitForPreview("The bad second image must report its name") { label.stringValue.contains("02.png") }
+        XCTAssertTrue(pageView.image === firstImage)
+        XCTAssertFalse(previous.isEnabled); XCTAssertTrue(next.isEnabled)
+        next.performClick(nil)
+        // Replace while a navigation task is still outstanding on the main actor.
+        try await controller.preparePreviewOfFile(at: replacement)
+        XCTAssertEqual(label.stringValue, "1/2")
+        XCTAssertFalse(previous.isEnabled); XCTAssertTrue(next.isEnabled)
+        next.performClick(nil)
+        try await waitForPreview("Replacement navigation must not be blocked or overwritten by the cancelled task") { label.stringValue == "2/2" }
+        XCTAssertTrue(previous.isEnabled); XCTAssertFalse(next.isEnabled)
+        previous.performClick(nil)
+        controller.viewDidDisappear()
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertNil(pageView.image, "A disappearing preview must not be repopulated by cancelled navigation")
+        try await controller.preparePreviewOfFile(at: replacement)
+        next.performClick(nil)
+        try await waitForPreview("A reused controller must retain navigation after disappearance") { label.stringValue == "2/2" }
+    }
+
     func testEPUBRendersSVGAndNavigatesSpineUsingBundledEngine() async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let engine = root.appendingPathComponent("build/engines/MuPDF.dylib")
@@ -67,11 +188,30 @@ final class QuickLookBookTests: XCTestCase {
         let first = try await book.image(maximum: CGSize(width: 200, height: 400))
         XCTAssertEqual(first.label, "1/2 · 1/1")
         XCTAssertEqual(CGFloat(first.image.width) / CGFloat(first.image.height), 0.5, accuracy: 0.01)
+        // The native engine rejects this bitmap width before allocating pixels.
+        // Force a real render error after crossing the spine, not a mock failure.
+        let rejectedSize = CGSize(width: 1_000_000_000, height: 2_000_000_000)
+        do {
+            _ = try await book.image(maximum: rejectedSize, direction: 1)
+            XCTFail("The native bitmap-size guard must reject the render")
+        } catch { XCTAssertEqual(error.localizedDescription, "Page bitmap is too large") }
+        let afterForwardFailure = try await book.image(maximum: CGSize(width: 200, height: 400))
+        XCTAssertEqual(afterForwardFailure.label, first.label)
+        XCTAssertFalse(afterForwardFailure.hasPrevious); XCTAssertTrue(afterForwardFailure.hasNext)
         let second = try await book.image(maximum: CGSize(width: 400, height: 200), direction: 1)
         XCTAssertEqual(second.label, "2/2 · 1/1")
         XCTAssertEqual(CGFloat(second.image.width) / CGFloat(second.image.height), 2, accuracy: 0.01)
         XCTAssertEqual(ThumbnailProvider.contextSize(for: second.image, maximum: CGSize(width: 200, height: 200)),
                        CGSize(width: 200, height: 100), "Fixed-layout ebooks keep landscape page proportions")
+        do {
+            _ = try await book.image(maximum: rejectedSize, direction: -1)
+            XCTFail("The backward chapter render must reject the bitmap too")
+        } catch { XCTAssertEqual(error.localizedDescription, "Page bitmap is too large") }
+        let afterBackwardFailure = try await book.image(maximum: CGSize(width: 400, height: 200))
+        XCTAssertEqual(afterBackwardFailure.label, second.label)
+        XCTAssertTrue(afterBackwardFailure.hasPrevious); XCTAssertFalse(afterBackwardFailure.hasNext)
+        let recovered = try await book.image(maximum: CGSize(width: 200, height: 400), direction: -1)
+        XCTAssertEqual(recovered.label, first.label)
         XCTAssertEqual(try Data(contentsOf: url), before)
     }
 

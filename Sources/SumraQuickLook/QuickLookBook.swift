@@ -33,6 +33,7 @@ actor QuickLookBook {
 
     func image(maximum: CGSize, direction: Int = 0) throws -> Page {
         try Task.checkCancellation()
+        var chapter = self.chapter, page = self.page
         if let document {
             if direction > 0 {
                 if page + 1 < (try document.pages(chapter)) { page += 1 }
@@ -42,10 +43,13 @@ actor QuickLookBook {
                 else if chapter > 0 { chapter -= 1; page = try document.pages(chapter) - 1 }
             }
             let count = try document.pages(chapter)
-            return try Page(image: document.image(chapter: chapter, page: page, maximum: maximum),
+            let result = try Page(image: document.image(chapter: chapter, page: page, maximum: maximum),
                             label: "\(chapter + 1)/\(document.chapters) · \(page + 1)/\(count)",
                             hasPrevious: chapter > 0 || page > 0,
                             hasNext: chapter + 1 < document.chapters || page + 1 < count)
+            try Task.checkCancellation()
+            self.chapter = chapter; self.page = page
+            return result
         }
         page = min(max(0, page + direction), images.count - 1)
         let bytes = try archive!.data(images[page])
@@ -57,6 +61,8 @@ actor QuickLookBook {
               ] as CFDictionary) else {
             throw ReadError("Quick Look cannot decode \(images[page]). Open this comic in Sumra.")
         }
+        try Task.checkCancellation()
+        self.page = page
         return Page(image: image, label: "\(page + 1)/\(images.count)", hasPrevious: page > 0, hasNext: page + 1 < images.count)
     }
 
