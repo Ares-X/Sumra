@@ -8,12 +8,15 @@ import XCTest
 final class ReaderLifecycleTests: XCTestCase {
     @MainActor
     func testSiblingNavigationThroughAliasedParentDirectory() async throws {
-        let directory = try TemporaryDirectory()
-        defer { withExtendedLifetime(directory) {} }
+        // macOS exposes /tmp as an alias of /private/tmp, independent of TMPDIR.
+        let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("Sumra-sibling-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
         for name in ["A-note.txt", "B-note.txt", "C-note.txt"] {
-            try "Test file \(name)".write(to: directory.url.appendingPathComponent(name), atomically: true, encoding: .utf8)
+            try "Test file \(name)".write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8)
         }
-        let opened = directory.url.appendingPathComponent("B-note.txt").standardizedFileURL
+        let opened = directory.appendingPathComponent("B-note.txt").standardizedFileURL
         let list = try ReaderState.folderDocuments(opened.deletingLastPathComponent())
         XCTAssertNil(list.firstIndex(of: opened), "Fixture must exercise different parent URL spellings")
         let index = try XCTUnwrap(ReaderState.folderDocumentIndex(opened, in: list))
