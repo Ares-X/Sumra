@@ -75,10 +75,12 @@ struct ReaderView: View {
                 }
             }
         }
-        .padding(.top, (hasTopControls ? topClearance : 0) + (reclaimsNativeInsets ? 0 : fullscreenMenuInset))
+        .padding(.top, (hasTopControls ? topClearance : 0) + (reclaimsNativeInsets || state.usesFloatingChrome ? 0 : fullscreenMenuInset))
         .padding(.bottom, floatingBottomClearance)
         .overlay(alignment: .top) {
-            if state.usesFloatingChrome { ReaderFloatingControls(state: state, open: openFiles) }
+            if state.usesFloatingChrome {
+                ReaderFloatingControls(state: state, open: openFiles).padding(.top, fullscreenMenuInset)
+            }
         }
         .overlay(alignment: .bottom) {
             if overlaysProgress && state.hasDocument && !state.presentation && progressDisplayMode != .hidden {
@@ -87,7 +89,7 @@ struct ReaderView: View {
         }
         .background(state.hasDocument ? Color(nsColor: ReaderTheme.color(state.palette.background)) : Color(nsColor: .windowBackgroundColor))
         .background(ReaderScrollbarClearance(state: state,
-            top: state.usesFloatingChrome ? ReaderFloatingControls.topInset + ReaderFloatingControls.height : (reclaimsNativeInsets ? nativeTopClearance : 0),
+            top: hasTopControls ? 0 : (state.usesFloatingChrome ? floatingControlsClearance : (reclaimsNativeInsets ? nativeTopClearance : 0)),
             bottom: overlaysProgress && state.hasDocument && !state.presentation && progressDisplayMode != .hidden
                 ? ReaderProgressFooter.layoutHeight(floating: state.usesFloatingChrome) : 0))
         .overlay(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion, fullscreenMenuInset: $fullscreenMenuInset, nativeTopClearance: $nativeTopClearance))
@@ -151,6 +153,9 @@ struct ReaderView: View {
     private var overlaysProgress: Bool {
         state.usesFloatingChrome || (progressDisplayMode == .auto && reclaimsNativeInsets)
     }
+    private var floatingControlsClearance: CGFloat {
+        fullscreenMenuInset + ReaderFloatingControls.topInset + ReaderFloatingControls.height
+    }
     private func floatingTopClearance(forControls: Bool) -> CGFloat {
         guard state.usesFloatingChrome else {
             // Reading content may extend under native hover chrome, but its
@@ -159,7 +164,7 @@ struct ReaderView: View {
             return forControls && reclaimsNativeInsets ? nativeTopClearance + fullscreenMenuInset : 0
         }
         if state.toolbarDisplayMode == .hidden {
-            return forControls ? ReaderFloatingControls.topInset + ReaderFloatingControls.height : 0
+            return forControls ? floatingControlsClearance : 0
         }
         // The book already reserves its own page margin. Add only the space
         // still needed to clear the controls, rather than stacking two margins.
@@ -170,13 +175,13 @@ struct ReaderView: View {
         // Fixed pages consume the same margins outside their native canvas.
         let pageMargin = !forControls ? state.contentMargins?.top ?? 0 : 0
         let clearance = forControls
-            ? max(state.controlTopMargin, ReaderFloatingControls.topInset + ReaderFloatingControls.height)
+            ? max(state.controlTopMargin, floatingControlsClearance)
             : state.controlTopMargin
         return max(0, clearance - pageMargin)
     }
     private var sidebarTopClearance: CGFloat {
         if state.usesFloatingChrome {
-            let windowControlsClearance = ReaderFloatingControls.topInset + ReaderFloatingControls.height + 10
+            let windowControlsClearance = floatingControlsClearance + 10
             return state.toolbarDisplayMode == .hidden ? windowControlsClearance : max(state.controlTopMargin, windowControlsClearance)
         }
         return reclaimsNativeInsets ? nativeTopClearance : 0
