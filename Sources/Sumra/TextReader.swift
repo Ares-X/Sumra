@@ -416,6 +416,12 @@ import SumraCore
                   let character = nextPageCharacter(in: view) else { return }
             second.isHidden = isAtEnd(view)
             guard !second.isHidden else { return }
+            // A native scrollbar can appear after the host's initial layout.
+            // Both TextKit managers must wrap at the same source boundaries.
+            if let scroll = second.enclosingScrollView, let width = view.enclosingScrollView?.contentView.frame.width,
+               scroll.frame.width != width {
+                scroll.setFrameSize(NSSize(width: width, height: scroll.frame.height))
+            }
             (second.enclosingScrollView as? TextPageScrollView)?.pageHeight = nil
             second.enclosingScrollView?.tile()
             scrollToCharacter(character, in: second)
@@ -434,7 +440,16 @@ import SumraCore
             view.scrollRangeToVisible(NSRange(location: character, length: character < storage.length ? 1 : 0))
             manager.textViewportLayoutController.layoutViewport()
             if let line = line(at: character, in: view) {
-                let proposed = NSRect(origin: NSPoint(x: 0, y: max(0, line.rect.minY + view.textContainerOrigin.y)), size: clip.bounds.size)
+                var proposed = NSRect(origin: NSPoint(x: 0, y: max(0, line.rect.minY + view.textContainerOrigin.y)), size: clip.bounds.size)
+                // Leave unused paper outside the clip on a short final page.
+                // Otherwise AppKit pulls the requested first line back up to
+                // fill the viewport with text already shown on the first page.
+                if state.flow == "paged" || state.spread,
+                   let scroll = view.enclosingScrollView as? TextPageScrollView {
+                    scroll.pageHeight = min(scroll.availableHeight, view.bounds.maxY - proposed.minY)
+                    scroll.tile()
+                    proposed.size = clip.bounds.size
+                }
                 clip.scroll(to: clip.constrainBoundsRect(proposed).origin)
                 view.enclosingScrollView?.reflectScrolledClipView(clip)
                 manager.textViewportLayoutController.layoutViewport()
@@ -940,6 +955,7 @@ import SumraCore
     var pageHeight: CGFloat?
     private(set) var availableHeight: CGFloat = 0
     override func tile() {
+        let origin = contentView.bounds.origin
         super.tile()
         verticalScroller?.target = self
         verticalScroller?.action = #selector(moveScrollbar(_:))
@@ -951,6 +967,12 @@ import SumraCore
             frame.size.height = height
         }
         contentView.frame = frame
+        if pageHeight != nil {
+            // super.tile temporarily expands the clip to the full paper height.
+            // Restore its source position after applying the final page height.
+            let proposed = NSRect(origin: origin, size: contentView.bounds.size)
+            contentView.scroll(to: contentView.constrainBoundsRect(proposed).origin)
+        }
     }
 }
 
