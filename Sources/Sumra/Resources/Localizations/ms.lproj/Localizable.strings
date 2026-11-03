@@ -777,3 +777,7 @@
 "Top clearance" = "Jarak atas";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Ruang yang disediakan dari tepi tetingkap untuk kawalan terapung. Tetapkan kepada 0 untuk membenarkan pertindihan. Margin kandungan dikira sekali sahaja; kawalan tersembunyi tidak menggunakan ruang.";
 "Current Page" = "Halaman Semasa";
+
+"Waiting for %@…" = "Menunggu balasan daripada %@…";
+
+"Type a search term to see matches." = "Taip istilah carian untuk melihat padanan.";

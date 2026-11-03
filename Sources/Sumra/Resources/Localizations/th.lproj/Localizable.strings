@@ -784,3 +784,7 @@
 "Top clearance" = "ระยะเว้นด้านบน";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "พื้นที่ที่เว้นจากขอบหน้าต่างสำหรับตัวควบคุมแบบลอย ตั้งค่าเป็น 0 เพื่อให้ซ้อนทับได้ ระยะขอบเนื้อหาจะนับเพียงครั้งเดียว ส่วนตัวควบคุมที่ซ่อนไว้จะไม่จองพื้นที่";
 "Current Page" = "หน้าปัจจุบัน";
+
+"Waiting for %@…" = "กำลังรอการตอบกลับจาก %@…";
+
+"Type a search term to see matches." = "พิมพ์คำค้นหาเพื่อดูผลลัพธ์ที่ตรงกัน";

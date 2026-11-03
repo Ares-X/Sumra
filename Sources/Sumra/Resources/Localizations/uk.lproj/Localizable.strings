@@ -777,3 +777,7 @@
 "Top clearance" = "Відступ зверху";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Простір від краю вікна, зарезервований для плаваючих елементів керування. Установіть 0, щоб дозволити перекриття. Поля вмісту враховуються один раз; приховані елементи керування не займають місця.";
 "Current Page" = "Поточна сторінка";
+
+"Waiting for %@…" = "Очікування відповіді від %@…";
+
+"Type a search term to see matches." = "Введіть пошуковий запит, щоб побачити збіги.";

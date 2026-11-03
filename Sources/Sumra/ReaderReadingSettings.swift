@@ -280,7 +280,8 @@ import SumraCore
     let unit: String
 
     var body: some View {
-        LabeledContent(label) {
+        HStack(spacing: 8) {
+            Text(label).frame(width: 110, alignment: .leading)
             Slider(value: $value, in: range, step: step).accessibilityLabel(label)
             ReaderNumericField(value: $value, range: range, label: "\(label) (\(unit))")
                 .frame(width: 58)

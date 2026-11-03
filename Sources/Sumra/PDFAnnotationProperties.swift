@@ -289,12 +289,13 @@ struct PDFAnnotationProperties: Equatable {
         let grid = NSGridView(views: rows)
         grid.rowSpacing = 8
         grid.columnSpacing = 12
+        grid.column(at: 1).width = 350
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.widthAnchor.constraint(equalToConstant: 350).isActive = true
         scroll.heightAnchor.constraint(equalToConstant: 120).isActive = true
-        let propertiesScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 540, height: min(540, CGFloat(rows.count) * 34 + 100)))
-        propertiesScroll.hasVerticalScroller = true
         grid.frame.size = grid.fittingSize
+        let propertiesScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 540, height: min(540, grid.frame.height)))
+        propertiesScroll.hasVerticalScroller = true
         propertiesScroll.documentView = grid
         alert.accessoryView = propertiesScroll
         alert.window.initialFirstResponder = nativeLink ? link : text

@@ -224,6 +224,30 @@ final class ReaderAITests: XCTestCase {
         XCTAssertEqual(stream.text, "Hello 世界")
     }
 
+    func testCodexReconnectCanFinishWithAnAnswer() throws {
+        var stream = ReaderAIStream(provider: .codex)
+        XCTAssertNil(try stream.consume(event(#"{"type":"error","message":"Reconnecting... 1/2 (stream disconnected before completion)"}"#)))
+        XCTAssertEqual(try stream.consume(event(#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Recovered answer"}}"#)), "Recovered answer")
+        _ = try stream.consume(event(#"{"type":"turn.completed"}"#))
+        XCTAssertTrue(stream.finished)
+    }
+
+    func testCodexExitWithoutTerminalEventKeepsDiagnostic() async throws {
+        let tool = try LocalTool("""
+        case "$*" in *'mcp list --json'*) printf '[]'; exit 0;; esac
+        /bin/cat >/dev/null
+        printf '%s' '{"type":"error","message":"Fixture transport unavailable"}'
+        exit 1
+        """)
+        do {
+            try await ReaderAIRunner.run(provider: .codex, input: Data("Fixture".utf8), directory: tool.directory, sessionID: nil, control: ReaderAIProcess(), executable: tool.executable) { _, _ in }
+            XCTFail("Incomplete CLI turn should fail")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Fixture transport unavailable"))
+            XCTAssertTrue(error.localizedDescription.contains("exit 1"))
+        }
+    }
+
     func testCodexFailureKeepsReason() {
         var stream = ReaderAIStream(provider: .codex)
         XCTAssertThrowsError(try stream.consume(event(#"{"type":"turn.failed","error":{"message":"Authentication token expired"}}"#))) {
@@ -426,6 +450,27 @@ final class ReaderAITests: XCTestCase {
     func testTranslationUsesSavedLanguageChoices() {
         XCTAssertTrue(ReaderAIRequest.translation(source: "auto", target: "ja").contains("detected language into ja"))
         XCTAssertTrue(ReaderAIRequest.translation(source: "de", target: "en").contains("from de into en"))
+    }
+
+    @MainActor
+    func testFailedLaunchRemovesEmptyReplyAndKeepsQuestionAndError() async throws {
+        let temporary = try TemporaryDirectory(), model = ReaderAIModel()
+        let missing = temporary.url.appendingPathComponent("nonexistent", isDirectory: true)
+        await model.send(context: "Synthetic passage", question: "Question", provider: .codex, directory: missing)
+        XCTAssertFalse(model.busy)
+        XCTAssertFalse(try XCTUnwrap(model.error).isEmpty)
+        XCTAssertEqual(model.messages.map(\.text), ["Question"])
+        XCTAssertEqual(model.messages.first?.role, "user")
+    }
+
+    @MainActor
+    func testCancellingBeforeFirstAnswerRemovesPendingReply() {
+        let model = ReaderAIModel()
+        let revision = model.begin(question: "Question")
+        model.cancel()
+        model.receive("Late answer", revision: revision)
+        XCTAssertFalse(model.busy)
+        XCTAssertEqual(model.messages.map(\.text), ["Question"])
     }
 
     @MainActor

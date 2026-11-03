@@ -782,3 +782,7 @@
 "Top clearance" = "Khoảng trống phía trên";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Khoảng trống được chừa từ mép cửa sổ cho các điều khiển nổi. Đặt thành 0 để cho phép chồng lấp. Lề nội dung chỉ được tính một lần; điều khiển bị ẩn không chiếm chỗ.";
 "Current Page" = "Trang hiện tại";
+
+"Waiting for %@…" = "Đang chờ phản hồi từ %@…";
+
+"Type a search term to see matches." = "Nhập từ khóa tìm kiếm để xem các kết quả phù hợp.";

@@ -784,3 +784,7 @@
 "Top clearance" = "מרווח עליון";
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "השטח השמור מקצה החלון לפקדים צפים. יש להגדיר 0 כדי לאפשר חפיפה. שולי התוכן נספרים פעם אחת; פקדים מוסתרים אינם שומרים מקום.";
 "Current Page" = "העמוד הנוכחי";
+
+"Waiting for %@…" = "ממתין לתשובה מ-%@…";
+
+"Type a search term to see matches." = "הקלד מונח חיפוש כדי לראות התאמות.";

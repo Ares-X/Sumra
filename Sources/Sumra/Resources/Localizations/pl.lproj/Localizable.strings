@@ -784,3 +784,7 @@
 "Space reserved from the window edge for floating controls. Set to 0 to allow overlap. Content margins are counted once; hidden controls reserve no space." = "Miejsce zarezerwowane od krawędzi okna dla pływających elementów sterujących. Ustaw 0, aby zezwolić na nakładanie. Marginesy treści są uwzględniane tylko raz; ukryte elementy sterujące nie rezerwują miejsca.";
 "Top clearance" = "Górny odstęp";
 "Current Page" = "Bieżąca strona";
+
+"Waiting for %@…" = "Oczekiwanie na odpowiedź od %@…";
+
+"Type a search term to see matches." = "Wpisz szukaną frazę, aby zobaczyć dopasowania.";

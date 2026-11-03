@@ -404,10 +404,19 @@ struct ExternalActionSettings: View {
     var body: some View {
         let _ = language
         VStack(alignment: .leading) {
-            TextField(L("Source language code (auto detects)"), text: $source)
-            TextField(L("Target language code"), text: $target)
+            Text(L("Translate")).font(.headline)
+            Grid(alignment: .leading) {
+                GridRow {
+                    Text(L("From"))
+                    TextField(L("Source language code (auto detects)"), text: $source)
+                }
+                GridRow {
+                    Text(L("To"))
+                    TextField(L("Target language code"), text: $target)
+                }
+            }
             Text(L("Blank follows the system language")).font(.caption).foregroundStyle(.secondary)
-            Text(L("External commands")).font(.headline)
+            Text(L("External commands")).font(.headline).padding(.top, 6)
             Text(L("Use {file}, {folder}, {page}, {zoom}, {x}, {y}, {selection}, {selectionjson}, {selectionfile}, {selectionposition} or {userlang}. Optional extensions, wildcard filter and needsSelection control availability; shortcut uses the keyboard shortcut syntax.")).font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $draft).font(.system(.body, design: .monospaced))
             Text(L("Example:") + " [{\"name\":\"Preview\",\"arguments\":[\"/usr/bin/open\",\"-a\",\"Preview\",\"{file}\"],\"extensions\":[\"pdf\"]}]").font(.caption).textSelection(.enabled)

@@ -70,11 +70,8 @@ import XCTest
                         XCTAssertEqual(row.minY, initial.minY, accuracy: 1,
                             "Revealing chrome must not move the Find controls")
                     } else { initialFind[width] = row }
-                    let count = try XCTUnwrap(mounted.filter {
-                        $0.role == kAXStaticTextRole && ($0.value == state.searchCountText || $0.label == state.searchCountText)
-                    }.min { $0.frame.minY < $1.frame.minY }).frame
                     let header = try XCTUnwrap(mounted.first { $0.label == L("Close Sidebar") }).frame
-                    let headerGap = header.minY - max(row.maxY, count.maxY)
+                    let headerGap = header.minY - row.maxY
                     if let intrinsicHeaderGap {
                         XCTAssertEqual(headerGap, intrinsicHeaderGap, accuracy: 1,
                             "The sidebar below Find must keep its normal row spacing without reserving chrome twice")
@@ -163,12 +160,7 @@ import XCTest
         func findRow(in elements: [Element]) throws -> CGRect {
             let input = try XCTUnwrap(elements.first { $0.label == L("Find in document") })
             let close = try XCTUnwrap(elements.first { $0.label == L("Close Find") })
-            // Find's count row is followed by a separate bottom status row with
-            // the same text. Select its uppermost mounted occurrence.
-            let count = try XCTUnwrap(elements.filter {
-                $0.role == kAXStaticTextRole && ($0.value == state.searchCountText || $0.label == state.searchCountText)
-            }.min { $0.frame.minY < $1.frame.minY })
-            return input.frame.union(close.frame).union(count.frame)
+            return input.frame.union(close.frame)
         }
 
         try await settle()

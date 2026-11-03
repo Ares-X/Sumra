@@ -873,6 +873,7 @@ struct CommandPalette: View {
     @State private var query = "> "
     @State private var selected: String?
     @State private var nativeAnnotations: [(page: Int, annotation: PDFAnnotationSnapshot)] = []
+    @State private var annotationsLoadedRevision: String?
     @Environment(\.dismiss) private var dismiss
 
     init(state: ReaderState, open: @escaping () -> Void, perform: @escaping (@escaping () -> Void) -> Void) {
@@ -883,6 +884,7 @@ struct CommandPalette: View {
     }
 
     private var thumbnailOnly: Bool { state.paletteMode == "& " }
+    private var annotationRevision: String { "\(state.document?.id.uuidString ?? ""):\(state.editRevision)" }
 
     private struct Item: Identifiable {
         let id: String
@@ -1036,6 +1038,12 @@ struct CommandPalette: View {
                             .accessibilityHidden(true)
                     }
                 }
+                .overlay {
+                    if items.isEmpty,
+                       query.first != "*" || state.nativePDF == nil || annotationsLoadedRevision == annotationRevision {
+                        Text(L("No results")).foregroundStyle(.secondary).padding()
+                    }
+                }
                 .onAppear {
                     if let selected { proxy.scrollTo(selected, anchor: .center) }
                 }
@@ -1057,8 +1065,9 @@ struct CommandPalette: View {
         .onAppear { query = state.paletteMode; state.paletteContentsVisible = query.first == "%" }
         .onChange(of: query.first) { state.paletteContentsVisible = $0 == "%" }
         .onDisappear { state.paletteContentsVisible = false }
-        .task(id: query.first == "*" ? "\(state.document?.id.uuidString ?? ""):\(state.editRevision)" : "") {
+        .task(id: query.first == "*" ? annotationRevision : "") {
             nativeAnnotations = []
+            annotationsLoadedRevision = nil
             guard query.first == "*", let pages = state.nativePDF else { return }
             let documentID = state.document?.id, revision = state.editRevision
             do {
@@ -1071,6 +1080,7 @@ struct CommandPalette: View {
                 }
                 guard !Task.isCancelled, state.document?.id == documentID, state.editRevision == revision else { return }
                 nativeAnnotations = rows
+                annotationsLoadedRevision = annotationRevision
             } catch { if !Task.isCancelled, state.document?.id == documentID { state.error = error.localizedDescription } }
         }
     }

@@ -325,6 +325,7 @@ struct ReaderAIStream {
     private(set) var text = ""
     private(set) var finished = false
     private(set) var sessionID: String?
+    private(set) var codexDiagnostic: String?
     private var codexMessages: [(String, String)] = []
     private var claudePrefix = ""
     private var claudeMessageID: String?
@@ -348,9 +349,12 @@ struct ReaderAIStream {
                 else { codexMessages.append((id, value)) }
                 text = codexMessages.map { $0.1 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
             } else if type == "turn.completed" { finished = true }
-            else if type == "turn.failed" || type == "error" {
+            else if type == "error" {
+                // Codex also emits this event while reconnecting a recoverable stream.
+                codexDiagnostic = object["message"] as? String
+            } else if type == "turn.failed" {
                 let error = object["error"] as? [String: Any]
-                throw ReadError(error?["message"] as? String ?? object["message"] as? String ?? "Codex request failed.")
+                throw ReadError(error?["message"] as? String ?? object["message"] as? String ?? codexDiagnostic ?? "Codex request failed.")
             }
         case .claude:
             if let id = object["session_id"] as? String { sessionID = id }
@@ -677,7 +681,8 @@ enum ReaderAIRunner {
             _ = try await errors.value
             try control.check()
             if !stream.finished {
-                throw ReadError("\(provider.rawValue) CLI ended before a complete reply (exit \(process.terminationStatus)).")
+                let reason = stream.codexDiagnostic.map { " " + $0 } ?? ""
+                throw ReadError("\(provider.rawValue) CLI ended before a complete reply (exit \(process.terminationStatus))." + reason)
             }
             if provider == .codex, process.terminationStatus != 0 {
                 throw ReadError("Codex CLI failed (exit \(process.terminationStatus)).")
@@ -723,10 +728,6 @@ final class ReaderAIModel: ObservableObject {
     }
 
     func send(context: String, question: String, provider: ReaderAIProvider, directory: URL) async {
-        guard !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            error = "No readable text in the selected document context."
-            return
-        }
         if sessionProvider != provider || sessionDirectory != directory { clear() }
         sessionProvider = provider; sessionDirectory = directory
         let sessionID = self.sessionID
@@ -755,9 +756,15 @@ final class ReaderAIModel: ObservableObject {
             }
         } catch is CancellationError { }
         catch { if revision == self.revision { self.error = error.localizedDescription } }
-        guard revision == self.revision else { return }
+        if revision == self.revision { finishRequest() }
+    }
+
+    private func finishRequest() {
+        if let reply = messages.last, reply.role == "assistant", !reply.complete, reply.text.isEmpty {
+            messages.removeLast()
+        }
+        control = nil
         busy = false
-        self.control = nil
     }
 
     func restore(_ session: ReaderAISession, provider: ReaderAIProvider, directory: URL) async {
@@ -778,8 +785,7 @@ final class ReaderAIModel: ObservableObject {
     func cancel() {
         revision += 1
         control?.stop(cancel: true)
-        control = nil
-        busy = false
+        finishRequest()
     }
 
     func clear() { cancel(); messages.removeAll(); error = nil; sessionID = nil; sessionProvider = nil; sessionDirectory = nil }
@@ -868,19 +874,22 @@ struct ReaderAISidebar: View {
                 ForEach(ReaderAIProvider.allCases) { Text($0.rawValue).tag($0) }
             }.disabled(model.busy || preparing)
             HStack {
-                TextField(L("Model (blank uses provider default)"), text: $providerModel)
+                TextField(L("Provider default"), text: $providerModel)
+                    .accessibilityLabel(L("Model (blank uses provider default)"))
+                    .help(L("Model (blank uses provider default)"))
                     .onChange(of: providerModel) { UserDefaults.standard.set($0, forKey: "aiModel:" + provider.id) }
                 Menu(L("Models")) {
                     Button(L("Provider default")) { providerModel = "" }
                     ForEach(models, id: \.self) { value in Button(value) { providerModel = value } }
                     Divider()
                     Button(L(loadingModels ? "Loading…" : "Refresh Models"), action: refreshModels).disabled(loadingModels)
-                }
-            }
+                }.fixedSize()
+            }.disabled(model.busy || preparing)
             if !provider.efforts.isEmpty {
                 Picker(L("Effort"), selection: $effort) {
                     ForEach(provider.efforts, id: \.self) { Text(L($0.capitalized)).tag($0) }
-                }.onChange(of: effort) { UserDefaults.standard.set($0, forKey: "aiEffort:" + provider.id) }
+                }.disabled(model.busy || preparing)
+                .onChange(of: effort) { UserDefaults.standard.set($0, forKey: "aiEffort:" + provider.id) }
             }
             HStack {
                 Button(L("History")) { showHistory = true }.disabled(directory == nil || model.busy || preparing)
@@ -910,7 +919,15 @@ struct ReaderAISidebar: View {
                                         }.font(.caption)
                                     }
                                 }
-                                Text(message.text.isEmpty ? "…" : message.text).textSelection(.enabled)
+                                if message.text.isEmpty, message.role == "assistant", model.busy, message.id == model.messages.last?.id {
+                                    HStack(spacing: 6) {
+                                        ProgressView().controlSize(.small).accessibilityHidden(true)
+                                        Text(String(format: L("Waiting for %@…"), provider.rawValue))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } else {
+                                    Text(message.text).textSelection(.enabled)
+                                }
                             }.id(message.id)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
@@ -924,8 +941,8 @@ struct ReaderAISidebar: View {
                 .accessibilityLabel(L("Question about the document"))
             HStack {
                 Button(L("Translate Selection")) {
-                    question = ReaderAIRequest.translation(source: UserDefaults.standard.string(forKey: "translationSource") ?? "auto", target: ReaderTranslation.targetLanguage)
-                    send(entireDocument: false)
+                    let translation = ReaderAIRequest.translation(source: UserDefaults.standard.string(forKey: "translationSource") ?? "auto", target: ReaderTranslation.targetLanguage)
+                    send(entireDocument: false, prompt: translation)
                 }
                     .disabled(!state.hasTextSelection || model.busy || preparing)
                 Spacer()
@@ -991,9 +1008,10 @@ struct ReaderAISidebar: View {
         }
     }
 
-    private func send(entireDocument: Bool) {
-        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty, !preparing, !model.busy, let documentID = state.document?.id, let directory else { return }
+    private func send(entireDocument: Bool, prompt: String? = nil) {
+        let draft = question
+        let submitted = (prompt ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !submitted.isEmpty, !preparing, !model.busy, let documentID = state.document?.id, let directory else { return }
         let id = UUID()
         requestID = id
         preparing = true
@@ -1003,13 +1021,12 @@ struct ReaderAISidebar: View {
                 let context = try await state.documentText(entireDocument: entireDocument)
                 try Task.checkCancellation()
                 guard requestID == id, state.document?.id == documentID else { return }
-                preparing = false
-                let messageCount = model.messages.count
-                await model.send(context: context, question: question, provider: provider, directory: directory)
-                if requestID == id, model.messages.count > messageCount,
-                   self.question.trimmingCharacters(in: .whitespacesAndNewlines) == question {
-                    self.question = ""
+                guard !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ReadError(L("No readable text at this position"))
                 }
+                preparing = false
+                if prompt == nil, question == draft { question = "" }
+                await model.send(context: context, question: submitted, provider: provider, directory: directory)
             } catch is CancellationError { }
             catch { if requestID == id { model.error = error.localizedDescription } }
         }
