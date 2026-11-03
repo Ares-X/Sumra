@@ -54,10 +54,21 @@ import XCTest
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
         }
+        // AppKit can publish the split group before SwiftUI publishes its button children.
+        func mountedButtons() async throws -> [(String, CGRect)] {
+            let names = Set([L("Translate Selection"), L("Send")])
+            let deadline = Date().addingTimeInterval(5)
+            var elements = try buttons(in: window)
+            while !names.isSubset(of: elements.map(\.0)) && Date() < deadline {
+                try await Task.sleep(nanoseconds: 20_000_000)
+                elements = try buttons(in: window)
+            }
+            return elements
+        }
         for width in [760.0, 1040.0, 760.0] {
             window.setContentSize(CGSize(width: width, height: 680))
             try await settle()
-            let elements = try buttons(in: window)
+            let elements = try await mountedButtons()
             let hostFrame = window.convertToScreen(host.convert(host.bounds, to: nil))
             let strip = CGRect(x: hostFrame.minX, y: hostFrame.minY, width: hostFrame.width, height: footprint)
             for label in [L("Translate Selection"), L("Send")] {
@@ -66,16 +77,19 @@ import XCTest
                 XCTAssertTrue(hostFrame.contains(button.1), "AI button must remain inside the reader")
             }
         }
-        let initial = try XCTUnwrap(buttons(in: window).first { $0.0 == L("Send") }).1
+        let initialButtons = try await mountedButtons()
+        let initial = try XCTUnwrap(initialButtons.first { $0.0 == L("Send") }).1
         state.status = "Reader status"
         try await settle()
-        let withStatus = try XCTUnwrap(buttons(in: window).first { $0.0 == L("Send") }).1
+        let withStatusButtons = try await mountedButtons()
+        let withStatus = try XCTUnwrap(withStatusButtons.first { $0.0 == L("Send") }).1
         XCTAssertEqual(withStatus.minY, initial.minY, accuracy: 1,
             "The existing status row must count toward footer clearance instead of adding another gap")
         state.status = ""
         defaults.set("hidden", forKey: "progressDisplayMode")
         try await settle()
-        let withoutFooter = try XCTUnwrap(buttons(in: window).first { $0.0 == L("Send") }).1
+        let withoutFooterButtons = try await mountedButtons()
+        let withoutFooter = try XCTUnwrap(withoutFooterButtons.first { $0.0 == L("Send") }).1
         XCTAssertEqual(initial.minY - withoutFooter.minY, footprint, accuracy: 1,
             "A hidden footer must release its whole footprint, including root floating padding")
     }
