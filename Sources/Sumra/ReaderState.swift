@@ -1287,6 +1287,11 @@ extension ReaderState {
         selectSidebar("search")
     }
 
+    func toggleFindPanel() {
+        if showFind { closeFind() }
+        else { showFindPanel() }
+    }
+
     func showContentsSearch() {
         contentsSearchRequested = true
         showContents = true
@@ -1313,6 +1318,8 @@ extension ReaderState {
         showSearchResults = false
         status = ""
         send(.toc)
+        if findWindow?.isKeyWindow == true { window?.makeKeyAndOrderFront(nil) }
+        if let target = (browserView as NSView?) ?? readerFocusView { window?.makeFirstResponder(target) }
     }
 
     func updateFindQuery(_ query: String, refresh: Bool = false) {

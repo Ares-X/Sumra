@@ -113,5 +113,67 @@ final class TextFindTests: XCTestCase {
         XCTAssertEqual(state.searchResults.map(\.target), ["text:80000:5"])
         XCTAssertFalse(state.searchCounting)
     }
+
+    @MainActor
+    func testCloseCancelsReaderSearchAndDelayedTypingWhileCmdGStillWorks() async throws {
+        let (window, view, state, coordinator) = try await makeReader(String(repeating: "needle\n", count: 100_000))
+        defer { close(window, state: state) }
+        state.window = window
+        state.showFindPanel()
+        state.updateFindQuery("needle")
+        state.findNext()
+        let deadline = Date().addingTimeInterval(5)
+        while !state.searchCounting, Date() < deadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertTrue(state.searchCounting)
+        let canceled = coordinator.searchTask
+        state.closeFind()
+        await canceled?.value
+        while !state.searchResults.isEmpty || state.searchCounting || !coordinator.query.isEmpty {
+            guard Date() < deadline else { return XCTFail("Closing Find did not clear the reader search") }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertFalse(state.showFind)
+        XCTAssertFalse(state.showSearchResults)
+        XCTAssertFalse(state.searchSessionActive)
+        XCTAssertEqual(state.findQuery, "needle")
+        XCTAssertTrue(coordinator.results.isEmpty)
+        XCTAssertNil(coordinator.searchTask)
+        XCTAssertEqual(state.status, "")
+        XCTAssertTrue(window.firstResponder === view)
+
+        ReaderMenuCommand.findNext.run(state)
+        let restarted = Date().addingTimeInterval(5)
+        while state.searchResults.count != 100_000 || state.searchCounting {
+            guard Date() < restarted else { return XCTFail("Cmd-G did not restart the closed Find session") }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertFalse(state.showFind)
+        XCTAssertTrue(state.searchSessionActive)
+        XCTAssertNotNil(state.selectedSearchTarget)
+        let firstTarget = state.selectedSearchTarget
+        ReaderMenuCommand.findNext.run(state)
+        while state.selectedSearchTarget == firstTarget {
+            guard Date() < restarted else { return XCTFail("Repeated Cmd-G did not advance the closed Find session") }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertFalse(state.showFind)
+        XCTAssertTrue(state.searchSessionActive)
+        state.closeFind()
+
+        state.showFindPanel()
+        state.updateFindQuery("obsolete")
+        state.closeFind()
+        try await Task.sleep(nanoseconds: 550_000_000)
+        XCTAssertFalse(state.searchSessionActive, "Closed Find must not restart its delayed query")
+        XCTAssertEqual(state.findQuery, "obsolete", "Canceling the query preserves the next Find input")
+        XCTAssertFalse(state.searchCounting)
+        XCTAssertEqual(state.status, "")
+        XCTAssertTrue(state.searchResults.isEmpty)
+        XCTAssertEqual(coordinator.query, "")
+        XCTAssertFalse(window.isVisible)
+    }
 }
 #endif

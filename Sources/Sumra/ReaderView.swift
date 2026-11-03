@@ -75,10 +75,12 @@ struct ReaderView: View {
                 }
             }
         }
-        .padding(.top, (hasTopControls ? topClearance : 0) + (reclaimsNativeInsets ? 0 : fullscreenMenuInset))
+        .padding(.top, (hasTopControls ? topClearance : 0) + (reclaimsNativeInsets || state.usesFloatingChrome ? 0 : fullscreenMenuInset))
         .padding(.bottom, floatingBottomClearance)
         .overlay(alignment: .top) {
-            if state.usesFloatingChrome { ReaderFloatingControls(state: state, open: openFiles) }
+            if state.usesFloatingChrome {
+                ReaderFloatingControls(state: state, open: openFiles).padding(.top, fullscreenMenuInset)
+            }
         }
         .overlay(alignment: .bottom) {
             if overlaysProgress && state.hasDocument && !state.presentation && progressDisplayMode != .hidden {
@@ -87,7 +89,7 @@ struct ReaderView: View {
         }
         .background(state.hasDocument ? Color(nsColor: ReaderTheme.color(state.palette.background)) : Color(nsColor: .windowBackgroundColor))
         .background(ReaderScrollbarClearance(state: state,
-            top: state.usesFloatingChrome ? ReaderFloatingControls.topInset + ReaderFloatingControls.height : (reclaimsNativeInsets ? nativeTopClearance : 0),
+            top: hasTopControls ? 0 : (state.usesFloatingChrome ? floatingControlsClearance : (reclaimsNativeInsets ? nativeTopClearance : 0)),
             bottom: overlaysProgress && state.hasDocument && !state.presentation && progressDisplayMode != .hidden
                 ? ReaderProgressFooter.layoutHeight(floating: state.usesFloatingChrome) : 0))
         .overlay(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion, fullscreenMenuInset: $fullscreenMenuInset, nativeTopClearance: $nativeTopClearance))
@@ -151,8 +153,19 @@ struct ReaderView: View {
     private var overlaysProgress: Bool {
         state.usesFloatingChrome || (progressDisplayMode == .auto && reclaimsNativeInsets)
     }
+    private var floatingControlsClearance: CGFloat {
+        fullscreenMenuInset + ReaderFloatingControls.topInset + ReaderFloatingControls.height
+    }
     private func floatingTopClearance(forControls: Bool) -> CGFloat {
-        guard state.usesFloatingChrome, state.toolbarDisplayMode != .hidden else { return 0 }
+        guard state.usesFloatingChrome else {
+            // Reading content may extend under native hover chrome, but its
+            // interactive rows must stay below the measured titlebar and tabs,
+            // including the separate menu strip revealed in native fullscreen.
+            return forControls && reclaimsNativeInsets ? nativeTopClearance + fullscreenMenuInset : 0
+        }
+        if state.toolbarDisplayMode == .hidden {
+            return forControls ? floatingControlsClearance : 0
+        }
         // The book already reserves its own page margin. Add only the space
         // still needed to clear the controls, rather than stacking two margins.
         // An unset override leaves publisher margins in charge; the legacy
@@ -162,13 +175,13 @@ struct ReaderView: View {
         // Fixed pages consume the same margins outside their native canvas.
         let pageMargin = !forControls ? state.contentMargins?.top ?? 0 : 0
         let clearance = forControls
-            ? max(state.controlTopMargin, ReaderFloatingControls.topInset + ReaderFloatingControls.height)
+            ? max(state.controlTopMargin, floatingControlsClearance)
             : state.controlTopMargin
         return max(0, clearance - pageMargin)
     }
     private var sidebarTopClearance: CGFloat {
         if state.usesFloatingChrome {
-            let windowControlsClearance = ReaderFloatingControls.topInset + ReaderFloatingControls.height + 10
+            let windowControlsClearance = floatingControlsClearance + 10
             return state.toolbarDisplayMode == .hidden ? windowControlsClearance : max(state.controlTopMargin, windowControlsClearance)
         }
         return reclaimsNativeInsets ? nativeTopClearance : 0
@@ -186,7 +199,7 @@ struct ReaderView: View {
     }
 
     private func closeFind() {
-        state.closeFind(); focusReader()
+        state.closeFind()
     }
 
     private func focusReader() {
@@ -259,7 +272,7 @@ struct ReaderView: View {
                 .help(L("Reading Settings")).disabled(!state.hasDocument)
         }
         ToolbarItem(id: "find", placement: .automatic, showsByDefault: true) {
-            Button { state.showFindPanel() } label: { Image(systemName: "magnifyingglass") }
+            Button { state.toggleFindPanel() } label: { Image(systemName: "magnifyingglass") }
                 .disabled(!state.supportsSearch).help(L("Find")).accessibilityLabel(L("Find"))
                 .foregroundStyle(state.showFind ? Color.accentColor : Color.primary)
         }
@@ -358,9 +371,9 @@ struct ReaderView: View {
     private func mainArea(topClearance: CGFloat, topControlsShown: Bool) -> some View {
         // The sidebar preference names a physical edge, independent of UI language.
         let sidebarFirst = sidebarRight == (layoutDirection == .rightToLeft)
-        // Shared Find/edit/speech rows already start below floating controls.
+        // Shared Find/edit/speech rows already start below the window controls.
         // Sidebars below those rows must not reserve the toolbar a second time.
-        let sidebarInset = state.usesFloatingChrome && topControlsShown ? 0 : sidebarTopClearance
+        let sidebarInset = topControlsShown ? 0 : sidebarTopClearance
         // Each pane reserves chrome clearance itself; reclaim the native safe
         // area in every split child so sidebars do not count that space twice.
         HSplitView {
@@ -1098,12 +1111,9 @@ private struct ReaderFindPanel: NSViewRepresentable {
         }
         private func closeFind() {
             isPresented = false
-            dismiss()
             state?.closeFind()
+            dismiss()
             parent?.makeKeyAndOrderFront(nil)
-            if let state, let target = (state.browserView as NSView?) ?? state.readerFocusView {
-                parent?.makeFirstResponder(target)
-            }
         }
         func windowWillClose(_ notification: Notification) {
             guard let closed = notification.object as? NSWindow, closed === panel else { return }

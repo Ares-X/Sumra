@@ -327,7 +327,7 @@ struct ReaderToolbarAppearance: ViewModifier {
             // Fullscreen's toolbar companion moves below the revealed menu.
             // Reserve that native menu height throughout fullscreen so revealing
             // either surface cannot cover or move the reading content.
-            let menuHeight = parent.styleMask.contains(.fullScreen) && !state.usesCustomChrome ? NSApp.mainMenu?.menuBarHeight ?? 0 : 0
+            let menuHeight = parent.styleMask.contains(.fullScreen) && state.hasDocument ? NSApp.mainMenu?.menuBarHeight ?? 0 : 0
             if reservedMenuHeight != menuHeight {
                 reservedMenuHeight = menuHeight
                 DispatchQueue.main.async { [weak self] in
@@ -415,7 +415,12 @@ struct ReaderToolbarAppearance: ViewModifier {
             updateDragCursor()
             if parent.frame != frame { parent.setFrame(frame, display: false) }
             if !state.usesCustomChrome, let content = parent.contentView {
-                let height = max(content.safeAreaInsets.top, content.bounds.maxY - content.convert(parent.contentLayoutRect, from: nil).maxY)
+                // Fullscreen's hidden toolbar releases the document inset,
+                // but its native window-button strip still appears on hover.
+                let titlebarHeight = nativeFullscreen && permanentlyHidden
+                    ? originalButtonAppearance[.closeButton]?.button.superview?.bounds.height ?? 0 : 0
+                let height = max(titlebarHeight, max(content.safeAreaInsets.top,
+                    content.bounds.maxY - content.convert(parent.contentLayoutRect, from: nil).maxY))
                 if reservedNativeHeight != height {
                     reservedNativeHeight = height
                     DispatchQueue.main.async { [weak self] in
@@ -586,7 +591,9 @@ struct ReaderToolbarAppearance: ViewModifier {
             // height when a tab closes under a stationary pointer, even after
             // the surviving reader resets its hover state on activation.
             let windowTop = parent.frame.height
-            let entryDepth: CGFloat = state.usesFloatingChrome ? 76 : max(Self.hoverEntryDepth, reservedNativeHeight)
+            let entryDepth: CGFloat = state.usesFloatingChrome
+                ? max(76, reservedMenuHeight + ReaderFloatingControls.topInset + ReaderFloatingControls.height)
+                : max(Self.hoverEntryDepth, reservedNativeHeight)
             let retentionDepth = max(Self.hoverRetentionDepth, entryDepth)
             let bottom = windowTop - (state.toolbarHoverVisible ? retentionDepth : entryDepth)
             var upper = windowTop

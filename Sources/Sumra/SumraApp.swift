@@ -639,6 +639,10 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
             if state.presentationBlank != nil { state.presentationBlank = nil; return nil }
             if state.autoScroll { state.setAutoScroll(false); return nil }
             if state.presentation { ReaderMenuCommand.presentation.run(state); return nil }
+            if state.showFind || state.searchSessionActive {
+                state.closeFind()
+                return nil
+            }
         }
         if state.presentation, event.type == .keyDown, modifiers.isEmpty {
             switch event.charactersIgnoringModifiers?.lowercased() {

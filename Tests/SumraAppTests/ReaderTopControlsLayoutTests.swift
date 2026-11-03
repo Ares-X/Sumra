@@ -7,6 +7,98 @@ import XCTest
 @testable import Sumra
 
 @MainActor final class ReaderTopControlsLayoutTests: XCTestCase {
+    func testDockedFindClearsChromeWithoutMovingWhenHoverChanges() async throws {
+        _ = NSApplication.shared
+        NSApp.finishLaunching()
+        let defaults = UserDefaults.standard
+        let keys = ["language", "findFloating", "progressDisplayMode"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defaults.set("en", forKey: "language")
+        defaults.set(false, forKey: "findFloating")
+        defaults.set("hidden", forKey: "progressDisplayMode")
+        defer { for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) } }
+
+        for floating in [false, true] {
+            let state = ReaderState(recordsHistory: false)
+            state.document = ReadingDocument(url: URL(fileURLWithPath: "/find-chrome-clearance.txt"),
+                content: .text("Find remains reachable under hover chrome."))
+            state.immersiveControls = floating
+            state.showContents = true; state.showAI = false
+            state.showAnnotations = false; state.showBookmarks = false; state.showThumbnails = false
+            state.controlTopMargin = 0
+            state.showFind = true
+            let controller = NSHostingController(rootView: ReaderView(state: state))
+            let window = NSWindow(contentViewController: controller)
+            window.styleMask.formUnion([.titled, .closable, .resizable])
+            window.setFrame(CGRect(x: 2200, y: 100, width: 1000, height: 700), display: false)
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0; window.ignoresMouseEvents = true
+            window.title = "Docked Find chrome clearance floating=\(floating)"
+            state.window = window; window.orderBack(nil)
+            defer {
+                state.windowClosed(); window.orderOut(nil)
+                window.contentViewController = nil; window.close()
+            }
+            func settle() async throws {
+                for _ in 0..<30 {
+                    controller.view.layoutSubtreeIfNeeded()
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+            }
+            func chromeHost(in view: NSView) -> ReaderToolbarWindow.Host? {
+                (view as? ReaderToolbarWindow.Host) ?? view.subviews.lazy.compactMap { chromeHost(in: $0) }.first
+            }
+            var intrinsicHeaderGap: CGFloat?
+            for mode in [ReaderToolbarDisplayMode.shown, .auto, .hidden] {
+                state.toolbarDisplayMode = mode
+                try await settle()
+                let observer = try XCTUnwrap(chromeHost(in: controller.view))
+                observer.reducedMotion = true
+                var initialFind = [CGFloat: CGRect]()
+                for (index, hover) in [false, true, false, true].enumerated() {
+                    let width: CGFloat = index < 2 ? 1000 : 760
+                    window.setFrame(CGRect(origin: window.frame.origin, size: CGSize(width: width, height: 700)), display: false)
+                    observer.pointerMoved(to: CGPoint(x: window.frame.width / 2,
+                        y: hover ? window.frame.height - 10 : 100))
+                    try await settle()
+                    let mounted = try elements(in: window)
+                    let input = try XCTUnwrap(mounted.first { $0.label == L("Find in document") }).frame
+                    let close = try XCTUnwrap(mounted.first { $0.label == L("Close Find") }).frame
+                    let row = input.union(close)
+                    XCTAssertGreaterThan(row.height, 0)
+                    if let initial = initialFind[width] {
+                        XCTAssertEqual(row.minY, initial.minY, accuracy: 1,
+                            "Revealing chrome must not move the Find controls")
+                    } else { initialFind[width] = row }
+                    let count = try XCTUnwrap(mounted.filter {
+                        $0.role == kAXStaticTextRole && ($0.value == state.searchCountText || $0.label == state.searchCountText)
+                    }.min { $0.frame.minY < $1.frame.minY }).frame
+                    let header = try XCTUnwrap(mounted.first { $0.label == L("Close Sidebar") }).frame
+                    let headerGap = header.minY - max(row.maxY, count.maxY)
+                    if let intrinsicHeaderGap {
+                        XCTAssertEqual(headerGap, intrinsicHeaderGap, accuracy: 1,
+                            "The sidebar below Find must keep its normal row spacing without reserving chrome twice")
+                    } else { intrinsicHeaderGap = headerGap }
+                    XCTAssertGreaterThanOrEqual(headerGap, 0)
+                    XCTAssertEqual(try XCTUnwrap(state.readerScrollView).scrollerInsets.top, 0,
+                        "Find already moves the reader below the chrome, so its scrollbar must not reserve that space again")
+                    if floating {
+                        let group = mode == .hidden ? "floating-window-controls" : "floating-navigation"
+                        if let controls = mounted.first(where: { $0.identifier == group }) {
+                            XCTAssertGreaterThanOrEqual(row.minY, controls.frame.maxY,
+                                "Find must remain below the floating controls even with zero configured clearance")
+                        }
+                    } else {
+                        let layout = window.convertToScreen(window.contentLayoutRect)
+                        let chromeBottom = (NSScreen.screens.first?.frame.maxY ?? 0) - layout.maxY
+                        XCTAssertGreaterThanOrEqual(row.minY, chromeBottom,
+                            "The query and Close Find button must both remain below the native titlebar and toolbar")
+                    }
+                }
+            }
+        }
+    }
+
     func testContentsHeaderDoesNotReserveTopClearanceAgainBelowDockedFind() async throws {
         try await checkLayout(ai: false)
     }
