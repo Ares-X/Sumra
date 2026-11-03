@@ -13,14 +13,18 @@ final class ReaderAIComposerTests: XCTestCase {
         let fixture = try ComposerFixture()
         defer { fixture.close() }
         try await fixture.mount()
+        fixture.state.aiProvider = .claude
+        try await fixture.wait { fixture.displaysProvider(.claude) }
         try fixture.enter("Unsent draft 中文")
         try await fixture.press("Close Sidebar")
         try await fixture.wait { !fixture.state.showAI && fixture.editor == nil }
         ReaderMenuCommand.ai.run(fixture.state)
         try await fixture.mount()
         XCTAssertEqual(fixture.editor?.string, "Unsent draft 中文")
+        XCTAssertTrue(fixture.displaysProvider(.claude), "Reopening a draft must retain the CLI that will receive it")
 
         let other = ReaderState(recordsHistory: false)
+        XCTAssertEqual(other.aiProvider, .codex)
         other.document = fixture.state.document
         let otherHost = NSHostingView(rootView: ReaderAISidebar(state: other))
         let otherWindow = NSWindow(contentRect: CGRect(x: -3000, y: -3000, width: 380, height: 760),
@@ -176,6 +180,12 @@ private final class ComposerFixture {
     var texts: [String] {
         elements.filter { attribute($0, kAXRoleAttribute) as? String == kAXStaticTextRole }
             .compactMap { attribute($0, kAXValueAttribute) as? String ?? attribute($0, kAXDescriptionAttribute) as? String }
+    }
+    func displaysProvider(_ provider: ReaderAIProvider) -> Bool {
+        elements.contains { element in
+            attribute(element, kAXRoleAttribute) as? String == kAXPopUpButtonRole &&
+            attribute(element, kAXValueAttribute) as? String == provider.rawValue
+        }
     }
     var hasProgress: Bool {
         texts.contains(String(format: L("Waiting for %@…"), "Codex"))

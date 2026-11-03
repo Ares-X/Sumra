@@ -432,6 +432,7 @@ final class ReaderState: ObservableObject {
     @Published var tabColor: UInt32? { didSet { applyTabColor() } }
     @Published var showAI = false
     @Published var aiQuestion = ""
+    @Published var aiProvider = ReaderAIProvider.codex
     @Published var recentSidebarIsAI = true
     var compactSidebars = false
 
