@@ -175,6 +175,8 @@ input keeps native Escape handling, including input-method composition. Reopenin
 Find searches the retained query and page range again.
 
 Ask Document clears the submitted question when it enters the conversation.
+Closing and reopening its sidebar keeps an unsent question for that document;
+replacing the document clears it.
 You can draft your next question while the selected CLI responds. If the
 selected passage has no readable text, the draft stays in the editor. Cancel
 ends the request and keeps any text already received. Codex can reconnect an
