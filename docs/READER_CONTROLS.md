@@ -1,7 +1,8 @@
 # Reading controls and macOS integration
 
-The **Aa** toolbar item opens a nonmodal Reading Settings panel. Changes apply to
-the visible document while the panel stays open. Typography includes installed
+The normal and floating toolbars show **Aa** in every interface language. It
+opens the nonmodal Reading Settings panel. Changes apply to the visible
+document while the panel stays open. Typography includes installed
 font families and an editable name for supplemental fonts, size, line spacing,
 and margins. The existing native passage anchor keeps reflowable text at its
 reading location. Theme and layout controls share the reader's existing settings;

@@ -268,8 +268,13 @@ struct ReaderView: View {
             layoutOptions.disabled(!state.hasDocument)
         }
         ToolbarItem(id: "readingSettings", placement: .automatic, showsByDefault: true) {
-            Button(action: state.editTypography) { Label(L("Reading Settings"), systemImage: "textformat") }
-                .help(L("Reading Settings")).disabled(!state.hasDocument)
+            Button(action: state.editTypography) {
+                Label { Text(L("Reading Settings")) } icon: {
+                    Text(verbatim: "Aa").font(.system(size: 12, weight: .medium))
+                }
+            }
+            .accessibilityLabel(L("Reading Settings"))
+            .help(L("Reading Settings")).disabled(!state.hasDocument)
         }
         ToolbarItem(id: "find", placement: .automatic, showsByDefault: true) {
             Button { state.toggleFindPanel() } label: { Image(systemName: "magnifyingglass") }
