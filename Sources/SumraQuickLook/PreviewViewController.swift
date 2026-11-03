@@ -39,12 +39,16 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     }
 
     func preparePreviewOfFile(at url: URL) async throws {
-        rendering?.cancel()
+        rendering?.cancel(); rendering = nil
         _ = view
+        book = nil; image.image = nil; label.stringValue = ""
+        previous.isEnabled = false; next.isEnabled = false
         let document = try QuickLookBook(url: url)
+        book = document
         let page = try await document.image(maximum: CGSize(width: 1200, height: 1600))
         try Task.checkCancellation()
-        book = document; display(page)
+        guard book === document else { throw CancellationError() }
+        display(page)
     }
 
     @objc private func goPrevious() { step(-1) }
@@ -52,14 +56,20 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 
     private func step(_ direction: Int) {
         guard let book, rendering == nil, direction < 0 ? previous.isEnabled : next.isEnabled else { return }
+        let hasPrevious = previous.isEnabled, hasNext = next.isEnabled
         previous.isEnabled = false; next.isEnabled = false
         rendering = Task { [weak self] in
-            defer { self?.rendering = nil }
+            defer { if self?.book === book { self?.rendering = nil } }
             do {
                 let page = try await book.image(maximum: CGSize(width: 1200, height: 1600), direction: direction)
                 try Task.checkCancellation()
+                guard self?.book === book else { return }
                 self?.display(page)
-            } catch is CancellationError {} catch { self?.label.stringValue = error.localizedDescription }
+            } catch is CancellationError {} catch {
+                guard let self, self.book === book else { return }
+                previous.isEnabled = hasPrevious; next.isEnabled = hasNext
+                label.stringValue = error.localizedDescription
+            }
         }
     }
 
@@ -71,6 +81,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 
     override func viewDidDisappear() {
         super.viewDidDisappear(); rendering?.cancel(); rendering = nil; book = nil; image.image = nil
+        previous.isEnabled = false; next.isEnabled = false
     }
 }
 
