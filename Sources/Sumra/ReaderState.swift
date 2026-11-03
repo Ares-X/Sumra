@@ -1933,7 +1933,7 @@ extension ReaderState {
 
     func sibling(_ delta: Int) {
         guard let url = document?.url, let list = try? Self.folderDocuments(url.deletingLastPathComponent()) else { return }
-        guard let index = list.firstIndex(of: url), list.indices.contains(index + delta) else { return }
+        guard let index = Self.folderDocumentIndex(url, in: list), list.indices.contains(index + delta) else { return }
         open(list[index + delta])
     }
 
@@ -1941,6 +1941,10 @@ extension ReaderState {
         try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
             .filter { Format.detect($0.lastPathComponent) != .unknown }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    static func folderDocumentIndex(_ url: URL, in files: [URL]) -> Int? {
+        files.firstIndex { $0.lastPathComponent == url.lastPathComponent }
     }
 
     func discardChanges() {
@@ -1981,7 +1985,7 @@ extension ReaderState {
         guard alert.runModal() == .alertFirstButtonReturn, document?.id == reading.id, document?.url == reading.url else { return }
         afterDiscard { [self] in
         let files = (try? Self.folderDocuments(reading.url.deletingLastPathComponent())) ?? []
-        let next = files.firstIndex(of: reading.url).flatMap { index -> URL? in
+        let next = Self.folderDocumentIndex(reading.url, in: files).flatMap { index -> URL? in
             if files.indices.contains(index + 1) { return files[index + 1] }
             return index > 0 ? files[index - 1] : nil
         }

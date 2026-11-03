@@ -7,6 +7,34 @@ import XCTest
 
 final class ReaderLifecycleTests: XCTestCase {
     @MainActor
+    func testSiblingNavigationThroughAliasedParentDirectory() async throws {
+        // macOS exposes /tmp as an alias of /private/tmp, independent of TMPDIR.
+        let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("Sumra-sibling-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for name in ["A-note.txt", "B-note.txt", "C-note.txt"] {
+            try "Test file \(name)".write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        let opened = directory.appendingPathComponent("B-note.txt").standardizedFileURL
+        let list = try ReaderState.folderDocuments(opened.deletingLastPathComponent())
+        XCTAssertNil(list.firstIndex(of: opened), "Fixture must exercise different parent URL spellings")
+        let index = try XCTUnwrap(ReaderState.folderDocumentIndex(opened, in: list))
+        XCTAssertEqual(list[index + 1].lastPathComponent, "C-note.txt", "Trash-and-next uses the same folder index")
+        let state = ReaderState(recordsHistory: false)
+        defer { state.windowClosed() }
+        for (delta, expected) in [(-1, "A-note.txt"), (1, "C-note.txt")] {
+            state.openWithoutHistory(opened)
+            try await waitUntilIdle(state)
+            XCTAssertEqual(state.document?.url, opened)
+            state.sibling(delta)
+            try await waitUntilIdle(state)
+            XCTAssertNil(state.error)
+            XCTAssertEqual(state.document?.url.lastPathComponent, expected)
+        }
+    }
+
+    @MainActor
     func testMarkdownOpeningUsesItsOwnHistoryPolicyAndPosition() async throws {
         let directory = try TemporaryDirectory()
         let url = directory.url.appendingPathComponent("history.md").standardizedFileURL
