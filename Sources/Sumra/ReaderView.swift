@@ -174,9 +174,12 @@ struct ReaderView: View {
         // allows the toolbar to overlap reading content.
         // Fixed pages consume the same margins outside their native canvas.
         let pageMargin = !forControls ? state.contentMargins?.top ?? 0 : 0
+        // Positive reading clearance starts below the fullscreen menu band;
+        // zero still lets the book extend beneath the floating controls.
+        let readingClearance = state.controlTopMargin > 0 ? state.controlTopMargin + fullscreenMenuInset : 0
         let clearance = forControls
             ? max(state.controlTopMargin, floatingControlsClearance)
-            : state.controlTopMargin
+            : readingClearance
         return max(0, clearance - pageMargin)
     }
     private var sidebarTopClearance: CGFloat {

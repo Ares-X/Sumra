@@ -78,8 +78,8 @@ final class HighVolumeSearchTests: XCTestCase {
         // zero while the native document still has no laid-out pages.
         state.showFindPanel()
         let host = NSHostingView(rootView: ReaderView(state: state))
-        // The open Find panel reserves the 22-point search-session status row.
-        // Keep the reader viewport at the frozen oracle's 779x590 geometry.
+        // The frozen glyph oracle uses a 779x590 reader viewport. Measure the
+        // mounted Find footprint below rather than depending on its row height.
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 698),
             styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host
@@ -125,6 +125,12 @@ final class HighVolumeSearchTests: XCTestCase {
         }
         let split = try XCTUnwrap(ancestor as? NSSplitView)
         split.setPosition(220, ofDividerAt: 0)
+        try await wait("Native layout after sizing the results sidebar") {
+            await pages.layoutPageSize?.width == 779
+        }
+        let measuredSize = await pages.layoutPageSize
+        let measured = try XCTUnwrap(measuredSize)
+        window.setContentSize(CGSize(width: 1000, height: window.contentLayoutRect.height + 590 - measured.height))
         try await wait("Frozen reader layout and first painted page") {
             let size = await pages.layoutPageSize
             return size == CGSize(width: 779, height: 590) &&

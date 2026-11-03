@@ -280,6 +280,8 @@ change page geometry; they no longer choose floating-control clearance.
 Top and bottom clearance accept 0–200 pt independently, measured from the window
 edge. Defaults are 54 pt above and 44 pt below, retaining the former Medium
 layout. A value of 0 allows floating controls to overlap reading content.
+With floating controls in full screen, positive top clearance starts below the native menu-bar band;
+0 still reserves no control clearance, and hovering never changes the reservation.
 Each end uses the larger of its content margin and control clearance rather
 than adding both. A hidden toolbar or progress bar reserves no clearance at that
 end; Auto Hide retains the chosen area while the controls fade. Native toolbars
