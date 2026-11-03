@@ -171,7 +171,8 @@ Command-F opens or refocuses Find. Close Find and Escape return focus
 to the reader, cancel delayed and active search, and remove its controls,
 results and highlights. Escape also ends a Command-G search while Find is
 closed; the retained query remains available for the next Command-G. Text
-input keeps native Escape handling, including input-method composition.
+input keeps native Escape handling, including input-method composition. Reopening
+Find searches the retained query and page range again.
 
 Ask Document clears the submitted question when it enters the conversation.
 You can draft your next question while the selected CLI responds. If the

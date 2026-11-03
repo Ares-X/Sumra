@@ -7,6 +7,53 @@ import SwiftUI
 
 @MainActor
 final class ReaderToolbarTests: XCTestCase {
+    func testNativeOverflowLabelsAndActions() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let previousArguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer { defaults.setVolatileDomain(previousArguments, forName: UserDefaults.argumentDomain) }
+        for language in ["en", "zh-Hans"] {
+            var arguments = previousArguments
+            arguments["language"] = language
+            defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            let state = ReaderState(recordsHistory: false)
+            state.document = ReadingDocument(url: URL(fileURLWithPath: "/overflow.txt"), content: .text("book"))
+            state.immersiveControls = false; state.toolbarDisplayMode = .shown
+            state.showContents = false; state.showFind = false
+            let controller = NSHostingController(rootView: ReaderView(state: state))
+            let window = NSWindow(contentViewController: controller)
+            window.styleMask.formUnion([.titled, .closable, .resizable])
+            window.setContentSize(CGSize(width: 560, height: 438))
+            window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+            state.window = window; window.orderBack(nil)
+            defer { state.windowClosed(); window.orderOut(nil); window.contentViewController = nil; window.close() }
+            for _ in 0..<30 { controller.view.layoutSubtreeIfNeeded(); try await Task.sleep(nanoseconds: 10_000_000) }
+            let items = try XCTUnwrap(window.toolbar).items
+            func item(_ id: String) throws -> NSMenuItem {
+                let toolbarItem = try XCTUnwrap(items.first { $0.itemIdentifier.rawValue == id })
+                return try XCTUnwrap(toolbarItem.menuFormRepresentation)
+            }
+            for (id, title) in [("open", "Open Document"), ("contents", "Toggle Contents"), ("find", "Find")] {
+                let menuItem = try item(id)
+                let expected = language == "en" ? title : ["Open Document": "打开文档", "Toggle Contents": "显示或隐藏目录", "Find": "查找"][title]!
+                XCTAssertEqual(menuItem.title, expected, "\(language): \(id)")
+                XCTAssertEqual(menuItem.accessibilityLabel(), expected)
+                XCTAssertFalse(menuItem.title.isEmpty)
+                XCTAssertNotNil(menuItem.action)
+            }
+            for id in ["navigation", "zoom", "layout", "readingSettings", "edit"] {
+                let menuItem = try item(id)
+                XCTAssertFalse(menuItem.title.isEmpty, "\(language): \(id)")
+            }
+            let contents = try item("contents")
+            XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(contents.action), to: contents.target, from: contents))
+            XCTAssertTrue(state.showContents)
+            let find = try item("find")
+            XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(find.action), to: find.target, from: find))
+            XCTAssertTrue(state.showFind)
+        }
+    }
+
     func testHiddenFullscreenReservesNativeWindowButtonStripWithoutDocumentInset() async throws {
         final class FullscreenWindow: NSWindow {
             var nativeClose: NSButton?

@@ -115,6 +115,30 @@ final class TextFindTests: XCTestCase {
     }
 
     @MainActor
+    func testReopeningFindSearchesRetainedQueryWithoutAnotherEdit() async throws {
+        let (window, _, state, _) = try await makeReader("needle and needle")
+        defer { close(window, state: state) }
+        func waitFor(_ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(5)
+            while !condition() {
+                guard Date() < deadline else { return XCTFail("Find did not settle") }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        state.showFindPanel()
+        state.updateFindQuery("needle")
+        state.findNext()
+        try await waitFor { state.searchResults.count == 2 && !state.searchCounting }
+        state.closeFind()
+        try await waitFor { state.searchResults.isEmpty && !state.searchCounting }
+        state.showFindPanel()
+        try await waitFor { state.searchResults.count == 2 && !state.searchCounting }
+        XCTAssertEqual(state.findQuery, "needle")
+        XCTAssertNotNil(state.selectedSearchTarget)
+        XCTAssertFalse(window.isVisible)
+    }
+
+    @MainActor
     func testCloseCancelsReaderSearchAndDelayedTypingWhileCmdGStillWorks() async throws {
         let (window, view, state, coordinator) = try await makeReader(String(repeating: "needle\n", count: 100_000))
         defer { close(window, state: state) }
