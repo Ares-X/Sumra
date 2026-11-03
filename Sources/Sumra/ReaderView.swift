@@ -217,15 +217,15 @@ struct ReaderView: View {
         // loading and closing windows. AppKit shares item indexes across this
         // toolbar family; unsupported commands use their existing enabled state.
         ToolbarItem(id: "open", placement: .automatic, showsByDefault: true) {
-            Button(action: openFiles) { Image(systemName: "folder") }
-                .help(L("Open Document")).accessibilityLabel(L("Open Document"))
+            Button(action: openFiles) { Label(L("Open Document"), systemImage: "folder") }
+                .labelStyle(.iconOnly).help(L("Open Document")).accessibilityLabel(L("Open Document"))
         }
         ToolbarItem(id: "newTab", placement: .automatic, showsByDefault: true) {
             toolbarButton(.newTab, symbol: "plus")
         }
         ToolbarItem(id: "contents", placement: .automatic, showsByDefault: true) {
-            Button { state.showContents.toggle() } label: { Image(systemName: "sidebar.left") }
-                .disabled(!state.hasDocument).help(L("Toggle Contents")).accessibilityLabel(L("Toggle Contents"))
+            Button { state.showContents.toggle() } label: { Label(L("Toggle Contents"), systemImage: "sidebar.left") }
+                .labelStyle(.iconOnly).disabled(!state.hasDocument).help(L("Toggle Contents")).accessibilityLabel(L("Toggle Contents"))
                 .foregroundStyle(state.showContents ? Color.accentColor : Color.primary)
                 .accessibilityValue(state.showContents ? L("On") : L("Off"))
         }
@@ -280,8 +280,8 @@ struct ReaderView: View {
             .help(L("Reading Settings")).disabled(!state.hasDocument)
         }
         ToolbarItem(id: "find", placement: .automatic, showsByDefault: true) {
-            Button { state.toggleFindPanel() } label: { Image(systemName: "magnifyingglass") }
-                .disabled(!state.supportsSearch).help(L("Find")).accessibilityLabel(L("Find"))
+            Button { state.toggleFindPanel() } label: { Label(L("Find"), systemImage: "magnifyingglass") }
+                .labelStyle(.iconOnly).disabled(!state.supportsSearch).help(L("Find")).accessibilityLabel(L("Find"))
                 .foregroundStyle(state.showFind ? Color.accentColor : Color.primary)
         }
         ToolbarItem(id: "edit", placement: .automatic, showsByDefault: true) {
