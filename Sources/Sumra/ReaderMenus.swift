@@ -605,7 +605,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .toolbar: (state.toolbarDisplayMode == .shown ? ReaderToolbarDisplayMode.hidden : .shown).apply(to: state)
         case .pageInfo: state.showPageInfo.toggle()
         case .cursorPosition: state.toggleCursorPosition()
-        case .annotations: state.showAnnotations.toggle()
+        case .annotations: if !state.showAnnotations || !state.revealCompactSidebar(ai: false) { state.showAnnotations.toggle() }
         case .searchGoogle: state.searchSelection("google")
         case .searchBing: state.searchSelection("bing")
         case .searchWikipedia: state.searchSelection("wikipedia")
@@ -680,17 +680,17 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .reopenClosed: state.reopenClosed()
         case .shareEmail: state.shareByEmail()
         case .openWith: state.openWithApplication()
-        case .contents: state.showContents.toggle()
+        case .contents: if !state.showContents || !state.revealCompactSidebar(ai: false) { state.showContents.toggle() }
         case .contentsSearch: state.showContentsSearch()
-        case .thumbnails: state.showThumbnails.toggle()
-        case .bookmarks: state.showBookmarks.toggle()
+        case .thumbnails: if !state.showThumbnails || !state.revealCompactSidebar(ai: false) { state.showThumbnails.toggle() }
+        case .bookmarks: if !state.showBookmarks || !state.revealCompactSidebar(ai: false) { state.showBookmarks.toggle() }
         case .fullscreen: state.window?.toggleFullScreen(nil)
         case .presentation:
             if state.deferForNativePDFForm({ [weak state] in if let state { self.run(state) } }) { return }
             state.presentation.toggle()
             if let window = state.window, window.styleMask.contains(.fullScreen) != state.presentation { window.toggleFullScreen(nil) }
         case .palette: state.paletteMode = "> "; state.showPalette.toggle()
-        case .ai: state.showAI.toggle()
+        case .ai: if !state.revealCompactSidebar(ai: true) { state.showAI.toggle() }
         case .find: state.showFindPanel()
         case .goToPage: state.requestPageInput()
         case .findNext: state.findNext()

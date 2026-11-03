@@ -55,9 +55,17 @@ Native sidebar dividers retain their dragged widths across PDF save/reload,
 including an adjacent AI pane. Explicit sidebar-width changes in Advanced
 Settings update the mounted reader immediately; transient layout measurements
 do not replace the saved width.
-The document pane keeps at least 360 pt beside either sidebar. Narrow windows
-temporarily compress the sidebar; widening restores its saved width without
-changing the selected page layout.
+The document pane keeps at least 360 pt beside Contents; narrow windows
+temporarily compress that sidebar and widening restores its saved width without
+changing the selected page layout. Beside AI in a smaller window, the reading
+pane can shrink to 200 pt to keep both areas inside the window.
+When both Contents and Ask Document are open but the window is too narrow for
+both, the most recently requested sidebar is shown. The other sidebar’s toolbar
+or menu command switches to it. Widening the window restores both sidebars
+and the saved Contents width.
+Ask Document keeps its close button, question editor and Send action outside
+the scrollable configuration and conversation area, so they remain available
+in a short window.
 Every split pane reclaims the native top safe area before applying its own
 toolbar clearance. Contents and AI must reserve this space once, including
 empty contents, either sidebar edge and normal/floating toolbar round trips.
