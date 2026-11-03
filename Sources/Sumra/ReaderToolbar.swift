@@ -415,7 +415,12 @@ struct ReaderToolbarAppearance: ViewModifier {
             updateDragCursor()
             if parent.frame != frame { parent.setFrame(frame, display: false) }
             if !state.usesCustomChrome, let content = parent.contentView {
-                let height = max(content.safeAreaInsets.top, content.bounds.maxY - content.convert(parent.contentLayoutRect, from: nil).maxY)
+                // Fullscreen's hidden toolbar releases the document inset,
+                // but its native window-button strip still appears on hover.
+                let titlebarHeight = nativeFullscreen && permanentlyHidden
+                    ? originalButtonAppearance[.closeButton]?.button.superview?.bounds.height ?? 0 : 0
+                let height = max(titlebarHeight, max(content.safeAreaInsets.top,
+                    content.bounds.maxY - content.convert(parent.contentLayoutRect, from: nil).maxY))
                 if reservedNativeHeight != height {
                     reservedNativeHeight = height
                     DispatchQueue.main.async { [weak self] in

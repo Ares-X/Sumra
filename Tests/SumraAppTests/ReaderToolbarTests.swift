@@ -7,6 +7,63 @@ import SwiftUI
 
 @MainActor
 final class ReaderToolbarTests: XCTestCase {
+    func testHiddenFullscreenReservesNativeWindowButtonStripWithoutDocumentInset() async throws {
+        final class FullscreenWindow: NSWindow {
+            var nativeClose: NSButton?
+            override var styleMask: NSWindow.StyleMask {
+                get { super.styleMask.union(.fullScreen) }
+                set { super.styleMask = newValue.subtracting(.fullScreen) }
+            }
+            override var contentLayoutRect: NSRect { contentView?.frame ?? .zero }
+            override func standardWindowButton(_ type: NSWindow.ButtonType) -> NSButton? {
+                type == .closeButton ? nativeClose ?? super.standardWindowButton(type) : super.standardWindowButton(type)
+            }
+        }
+        final class FullSizeContent: NSView {
+            override var safeAreaInsets: NSEdgeInsets { NSEdgeInsets() }
+        }
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/hidden-fullscreen-clearance.txt"), content: .text("book"))
+        state.immersiveControls = false; state.toolbarDisplayMode = .hidden
+        let parent = FullscreenWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        let close = try XCTUnwrap(parent.standardWindowButton(.closeButton))
+        let nativeHeight = try XCTUnwrap(close.superview).bounds.height
+        XCTAssertGreaterThan(nativeHeight, 0)
+        parent.contentView = FullSizeContent(frame: CGRect(origin: .zero, size: parent.frame.size))
+        let companion = NSWindow(contentRect: CGRect(x: 2200, y: 600, width: 700, height: nativeHeight),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        companion.isReleasedWhenClosed = false
+        parent.addChildWindow(companion, ordered: .above)
+        let controls = try XCTUnwrap(companion.contentView)
+        controls.addSubview(close); parent.nativeClose = close
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        let published = expectation(description: "Native window-button strip clearance")
+        var clearance: CGFloat = 0
+        observer.nativeTopClearance = Binding(get: { clearance }, set: {
+            clearance = $0; published.fulfill()
+        })
+        parent.contentView?.addSubview(observer)
+        defer {
+            observer.detach(); parent.nativeClose = nil; parent.contentView = nil
+            parent.removeChildWindow(companion); companion.close(); parent.close(); state.windowClosed()
+        }
+        await fulfillment(of: [published], timeout: 2)
+        XCTAssertEqual(parent.contentView?.safeAreaInsets.top, 0)
+        XCTAssertEqual(parent.contentLayoutRect.maxY, parent.contentView?.bounds.maxY)
+        XCTAssertEqual(clearance, nativeHeight,
+            "Hidden fullscreen must reserve the actual native window-button owner even when AppKit releases its document inset")
+        for systemChrome in [true, false, true] {
+            observer.updateChrome(revealingNativeControls: systemChrome)
+            XCTAssertEqual(clearance, nativeHeight, "Menu reveal must not change the reserved titlebar height")
+        }
+        XCTAssertFalse(parent.isVisible)
+        XCTAssertFalse(companion.isVisible)
+    }
+
     func testAlwaysHideRemovesHostedNativeToolbarWhileHoverRetainsWindowControls() async throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
