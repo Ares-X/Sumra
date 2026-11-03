@@ -842,7 +842,8 @@ struct ReaderAISidebar: View {
     @ObservedObject var state: ReaderState
     @AppStorage("language") private var language = "system"
     @StateObject private var model = ReaderAIModel()
-    @State private var provider = ReaderAIProvider.codex
+    @State private var showModelOptions = false
+    private var provider: ReaderAIProvider { state.aiProvider }
     @State private var providerModel = ""
     @State private var effort = "medium"
     @State private var entireDocument = false
@@ -872,27 +873,19 @@ struct ReaderAISidebar: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Picker(L("CLI"), selection: $provider) {
-                            ForEach(ReaderAIProvider.allCases) { Text($0.rawValue).tag($0) }
-                        }.disabled(model.busy || preparing)
                         HStack {
-                            TextField(L("Provider default"), text: $providerModel)
-                                .accessibilityLabel(L("Model (blank uses provider default)"))
-                                .help(L("Model (blank uses provider default)"))
-                                .onChange(of: providerModel) { UserDefaults.standard.set($0, forKey: "aiModel:" + provider.id) }
-                            Menu(L("Models")) {
-                                Button(L("Provider default")) { providerModel = "" }
-                                ForEach(models, id: \.self) { value in Button(value) { providerModel = value } }
-                                Divider()
-                                Button(L(loadingModels ? "Loading…" : "Refresh Models"), action: refreshModels).disabled(loadingModels)
-                            }.fixedSize()
+                            Picker(L("CLI"), selection: $state.aiProvider) {
+                                ForEach(ReaderAIProvider.allCases) { Text($0.rawValue).tag($0) }
+                            }
+                            Button(L("Models")) { showModelOptions.toggle() }
+                                .popover(isPresented: $showModelOptions) {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        modelOptions
+                                    }
+                                    .padding()
+                                    .frame(width: 300)
+                                }
                         }.disabled(model.busy || preparing)
-                        if !provider.efforts.isEmpty {
-                            Picker(L("Effort"), selection: $effort) {
-                                ForEach(provider.efforts, id: \.self) { Text(L($0.capitalized)).tag($0) }
-                            }.disabled(model.busy || preparing)
-                            .onChange(of: effort) { UserDefaults.standard.set($0, forKey: "aiEffort:" + provider.id) }
-                        }
                         HStack {
                             Button(L("History")) { showHistory = true }.disabled(directory == nil || model.busy || preparing)
                             Spacer()
@@ -973,6 +966,27 @@ struct ReaderAISidebar: View {
         .onChange(of: state.document?.id) { _ in cancel(); model.clear(); showHistory = false; entireDocument = false }
         .onChange(of: provider) { _ in cancel(); model.clear(); loadPreferences() }
         .onDisappear { cancel(); model.clear() }
+    }
+
+    @ViewBuilder private var modelOptions: some View {
+        HStack {
+            TextField(L("Provider default"), text: $providerModel)
+                .accessibilityLabel(L("Model (blank uses provider default)"))
+                .help(L("Model (blank uses provider default)"))
+                .onChange(of: providerModel) { UserDefaults.standard.set($0, forKey: "aiModel:" + provider.id) }
+            Menu(L("Models")) {
+                Button(L("Provider default")) { providerModel = "" }
+                ForEach(models, id: \.self) { value in Button(value) { providerModel = value } }
+                Divider()
+                Button(L(loadingModels ? "Loading…" : "Refresh Models"), action: refreshModels).disabled(loadingModels)
+            }.fixedSize()
+        }
+        if !provider.efforts.isEmpty {
+            Picker(L("Effort"), selection: $effort) {
+                ForEach(provider.efforts, id: \.self) { Text(L($0.capitalized)).tag($0) }
+            }
+            .onChange(of: effort) { UserDefaults.standard.set($0, forKey: "aiEffort:" + provider.id) }
+        }
     }
 
     private func cancel() {
