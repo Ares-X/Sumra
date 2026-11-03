@@ -152,7 +152,15 @@ struct ReaderView: View {
         state.usesFloatingChrome || (progressDisplayMode == .auto && reclaimsNativeInsets)
     }
     private func floatingTopClearance(forControls: Bool) -> CGFloat {
-        guard state.usesFloatingChrome, state.toolbarDisplayMode != .hidden else { return 0 }
+        guard state.usesFloatingChrome else {
+            // Reading content may extend under native hover chrome, but its
+            // interactive rows must stay below the measured titlebar and tabs,
+            // including the separate menu strip revealed in native fullscreen.
+            return forControls && reclaimsNativeInsets ? nativeTopClearance + fullscreenMenuInset : 0
+        }
+        if state.toolbarDisplayMode == .hidden {
+            return forControls ? ReaderFloatingControls.topInset + ReaderFloatingControls.height : 0
+        }
         // The book already reserves its own page margin. Add only the space
         // still needed to clear the controls, rather than stacking two margins.
         // An unset override leaves publisher margins in charge; the legacy
@@ -186,7 +194,7 @@ struct ReaderView: View {
     }
 
     private func closeFind() {
-        state.closeFind(); focusReader()
+        state.closeFind()
     }
 
     private func focusReader() {
@@ -259,7 +267,7 @@ struct ReaderView: View {
                 .help(L("Reading Settings")).disabled(!state.hasDocument)
         }
         ToolbarItem(id: "find", placement: .automatic, showsByDefault: true) {
-            Button { state.showFindPanel() } label: { Image(systemName: "magnifyingglass") }
+            Button { state.toggleFindPanel() } label: { Image(systemName: "magnifyingglass") }
                 .disabled(!state.supportsSearch).help(L("Find")).accessibilityLabel(L("Find"))
                 .foregroundStyle(state.showFind ? Color.accentColor : Color.primary)
         }
@@ -358,9 +366,9 @@ struct ReaderView: View {
     private func mainArea(topClearance: CGFloat, topControlsShown: Bool) -> some View {
         // The sidebar preference names a physical edge, independent of UI language.
         let sidebarFirst = sidebarRight == (layoutDirection == .rightToLeft)
-        // Shared Find/edit/speech rows already start below floating controls.
+        // Shared Find/edit/speech rows already start below the window controls.
         // Sidebars below those rows must not reserve the toolbar a second time.
-        let sidebarInset = state.usesFloatingChrome && topControlsShown ? 0 : sidebarTopClearance
+        let sidebarInset = topControlsShown ? 0 : sidebarTopClearance
         // Each pane reserves chrome clearance itself; reclaim the native safe
         // area in every split child so sidebars do not count that space twice.
         HSplitView {
@@ -1098,12 +1106,9 @@ private struct ReaderFindPanel: NSViewRepresentable {
         }
         private func closeFind() {
             isPresented = false
-            dismiss()
             state?.closeFind()
+            dismiss()
             parent?.makeKeyAndOrderFront(nil)
-            if let state, let target = (state.browserView as NSView?) ?? state.readerFocusView {
-                parent?.makeFirstResponder(target)
-            }
         }
         func windowWillClose(_ notification: Notification) {
             guard let closed = notification.object as? NSWindow, closed === panel else { return }

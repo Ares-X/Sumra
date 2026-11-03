@@ -155,6 +155,13 @@ In the compatible browser reader, a new Find starts at the reading viewport in
 the requested direction. Paged and right-to-left layouts use the same source
 order and wrap at the beginning or end of the document.
 
+The Find magnifier in either toolbar toggles the complete Find controls and
+results. Command-F opens or refocuses Find. Close Find and Escape return focus
+to the reader, cancel delayed and active search, and remove its controls,
+results and highlights. Escape also ends a Command-G search while Find is
+closed; the retained query remains available for the next Command-G. Text
+input keeps native Escape handling, including input-method composition.
+
 Settings → Keyboard Shortcuts supports command search, recording an actual key
 combination, conflict feedback, and resetting one command. Custom Toolbar Buttons
 supports a command list, reorder and symbol selection, retaining Advanced JSON.

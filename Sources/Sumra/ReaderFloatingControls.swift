@@ -80,7 +80,9 @@ import AppKit
 
     private func tools(compact: Bool) -> some View {
         HStack(spacing: compact ? 6 : 10) {
-            command(.find, "magnifyingglass")
+            Button(action: state.toggleFindPanel) { Image(systemName: "magnifyingglass").frame(width: 24, height: 24).contentShape(Rectangle()) }
+                .disabled(!state.supportsSearch).help(L("Find")).accessibilityLabel(L("Find"))
+                .foregroundStyle(state.showFind ? Color.accentColor : Color.primary)
             Button(action: state.editTypography) { Image(systemName: "textformat").frame(width: 24, height: 24).contentShape(Rectangle()) }
                 .help(L("Reading Settings")).accessibilityLabel(L("Reading Settings")).disabled(!state.hasDocument)
             Menu {

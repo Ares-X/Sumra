@@ -34,7 +34,7 @@ final class ReaderFindLayoutTests: XCTestCase {
         window.contentView = host
         defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
         var observedViewports = [CGSize]()
-        func settle() async throws {
+        func settle(_ condition: () -> Bool = { true }) async throws {
             let deadline = Date().addingTimeInterval(10)
             var stableSince: Date?
             var previousRevision = -1
@@ -47,7 +47,7 @@ final class ReaderFindLayoutTests: XCTestCase {
                 }
                 let ready = RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages,
                     location: state.pageLocation(state.page)) && state.pendingReflowPosition == nil &&
-                    state.currentPosition.nativePassage != nil
+                    state.currentPosition.nativePassage != nil && condition()
                 if ready, previousRevision == state.renderRevision {
                     if let stableSince, Date().timeIntervalSince(stableSince) >= 0.15 { return }
                     if stableSince == nil { stableSince = Date() }
@@ -58,6 +58,12 @@ final class ReaderFindLayoutTests: XCTestCase {
             XCTFail(state.error ?? "Find status geometry did not settle")
         }
         try await settle()
+        // The prepared page can paint before the viewport's queued style
+        // command publishes its replacement surface. Drain that startup work
+        // through the command owner before taking the status-change baseline.
+        var initialStyleCompleted = false
+        state.send(.style, completed: { initialStyleCompleted = true })
+        try await settle { initialStyleCompleted }
         let scroll = try XCTUnwrap(state.readerScrollView)
         let frame = scroll.convert(scroll.bounds, to: nil)
         let viewport = scroll.contentView.safeAreaRect.size
