@@ -214,6 +214,9 @@ the document can still use the space underneath. Always Show reserves the native
 TXT reading, the scroll thumb follows the visible range in the source text as
 TextKit lays out more lines. Vertical line commands align to complete TextKit lines; the facing
 page continues immediately after the last complete line on the leading page.
+Both text columns use the same wrapping width when the native scrollbar appears;
+a short final page leaves the remaining paper blank rather than pulling earlier
+lines into the second column.
 Advanced settings export/import uses `toolbarDisplayMode` (`shown`, `auto`,
 `hidden`). Existing configured `toolbar` commands keep their show/hide semantics
 and change this same setting; they do not maintain a separate window override.

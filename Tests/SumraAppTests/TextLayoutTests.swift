@@ -7,6 +7,88 @@ import SumraCore
 
 final class TextLayoutTests: XCTestCase {
     @MainActor
+    func testNarrowReaderWithAIPreservesFacingTextBoundaryAndSelection() async throws {
+        _ = NSApplication.shared
+        let text = "SUMRA 029 ALIAS NAVIGATION C\n\nSynthetic neighboring document C.\n"
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/short-facing.txt"), content: .text(text))
+        state.font = "system"; state.fontSize = 17; state.zoom = 1; state.lineHeight = 1.6
+        state.margin = 16; state.pageMargins = nil; state.marginPresetSelection = nil
+        state.flow = "paged"; state.spread = true; state.immersiveControls = false
+        state.toolbarDisplayMode = .auto
+        state.showContents = false; state.showFind = false; state.showAI = true
+        state.showThumbnails = false; state.showBookmarks = false; state.showAnnotations = false
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 900, height: 740),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); close(window) }
+        for rtl in [false, true] {
+            state.rtl = rtl
+            for size in [NSSize(width: 900, height: 740), NSSize(width: 560, height: 438), NSSize(width: 900, height: 740)] {
+                window.setContentSize(size)
+                for _ in 0..<40 {
+                    host.layoutSubtreeIfNeeded()
+                    autoreleasepool {
+                        if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+                    }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+                let view = try XCTUnwrap(state.readerFocusView as? NSTextView)
+                let reader = try XCTUnwrap(view.enclosingScrollView?.superview as? TextReaderHost)
+                let facing = try XCTUnwrap(reader.trailing?.documentView as? NSTextView)
+                let end = try XCTUnwrap(visibleTextLines(in: view).last.map { NSMaxRange($0.range) })
+                XCTAssertEqual(visibleTextLines(in: view).first?.range.location, 0)
+                if end == (text as NSString).length { XCTAssertTrue(facing.isHidden) }
+                else {
+                    XCTAssertFalse(facing.isHidden)
+                    XCTAssertEqual(visibleTextLines(in: facing).first?.range.location, end)
+                    XCTAssertEqual(facing.textContainer?.size.width, view.textContainer?.size.width)
+                    let selection = NSRange(location: end, length: 2)
+                    facing.setSelectedRange(selection)
+                    XCTAssertEqual(facing.selectedRange(), selection)
+                    XCTAssertEqual((facing.string as NSString).substring(with: selection), (text as NSString).substring(with: selection))
+                }
+                XCTAssertEqual(reader.leading?.frame.minX ?? 0, rtl ? reader.bounds.width / 2 : 0, accuracy: 0.5)
+                XCTAssertFalse(window.isVisible)
+            }
+        }
+    }
+
+    @MainActor
+    func testShortFacingTextDoesNotRepeatInTheTrailingPaneAfterResize() async throws {
+        let source = "SUMRA 029 ALIAS NAVIGATION C\n\nSynthetic neighboring document C."
+        for (margin, height, lineHeight) in [(32.0, 350.0, 1.6), (16.0, 411.0, 1.6), (16.0, 411.0, 1.8), (16.0, 350.0, 1.8)] {
+            for suffix in ["", "\n"] {
+                let text = source + suffix
+                let (window, host, view, state) = try await makeReader(text, withDocument: true)
+                defer { close(window) }
+                state.flow = "paged"; state.spread = true
+                state.margin = margin; state.lineHeight = lineHeight
+                try await navigate(.style, state: state, host: host)
+                let reader = try XCTUnwrap(view.enclosingScrollView?.superview as? TextReaderHost)
+                let facing = try XCTUnwrap(reader.trailing?.documentView as? NSTextView)
+                for width in [900.0, 560.0, 219.0, 240.0, 900.0, 219.0] {
+                    window.setContentSize(NSSize(width: width, height: height))
+                    for _ in 0..<10 { await settle(host) }
+                    let leading = visibleTextLines(in: view)
+                    XCTAssertEqual(leading.first?.range.location, 0)
+                    let end = try XCTUnwrap(leading.last.map { NSMaxRange($0.range) })
+                    let context = "width \(width), margin \(margin), height \(height), lineHeight \(lineHeight), trailing newline \(!suffix.isEmpty); leading \(leading.map { $0.range }), trailing \(visibleTextLines(in: facing).map { $0.range }); sizes \(view.bounds) / \(facing.bounds), visible \(view.visibleRect) / \(facing.visibleRect)"
+                    if end == (text as NSString).length {
+                        XCTAssertTrue(facing.isHidden, context)
+                    } else {
+                        XCTAssertFalse(facing.isHidden, context)
+                        XCTAssertEqual(visibleTextLines(in: facing).first?.range.location, end, context)
+                        XCTAssertEqual(facing.textContainer?.size.width, view.textContainer?.size.width, context)
+                    }
+                }
+                XCTAssertFalse(window.isVisible)
+            }
+        }
+    }
+
+    @MainActor
     func testLargeDocumentKeepsItsNativeScrollbarSourcePositionDuringFirstTraversal() async throws {
         let text = (0..<3_500).map { index in
             "Line \(index): " + String(repeating: "A passage with variable wrapping. ", count: 1 + index % 7)
