@@ -1281,10 +1281,12 @@ extension ReaderState {
     }
 
     func showFindPanel() {
+        let restartSearch = !showFind && !searchSessionActive && !findQuery.isEmpty
         searchSessionActive = false
         showFind = true
         findFocusRevision &+= 1
         selectSidebar("search")
+        if restartSearch { findNext() }
     }
 
     func toggleFindPanel() {
