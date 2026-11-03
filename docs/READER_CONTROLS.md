@@ -181,6 +181,11 @@ selected passage has no readable text, the draft stays in the editor. Cancel
 ends the request and keeps any text already received. Codex can reconnect an
 interrupted stream within the same turn.
 
+Replacing a PDF file attachment updates its annotation-list title when the note
+still equals the previous attachment filename. Custom notes, including an empty
+note, remain unchanged. The new file and default title share one Undo step and
+persist together when saved.
+
 The command palette, bookmark browser and annotations list show a message
 when their filtered list is empty. PDF annotations are checked after the
 current document revision finishes loading.

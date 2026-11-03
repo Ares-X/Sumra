@@ -63,7 +63,7 @@ private actor RasterSearchProjection {
     private var rects = [Int: [CGRect]]()
     private var sourceIndices = [NativeSourceAnchor: Int]()
     private var pages = [PageLocation: Int]()
-    private var labels = [Int: String]()
+    private var labels = [Int: (title: String, count: Int, first: Int)]()
     private var pending = [Int: Snapshot]()
     private var committed: Snapshot?
 
@@ -132,15 +132,26 @@ private actor RasterSearchProjection {
         var nextRects: [Int: [CGRect]] = rebuild ? [:] : rects
         var nextIndices: [NativeSourceAnchor: Int] = rebuild ? [:] : sourceIndices
         var nextPages: [PageLocation: Int] = rebuild ? [:] : pages
-        var nextLabels: [Int: String] = rebuild ? [:] : labels
+        var nextLabels: [Int: (title: String, count: Int, first: Int)] = rebuild ? [:] : labels
         let start = nextMatches.count
         nextMatches.append(contentsOf: addition)
         nextItems.reserveCapacity(nextMatches.count)
         for (offset, match) in addition.enumerated() {
             if offset & 1023 == 0 { try Task.checkCancellation() }
             let label: String
-            if let cached = nextLabels[match.page] { label = cached }
-            else { label = String(format: pageFormat, match.page + 1); nextLabels[match.page] = label }
+            if var cached = nextLabels[match.page] {
+                if cached.count == 1 {
+                    let first = nextItems[cached.first]
+                    nextItems[cached.first] = ContentsItem(title: cached.title + " · 1: " + nextMatches[cached.first].context,
+                                                          target: first.target)
+                }
+                cached.count += 1
+                nextLabels[match.page] = cached
+                label = cached.title + " · \(cached.count)"
+            } else {
+                label = String(format: pageFormat, match.page + 1)
+                nextLabels[match.page] = (label, 1, start + offset)
+            }
             nextItems.append(ContentsItem(title: label + ": " + match.context,
                 target: "raster-search:\(match.page):\(match.index)"))
             if let source = match.source { nextIndices[source] = start + offset }

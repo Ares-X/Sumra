@@ -2398,6 +2398,11 @@ API int lf_pdf_live_set_attachment(void *opaque, int page_number, int object_num
     fz_buffer *contents = NULL; pdf_obj *filespec = NULL; fz_stream *input = NULL;
     fz_var(contents); fz_var(filespec); fz_var(input);
     fz_try(ctx) {
+        pdf_filespec_params previous;
+        pdf_get_filespec_params(ctx, pdf_annot_filespec(ctx, annot), &previous);
+        // Sumra uses the filename as the initial note/list title. Follow a
+        // replacement only while that default remains; preserve authored notes.
+        int filename_title = previous.filename && !strcmp(pdf_annot_contents(ctx, annot), previous.filename);
         input = fz_open_file(ctx, path); fz_seek(ctx, input, 0, SEEK_END);
         int64_t length = fz_tell(ctx, input);
         if (length < 0) fz_throw(ctx, FZ_ERROR_FORMAT, "Invalid attachment length");
@@ -2406,7 +2411,9 @@ API int lf_pdf_live_set_attachment(void *opaque, int page_number, int object_num
         // The pinned pdf_add_embedded_file starts "Embed file" but only closes
         // it on failure. Balance its successful operation before our own end.
         pdf_end_operation(ctx, doc);
-        pdf_set_annot_filespec(ctx, annot, filespec); pdf_update_annot(ctx, annot);
+        pdf_set_annot_filespec(ctx, annot, filespec);
+        if (filename_title) pdf_set_annot_contents(ctx, annot, name);
+        pdf_update_annot(ctx, annot);
     }
     fz_always(ctx) { pdf_drop_obj(ctx, filespec); fz_drop_buffer(ctx, contents); fz_drop_stream(ctx, input); }
     fz_catch(ctx) { fz_rethrow(ctx); }

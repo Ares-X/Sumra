@@ -788,3 +788,5 @@
 "Waiting for %@…" = "%@ yanıtı bekleniyor…";
 
 "Type a search term to see matches." = "Eşleşmeleri görmek için bir arama terimi yazın.";
+
+"Choose Custom in Margins to edit individual values." = "Her değeri düzenlemek için Kenar Boşlukları altında Özel seçeneğini seçin.";

@@ -792,3 +792,5 @@
 "Waiting for %@…" = "%@ の応答を待っています…";
 
 "Type a search term to see matches." = "検索語を入力すると、一致する結果が表示されます。";
+
+"Choose Custom in Margins to edit individual values." = "各値を編集するには、「余白」で「カスタム」を選択してください。";

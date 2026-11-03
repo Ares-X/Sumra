@@ -760,6 +760,55 @@ final class NativePDFToolsTests: XCTestCase {
         }
     }
 
+    @MainActor func testAttachmentReplacementUpdatesDefaultTitlePreservesNotesAndUndoesTogether() throws {
+        let directory = try fixtureDirectory(), replacement = directory.appendingPathComponent("replacement.bin")
+        let data = Data("new attachment".utf8)
+        try data.write(to: replacement)
+        for note in ["original.bin", "My attachment note\nKeep every line", ""] {
+            let source = directory.appendingPathComponent("original.pdf"), saved = directory.appendingPathComponent("saved.pdf")
+            let bytes = rawPDF([
+                "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >>",
+                "<< /Type /Annot /Subtype /FileAttachment /Rect [10 10 30 30] /Contents (\(note)) /FS 5 0 R >>",
+                "<< /Type /Filespec /UF (original.bin) /EF << /UF 6 0 R >> >>",
+                // Replacement must only read the old filename metadata, even
+                // when the old payload cannot be decoded on this host.
+                "<< /Type /EmbeddedFile /Filter /UnknownDecode /Length 3 >>\nstream\nold\nendstream"
+            ])
+            try bytes.write(to: source)
+            let file = try NativeFile(source, engine: .mupdf)
+            try file.pdfSetEditing(true)
+            let before = try XCTUnwrap(file.pdfInfo())
+            let expected = note == "original.bin" ? "replacement.bin" : note
+            try file.pdfEditAnnotation(page: 0, id: 4, edits: [.attachment(replacement, filename: "replacement.bin", mime: "application/octet-stream")])
+            XCTAssertEqual(try file.pdfAnnotations(0).first?.contents, expected, "The annotation list uses Contents as its title")
+            XCTAssertEqual(try file.pdfAttachment(page: 0, id: 4).name, "replacement.bin")
+            XCTAssertEqual(try file.pdfAttachment(page: 0, id: 4).data, data)
+            XCTAssertEqual(try file.pdfInfo()?.undoPosition, before.undoPosition + 1)
+            try file.pdfUndo(redo: false)
+            XCTAssertEqual(try file.pdfAnnotations(0).first?.contents, note)
+            XCTAssertEqual(try file.pdfInfo()?.undoPosition, before.undoPosition)
+            let undone = directory.appendingPathComponent("undone.pdf")
+            try file.pdfWrite(to: undone)
+            let independent = try XCTUnwrap(PDFDocument(url: undone))
+            let raw = try primaryActionAnnotation(independent, page: 0, index: 0)
+            var spec: CGPDFDictionaryRef?, oldName: CGPDFStringRef?
+            XCTAssertTrue(CGPDFDictionaryGetDictionary(raw, "FS", &spec))
+            XCTAssertTrue(CGPDFDictionaryGetString(try XCTUnwrap(spec), "UF", &oldName))
+            XCTAssertEqual(CGPDFStringCopyTextString(try XCTUnwrap(oldName)) as String?, "original.bin")
+            try file.pdfUndo(redo: true)
+            XCTAssertEqual(try file.pdfAnnotations(0).first?.contents, expected)
+            XCTAssertEqual(try file.pdfAttachment(page: 0, id: 4).name, "replacement.bin")
+            try file.pdfWrite(to: saved)
+            let reopened = try NativeFile(saved, engine: .mupdf)
+            let annotation = try XCTUnwrap(reopened.pdfAnnotations(0).first)
+            XCTAssertEqual(annotation.contents, expected)
+            XCTAssertEqual(try reopened.pdfAttachment(page: 0, id: annotation.id).name, "replacement.bin")
+            XCTAssertEqual(try reopened.pdfAttachment(page: 0, id: annotation.id).data, data)
+            XCTAssertEqual(try Data(contentsOf: source), bytes)
+        }
+    }
+
     func testLivePDFAttachmentReadUsesCurrentFileSpecAndCopyPermissionWhileEditingIsLocked() throws {
         let directory = try fixtureDirectory(), source = directory.appendingPathComponent("attachment.pdf")
         let bytes = rawPDF([
