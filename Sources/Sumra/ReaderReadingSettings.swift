@@ -296,6 +296,10 @@ import SumraCore
     let enabled: Bool
 
     var body: some View {
+        if !enabled {
+            Text(L("Choose Custom in Margins to edit individual values."))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
         ForEach(0..<4, id: \.self) { index in
             ReaderNumericSetting(label: [L("Top margin"), L("Right margin"), L("Bottom margin"), L("Left margin")][index],
                                  value: side(index), range: PageMargins.supportedRange, step: 1, unit: "pt")

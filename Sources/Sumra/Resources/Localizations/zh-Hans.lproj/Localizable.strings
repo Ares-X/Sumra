@@ -1036,3 +1036,5 @@
 "Waiting for %@…" = "正在等待 %@ 回复…";
 
 "Type a search term to see matches." = "输入搜索词以查看匹配结果。";
+
+"Choose Custom in Margins to edit individual values." = "在“页边距”中选择“自定义”后，即可分别编辑各边数值。";

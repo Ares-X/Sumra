@@ -786,3 +786,5 @@
 "Waiting for %@…" = "Warte auf Antwort von %@…";
 
 "Type a search term to see matches." = "Gib einen Suchbegriff ein, um Treffer anzuzeigen.";
+
+"Choose Custom in Margins to edit individual values." = "Wähle unter Ränder die Option Benutzerdefiniert, um einzelne Werte zu bearbeiten.";

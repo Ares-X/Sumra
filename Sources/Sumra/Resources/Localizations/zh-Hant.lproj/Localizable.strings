@@ -837,3 +837,5 @@
 "Waiting for %@…" = "正在等待 %@ 回覆…";
 
 "Type a search term to see matches." = "輸入搜尋詞以查看相符結果。";
+
+"Choose Custom in Margins to edit individual values." = "在「頁邊距」中選擇「自訂」後，即可分別編輯各邊數值。";
