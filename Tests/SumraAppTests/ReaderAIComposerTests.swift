@@ -9,6 +9,49 @@ import XCTest
 
 @MainActor
 final class ReaderAIComposerTests: XCTestCase {
+    func testClosingAndReopeningKeepsDraftOnlyForCurrentDocumentAndWindow() async throws {
+        let fixture = try ComposerFixture()
+        defer { fixture.close() }
+        try await fixture.mount()
+        try fixture.enter("Unsent draft 中文")
+        try await fixture.press("Close Sidebar")
+        try await fixture.wait { !fixture.state.showAI && fixture.editor == nil }
+        ReaderMenuCommand.ai.run(fixture.state)
+        try await fixture.mount()
+        XCTAssertEqual(fixture.editor?.string, "Unsent draft 中文")
+
+        let other = ReaderState(recordsHistory: false)
+        other.document = fixture.state.document
+        let otherHost = NSHostingView(rootView: ReaderAISidebar(state: other))
+        let otherWindow = NSWindow(contentRect: CGRect(x: -3000, y: -3000, width: 380, height: 760),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        otherWindow.isReleasedWhenClosed = false; otherWindow.contentView = otherHost
+        defer { other.windowClosed(); otherWindow.contentView = nil; otherWindow.close() }
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        var otherEditor: NSTextView?
+        try await fixture.wait {
+            otherHost.layoutSubtreeIfNeeded()
+            otherEditor = views(otherHost).compactMap { $0 as? NSTextView }.first { $0.isEditable }
+            return otherEditor != nil
+        }
+        XCTAssertEqual(otherEditor?.string, "", "A new reader window must not inherit another window's draft")
+        try XCTUnwrap(otherEditor).insertText("Other window", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertEqual(fixture.editor?.string, "Unsent draft 中文")
+
+        fixture.state.document = ReadingDocument(url: fixture.temporary.url.appendingPathComponent("Other.txt"), content: .text("Other document"))
+        try await fixture.wait { fixture.editor?.string == "" }
+        XCTAssertEqual(other.aiQuestion, "Other window")
+        try fixture.enter("Second document draft")
+        try await fixture.press("Close Sidebar")
+        try await fixture.wait { !fixture.state.showAI && fixture.editor == nil }
+        fixture.state.document = ReadingDocument(url: fixture.temporary.url.appendingPathComponent("Third.txt"), content: .text("Third document"))
+        ReaderMenuCommand.ai.run(fixture.state)
+        try await fixture.mount()
+        XCTAssertEqual(fixture.editor?.string, "", "Replacing a document while the sidebar is hidden must clear its draft")
+        XCTAssertFalse(fixture.window.isKeyWindow)
+        XCTAssertFalse(otherWindow.isVisible)
+    }
+
     /// The CLI is a local fixture. No provider, account or network is used by this test.
     func testMountedComposerClearsAcceptedQuestionAndPreservesNextDraft() async throws {
         let fixture = try ComposerFixture()
@@ -41,8 +84,10 @@ final class ReaderAIComposerTests: XCTestCase {
         try fixture.enter("Cancel this synthetic question.")
         try await fixture.press("Send")
         try await fixture.wait { fixture.started && fixture.hasButton("Cancel") }
+        try fixture.enter("Keep this next draft")
         try await fixture.press("Cancel")
         try await fixture.wait { fixture.hasButton("Send") && !fixture.hasProgress && !fixture.running }
+        XCTAssertEqual(fixture.editor?.string, "Keep this next draft")
         XCTAssertFalse(fixture.texts.contains("…"), "Cancelling before the first token removes the empty assistant")
 
         try fixture.reset(mode: "fail")
@@ -100,7 +145,8 @@ private final class ComposerFixture {
         state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: temporary.url.appendingPathComponent("Synthetic.txt"),
             content: .text("The amber telescope is kept in Lumen Harbor. This is a fictional document for an isolated UI test."))
-        host = NSHostingView(rootView: AnyView(ReaderAISidebar(state: state).defaultAppStorage(defaults)))
+        state.showAI = true
+        host = NSHostingView(rootView: AnyView(ComposerHost(state: state).defaultAppStorage(defaults)))
         window = NSWindow(contentRect: CGRect(x: -3000, y: -3000, width: 380, height: 760),
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -137,7 +183,8 @@ private final class ComposerFixture {
     func hasButton(_ label: String) -> Bool { button(label) != nil }
     func button(_ label: String) -> AXUIElement? {
         elements.first { attribute($0, kAXRoleAttribute) as? String == kAXButtonRole &&
-            (attribute($0, kAXTitleAttribute) as? String == label || attribute($0, kAXDescriptionAttribute) as? String == label) }
+            (attribute($0, kAXTitleAttribute) as? String == label || attribute($0, kAXDescriptionAttribute) as? String == label ||
+             attribute($0, kAXHelpAttribute) as? String == label) }
     }
     func press(_ label: String) async throws {
         try await wait {
@@ -186,5 +233,10 @@ private final class ComposerFixture {
         AXUIElementCopyAttributeValue(value, key as CFString, &output)
         return output
     }
+}
+
+private struct ComposerHost: View {
+    @ObservedObject var state: ReaderState
+    var body: some View { if state.showAI { ReaderAISidebar(state: state) } }
 }
 #endif
