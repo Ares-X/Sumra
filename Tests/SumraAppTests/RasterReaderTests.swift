@@ -2625,6 +2625,12 @@ final class RasterReaderTests: XCTestCase {
             try await wait { state.searchResults.count == 12 && !state.searchCounting && state.status == state.searchCountText }
             XCTAssertEqual(firstResults, targets[start])
             XCTAssertEqual(state.searchResults.map(\.target), targets.flatMap { $0 })
+            for page in 0..<6 {
+                let rows = Array(state.searchResults[(page * 2)..<(page * 2 + 2)])
+                XCTAssertNotEqual(rows[0].title, rows[1].title, "Short-page snippets need distinct occurrence labels")
+                XCTAssertTrue(rows[0].title.contains(" · 1: "), rows[0].title)
+                XCTAssertTrue(rows[1].title.contains(" · 2: "), rows[1].title)
+            }
             XCTAssertEqual(state.selectedSearchTarget, targets[start][backwards ? 1 : 0])
             state.send(.find("needle", backwards: backwards))
             try await wait { state.selectedSearchTarget == targets[start][backwards ? 0 : 1] }
@@ -2659,6 +2665,7 @@ final class RasterReaderTests: XCTestCase {
             XCTAssertTrue(state.searchResults.isEmpty)
             state.send(.find("Page 5", backwards: backwards))
             try await wait { state.searchResults.count == 1 && !state.searchCounting }
+            XCTAssertFalse(state.searchResults[0].title.contains(" · 1: "), "A single hit needs no occurrence label")
             state.send(.find("needle", backwards: backwards))
             try await wait { state.searchResults.count == 12 && !state.searchCounting }
             XCTAssertEqual(state.searchResults.map(\.target), targets.flatMap { $0 })

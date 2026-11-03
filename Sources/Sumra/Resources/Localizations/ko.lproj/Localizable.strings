@@ -788,3 +788,5 @@
 "Waiting for %@…" = "%@의 응답을 기다리는 중…";
 
 "Type a search term to see matches." = "검색어를 입력하면 일치하는 결과가 표시됩니다.";
+
+"Choose Custom in Margins to edit individual values." = "각 값을 편집하려면 여백에서 사용자 정의을 선택하세요.";

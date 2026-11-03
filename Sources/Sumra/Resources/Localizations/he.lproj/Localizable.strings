@@ -788,3 +788,5 @@
 "Waiting for %@…" = "ממתין לתשובה מ-%@…";
 
 "Type a search term to see matches." = "הקלד מונח חיפוש כדי לראות התאמות.";
+
+"Choose Custom in Margins to edit individual values." = "כדי לערוך כל ערך בנפרד, יש לבחור מותאם אישית תחת שוליים.";

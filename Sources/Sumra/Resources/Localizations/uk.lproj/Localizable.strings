@@ -781,3 +781,5 @@
 "Waiting for %@…" = "Очікування відповіді від %@…";
 
 "Type a search term to see matches." = "Введіть пошуковий запит, щоб побачити збіги.";
+
+"Choose Custom in Margins to edit individual values." = "Виберіть «Власний» в розділі «Поля», щоб змінити окремі значення.";

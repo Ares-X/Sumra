@@ -788,3 +788,5 @@
 "Waiting for %@…" = "กำลังรอการตอบกลับจาก %@…";
 
 "Type a search term to see matches." = "พิมพ์คำค้นหาเพื่อดูผลลัพธ์ที่ตรงกัน";
+
+"Choose Custom in Margins to edit individual values." = "เลือกกำหนดเองในระยะขอบเพื่อแก้ไขแต่ละค่า";
