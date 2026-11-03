@@ -430,6 +430,14 @@ final class ReaderState: ObservableObject {
     @Published var paletteContentsVisible = false
     @Published var tabColor: UInt32? { didSet { applyTabColor() } }
     @Published var showAI = false
+    @Published var recentSidebarIsAI = true
+    var compactSidebars = false
+
+    func revealCompactSidebar(ai: Bool) -> Bool {
+        guard compactSidebars, showAI, recentSidebarIsAI != ai else { return false }
+        recentSidebarIsAI = ai
+        return true
+    }
     @Published var showFiles = false
     @Published var showAnnotations = false { didSet { if showAnnotations { selectSidebar("annotations") } } }
     @Published var annotationsVisible = true

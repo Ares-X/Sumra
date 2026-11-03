@@ -93,6 +93,12 @@ struct ReaderView: View {
             bottom: overlaysProgress && state.hasDocument && !state.presentation && progressDisplayMode != .hidden
                 ? ReaderProgressFooter.layoutHeight(floating: state.usesFloatingChrome) : 0))
         .overlay(ReaderToolbarWindow(state: state, reducedMotion: reducedMotion, fullscreenMenuInset: $fullscreenMenuInset, nativeTopClearance: $nativeTopClearance))
+        .onChange(of: state.showAI) { if $0 { state.recentSidebarIsAI = true } }
+        .onChange(of: state.showContents) { if $0 { state.recentSidebarIsAI = false } }
+        .onChange(of: state.showBookmarks) { if $0 { state.recentSidebarIsAI = false } }
+        .onChange(of: state.showThumbnails) { if $0 { state.recentSidebarIsAI = false } }
+        .onChange(of: state.showAnnotations) { if $0 { state.recentSidebarIsAI = false } }
+        .onChange(of: state.showSearchResults) { if $0 { state.recentSidebarIsAI = false } }
         .onChange(of: colorScheme) { _ in
             if state.theme == "system", state.isText || state.isBrowser || state.reflowable {
                 state.send(.style)
@@ -224,7 +230,7 @@ struct ReaderView: View {
             toolbarButton(.newTab, symbol: "plus")
         }
         ToolbarItem(id: "contents", placement: .automatic, showsByDefault: true) {
-            Button { state.showContents.toggle() } label: { Image(systemName: "sidebar.left") }
+            Button { if !state.showContents || !state.revealCompactSidebar(ai: false) { state.showContents.toggle() } } label: { Image(systemName: "sidebar.left") }
                 .disabled(!state.hasDocument).help(L("Toggle Contents")).accessibilityLabel(L("Toggle Contents"))
                 .foregroundStyle(state.showContents ? Color.accentColor : Color.primary)
                 .accessibilityValue(state.showContents ? L("On") : L("Off"))
@@ -384,33 +390,45 @@ struct ReaderView: View {
         let sidebarInset = topControlsShown ? 0 : sidebarTopClearance
         // Each pane reserves chrome clearance itself; reclaim the native safe
         // area in every split child so sidebars do not count that space twice.
-        HSplitView {
-            if sidebarFirst {
-                sidebar.padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
+        GeometryReader { geometry in
+            let hasSidebar = state.hasDocument && !state.presentation && (state.showAnnotations || state.showContents || state.showThumbnails || state.showBookmarks || (state.showSearchResults && !findFloating))
+            let hasAI = state.hasDocument && state.showAI && !state.presentation
+            let compactBoth = hasSidebar && hasAI && geometry.size.width < 882
+            let hideSidebar = compactBoth && state.recentSidebarIsAI
+            let hideAI = compactBoth && !state.recentSidebarIsAI
+            HSplitView {
+                if sidebarFirst {
+                    sidebar(hidden: hideSidebar).padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
+                        .frame(width: hideSidebar ? 0 : nil).clipped().accessibilityHidden(hideSidebar).allowsHitTesting(!hideSidebar)
+                        .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
+                }
+                documentArea
+                    // Keep reader clearance inside the ignored safe area. Outer
+                    // padding within the native titlebar inset would be reclaimed
+                    // along with that inset by the split view's child.
+                    .padding(.top, topClearance)
                     .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
+                    .saturation(state.grayscale && !state.isPDF ? 0 : 1)
+                    .overlay { if state.invertColors && !state.isPDF { Color.white.blendMode(.difference).allowsHitTesting(false) } }
+                    .compositingGroup()
+                    .frame(minWidth: hasAI && !hideAI && geometry.size.width < 701 ? 200 : 360)
+                if !sidebarFirst {
+                    sidebar(hidden: hideSidebar).padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
+                        .frame(width: hideSidebar ? 0 : nil).clipped().accessibilityHidden(hideSidebar).allowsHitTesting(!hideSidebar)
+                        .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
+                }
+                if state.hasDocument && state.showAI && !state.presentation {
+                    ReaderAISidebar(state: state).padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
+                        .frame(width: hideAI ? 0 : nil).clipped().accessibilityHidden(hideAI).allowsHitTesting(!hideAI)
+                        .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
+                }
             }
-            documentArea
-                // Keep reader clearance inside the ignored safe area. Outer
-                // padding within the native titlebar inset would be reclaimed
-                // along with that inset by the split view's child.
-                .padding(.top, topClearance)
-                .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
-                .saturation(state.grayscale && !state.isPDF ? 0 : 1)
-                .overlay { if state.invertColors && !state.isPDF { Color.white.blendMode(.difference).allowsHitTesting(false) } }
-                .compositingGroup()
-                .frame(minWidth: 360)
-            if !sidebarFirst {
-                sidebar.padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
-                    .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
-            }
-            if state.hasDocument && state.showAI && !state.presentation {
-                ReaderAISidebar(state: state).padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
-                    .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
-            }
+            .onAppear { state.compactSidebars = compactBoth }
+            .onChange(of: compactBoth) { state.compactSidebars = $0 }
         }
     }
 
-    @ViewBuilder private var sidebar: some View {
+    @ViewBuilder private func sidebar(hidden: Bool) -> some View {
         if state.hasDocument && !state.presentation && (state.showAnnotations || state.showContents || state.showThumbnails || state.showBookmarks || (state.showSearchResults && !findFloating)) {
                 VStack(spacing: 0) {
                     HStack {
@@ -432,7 +450,7 @@ struct ReaderView: View {
                     else { contentsSidebar }
                 }.frame(minWidth: 180, idealWidth: 220, maxWidth: 360)
                 .focusable(!state.showContents || state.outline.isEmpty || state.outlineBusy).focused($sidebarFocused)
-                .background(ReaderSidebarPosition(documentID: state.document?.id).frame(width: 0, height: 0))
+                .background(ReaderSidebarPosition(documentID: state.document?.id, hidden: hidden).frame(width: 0, height: 0))
                 .modifier(ReaderChromeEntrance())
         }
     }
@@ -706,12 +724,14 @@ struct ReaderInitialViewport: NSViewRepresentable {
 // document, because SwiftUI reallocates the split when the main pane is rebuilt.
 private struct ReaderSidebarPosition: NSViewRepresentable {
     let documentID: UUID?
+    let hidden: Bool
     @AppStorage("sidebarWidth") private var width = 220.0
-    func makeNSView(context: Context) -> PositionView { PositionView(documentID: documentID, width: width) }
-    func updateNSView(_ view: PositionView, context: Context) { view.replaceDocument(documentID, width: width) }
+    func makeNSView(context: Context) -> PositionView { PositionView(documentID: documentID, width: width, hidden: hidden) }
+    func updateNSView(_ view: PositionView, context: Context) { view.update(documentID, width: width, hidden: hidden) }
 
     final class PositionView: NSView {
         private var width: CGFloat
+        private var sidebarHidden: Bool
         private var documentID: UUID?
         private var aiWidth: CGFloat?
         private var positioned = false
@@ -719,14 +739,17 @@ private struct ReaderSidebarPosition: NSViewRepresentable {
         private var splitWidth: CGFloat?
         private var resizeObserver: NSObjectProtocol?
 
-        init(documentID: UUID?, width: CGFloat) {
-            self.documentID = documentID; self.width = min(360, max(180, width))
+        init(documentID: UUID?, width: CGFloat, hidden: Bool) {
+            self.sidebarHidden = hidden; self.documentID = documentID; self.width = min(360, max(180, width))
             super.init(frame: .zero)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         deinit { if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) } }
 
-        func replaceDocument(_ id: UUID?, width: CGFloat) {
+        func update(_ id: UUID?, width: CGFloat, hidden: Bool) {
+            let wasHidden = self.sidebarHidden
+            self.sidebarHidden = hidden
+            if wasHidden && !hidden { restorePosition() }
             let width = min(360, max(180, width))
             guard documentID != id || self.width != width else { return }
             documentID = id; self.width = width
@@ -740,9 +763,10 @@ private struct ReaderSidebarPosition: NSViewRepresentable {
         }
 
         private func restorePosition() {
+            guard !sidebarHidden else { return }
             restoring = true
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.window != nil else { return }
+                guard let self, self.window != nil, !self.sidebarHidden else { return }
                 var ancestor = self.superview
                 while let view = ancestor {
                     if let split = view as? NSSplitView, split.isVertical,
@@ -759,7 +783,7 @@ private struct ReaderSidebarPosition: NSViewRepresentable {
                         if self.resizeObserver == nil {
                             self.resizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification,
                                 object: split, queue: .main) { [weak self, weak split] _ in
-                                guard let self, !self.restoring, let split,
+                                guard let self, !self.restoring, !self.sidebarHidden, let split,
                                       let pane = split.arrangedSubviews.first(where: { self.isDescendant(of: $0) }) else { return }
                                 // Window resizing can constrain the sidebar below
                                 // its saved width. Reapply that preference through

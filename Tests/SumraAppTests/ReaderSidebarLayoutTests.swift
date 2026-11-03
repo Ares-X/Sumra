@@ -8,6 +8,55 @@ import XCTest
 
 final class ReaderSidebarLayoutTests: XCTestCase {
     @MainActor
+    func testCompactBothSidebarsStayInsideWindow() async throws {
+        _ = NSApplication.shared
+        let priorWidth = UserDefaults.standard.object(forKey: "sidebarWidth")
+        UserDefaults.standard.set(300.0, forKey: "sidebarWidth")
+        defer { UserDefaults.standard.set(priorWidth, forKey: "sidebarWidth") }
+        let reading = try nativePDFReadingFixture()
+        let state = ReaderState(recordsHistory: false)
+        state.document = reading; state.count = 1
+        state.showContents = true; state.showAI = true
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 560, height: 438),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        window.contentView = host; window.setContentSize(CGSize(width: 560, height: 400)); state.window = window
+        defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(reading) {} }
+        func splits(_ view: NSView) -> [NSSplitView] {
+            ((view as? NSSplitView).map { [$0] } ?? []) + view.subviews.flatMap(splits)
+        }
+        try await Task.sleep(nanoseconds: 500_000_000)
+        host.layoutSubtreeIfNeeded()
+        let split = try XCTUnwrap(splits(host).first { $0.isVertical && $0.arrangedSubviews.count == 3 })
+        print("WINDOW=\(window.frame) HOST=\(host.frame) COMPACT split=\(split.frame) bounds=\(split.bounds) panes=\(split.arrangedSubviews.map(\.frame))")
+        XCTAssertLessThanOrEqual(split.frame.width, host.bounds.width + 1)
+        XCTAssertLessThanOrEqual(split.frame.height, host.bounds.height + 1)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[1].frame.width, 199)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[2].frame.width, 339)
+        XCTAssertLessThanOrEqual(split.arrangedSubviews[2].frame.maxX, split.bounds.maxX + 1)
+        XCTAssertTrue(state.revealCompactSidebar(ai: false))
+        try await Task.sleep(nanoseconds: 300_000_000)
+        host.layoutSubtreeIfNeeded()
+        print("COMPACT sidebar panes=\(split.arrangedSubviews.map(\.frame))")
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[0].frame.width, 179)
+        XCTAssertEqual(split.arrangedSubviews[2].frame.width, 0, accuracy: 1)
+        XCTAssertTrue(state.revealCompactSidebar(ai: true))
+        try await Task.sleep(nanoseconds: 300_000_000)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[2].frame.width, 339)
+        window.setContentSize(CGSize(width: 1000, height: 640))
+        try await Task.sleep(nanoseconds: 300_000_000)
+        host.layoutSubtreeIfNeeded()
+        print("WIDE panes=\(split.arrangedSubviews.map(\.frame))")
+        XCTAssertEqual(split.arrangedSubviews[0].frame.width, 300, accuracy: 2)
+        XCTAssertEqual(UserDefaults.standard.double(forKey: "sidebarWidth"), 300, accuracy: 2)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[1].frame.width, 359)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[2].frame.width, 339)
+    }
+
+    @MainActor
     func testNarrowLeftSearchSidebarPreservesReadingWidthAndItsSavedPreference() async throws {
         try await checkNarrowSearch(right: false)
     }

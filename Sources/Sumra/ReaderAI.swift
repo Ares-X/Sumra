@@ -870,72 +870,74 @@ struct ReaderAISidebar: View {
                 Button { state.showAI = false } label: { Image(systemName: "xmark") }
                     .buttonStyle(.plain).help(L("Close Sidebar"))
             }
-            Picker(L("CLI"), selection: $provider) {
-                ForEach(ReaderAIProvider.allCases) { Text($0.rawValue).tag($0) }
-            }.disabled(model.busy || preparing)
-            HStack {
-                TextField(L("Provider default"), text: $providerModel)
-                    .accessibilityLabel(L("Model (blank uses provider default)"))
-                    .help(L("Model (blank uses provider default)"))
-                    .onChange(of: providerModel) { UserDefaults.standard.set($0, forKey: "aiModel:" + provider.id) }
-                Menu(L("Models")) {
-                    Button(L("Provider default")) { providerModel = "" }
-                    ForEach(models, id: \.self) { value in Button(value) { providerModel = value } }
-                    Divider()
-                    Button(L(loadingModels ? "Loading…" : "Refresh Models"), action: refreshModels).disabled(loadingModels)
-                }.fixedSize()
-            }.disabled(model.busy || preparing)
-            if !provider.efforts.isEmpty {
-                Picker(L("Effort"), selection: $effort) {
-                    ForEach(provider.efforts, id: \.self) { Text(L($0.capitalized)).tag($0) }
-                }.disabled(model.busy || preparing)
-                .onChange(of: effort) { UserDefaults.standard.set($0, forKey: "aiEffort:" + provider.id) }
-            }
-            HStack {
-                Button(L("History")) { showHistory = true }.disabled(directory == nil || model.busy || preparing)
-                Spacer()
-                Button(L("New Conversation")) { cancel(); model.clear() }.disabled(model.messages.isEmpty && model.sessionID == nil)
-            }
-            Picker(L("Document context"), selection: $entireDocument) {
-                Text(L("Selection / Current Passage")).tag(false)
-                Text(L("Entire Document")).tag(true)
-            }.disabled(model.busy || preparing)
-            Text(L(entireDocument
-                 ? "Send shares the full document text with your CLI provider. Conversation history is stored by the provider."
-                 : "Send shares the selected text or current page/passage with your CLI provider. Conversation history is stored by the provider."))
-                .font(.caption).foregroundStyle(.secondary)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(model.messages) { message in
-                            VStack(alignment: .leading, spacing: 5) {
-                                HStack {
-                                    Text(message.role == "user" ? L("You") : message.role == "tool" ? L("Tool") : message.provider ?? L("Assistant")).font(.caption.bold())
-                                    Spacer()
-                                    if message.role == "assistant", !message.text.isEmpty {
-                                        Button(L("Copy")) {
-                                            NSPasteboard.general.clearContents()
-                                            NSPasteboard.general.setString(message.text, forType: .string)
-                                        }.font(.caption)
-                                    }
-                                }
-                                if message.text.isEmpty, message.role == "assistant", model.busy, message.id == model.messages.last?.id {
-                                    HStack(spacing: 6) {
-                                        ProgressView().controlSize(.small).accessibilityHidden(true)
-                                        Text(String(format: L("Waiting for %@…"), provider.rawValue))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                } else {
-                                    Text(message.text).textSelection(.enabled)
-                                }
-                            }.id(message.id)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Picker(L("CLI"), selection: $provider) {
+                            ForEach(ReaderAIProvider.allCases) { Text($0.rawValue).tag($0) }
+                        }.disabled(model.busy || preparing)
+                        HStack {
+                            TextField(L("Provider default"), text: $providerModel)
+                                .accessibilityLabel(L("Model (blank uses provider default)"))
+                                .help(L("Model (blank uses provider default)"))
+                                .onChange(of: providerModel) { UserDefaults.standard.set($0, forKey: "aiModel:" + provider.id) }
+                            Menu(L("Models")) {
+                                Button(L("Provider default")) { providerModel = "" }
+                                ForEach(models, id: \.self) { value in Button(value) { providerModel = value } }
+                                Divider()
+                                Button(L(loadingModels ? "Loading…" : "Refresh Models"), action: refreshModels).disabled(loadingModels)
+                            }.fixedSize()
+                        }.disabled(model.busy || preparing)
+                        if !provider.efforts.isEmpty {
+                            Picker(L("Effort"), selection: $effort) {
+                                ForEach(provider.efforts, id: \.self) { Text(L($0.capitalized)).tag($0) }
+                            }.disabled(model.busy || preparing)
+                            .onChange(of: effort) { UserDefaults.standard.set($0, forKey: "aiEffort:" + provider.id) }
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
+                        HStack {
+                            Button(L("History")) { showHistory = true }.disabled(directory == nil || model.busy || preparing)
+                            Spacer()
+                            Button(L("New Conversation")) { cancel(); model.clear() }.disabled(model.messages.isEmpty && model.sessionID == nil)
+                        }
+                        Picker(L("Document context"), selection: $entireDocument) {
+                            Text(L("Selection / Current Passage")).tag(false)
+                            Text(L("Entire Document")).tag(true)
+                        }.disabled(model.busy || preparing)
+                        Text(L(entireDocument
+                             ? "Send shares the full document text with your CLI provider. Conversation history is stored by the provider."
+                             : "Send shares the selected text or current page/passage with your CLI provider. Conversation history is stored by the provider."))
+                            .font(.caption).foregroundStyle(.secondary)
+                        LazyVStack(alignment: .leading, spacing: 14) {
+                            ForEach(model.messages) { message in
+                                VStack(alignment: .leading, spacing: 5) {
+                                    HStack {
+                                        Text(message.role == "user" ? L("You") : message.role == "tool" ? L("Tool") : message.provider ?? L("Assistant")).font(.caption.bold())
+                                        Spacer()
+                                        if message.role == "assistant", !message.text.isEmpty {
+                                            Button(L("Copy")) {
+                                                NSPasteboard.general.clearContents()
+                                                NSPasteboard.general.setString(message.text, forType: .string)
+                                            }.font(.caption)
+                                        }
+                                    }
+                                    if message.text.isEmpty, message.role == "assistant", model.busy, message.id == model.messages.last?.id {
+                                        HStack(spacing: 6) {
+                                            ProgressView().controlSize(.small).accessibilityHidden(true)
+                                            Text(String(format: L("Waiting for %@…"), provider.rawValue))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    } else {
+                                        Text(message.text).textSelection(.enabled)
+                                    }
+                                }.id(message.id)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+                    }
                 }.onChange(of: model.messages) { messages in
                     if let id = messages.last?.id { proxy.scrollTo(id, anchor: .bottom) }
                 }
-            }
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            }.frame(minHeight: 0, maxHeight: .infinity)
             TextEditor(text: $question).font(.body).frame(height: 85)
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3)))
                 .accessibilityLabel(L("Question about the document"))
