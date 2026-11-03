@@ -208,7 +208,16 @@ struct ReaderProgressDrag {
     let presentation: ReaderProgress
     @MainActor func action(in state: ReaderState, includingCurrent: Bool = false) -> ReaderAction? {
         guard document == state.document?.id else { return nil }
-        return state.readingProgress.action(at: value, includingCurrent: includingCurrent)
+        let current = state.readingProgress
+        if case .chapters(let table, _) = presentation.position, case .pages = current.position {
+            // Pagination can finish during a drag. Interpret its frozen chapter
+            // preview as a chapter coordinate even after exact pages are available.
+            let location = state.location.anchor.flatMap { ChapterTable.bookmarkLocation($0)?.location } ?? state.pageLocation(state.page)
+            return ReaderProgress(position: .chapters(table, location), spread: presentation.spread,
+                                  cover: presentation.cover, landscape: presentation.landscape)
+                .action(at: value, includingCurrent: includingCurrent)
+        }
+        return current.action(at: value, includingCurrent: includingCurrent)
     }
 }
 
