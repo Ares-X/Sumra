@@ -451,7 +451,7 @@ struct ReaderView: View {
                     else if state.showSearchResults && !findFloating { ReaderSearchResults(state: state) }
                     else { contentsSidebar }
                 }.frame(minWidth: 180, idealWidth: 220, maxWidth: 360)
-                .focusable(!hidden && (!state.showContents || state.outline.isEmpty || state.outlineBusy)).focused($sidebarFocused)
+                .focusable(!hidden && (!state.showContents || state.outline.isEmpty)).focused($sidebarFocused)
                 .background(ReaderPaneFocus(state: state, hidden: hidden).frame(width: 0, height: 0))
                 .background(ReaderSidebarPosition(documentID: state.document?.id, hidden: hidden).frame(width: 0, height: 0))
                 .modifier(ReaderChromeEntrance())
@@ -475,7 +475,7 @@ struct ReaderView: View {
 
     @ViewBuilder
     private var contentsSidebar: some View {
-        if state.outlineBusy {
+        if state.outlineBusy && state.outline.isEmpty {
             VStack {
                 Spacer()
                 ProgressView()

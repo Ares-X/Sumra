@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import ApplicationServices
 import PDFKit
 import SumraCore
 import SwiftUI
@@ -54,6 +55,204 @@ final class ReaderSidebarLayoutTests: XCTestCase {
         XCTAssertEqual(UserDefaults.standard.double(forKey: "sidebarWidth"), 300, accuracy: 2)
         XCTAssertGreaterThanOrEqual(split.arrangedSubviews[1].frame.width, 359)
         XCTAssertGreaterThanOrEqual(split.arrangedSubviews[2].frame.width, 339)
+    }
+
+    @MainActor
+    func testRemovingActiveContentsSearchReleasesItsOwnNativeEditor() async throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        let host = NSHostingView(rootView: AnyView(ContentsSearchInput(state: state).frame(width: 240, height: 28)))
+        let window = NSWindow(contentRect: CGRect(x: -3000, y: -3000, width: 260, height: 100),
+            styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer { state.windowClosed(); window.contentView = nil; window.close() }
+        let deadline = Date().addingTimeInterval(3)
+        while state.contentsSearchField?.window !== window, Date() < deadline {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let field = try XCTUnwrap(state.contentsSearchField)
+        field.selectText(nil)
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        XCTAssertTrue(editor.delegate === field)
+        XCTAssertTrue(window.firstResponder === editor)
+        host.rootView = AnyView(EmptyView())
+        let removalDeadline = Date().addingTimeInterval(3)
+        while state.contentsSearchField != nil, Date() < removalDeadline {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertNil(state.contentsSearchField)
+        XCTAssertNil(field.window)
+        XCTAssertNil(field.currentEditor())
+        XCTAssertFalse(window.firstResponder === editor, "Removing the active client must still release its editor")
+    }
+
+    @MainActor
+    func testPaletteSearchContentsKeepsNativeFocusAfterSheetDismissal() async throws {
+        let pdf = PDFDocument()
+        let page = PDFPage()
+        page.setBounds(CGRect(x: 0, y: 0, width: 300, height: 400), for: .mediaBox)
+        pdf.insert(page, at: 0)
+        let outline = PDFOutline(), chapter = PDFOutline()
+        chapter.label = "Beta Chapter"
+        chapter.destination = PDFDestination(page: page, at: CGPoint(x: 0, y: 400))
+        outline.insertChild(chapter, at: 0)
+        pdf.outlineRoot = outline
+        let reading = try nativePDFReadingFixture(pdf)
+        try await checkPaletteContentsSearch(reading, epub: false)
+    }
+
+    @MainActor
+    func testEPUBPaletteSearchContentsKeepsNativeFocusAfterAskDocument() async throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let input = try contentsEPUB(in: directory.url)
+        let reading = try ReadingDocument.open(input, deferReflowLayout: true)
+        try await checkPaletteContentsSearch(reading, epub: true)
+    }
+
+    @MainActor
+    private func checkPaletteContentsSearch(_ reading: ReadingDocument, epub: Bool) async throws {
+        _ = NSApplication.shared
+        NSApp.finishLaunching()
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarWidth", "sidebarRight", "findFloating", "paletteMRU", "language"]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        defaults.set(220.0, forKey: "sidebarWidth")
+        defaults.set(false, forKey: "sidebarRight")
+        defaults.set(false, forKey: "findFloating")
+        defaults.set("en", forKey: "language")
+        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
+        let state = ReaderState(recordsHistory: false)
+        state.document = reading; state.count = epub ? 0 : 1
+        state.showContents = true; state.showAI = !epub
+        state.paletteMode = "> Search Contents"
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: -3000, y: -3000, width: 560, height: 640),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; state.window = window
+        window.title = "Sumra palette focus regression " + UUID().uuidString
+        window.orderBack(nil)
+        defer {
+            state.showPalette = false
+            if let sheet = window.attachedSheet { window.endSheet(sheet); sheet.orderOut(nil) }
+            state.windowClosed(); window.orderOut(nil); window.contentView = nil; window.close()
+            withExtendedLifetime(reading) {}
+        }
+        func waitFor(_ ready: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(5)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                window.attachedSheet?.contentView?.layoutSubtreeIfNeeded()
+                if ready() { return }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            } while Date() < deadline
+            XCTFail("Palette sheet focus did not settle; responder=\(String(describing: window.firstResponder))", file: file, line: line)
+            throw CancellationError()
+        }
+        func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+            var value: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, name as CFString, &value)
+            return value
+        }
+        func descendants(_ element: AXUIElement) -> [AXUIElement] {
+            [element] + (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).flatMap(descendants)
+        }
+        func paletteAction(_ command: String = "contentsSearch") -> AXUIElement? {
+            let application = AXUIElementCreateApplication(getpid())
+            let windows = attribute(application, kAXWindowsAttribute) as? [AXUIElement] ?? []
+            return windows.flatMap(descendants).first {
+                attribute($0, kAXIdentifierAttribute) as? String == "palette-row:" + command
+            }
+        }
+        try await waitFor {
+            state.contentsSearchField?.window === window && state.readerFocusView != nil &&
+                (!epub || state.reflowable && state.count > 0)
+        }
+        if epub, case .pages(let pages) = reading.content {
+            let hasChapters = await pages.hasChapters
+            print("SUMRA_EPUB_FOCUS nativeHasChapters=\(hasChapters) layoutChapters=\(state.chapterLayout?.chapterCount ?? 0)")
+            XCTAssertFalse(hasChapters, "The single-spine GUI reproduction uses the existing outline refresh path")
+        }
+        let initialField = try XCTUnwrap(state.contentsSearchField)
+        window.makeFirstResponder(state.readerFocusView)
+        if epub {
+            state.paletteMode = "> Ask AI"
+            state.showPalette = true
+            try await waitFor { window.attachedSheet != nil && paletteAction("ai") != nil }
+            XCTAssertEqual(AXUIElementPerformAction(try XCTUnwrap(paletteAction("ai")), kAXPressAction as CFString), .success)
+            try await waitFor {
+                window.attachedSheet == nil && state.compactSidebars && state.recentSidebarIsAI && initialField.visibleRect.isEmpty
+            }
+        }
+        XCTAssertTrue(initialField.visibleRect.isEmpty)
+        state.paletteMode = "> Search Contents"
+        state.showPalette = true
+        try await waitFor { window.attachedSheet != nil && paletteAction() != nil }
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        let action = try XCTUnwrap(paletteAction())
+        XCTAssertEqual(AXUIElementPerformAction(action, kAXPressAction as CFString), .success)
+        try await waitFor {
+            window.attachedSheet == nil && state.contentsSearchField?.window === window &&
+                state.contentsSearchField?.visibleRect.isEmpty == false
+        }
+        // Sheet dismissal restores native focus after its didEndSheet callback.
+        // Verify the settled responder, rather than only the immediate request.
+        try await Task.sleep(nanoseconds: 500_000_000)
+        host.layoutSubtreeIfNeeded()
+        let field = try XCTUnwrap(state.contentsSearchField)
+        XCTAssertTrue(field.window === window, "Assertions must use the current mounted Contents field")
+        XCTAssertFalse(state.outline.isEmpty)
+        print("SUMRA_PALETTE_FOCUS responder=\(String(describing: window.firstResponder)) editor=\(String(describing: field.currentEditor())) requested=\(state.contentsSearchRequested) sheetVisible=\(sheet.isVisible)")
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        XCTAssertTrue(window.firstResponder === editor)
+        // Coordinate refreshes keep the existing outline usable while Pages
+        // publishes outlineBusy. They must retain the native search client.
+        if !epub {
+            state.outlineBusy = true
+            try await Task.sleep(nanoseconds: 50_000_000)
+            host.layoutSubtreeIfNeeded()
+            XCTAssertTrue(state.contentsSearchField === field)
+            XCTAssertTrue(field.window === window)
+            XCTAssertTrue(window.firstResponder === editor)
+            state.outlineBusy = false
+        }
+        for (letter, key) in zip(["B", "e", "t", "a"], [UInt16(11), 14, 17, 0]) {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: letter, charactersIgnoringModifiers: letter,
+                isARepeat: false, keyCode: key))
+            window.sendEvent(event)
+        }
+        XCTAssertEqual(field.stringValue, "Beta")
+        // Direct window event delivery has no NSApp.currentEvent; exercise the
+        // search cell's native target/action boundary explicitly as well.
+        XCTAssertTrue(field.sendAction(try XCTUnwrap(field.action), to: field.target))
+        XCTAssertEqual(state.contentsQuery, "Beta")
+    }
+
+    private func contentsEPUB(in directory: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
+        let chapters = [("alpha", "Alpha"), ("beta", "Beta"), ("gamma", "Gamma")]
+        let navigation = chapters.map { "<li><a href='body.xhtml#\($0.0)'>\($0.1) chapter</a></li>" }.joined()
+        let body = chapters.map { id, title in
+            "<h1 id='\(id)'>\(title) chapter</h1>" + (0..<40).map { "<p>\(title) passage \($0): synthetic contents and native reading layout.</p>" }.joined()
+        }.joined()
+        let files = [
+            "mimetype": "application/epub+zip",
+            "META-INF/container.xml": "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='book.opf' media-type='application/oebps-package+xml'/></rootfiles></container>",
+            "book.opf": "<package xmlns='http://www.idpf.org/2007/opf' version='3.0' unique-identifier='id'><metadata xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:identifier id='id'>sumra-contents-focus</dc:identifier><dc:title>Synthetic Contents</dc:title><dc:language>en</dc:language><meta property='dcterms:modified'>2026-11-04T00:00:00Z</meta></metadata><manifest><item id='nav' href='nav.xhtml' media-type='application/xhtml+xml' properties='nav'/><item id='body' href='body.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='body'/></spine></package>",
+            "nav.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml' xmlns:epub='http://www.idpf.org/2007/ops'><head><title>Contents</title></head><body><nav epub:type='toc'><ol>\(navigation)</ol></nav></body></html>",
+            "body.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>Synthetic Contents</title></head><body>\(body)</body></html>"
+        ]
+        for (name, contents) in files { try contents.write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); zip.currentDirectoryURL = directory
+        zip.arguments = ["-q", "-0", "book.epub", "mimetype"] + files.keys.filter { $0 != "mimetype" }.sorted()
+        try runSumraProcess(zip)
+        guard zip.terminationStatus == 0 else { throw ReadError("Cannot create the native Contents EPUB fixture") }
+        return directory.appendingPathComponent("book.epub")
     }
 
     @MainActor

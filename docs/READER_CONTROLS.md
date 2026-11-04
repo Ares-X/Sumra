@@ -72,7 +72,8 @@ or menu command switches to it. Widening the window restores both sidebars
 and the saved Contents width.
 Search Contents also reveals a hidden compact sidebar before focusing its
 search field. Cycle Focus skips hidden controls, and hiding a pane that owns
-keyboard focus returns focus to the document.
+keyboard focus returns focus to the document. Refreshing an existing outline
+keeps its controls mounted, so reflow does not interrupt typing in that field.
 Ask Document keeps its close button, question editor and Send action outside
 the scrollable configuration and conversation area, so they remain available
 in a short window.
