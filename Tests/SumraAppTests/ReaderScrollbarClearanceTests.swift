@@ -67,7 +67,13 @@ final class ReaderScrollbarClearanceTests: XCTestCase {
             for _ in 0..<30 { host.layoutSubtreeIfNeeded(); try await Task.sleep(nanoseconds: 10_000_000) }
             let scroll = try XCTUnwrap(state.readerScrollView)
             XCTAssertGreaterThan(scroll.scrollerInsets.top, 0)
-            XCTAssertGreaterThan(scroll.scrollerInsets.bottom, 0)
+            let readerFrame = host.convert(scroll.bounds, from: scroll)
+            if floating { XCTAssertGreaterThan(scroll.scrollerInsets.bottom, 0) }
+            else {
+                let bottom = host.isFlipped ? host.bounds.maxY - readerFrame.maxY : readerFrame.minY - host.bounds.minY
+                XCTAssertEqual(bottom, ReaderProgressFooter.height, accuracy: 1,
+                    "Normal Auto Hide progress keeps its own row below the reading area")
+            }
             let before = scroll.scrollerInsets
             state.toolbarHoverVisible = true
             for _ in 0..<10 { host.layoutSubtreeIfNeeded(); try await Task.sleep(nanoseconds: 10_000_000) }

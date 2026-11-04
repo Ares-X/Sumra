@@ -49,21 +49,48 @@ enum ReaderScrollbars {
     func updateNSView(_ view: Host, context: Context) {
         view.state = state; view.top = top; view.bottom = bottom
         view.updateScrollbars()
-        // The document representable may mount its scroll view after this
-        // background has updated in the same SwiftUI transaction.
-        DispatchQueue.main.async { [weak view] in view?.updateScrollbars() }
     }
 
     final class Host: NSView {
-        weak var state: ReaderState?
+        weak var state: ReaderState? {
+            didSet {
+                if oldValue !== state, oldValue?.readerScrollbarClearance === self { oldValue?.readerScrollbarClearance = nil }
+                state?.readerScrollbarClearance = self
+            }
+        }
         var top: CGFloat = 0, bottom: CGFloat = 0
+        private weak var observedScroll: NSScrollView?
+        private var originallyPostedFrameChanges = false
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func layout() { super.layout(); updateScrollbars() }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); updateScrollbars() }
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if newWindow == nil { observeScrollFrame(nil) }
+            super.viewWillMove(toWindow: newWindow)
+        }
+        private func observeScrollFrame(_ scroll: NSScrollView?) {
+            guard observedScroll !== scroll else { return }
+            if let previous = observedScroll {
+                NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: previous)
+                previous.postsFrameChangedNotifications = originallyPostedFrameChanges
+            }
+            observedScroll = scroll
+            if let scroll {
+                originallyPostedFrameChanges = scroll.postsFrameChangedNotifications
+                scroll.postsFrameChangedNotifications = true
+                NotificationCenter.default.addObserver(self, selector: #selector(scrollFrameChanged),
+                    name: NSView.frameDidChangeNotification, object: scroll)
+            }
+        }
+        @objc private func scrollFrameChanged(_ notification: Notification) { updateScrollbars() }
 
         func updateScrollbars() {
-            guard let scroll = state?.readerScrollView, scroll.window === window, window != nil else { return }
+            let scroll = state?.readerScrollView
+            // SwiftUI can finish laying out the reader after updating this
+            // sibling background. Follow the actual viewport frame change.
+            observeScrollFrame(window == nil ? nil : scroll)
+            guard let scroll, scroll.window === window, window != nil else { return }
             let frame = convert(scroll.bounds, from: scroll)
             ReaderScrollbars.clearControls(in: scroll,
                 above: max(0, bounds.minY + top - frame.minY),

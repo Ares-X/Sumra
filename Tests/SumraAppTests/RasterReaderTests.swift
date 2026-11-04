@@ -51,6 +51,33 @@ final class RasterReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingPageBitmapKeepsArtworkAspectUntilReplacementArrives() throws {
+        _ = NSApplication.shared
+        let source = try XCTUnwrap(CGContext(data: nil, width: 200, height: 400, bitsPerComponent: 8,
+            bytesPerRow: 800, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        source.setFillColor(NSColor.white.cgColor); source.fill(CGRect(x: 0, y: 0, width: 200, height: 400))
+        source.setFillColor(NSColor.red.cgColor); source.fillEllipse(in: CGRect(x: 50, y: 150, width: 100, height: 100))
+        let image = try XCTUnwrap(source.makeImage())
+        let canvas = RasterCanvas.Canvas(frame: CGRect(x: 0, y: 0, width: 400, height: 200))
+        canvas.image = image; canvas.pageBounds = canvas.bounds; canvas.visibleBounds = canvas.bounds
+        canvas.renderingReady = false
+        let bitmap = try XCTUnwrap(canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds))
+        canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
+        var red = CGRect.null
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                if let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                   color.redComponent > 0.8, color.greenComponent < 0.2, color.blueComponent < 0.2 {
+                    red = red.union(CGRect(x: x, y: y, width: 1, height: 1))
+                }
+            }
+        }
+        XCTAssertFalse(red.isNull, "The outgoing page remains visible while its replacement is rendering")
+        XCTAssertEqual(red.width, red.height, accuracy: 2,
+            "A native layout handoff must not stretch the old bitmap into the new paper aspect ratio")
+    }
+
+    @MainActor
     func testMarkdownCountWaitsForSelectedPassagePaintOnExistingAndNewPages() async throws {
         try await assertMarkdownCountWaitsForPaint(flow: "paged")
         try await assertMarkdownCountWaitsForPaint(flow: "continuous")
@@ -451,6 +478,120 @@ final class RasterReaderTests: XCTestCase {
         }
         try requireMuPDF()
         try await checkFiniteSpreadResize(URL(fileURLWithPath: path), pairedArtwork: true)
+    }
+
+    @MainActor
+    func testOriginalIssue118EPUBFacingArtworkFitsAtExtremeViewports() async throws {
+        guard let path = ProcessInfo.processInfo.environment["SUMRA_ISSUE118_EPUB_SAMPLES"] else {
+            throw XCTSkip("Set SUMRA_ISSUE118_EPUB_SAMPLES to the original fifth-round EPUB directory")
+        }
+        try requireMuPDF()
+        let directory = URL(fileURLWithPath: path)
+        let inputs = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "epub" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        XCTAssertEqual(inputs.count, 8, "Exercise the eight original fifth-round books")
+        for input in inputs {
+            let pages = try Pages(input, format: .book)
+            for viewport in [CGSize(width: 480, height: 1000), CGSize(width: 1600, height: 300), CGSize(width: 1500, height: 950)] {
+                _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+                    userCSS: ReaderTheme.all[0].css, pageSize: CGSize(width: (viewport.width - 4) / 2, height: viewport.height))
+                _ = try await pages.prepareFacingPages(.init(page: 0), cover: false)
+                let table = await pages.chapterLayout
+                let locations = (0..<min(2, table.totalPages)).map { table.location(page: $0) ?? PageLocation(page: $0) }
+                let geometry = try await pages.pageGeometry(locations, content: false, fitCover: true)
+                for location in locations {
+                    let paper = try XCTUnwrap(geometry[location]).bounds
+                    let art = try await pages.imageBounds(location)
+                    print("ISSUE118-ART \(input.lastPathComponent) viewport=\(viewport) location=\(location) paper=\(paper) art=\(art)")
+                    for image in art {
+                        XCTAssertTrue(paper.insetBy(dx: -1, dy: -1).contains(image),
+                            "\(input.lastPathComponent) must keep native artwork on its paper at \(viewport): \(image), \(paper)")
+                    }
+                    for fit in ["page", "actual"] {
+                        let rendered = try await pages.render(location, viewport: viewport, scale: 1, columns: 2,
+                            rotation: 0, fit: fit, zoom: 1)
+                        let image = try XCTUnwrap(rendered.image)
+                        XCTAssertEqual(CGFloat(image.width) / CGFloat(image.height), paper.width / paper.height, accuracy: 0.01,
+                            "The native bitmap and media box must retain the same aspect in \(fit) mode")
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testOriginalIssue118FacingCoverArtworkPlacementInFitPageAndActualSize() async throws {
+        guard let path = ProcessInfo.processInfo.environment["SUMRA_ISSUE118_EPUB_SAMPLES"] else {
+            throw XCTSkip("Set SUMRA_ISSUE118_EPUB_SAMPLES to the original fifth-round EPUB directory")
+        }
+        try requireMuPDF()
+        _ = NSApplication.shared
+        for name in ["misalignedepubfifthroundA.epub", "repeat-misalignedepubfourthroundC.epub",
+                     "repeat-misalignedepubI.epub", "repeat-misalignedepubsecondroundC.epub"] {
+            for fit in ["page", "actual"] {
+                for size in [CGSize(width: 480, height: 1000), CGSize(width: 1600, height: 300)] {
+                    let input = URL(fileURLWithPath: path).appendingPathComponent(name)
+                    let state = ReaderState(recordsHistory: false)
+                    state.fontSize = 17; state.lineHeight = 1.4; state.margin = 32; state.font = "serif"; state.theme = "light"
+                    state.flow = "paged"; state.fit = fit; state.spread = true; state.cover = false
+                    state.automaticLayout = false; state.freePan = false; state.uniformPageWidth = false
+                    state.trimEmptyMargins = false; state.landscapeAsSpread = false; state.rtl = false
+                    state.scrollbarMode = "hidden"; state.userCSS = ""; state.useDocumentCSS = true
+                    state.marginPresetSelection = "custom"; state.pageMargins = PageMargins(cssValues: [32])
+                    let pages = try Pages(input, format: .book)
+                    _ = try await pages.relayout(fontSize: 17, lineHeight: 1.4, margin: 32, font: "serif", theme: "light",
+                        userCSS: state.effectiveUserCSS, pageMargins: state.contentMargins,
+                        pageSize: CGSize(width: (size.width - 4) / 2, height: size.height))
+                    _ = try await pages.prepareFacingPages(.init(page: 0), cover: false)
+                    state.document = ReadingDocument(url: input, content: .pages(pages)); state.reflowable = true
+                    _ = state.applyChapterLayout(await pages.chapterLayout)
+                    let initial = try await pages.bounds(0)
+                    let host = NSHostingView(rootView: RasterReader(state: state, pages: pages, initialBounds: initial))
+                    let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: .borderless,
+                        backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false; window.contentView = host
+                    defer { state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close() }
+                    func canvases(_ view: NSView) -> [RasterCanvas.Canvas] {
+                        (view as? RasterCanvas.Canvas).map { [$0] } ?? view.subviews.flatMap(canvases)
+                    }
+                    var visible = [RasterCanvas.Canvas]()
+                    let deadline = Date().addingTimeInterval(10)
+                    repeat {
+                        host.layoutSubtreeIfNeeded()
+                        if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+                        visible = canvases(host).filter { state.visiblePages.contains($0.page) }.sorted { $0.page < $1.page }
+                        if visible.count == 2, visible.allSatisfy(\.readingReady) { break }
+                        try await Task.sleep(nanoseconds: 10_000_000)
+                    } while Date() < deadline && state.error == nil
+                    XCTAssertEqual(visible.count, 2, "Both original facing pages must mount")
+                    XCTAssertTrue(visible.allSatisfy(\.readingReady), state.error ?? "Facing pages did not paint")
+                    guard visible.count == 2 else { continue }
+                    var artwork = [CGRect]()
+                    for canvas in visible {
+                        let images = try await pages.imageBounds(canvas.location)
+                        let image = try XCTUnwrap(images.first, name)
+                        artwork.append(canvas.convert(image.applying(canvas.pageTransform), to: host))
+                    }
+                    let paper = visible.map { $0.convert($0.bounds, to: host) }
+                    XCTAssertEqual(paper[0].minY, paper[1].minY, accuracy: 1,
+                        "Facing pages must share the same paper top in \(name), \(fit), \(size)")
+                    XCTAssertEqual(paper[0].height, paper[1].height, accuracy: 1,
+                        "Actual Size and Fit Page must use the same facing paper")
+                    if name == "misalignedepubfifthroundA.epub" || name == "repeat-misalignedepubfourthroundC.epub" {
+                        XCTAssertEqual(artwork[0].minY, artwork[1].minY, accuracy: 1,
+                            "The cover and authored title artwork retain their common top margin")
+                        XCTAssertTrue(paper[0].insetBy(dx: -1, dy: -1).contains(artwork[0]),
+                            "The complete cover must fit its paper at Actual Size as well as Fit Page")
+                    } else {
+                        XCTAssertEqual(artwork[0].midY, artwork[1].midY, accuracy: 1,
+                            "\(name), \(fit), \(size): image-only facing pages share their artwork frame")
+                        XCTAssertTrue(artwork[1].insetBy(dx: -1, dy: -1).contains(
+                            artwork[0].offsetBy(dx: artwork[1].midX - artwork[0].midX, dy: 0)),
+                            "The cover must keep its aspect inside the facing artwork frame: \(artwork)")
+                    }
+                }
+            }
+        }
     }
 
     @MainActor

@@ -872,6 +872,7 @@ struct CommandPalette: View {
     let perform: (@escaping () -> Void) -> Void
     @State private var query = "> "
     @State private var selected: String?
+    @State private var listFocus = PaletteListFocus()
     @State private var nativeAnnotations: [(page: Int, annotation: PDFAnnotationSnapshot)] = []
     @State private var annotationsLoadedRevision: String?
     @Environment(\.dismiss) private var dismiss
@@ -1018,8 +1019,13 @@ struct CommandPalette: View {
                                     }
                                 }
                                 .contentShape(Rectangle())
-                                .onTapGesture(count: 2) { selected = item.id; activate(item) }
-                                .onTapGesture { selected = item.id }
+                                .overlay {
+                                    PaletteRowInput(enabled: item.enabled, select: {
+                                        selected = item.id
+                                        listFocus.focus()
+                                    }, activate: { activate(item) })
+                                        .accessibilityHidden(true)
+                                }
                                 .foregroundStyle(item.enabled ? Color.primary : Color.secondary)
                                 .accessibilityElement(children: .combine)
                                 .accessibilityIdentifier("palette-row:" + item.id)
@@ -1033,10 +1039,9 @@ struct CommandPalette: View {
                     .padding(.horizontal, 8)
                 }
                 .background {
-                    if thumbnailOnly {
-                        ThumbnailPaletteKeys(move: moveSelection, submit: activateSelection, close: { dismiss() })
-                            .accessibilityHidden(true)
-                    }
+                    PaletteListKeys(focus: listFocus, initiallyFocused: thumbnailOnly,
+                        move: moveSelection, submit: activateSelection, close: { dismiss() })
+                        .accessibilityHidden(true)
                 }
                 .overlay {
                     if items.isEmpty,
@@ -1086,10 +1091,53 @@ struct CommandPalette: View {
     }
 }
 
-// A SwiftUI ScrollView does not acquire a keyboard responder when this sheet
-// opens. Give the chooser its own AppKit responder when its window becomes key.
+// Native click counts let selection happen on the first mouse down without
+// waiting for a competing double-tap gesture. Selection hands keyboard focus
+// to the list's stable responder instead of a row that can scroll out of view.
 @MainActor
-private struct ThumbnailPaletteKeys: NSViewRepresentable {
+private struct PaletteRowInput: NSViewRepresentable {
+    let enabled: Bool
+    let select: () -> Void
+    let activate: () -> Void
+
+    func makeNSView(context: Context) -> InputView {
+        let view = InputView(frame: .zero)
+        view.parent = self
+        return view
+    }
+    func updateNSView(_ view: InputView, context: Context) { view.parent = self }
+    static func dismantleNSView(_ view: InputView, coordinator: ()) {
+        view.parent = nil
+    }
+
+    final class InputView: NSView {
+        var parent: PaletteRowInput?
+        override func mouseDown(with event: NSEvent) {
+            guard let parent, parent.enabled else { return }
+            parent.select()
+        }
+        override func mouseUp(with event: NSEvent) {
+            if parent?.enabled == true, event.clickCount == 2, bounds.contains(convert(event.locationInWindow, from: nil)) {
+                parent?.activate()
+            }
+        }
+    }
+}
+
+@MainActor
+private final class PaletteListFocus {
+    weak var view: NSView?
+    func focus() {
+        if let view { view.window?.makeFirstResponder(view) }
+    }
+}
+
+// Keep list keyboard focus outside the lazily recycled rows. Thumbnail mode
+// acquires it when the sheet opens; searchable palettes acquire it on row click.
+@MainActor
+private struct PaletteListKeys: NSViewRepresentable {
+    let focus: PaletteListFocus
+    let initiallyFocused: Bool
     let move: (MoveCommandDirection) -> Void
     let submit: () -> Void
     let close: () -> Void
@@ -1097,6 +1145,7 @@ private struct ThumbnailPaletteKeys: NSViewRepresentable {
     func makeNSView(context: Context) -> KeyView {
         let view = KeyView(frame: .zero)
         view.parent = self
+        focus.view = view
         return view
     }
     func updateNSView(_ view: KeyView, context: Context) { view.parent = self }
@@ -1106,7 +1155,7 @@ private struct ThumbnailPaletteKeys: NSViewRepresentable {
     }
 
     final class KeyView: NSView {
-        var parent: ThumbnailPaletteKeys?
+        var parent: PaletteListKeys?
         private var focusedInitially = false
         override var acceptsFirstResponder: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -1123,7 +1172,7 @@ private struct ThumbnailPaletteKeys: NSViewRepresentable {
         }
         @objc private func becameKey(_ notification: Notification) { focusInitially() }
         private func focusInitially() {
-            guard !focusedInitially, let window, window.isKeyWindow else { return }
+            guard parent?.initiallyFocused == true, !focusedInitially, let window, window.isKeyWindow else { return }
             focusedInitially = window.makeFirstResponder(self)
         }
         func detach() {

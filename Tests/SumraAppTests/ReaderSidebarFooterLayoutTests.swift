@@ -79,12 +79,22 @@ import XCTest
         }
         let initialButtons = try await mountedButtons()
         let initial = try XCTUnwrap(initialButtons.first { $0.0 == L("Send") }).1
+        let initialReader = try XCTUnwrap(state.readerScrollView)
+        let initialReadingBottom = window.convertToScreen(initialReader.convert(initialReader.bounds, to: nil)).minY
         state.status = "Reader status"
         try await settle()
         let withStatusButtons = try await mountedButtons()
         let withStatus = try XCTUnwrap(withStatusButtons.first { $0.0 == L("Send") }).1
-        XCTAssertEqual(withStatus.minY, initial.minY, accuracy: 1,
-            "The existing status row must count toward footer clearance instead of adding another gap")
+        if floating {
+            XCTAssertEqual(withStatus.minY, initial.minY, accuracy: 1,
+                "The existing status row must count toward floating footer clearance instead of adding another gap")
+        } else {
+            let reader = try XCTUnwrap(state.readerScrollView)
+            let statusFootprint = window.convertToScreen(reader.convert(reader.bounds, to: nil)).minY - initialReadingBottom
+            XCTAssertGreaterThan(statusFootprint, 0, "The normal footer and status each reserve their own row")
+            XCTAssertEqual(withStatus.minY - initial.minY, statusFootprint, accuracy: 1,
+                "The normal sidebar must clear the same footer and status rows as the reader")
+        }
         state.status = ""
         defaults.set("hidden", forKey: "progressDisplayMode")
         try await settle()

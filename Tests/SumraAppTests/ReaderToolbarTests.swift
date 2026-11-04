@@ -583,6 +583,7 @@ final class ReaderToolbarTests: XCTestCase {
         // asking AppKit to enter a visible fullscreen Space during unit tests.
         final class FullscreenWindow: NSWindow {
             var fullscreen = false
+            override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
             override var styleMask: NSWindow.StyleMask {
                 get { fullscreen ? super.styleMask.union(.fullScreen) : super.styleMask }
                 set { super.styleMask = newValue.subtracting(.fullScreen) }
@@ -610,6 +611,13 @@ final class ReaderToolbarTests: XCTestCase {
             if tabbed { window.addTabbedWindow(sibling, ordered: .above) }
             let host = NSHostingView(rootView: ReaderView(state: state))
             window.contentView = host
+            // Model the full-height fullscreen case: menu clearance belongs
+            // inside this window. Notch-excluded frames have separate coverage.
+            let screen = try XCTUnwrap(NSScreen.screens.first)
+            let frame = window.frame
+            window.setFrame(CGRect(x: screen.frame.midX - frame.width / 2,
+                y: screen.frame.maxY - frame.height, width: frame.width, height: frame.height), display: false)
+            XCTAssertEqual(window.frame.maxY, screen.frame.maxY)
             defer { state.windowClosed(); window.contentView = nil; sibling.close(); window.close() }
             func toolbarObserver(in view: NSView) -> ReaderToolbarWindow.Host? {
                 if let observer = view as? ReaderToolbarWindow.Host { return observer }
@@ -1186,11 +1194,18 @@ final class ReaderToolbarTests: XCTestCase {
     }
 
     func testNativeMenuRevealShowsWindowControlsWithoutRevealingHiddenReaderChrome() throws {
+        final class CompanionWindow: NSWindow {
+            var companionClose: NSButton?
+            override func standardWindowButton(_ type: NSWindow.ButtonType) -> NSButton? {
+                if type == .closeButton, let companionClose { return companionClose }
+                return super.standardWindowButton(type)
+            }
+        }
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/native-menu-toolbar.txt"), content: .text("book"))
         state.toolbarDisplayMode = .shown
-        let parent = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+        let parent = CompanionWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         let companion = NSWindow(contentRect: CGRect(x: 2000, y: 600, width: 700, height: 70),
             styleMask: .borderless, backing: .buffered, defer: false)
@@ -1198,8 +1213,9 @@ final class ReaderToolbarTests: XCTestCase {
         parent.alphaValue = 0; companion.alphaValue = 0
         parent.addChildWindow(companion, ordered: .above)
         let content = try XCTUnwrap(companion.contentView)
-        // AppKit hosts the reader toolbar and tab accessory below the same
-        // fullscreen companion that owns native window controls.
+        // Model AppKit's companion lookup using a real factory button, without
+        // moving the ordinary parent's own native controls out of its titlebar.
+        // This is an owner/visibility fixture, not a real fullscreen Space.
         let tools = NSView(frame: CGRect(x: 100, y: 0, width: 500, height: 38))
         tools.setAccessibilityRole(.toolbar)
         tools.addSubview(NSButton(title: "Reader action", target: nil, action: nil))
@@ -1207,9 +1223,10 @@ final class ReaderToolbarTests: XCTestCase {
         let tabs = NSTitlebarAccessoryViewController()
         tabs.view = NSView(frame: CGRect(x: 0, y: 38, width: 700, height: 25))
         parent.addTitlebarAccessoryViewController(tabs)
-        content.addSubview(tabs.view)
-        let close = try XCTUnwrap(parent.standardWindowButton(.closeButton))
+        let close = try XCTUnwrap(NSWindow.standardWindowButton(.closeButton, for: parent.styleMask))
+        close.target = parent
         content.addSubview(close)
+        parent.companionClose = close
         let observer = ReaderToolbarWindow.Host()
         observer.state = state; observer.reducedMotion = true
         parent.contentView?.addSubview(observer)
@@ -1217,13 +1234,26 @@ final class ReaderToolbarTests: XCTestCase {
             observer.detach(); parent.contentView = nil
             parent.removeChildWindow(companion); companion.close(); parent.close(); state.windowClosed()
         }
-        let frame = parent.frame, viewport = parent.contentView?.frame, layout = parent.contentLayoutRect
+        let frame = parent.frame, viewport = parent.contentView?.frame, shownLayout = parent.contentLayoutRect
         let companionFrame = companion.frame
         let companionShadow = companion.hasShadow
         for mode in [ReaderToolbarDisplayMode.hidden, .auto, .shown] {
             state.toolbarDisplayMode = mode
             for presentation in [false, true] {
                 state.presentation = presentation
+                observer.pointerMoved(to: NSPoint(x: 350, y: 100))
+                observer.updateChrome(revealingNativeControls: false)
+                parent.contentView?.superview?.layoutSubtreeIfNeeded()
+                content.layoutSubtreeIfNeeded()
+                let layout = parent.contentLayoutRect
+                XCTAssertTrue(parent.standardWindowButton(.closeButton) === close)
+                XCTAssertTrue(close.window === companion, "The simulated companion must retain its real factory-button anchor")
+                XCTAssertTrue(tabs.view.window === parent, "The public native accessory keeps its legal parent ownership")
+                XCTAssertEqual(tabs.isHidden, mode == .hidden)
+                if mode == .hidden {
+                    XCTAssertGreaterThan(layout.maxY, shownLayout.maxY,
+                        "Permanently hiding the public accessory releases its native layout height")
+                }
                 // A stale hover or an actual top-edge hover must never reveal
                 // reader tools during Always Hide or presentation.
                 observer.pointerMoved(to: NSPoint(x: 350, y: parent.frame.height - 1))
@@ -1255,6 +1285,11 @@ final class ReaderToolbarTests: XCTestCase {
         // Always Hide also reveals window buttons before the system menu bar
         // appears. The visible companion must not reveal its reader children.
         state.presentation = false; state.toolbarDisplayMode = .hidden
+        observer.pointerMoved(to: NSPoint(x: 350, y: 100))
+        observer.updateChrome(revealingNativeControls: false)
+        parent.contentView?.superview?.layoutSubtreeIfNeeded()
+        content.layoutSubtreeIfNeeded()
+        let hiddenLayout = parent.contentLayoutRect
         observer.pointerMoved(to: NSPoint(x: 350, y: parent.frame.height - 40))
         XCTAssertTrue(state.toolbarHoverVisible)
         observer.updateChrome(revealingNativeControls: false)
@@ -1269,7 +1304,7 @@ final class ReaderToolbarTests: XCTestCase {
                 "Revealing window controls must not make hidden reader tools intercept clicks")
         }
         XCTAssertEqual(parent.frame, frame); XCTAssertEqual(parent.contentView?.frame, viewport)
-        XCTAssertEqual(parent.contentLayoutRect, layout); XCTAssertEqual(companion.frame, companionFrame)
+        XCTAssertEqual(parent.contentLayoutRect, hiddenLayout); XCTAssertEqual(companion.frame, companionFrame)
 
         // Returning from native menu reveal must hand opacity back to the
         // companion without leaving a child toolbar at zero opacity.

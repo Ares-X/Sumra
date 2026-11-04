@@ -419,6 +419,15 @@ final class ReaderNavigationTests: XCTestCase {
             state.document = ReadingDocument(url: URL(fileURLWithPath: "/find-input.txt"), content: .text("first second"))
             state.findQuery = "first"
             state.showFindPanel()
+            guard case .find(let initialQuery, _, _, _, _) = state.command.action else {
+                XCTFail("Opening Find with a retained query must restore its search"); continue
+            }
+            XCTAssertEqual(initialQuery, "first")
+            // This fixture mounts only the input, so acknowledge the search
+            // that a full reader would consume before testing focus behavior.
+            let mountRevision = state.command.revision
+            state.didHandleCommand(mountRevision)
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 80),
                                   styleMask: .titled, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -436,7 +445,7 @@ final class ReaderNavigationTests: XCTestCase {
             let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
             XCTAssertTrue(window.firstResponder === editor, "Opening Find must focus the mounted edit control")
             XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 5))
-            XCTAssertEqual(state.command.action, .none, "Opening Find must not restart a previous search")
+            XCTAssertEqual(state.command.revision, mountRevision, "Mounting the input must not restart the completed search")
             editor.insertText("second", replacementRange: editor.selectedRange())
             XCTAssertEqual(state.findQuery, "second")
             XCTAssertEqual(state.command.action, .toc, "Replacing a query clears the old reader selection")
@@ -450,8 +459,9 @@ final class ReaderNavigationTests: XCTestCase {
             XCTAssertFalse(backwards)
             XCTAssertFalse(selection)
             XCTAssertEqual(inResults, floating)
-            state.didHandleCommand(state.command.revision)
             let searchRevision = state.command.revision
+            state.didHandleCommand(searchRevision)
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
 
             window.makeFirstResponder(nil)
             XCTAssertNil(field.currentEditor())

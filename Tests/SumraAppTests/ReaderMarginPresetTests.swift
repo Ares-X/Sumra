@@ -22,6 +22,7 @@ final class ReaderMarginPresetTests: XCTestCase {
         var position = ReadingPosition(page: 4)
         position.margin = 27
         position.pageMargins = PageMargins(cssValues: "10 20 30 40")
+        position.preferenceRevisions = ReaderPreferences.readingRevisions
         state.restore(position)
         XCTAssertNil(state.marginPreset)
         XCTAssertEqual(state.margin, 27)

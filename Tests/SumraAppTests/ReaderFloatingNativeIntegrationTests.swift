@@ -10,6 +10,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
     func testPositiveFullscreenReadingClearanceCountsMenuOnceAndZeroAllowsOverlap() async throws {
         final class FullscreenWindow: NSWindow {
             var fullscreen = false
+            override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
             override var styleMask: NSWindow.StyleMask {
                 get { fullscreen ? super.styleMask.union(.fullScreen) : super.styleMask }
                 set { super.styleMask = newValue.subtracting(.fullScreen) }
@@ -44,10 +45,16 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
         let controller = NSHostingController(rootView: ReaderView(state: state))
         let window = FullscreenWindow(contentViewController: controller)
         window.styleMask.formUnion([.titled, .closable, .resizable])
-        window.setFrame(CGRect(x: 2200, y: 100, width: 1000, height: 700), display: false)
+        let screen = try XCTUnwrap(NSScreen.screens.first)
+        // This simulated fullscreen case covers the whole screen top, as on
+        // a display without a notch. Separate geometry coverage tests windows
+        // whose native frame already excludes the menu strip.
+        let fullscreenFrame = CGRect(x: screen.frame.midX - 500, y: screen.frame.maxY - 700, width: 1000, height: 700)
         window.title = "Positive fullscreen reading clearance"
         window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
         state.window = window; window.orderBack(nil)
+        window.setFrame(fullscreenFrame, display: false)
+        XCTAssertEqual(window.frame.maxY, screen.frame.maxY)
         defer { state.windowClosed(); window.orderOut(nil); window.contentViewController = nil; window.close() }
         func observer(in view: NSView) -> ReaderToolbarWindow.Host? {
             (view as? ReaderToolbarWindow.Host) ?? view.subviews.lazy.compactMap { observer(in: $0) }.first
@@ -144,6 +151,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
     func testFullscreenFloatingTargetsClearMenuWithoutMovingBookOnReveal() async throws {
         final class FullscreenWindow: NSWindow {
             var fullscreen = false
+            override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
             override var styleMask: NSWindow.StyleMask {
                 get { fullscreen ? super.styleMask.union(.fullScreen) : super.styleMask }
                 set { super.styleMask = newValue.subtracting(.fullScreen) }
@@ -172,10 +180,16 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
         let controller = NSHostingController(rootView: ReaderView(state: state))
         let window = FullscreenWindow(contentViewController: controller)
         window.styleMask.formUnion([.titled, .closable, .resizable])
-        window.setFrame(CGRect(x: 2200, y: 100, width: 1000, height: 700), display: false)
+        let screen = try XCTUnwrap(NSScreen.screens.first)
+        // This simulated fullscreen case covers the whole screen top, as on
+        // a display without a notch. Separate geometry coverage tests windows
+        // whose native frame already excludes the menu strip.
+        let fullscreenFrame = CGRect(x: screen.frame.midX - 500, y: screen.frame.maxY - 700, width: 1000, height: 700)
         window.title = "Floating fullscreen menu clearance"
         window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
         state.window = window; window.orderBack(nil)
+        window.setFrame(fullscreenFrame, display: false)
+        XCTAssertEqual(window.frame.maxY, screen.frame.maxY)
         defer { state.windowClosed(); window.orderOut(nil); window.contentViewController = nil; window.close() }
         func observer(in view: NSView) -> ReaderToolbarWindow.Host? {
             (view as? ReaderToolbarWindow.Host) ?? view.subviews.lazy.compactMap { observer(in: $0) }.first

@@ -212,7 +212,7 @@ struct WindowTabs: NSViewRepresentable {
         private weak var guardedWindow: NSWindow?
         private var placed = false
         func updateDocumentProperties() {
-            guard let window else { return }
+            guard let window, state?.isWindowClosed != true else { return }
             let url = state?.document?.url
             if window.representedURL != url { window.representedURL = url }
             closeGuard?.openingPath = openingPath
