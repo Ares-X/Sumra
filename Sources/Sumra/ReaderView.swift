@@ -105,9 +105,9 @@ struct ReaderView: View {
             }
         }
         .toolbar(id: "reader") { toolbar }
-        // Auto Hide keeps the native layout installed for hover. Always Hide
-        // removes the toolbar; the window buttons keep their own hover owner.
-        .toolbar(state.usesCustomChrome || (state.hasDocument && state.toolbarDisplayMode == .hidden) ? .hidden : .visible, for: .windowToolbar)
+        // AppKit owns native Always Hide. Hiding SwiftUI's whole window toolbar
+        // also hides the native window-button ancestors on newer linked SDKs.
+        .toolbar(state.usesCustomChrome ? .hidden : .visible, for: .windowToolbar)
         .modifier(ReaderToolbarAppearance(shown: state.toolbarShown && !state.usesCustomChrome, hidesNativeTitle: state.usesCustomChrome,
                                           permanentlyHidden: state.toolbarDisplayMode == .hidden, background: ReaderTheme.color(state.palette.background)))
         .onChange(of: reducedMotion) { _ in state.toolbarHoverVisible = false }

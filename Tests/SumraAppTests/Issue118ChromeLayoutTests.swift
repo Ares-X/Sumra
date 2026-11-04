@@ -180,7 +180,17 @@ final class Issue118ChromeLayoutTests: XCTestCase {
                 let button = try XCTUnwrap(window.standardWindowButton(type))
                 XCTAssertEqual(button.isHiddenOrHasHiddenAncestor, !hovered)
                 if hovered {
+                    var ancestor: NSView? = button
+                    while let view = ancestor {
+                        XCTAssertGreaterThan(view.alphaValue, 0, "Every native view ancestor must paint a revealed window control")
+                        XCTAssertFalse(view.visibleRect.isEmpty, "Every native view ancestor must expose a revealed window control")
+                        ancestor = view.superview
+                    }
                     let point = root.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button)
+                    let parentPoint = try XCTUnwrap(observer.superview).convert(
+                        NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button)
+                    XCTAssertNil(observer.hitTest(parentPoint),
+                        "The document overlay must yield native window controls instead of returning a view outside its subtree")
                     let hit = root.hitTest(point)
                     XCTAssertTrue(hit === button || hit?.isDescendant(of: button) == true,
                         "The actual native traffic light must retain its own input")
