@@ -155,12 +155,12 @@ struct ReaderToolbarAppearance: ViewModifier {
         override func hitTest(_ point: NSPoint) -> NSView? {
             let point = convert(point, from: superview)
             guard titlebarDragRect.contains(point) else { return nil }
-            // The full-size SwiftUI overlay can sit in front of native window
-            // buttons. Their actual frames keep AppKit's own input target.
-            if let appearance = originalButtonAppearance.values.first(where: { appearance in
+            // The native titlebar owns its window buttons. Yield their frames
+            // instead of returning an AppKit view outside this overlay's subtree.
+            if originalButtonAppearance.values.contains(where: { appearance in
                 let button = appearance.button
                 return !button.isHiddenOrHasHiddenAncestor && button.convert(button.bounds, to: self).contains(point)
-            }) { return appearance.button }
+            }) { return nil }
             return self
         }
         override var mouseDownCanMoveWindow: Bool { true }
