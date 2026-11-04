@@ -6,6 +6,110 @@ import SumraCore
 @testable import Sumra
 
 @MainActor final class ReaderFloatingControlsTests: XCTestCase {
+    func testFloatingRedWindowButtonClosesTheWholeGroupFromEverySelectedTab() async throws {
+        for selected in 0..<3 { try await exerciseFloatingRedButton(selected: selected, rejecting: nil) }
+    }
+
+    func testFloatingRedWindowButtonStopsTheGroupCloseWhenATabRejectsApproval() async throws {
+        try await exerciseFloatingRedButton(selected: 2, rejecting: 1)
+    }
+
+    private func exerciseFloatingRedButton(selected: Int, rejecting: Int?) async throws {
+        final class Approval: NSObject, NSWindowDelegate {
+            var allowsClose = true
+            var requests = 0
+            func windowShouldClose(_ sender: NSWindow) -> Bool { requests += 1; return allowsClose }
+        }
+        _ = NSApplication.shared
+        let states = (0..<3).map { index in
+            let state = ReaderState(recordsHistory: false)
+            state.document = ReadingDocument(url: URL(fileURLWithPath: "/floating-window-close-\(index).txt"), content: .text("Book"))
+            return state
+        }
+        let identifier = "Floating-Window-Close-" + UUID().uuidString
+        let windows = states.map { state in
+            let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+            window.tabbingIdentifier = identifier; state.window = window
+            return window
+        }
+        let approvals = states.map { _ in Approval() }
+        if let rejecting { approvals[rejecting].allowsClose = false }
+        let delegates = zip(states, approvals).map { ReaderCloseGuard(state: $0.0, previous: $0.1) }
+        var closed = Set<Int>()
+        var observations: [NSObjectProtocol] = []
+        for index in windows.indices {
+            windows[index].delegate = delegates[index]
+            observations.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                object: windows[index], queue: .main) { _ in
+                MainActor.assumeIsolated { closed.insert(index); states[index].windowClosed() }
+            })
+            if index > 0 { windows[index - 1].addTabbedWindow(windows[index], ordered: .above) }
+        }
+        let controls = ReaderFloatingWindowButtons.Buttons(frame: CGRect(x: 16, y: 16, width: 54, height: 20))
+        windows[0].tabGroup?.selectedWindow = windows[selected]
+        XCTAssertEqual(windows[selected].tabGroup?.windows, windows, "Exercise the close approval chain in native tab order")
+        windows[selected].contentView?.addSubview(controls)
+        defer {
+            controls.removeFromSuperview()
+            for observation in observations { NotificationCenter.default.removeObserver(observation) }
+            for (window, state) in zip(windows, states) {
+                window.delegate = nil; window.contentView = nil; window.close(); state.windowClosed()
+            }
+            withExtendedLifetime(delegates) {}
+        }
+        let expected = Set(0..<(rejecting ?? 3))
+        let expectedRequests = (0..<3).map { index in rejecting.map { index <= $0 ? 1 : 0 } ?? 1 }
+        let red = try XCTUnwrap(controls.subviews.compactMap { $0 as? NSButton }.first { $0.tag == Int(NSWindow.ButtonType.closeButton.rawValue) })
+        red.performClick(nil)
+        let deadline = Date().addingTimeInterval(1)
+        while (closed != expected || approvals.map(\.requests) != expectedRequests), Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(closed, expected, "The red window button closes the group, including when selected tab is \(selected)")
+        XCTAssertEqual(approvals.map(\.requests), expectedRequests,
+            "Every close uses the existing approval chain and stops at a rejection")
+    }
+
+    func testRebuildingHoverTrackingAfterZoomUsesTheStationaryWindowPointer() throws {
+        final class PointerWindow: NSWindow {
+            var pointer = NSPoint.zero
+            override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
+        }
+        _ = NSApplication.shared
+        let window = PointerWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let controls = ReaderFloatingWindowButtons.Buttons(frame: CGRect(x: 16, y: 20, width: 54, height: 20))
+        let host = try XCTUnwrap(window.contentView)
+        host.addSubview(controls)
+        defer { controls.stopObservingWindow(); window.contentView = nil; window.close() }
+        func raster() throws -> Data {
+            let bitmap = try XCTUnwrap(controls.bitmapImageRepForCachingDisplay(in: controls.bounds))
+            controls.cacheDisplay(in: controls.bounds, to: bitmap)
+            return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        }
+        window.pointer = NSPoint(x: 300, y: 200)
+        controls.updateTrackingAreas()
+        let outside = try raster()
+        window.pointer = controls.convert(NSPoint(x: 27, y: 10), to: nil)
+        let entered = try XCTUnwrap(NSEvent.enterExitEvent(with: .mouseEntered, location: window.pointer,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, trackingNumber: 0, userData: nil))
+        controls.mouseEntered(with: entered)
+        XCTAssertNotEqual(try raster(), outside)
+        // A maximize relayout moves the group while the physical pointer stays
+        // put. No mouseExited event is supplied by this regression.
+        controls.frame.origin.y += 100
+        controls.updateTrackingAreas()
+        XCTAssertEqual(try raster(), outside)
+        window.pointer = controls.convert(NSPoint(x: 27, y: 10), to: nil)
+        controls.updateTrackingAreas()
+        XCTAssertNotEqual(try raster(), outside, "Rebuilt tracking must also reveal controls beneath a stationary pointer")
+        XCTAssertFalse(window.isVisible)
+    }
+
     func testFloatingNativeWindowButtonsPaintHoverAndClearItWithoutReplacingTheirActions() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 100, height: 60),

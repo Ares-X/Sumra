@@ -519,7 +519,10 @@ final class ReaderState: ObservableObject {
     }
     @Published var speechFollow = true { didSet { if !speechFollow, hasDocument { send(.speechHighlight(location: 0, length: 0)) } } }
     weak var browserView: WKWebView?
-    weak var readerScrollView: NSScrollView?
+    weak var readerScrollView: NSScrollView? {
+        didSet { readerScrollbarClearance?.updateScrollbars() }
+    }
+    weak var readerScrollbarClearance: ReaderScrollbarClearance.Host?
     weak var readerFocusView: NSView?
     weak var contentsFocusView: NSOutlineView?
     weak var contentsSearchField: NSSearchField?

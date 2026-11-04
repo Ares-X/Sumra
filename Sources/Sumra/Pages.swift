@@ -1364,19 +1364,33 @@ actor Pages {
         }
         if fitCover, locations.count == 2, let native = document.native {
             let kinds = try locations.map { try native.pageArtKind(index($0)) }
-            if let coverIndex = kinds.firstIndex(of: .cover), kinds[1 - coverIndex] == .sequence {
+            if let coverIndex = kinds.firstIndex(of: .cover) {
                 let cover = locations[coverIndex], peer = locations[1 - coverIndex]
-                if let art = try native.imageBounds(index(cover)).first,
-                   let peerArt = try native.imageBounds(index(peer)).first {
-                    // The normalized cover has an intrinsic canvas. Facing page art
-                    // retains the publisher's paper and paragraph margins. Present
-                    // the cover inside that same frame without changing either
-                    // document page or stretching artwork with a different aspect.
+                if let art = try native.imageBounds(index(cover)).first {
                     let paper = geometry[peer]!.bounds
-                    let scale = min(peerArt.width / art.width, peerArt.height / art.height)
+                    let target: CGRect
+                    if kinds[1 - coverIndex] == .sequence,
+                       let peerArt = try native.imageBounds(index(peer)).first {
+                        // Independent image pages already define a facing frame.
+                        target = peerArt
+                    } else {
+                        // Put an intrinsic cover on the same paper as an authored
+                        // title/caption/text page, keeping the cover's own margins.
+                        // The publisher's facing content remains unchanged.
+                        let source = geometry[cover]!.bounds
+                        let available = CGRect(x: paper.minX + art.minX - source.minX,
+                            y: paper.minY + art.minY - source.minY,
+                            width: paper.width - source.width + art.width,
+                            height: paper.height - source.height + art.height)
+                        let scale = min(available.width / art.width, available.height / art.height)
+                        let size = CGSize(width: art.width * scale, height: art.height * scale)
+                        target = CGRect(x: available.midX - size.width / 2, y: available.minY,
+                                        width: size.width, height: size.height)
+                    }
+                    let scale = min(target.width / art.width, target.height / art.height)
                     geometry[cover]!.facingCanvas = CGRect(
-                        x: art.midX - (peerArt.midX - paper.minX) / scale,
-                        y: art.midY - (peerArt.midY - paper.minY) / scale,
+                        x: art.midX - (target.midX - paper.minX) / scale,
+                        y: art.midY - (target.midY - paper.minY) / scale,
                         width: paper.width / scale, height: paper.height / scale)
                 }
             }
@@ -2938,7 +2952,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                 // its intrinsic aspect while its text peer uses the page size.
                 let geometry = try await pages.pageGeometry(locations,
                     content: ReadingZoom.usesContent(state.fit) || state.trimEmptyMargins || state.showFitContentArea,
-                    fitCover: state.fit == "page" && !state.trimEmptyMargins)
+                    fitCover: (state.fit == "page" || state.fit == "actual") && !state.trimEmptyMargins)
                 try Task.checkCancellation()
                 guard revision == state.renderRevision else { return }
                 finitePageGeometry = geometry
@@ -3589,7 +3603,7 @@ private struct ReaderKeyboardFocus: ViewModifier {
                             spread: state.spread && !state.presentation, cover: state.cover)
                         facingGeometry = try await pages.pageGeometry(row.map { table.location(page: $0) ?? PageLocation(page: $0) },
                             content: ReadingZoom.usesContent(state.fit) || state.trimEmptyMargins || state.showFitContentArea,
-                            fitCover: state.fit == "page" && !state.trimEmptyMargins)
+                            fitCover: (state.fit == "page" || state.fit == "actual") && !state.trimEmptyMargins)
                     }
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     try await applyLayout(table, preservingFacingPages: false)
@@ -4858,7 +4872,7 @@ private struct WindowScale: NSViewRepresentable {
     private var pageFacing: RasterLayout.FacingPage? { finiteGeometry.map { $0.facing } ?? facing }
     private var finiteDisplaySize: CGSize? {
         guard let finiteGeometry else { return nil }
-        let visible = state.trimEmptyMargins ? finiteGeometry.content ?? finiteGeometry.bounds : (state.fit == "page" ? finiteGeometry.facingCanvas : nil) ?? finiteGeometry.bounds
+        let visible = state.trimEmptyMargins ? finiteGeometry.content ?? finiteGeometry.bounds : ((state.fit == "page" || state.fit == "actual") ? finiteGeometry.facingCanvas : nil) ?? finiteGeometry.bounds
         if let start = frozenRenderViewport, let peer = finiteGeometry.facing, state.fit == "page" {
             // Scale the two already fitted pages together until pagination resumes.
             // The facing sheet can contain letterboxing which the cover canvas omits.
@@ -4872,7 +4886,11 @@ private struct WindowScale: NSViewRepresentable {
                              fitted(peer.bounds.size, in: viewport).width / peerOriginal.width)
             return CGSize(width: original.width * factor, height: original.height * factor)
         }
-        return RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation,
+        // A normalized cover's canvas is expressed in its source image units.
+        // Actual Size belongs to the facing paper, not that intrinsic canvas.
+        let paper = state.fit == "actual" && finiteGeometry.facingCanvas != nil
+            ? finiteGeometry.facing?.bounds.size ?? visible.size : visible.size
+        return RasterLayout.size(page: paper, viewport: viewport, columns: columns, rotation: state.rotation,
             fit: state.fit, zoom: state.rasterZoom, content: finiteGeometry.content, limit: state.zoomLimit,
             uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin,
             facing: finiteGeometry.facing, rtl: state.rtl)
@@ -4905,7 +4923,7 @@ private struct WindowScale: NSViewRepresentable {
     }
     var body: some View {
         let content = pageContent, facing = pageFacing
-        let visible = state.trimEmptyMargins && !continuousReflow ? content ?? bounds : (state.fit == "page" ? finiteGeometry?.facingCanvas : nil) ?? bounds
+        let visible = state.trimEmptyMargins && !continuousReflow ? content ?? bounds : ((state.fit == "page" || state.fit == "actual") ? finiteGeometry?.facingCanvas : nil) ?? bounds
         let size = displaySize ?? finiteDisplaySize ?? RasterLayout.size(page: visible.size, viewport: viewport, columns: columns, rotation: state.rotation, fit: state.fit, zoom: state.rasterZoom, content: content, limit: state.zoomLimit, uniformWidth: state.uniformPageWidth ? referenceWidth : nil, origin: visible.origin, facing: facing, rtl: state.rtl, continuous: continuousReflow)
         RasterCanvas(state: state, pages: pages, page: index, location: location, image: image, imageCollection: imageCollection, readingReady: renderedID == renderID && (image != nil || continuousReflow), pixelWidth: pixelWidth, tileResolution: renderedID == renderID ? tileResolution : 0, pdfStyle: renderedStyle, imageBounds: imageBounds, pageBoxes: pageBoxes, contentBounds: content, pageBounds: bounds, visibleBounds: visible, links: links, pdfAnnotations: pdfAnnotations, pdfLinks: pdfLinks, match: match, rotation: state.rotation, request: $scrollRequest, cancelNavigation: cancelNavigation, displaySize: size, zoomNormalization: ReadingZoom.pageScale(zoom: 1, referenceWidth: Double(referenceWidth ?? 0), pageWidth: Double(state.rotation % 180 == 0 ? visible.width : visible.height), uniform: state.uniformPageWidth && !continuousReflow), focus: index == state.page ? RasterLayout.contentFocus(bounds: visible, content: content, display: size, rotation: state.rotation, mode: state.fit, facing: facing, rtl: state.rtl) : nil, selections: selections, didResizeViewport: didResizeViewport, didPaint: didRender, didPaintMatch: didPaintMatch, viewportTileSize: viewportTileSize, finitePrediction: finitePrediction, predictionID: renderID, renderPredictedPage: finitePrediction.map { prediction in { _ = try await renderResult(prediction, preheating: true) } })
             .frame(width: size.width, height: size.height)
@@ -5914,7 +5932,18 @@ struct NativeReadingAccessibilitySnapshot {
             if state?.showTransparencyGrid == true, imageCollection || pages?.isPDF == true { ReaderPageGrid.checkerboard(in: context, rect: pageBounds.applying(pageTransform)) }
             context.saveGState(); context.concatenate(pageTransform)
             if let image {
-                NSImage(cgImage: image, size: pageBounds.size).draw(in: pageBounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                var paper = pageBounds
+                if !renderingReady {
+                    // Pagination commits both facing media boxes before their
+                    // replacement bitmaps arrive. Keep the outgoing bitmap's
+                    // aspect during that handoff instead of stretching it to
+                    // the new native paper dimensions.
+                    let scale = min(paper.width / CGFloat(image.width), paper.height / CGFloat(image.height))
+                    let size = CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
+                    paper = CGRect(x: paper.midX - size.width / 2, y: paper.midY - size.height / 2,
+                                   width: size.width, height: size.height)
+                }
+                NSImage(cgImage: image, size: paper.size).draw(in: paper, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
                 hasPaintedPreview = true
             } else {
                 context.setFillColor(ReaderTheme.color(state?.palette.background ?? 0xffffff).cgColor)

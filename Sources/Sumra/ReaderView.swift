@@ -158,7 +158,7 @@ struct ReaderView: View {
         state.extendsReadingUnderChrome && !state.usesFloatingChrome
     }
     private var overlaysProgress: Bool {
-        state.usesFloatingChrome || (progressDisplayMode == .auto && reclaimsNativeInsets)
+        state.usesFloatingChrome
     }
     private var floatingControlsClearance: CGFloat {
         fullscreenMenuInset + ReaderFloatingControls.topInset + ReaderFloatingControls.height

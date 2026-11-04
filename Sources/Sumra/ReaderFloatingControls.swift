@@ -304,11 +304,13 @@ struct ReaderFloatingSurface: ViewModifier {
         private var modifierMonitor: Any?
         private var optionDown = false
         private var fullscreen = false
+        private var nativeCloseAction: Selector?
         private let glyphs = HoverGlyphs(frame: .zero)
         override init(frame: NSRect) {
             super.init(frame: frame)
             for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                 let button = NSWindow.standardWindowButton(type, for: [.titled, .closable, .miniaturizable, .resizable])!
+                if type == .closeButton { nativeCloseAction = button.action }
                 button.frame.origin = NSPoint(x: 2 + index * 18, y: 3)
                 button.tag = Int(type.rawValue)
                 button.setAccessibilityElement(true)
@@ -341,6 +343,11 @@ struct ReaderFloatingSurface: ViewModifier {
                 owner: self, userInfo: nil)
             addTrackingArea(tracking)
             pointerTracking = tracking
+            // A zoom can move the controls away from a stationary pointer
+            // without delivering an exit for the tracking area it replaced.
+            if let window {
+                setPointerInside(bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)))
+            }
         }
         override func mouseEntered(with event: NSEvent) {
             modifierFlagsChanged(event.modifierFlags)
@@ -370,6 +377,9 @@ struct ReaderFloatingSurface: ViewModifier {
             modifierMonitor = nil
             setPointerInside(false)
         }
+        @objc private func closeWindowGroup(_ sender: NSButton) {
+            (readerWindow?.delegate as? ReaderCloseGuard)?.state?.closeTabs("all")
+        }
         @objc func updateButtons() {
             if observedWindow !== window {
                 stopObservingWindow()
@@ -389,13 +399,20 @@ struct ReaderFloatingSurface: ViewModifier {
             let isFullscreen = capabilities.contains(.fullScreen)
             if fullscreen != isFullscreen { fullscreen = isFullscreen; glyphs.needsDisplay = true }
             for button in subviews.compactMap({ $0 as? NSButton }) {
-                // Keep the action supplied by AppKit's standard button. In
-                // particular, the green button owns its system modifier and
-                // fullscreen behavior instead of a second action here.
+                // AppKit owns the minimize and green-button modifier actions.
+                // The red window control closes the whole reader group through
+                // the same approval chain as Close All Tabs; each tab keeps its x.
                 button.target = readerWindow
                 let enabled: Bool
                 switch NSWindow.ButtonType(rawValue: UInt(button.tag))! {
-                case .closeButton: enabled = capabilities.contains(.closable) && readerWindow?.attachedSheet == nil
+                case .closeButton:
+                    button.action = nativeCloseAction
+                    if (readerWindow?.tabGroup?.windows.count ?? 1) > 1,
+                       (readerWindow?.delegate as? ReaderCloseGuard)?.state != nil {
+                        button.target = self
+                        button.action = #selector(closeWindowGroup(_:))
+                    }
+                    enabled = capabilities.contains(.closable) && readerWindow?.attachedSheet == nil
                 case .miniaturizeButton:
                     enabled = capabilities.contains(.miniaturizable) && !capabilities.contains(.fullScreen)
                 default: enabled = capabilities.contains(.resizable) || capabilities.contains(.fullScreen)
@@ -403,8 +420,8 @@ struct ReaderFloatingSurface: ViewModifier {
                 if button.isEnabled != enabled { button.isEnabled = enabled; glyphs.needsDisplay = true }
             }
         }
-        // Standard factory buttons keep native rendering, hit regions, actions,
-        // and pressed states. AppKit's shared titlebar hover owner isn't public;
+        // Standard factory buttons keep native rendering, hit regions and
+        // pressed states. AppKit's shared titlebar hover owner isn't public;
         // draw only its familiar group symbols above the unmodified controls.
         private final class HoverGlyphs: NSView {
             weak var owner: Buttons?

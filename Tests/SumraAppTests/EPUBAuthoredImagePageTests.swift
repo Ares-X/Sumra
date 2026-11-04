@@ -56,7 +56,7 @@ final class EPUBAuthoredImagePageTests: XCTestCase {
         return try XCTUnwrap(images.first)
     }
 
-    func testFacingCoverPresentationKeepsAuthoredPaperAndOptOuts() async throws {
+    func testFacingCoverPresentationKeepsAuthoredPaperAndSoloCover() async throws {
         let cases = [
             ("<p><img src='art.png'/></p>", true),
             ("<p><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 120'><image href='art.png' width='300' height='120' preserveAspectRatio='none'/></svg></p>", true),
@@ -75,17 +75,23 @@ final class EPUBAuthoredImagePageTests: XCTestCase {
             let locations = [PageLocation(chapter: 0, page: 0), PageLocation(chapter: 1, page: 0)]
             let original = try await pages.pageGeometry(locations, content: true)
             let facing = try await pages.pageGeometry(locations, content: true, fitCover: true)
-            XCTAssertEqual(facing[locations[0]]?.facingCanvas != nil, paired)
+            XCTAssertNotNil(facing[locations[0]]?.facingCanvas, "Facing covers share the publisher page paper")
             XCTAssertNil(facing[locations[1]]?.facingCanvas, "The publisher's facing page is unchanged")
-            if paired {
+            do {
                 let canvas = try XCTUnwrap(facing[locations[0]]?.facingCanvas)
                 let paper = try XCTUnwrap(facing[locations[1]]?.bounds)
                 let coverImages = try await pages.imageBounds(locations[0]), peerImages = try await pages.imageBounds(locations[1])
                 let coverArt = try XCTUnwrap(coverImages.first), peerArt = try XCTUnwrap(peerImages.first)
                 let presented = coverArt.applying(RasterLayout.transform(bounds: canvas, size: paper.size, rotation: 0))
                 XCTAssertEqual(presented.width, presented.height * coverArt.width / coverArt.height, accuracy: 0.01)
-                XCTAssertTrue(peerArt.insetBy(dx: -0.01, dy: -0.01).contains(presented))
-                if body.contains("<svg") { XCTAssertGreaterThan(abs(coverArt.width / coverArt.height - peerArt.width / peerArt.height), 1) }
+                if paired {
+                    XCTAssertTrue(peerArt.insetBy(dx: -0.01, dy: -0.01).contains(presented))
+                    if body.contains("<svg") { XCTAssertGreaterThan(abs(coverArt.width / coverArt.height - peerArt.width / peerArt.height), 1) }
+                } else {
+                    XCTAssertTrue(paper.insetBy(dx: -0.01, dy: -0.01).contains(presented))
+                    XCTAssertNotEqual(presented.size, peerArt.size,
+                        "Captions and explicitly sized artwork retain their own layout instead of sizing the cover")
+                }
             }
             let solo = try await pages.pageGeometry([locations[0]], content: true, fitCover: true)
             XCTAssertNil(solo[locations[0]]?.facingCanvas, "Cover on Its Own keeps intrinsic fitting")
