@@ -3,6 +3,16 @@
     <channel>
         <title>Sumra</title>
         <item>
+            <title>0.2.31</title>
+            <pubDate>Wed, 04 Nov 2026 07:14:50 +0000</pubDate>
+            <link>https://github.com/Ares-X/Sumra/releases</link>
+            <sparkle:version>33</sparkle:version>
+            <sparkle:shortVersionString>0.2.31</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/Ares-X/Sumra/releases/download/v0.2.31/Sumra-0.2.31-macOS-arm64.zip" length="17093867" type="application/octet-stream" sparkle:edSignature="/SjomD0nL0FdTocdJXf6zMqjenZCg2OCugWLHa1ck3zpySRg8E5NaHIWPYXmryK2kGwt1Rw8EpHKe4L75RB5CQ=="/>
+        </item>
+        <item>
             <title>0.2.30</title>
             <pubDate>Tue, 03 Nov 2026 15:34:33 +0000</pubDate>
             <link>https://github.com/Ares-X/Sumra/releases</link>
@@ -21,16 +31,6 @@
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/Ares-X/Sumra/releases/download/v0.2.29/Sumra-0.2.29-macOS-arm64.zip" length="17077876" type="application/octet-stream" sparkle:edSignature="4gGjYhEIDPWp9QMuTNnN/IDAfnjAVf173yNzcYT7daKhiv8/4wHMaW4JiznK75i+kTF9ub3bDDMa8rbv6zNyBw=="/>
-        </item>
-        <item>
-            <title>0.2.28</title>
-            <pubDate>Tue, 03 Nov 2026 07:52:30 +0000</pubDate>
-            <link>https://github.com/Ares-X/Sumra/releases</link>
-            <sparkle:version>30</sparkle:version>
-            <sparkle:shortVersionString>0.2.28</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/Ares-X/Sumra/releases/download/v0.2.28/Sumra-0.2.28-macOS-arm64.zip" length="17060386" type="application/octet-stream" sparkle:edSignature="Cjte0uHvNJMTflVbQRxCcZxjC5QDDP4aKN11zaDDPHldnehq2sNEOBqDfSMfJtgFAeGP7JWFLaRyq78KZxfrDQ=="/>
         </item>
     </channel>
 </rss>
