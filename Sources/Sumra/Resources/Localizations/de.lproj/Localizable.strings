@@ -788,3 +788,13 @@
 "Type a search term to see matches." = "Gib einen Suchbegriff ein, um Treffer anzuzeigen.";
 
 "Choose Custom in Margins to edit individual values." = "Wähle unter Ränder die Option Benutzerdefiniert, um einzelne Werte zu bearbeiten.";
+"All Reading Windows" = "Alle Lesefenster";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "Das Design gilt für alle Lesefenster und ersetzt benutzerdefinierte Dokumentfarben und Trennlinien.";
+"Current Document" = "Aktuelles Dokument";
+"Layout and custom colors affect only this document." = "Layout und benutzerdefinierte Farben gelten nur für dieses Dokument.";
+"Apply to All and Save Defaults" = "Auf alle anwenden und als Standard speichern";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "Typografie, CSS, Inhaltsränder und Abstände zu Bedienelementen gelten für alle geöffneten Dokumente und ersetzen die gespeicherten Einstellungen beim erneuten Öffnen.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "Nur dieses Dokument. Frühere Änderungen an anderen Dokumenten und Standardeinstellungen bleiben erhalten.";
+"Turning this off keeps changes already applied." = "Beim Ausschalten bleiben bereits angewendete Änderungen erhalten.";
+"Navigation applies to all reading windows." = "Die Navigation gilt für alle Lesefenster.";
+"Incomplete reply" = "Unvollständige Antwort";

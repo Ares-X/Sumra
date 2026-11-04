@@ -783,3 +783,13 @@
 "Type a search term to see matches." = "برای دیدن نتایج، عبارتی برای جستجو وارد کنید.";
 
 "Choose Custom in Margins to edit individual values." = "برای ویرایش جداگانهٔ مقادیر، در حاشیه‌ها گزینهٔ سفارشی را انتخاب کنید.";
+"All Reading Windows" = "همهٔ پنجره‌های مطالعه";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "پوسته همهٔ پنجره‌های مطالعه را تغییر می‌دهد و جایگزین رنگ‌ها و جداکننده‌های سفارشی سند می‌شود.";
+"Current Document" = "سند فعلی";
+"Layout and custom colors affect only this document." = "چیدمان و رنگ‌های سفارشی فقط بر این سند اثر می‌گذارند.";
+"Apply to All and Save Defaults" = "اعمال به همه و ذخیره به‌عنوان پیش‌فرض";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "تنظیمات تایپوگرافی، CSS، حاشیه‌های محتوا و فاصله از کنترل‌ها به همهٔ اسناد باز اعمال می‌شوند و هنگام بازکردن دوبارهٔ اسناد، جایگزین تنظیمات ذخیره‌شده می‌شوند.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "فقط همین سند. تغییرات قبلی در اسناد دیگر و تنظیمات پیش‌فرض حفظ می‌شوند.";
+"Turning this off keeps changes already applied." = "خاموش‌کردن این گزینه تغییرات اعمال‌شده را حفظ می‌کند.";
+"Navigation applies to all reading windows." = "پیمایش برای همهٔ پنجره‌های مطالعه اعمال می‌شود.";
+"Incomplete reply" = "پاسخ ناقص";

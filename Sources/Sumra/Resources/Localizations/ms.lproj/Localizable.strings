@@ -783,3 +783,13 @@
 "Type a search term to see matches." = "Taip istilah carian untuk melihat padanan.";
 
 "Choose Custom in Margins to edit individual values." = "Pilih Tersuai dalam Jidar untuk mengedit setiap nilai.";
+"All Reading Windows" = "Semua Tetingkap Bacaan";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "Tema mengubah semua tetingkap bacaan serta menggantikan warna dokumen dan pembahagi tersuai.";
+"Current Document" = "Dokumen Semasa";
+"Layout and custom colors affect only this document." = "Susun atur dan warna tersuai hanya mempengaruhi dokumen ini.";
+"Apply to All and Save Defaults" = "Gunakan pada Semua dan Simpan Lalai";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "Tipografi, CSS, jidar kandungan dan ruang di sekeliling kawalan digunakan pada semua dokumen terbuka serta menggantikan tetapan tersimpan apabila dokumen dibuka semula.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "Dokumen ini sahaja. Perubahan terdahulu pada dokumen lain dan tetapan lalai dikekalkan.";
+"Turning this off keeps changes already applied." = "Mematikan pilihan ini mengekalkan perubahan yang telah digunakan.";
+"Navigation applies to all reading windows." = "Navigasi digunakan pada semua tetingkap bacaan.";
+"Incomplete reply" = "Balasan tidak lengkap";

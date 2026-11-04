@@ -794,3 +794,13 @@
 "Type a search term to see matches." = "検索語を入力すると、一致する結果が表示されます。";
 
 "Choose Custom in Margins to edit individual values." = "各値を編集するには、「余白」で「カスタム」を選択してください。";
+"All Reading Windows" = "すべての閲覧ウインドウ";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "テーマはすべての閲覧ウインドウに適用され、書類のカスタムカラーと区切り線を置き換えます。";
+"Current Document" = "現在の書類";
+"Layout and custom colors affect only this document." = "レイアウトとカスタムカラーは、この書類にのみ適用されます。";
+"Apply to All and Save Defaults" = "すべてに適用してデフォルトを保存";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "文字組み、CSS、コンテンツの余白、コントロールとの間隔は、開いているすべての書類に適用され、書類を開き直す際の保存済み設定を置き換えます。";
+"Only this document. Earlier changes to other documents and defaults are kept." = "この書類のみ。他の書類やデフォルトに適用済みの変更は保持されます。";
+"Turning this off keeps changes already applied." = "オフにしても、適用済みの変更は保持されます。";
+"Navigation applies to all reading windows." = "ナビゲーションはすべての閲覧ウインドウに適用されます。";
+"Incomplete reply" = "不完全な返信";

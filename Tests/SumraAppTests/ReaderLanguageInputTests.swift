@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+import Combine
+import PDFKit
 import SwiftUI
 import XCTest
 @testable import Sumra
@@ -44,6 +46,98 @@ final class ReaderLanguageInputTests: XCTestCase {
         XCTAssertTrue(delegate.control(field, textView: input, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
         XCTAssertEqual(closes, 1)
         XCTAssertFalse(window.isVisible)
+    }
+
+    func testInlineFindWaitsForNativeCompositionAndCancelsPriorDebounce() async throws {
+        try await checkFindCompositionDebounce(floating: false)
+    }
+
+    func testFloatingFindWaitsForNativeCompositionAndCancelsPriorDebounce() async throws {
+        try await checkFindCompositionDebounce(floating: true)
+    }
+
+    private func checkFindCompositionDebounce(floating: Bool) async throws {
+        _ = NSApplication.shared
+        let text = NSTextView(frame: CGRect(x: 0, y: 0, width: 300, height: 400))
+        text.string = "existing 中文 pasted manual"
+        let pdf = try XCTUnwrap(PDFDocument(data: text.dataWithPDF(inside: text.bounds)))
+        let reading = try nativePDFReadingFixture(pdf)
+        let state = ReaderState(recordsHistory: false)
+        state.document = reading; state.count = 1; state.showFind = true
+        let extracted = try await XCTUnwrap(state.nativePDF).text(0)
+        XCTAssertTrue(extracted.contains("existing"), "The timer fixture must contain searchable document text")
+        var closes = 0
+        var searches = [(query: String, inResults: Bool)]()
+        let commands = state.$command.dropFirst().sink { command in
+            if case .find(let query, _, _, _, let inResults) = command.action { searches.append((query, inResults)) }
+            state.didHandleCommand(command.revision)
+        }
+        let host = NSHostingView(rootView: ReaderFindInput(state: state, floating: floating, close: {
+            closes += 1; state.closeFind()
+        }).frame(width: 280, height: 28))
+        let window = makeWindow(content: host)
+        state.window = window
+        defer { commands.cancel(); state.windowClosed(); close(window); withExtendedLifetime(reading) {} }
+        try await settle(host) { state.findInputField?.window === window }
+        let field = try XCTUnwrap(state.findInputField)
+        field.selectText(nil)
+        let input = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        let delegate = try XCTUnwrap(field.delegate as? ReaderFindInput.Coordinator)
+        var markedNotifications = 0
+        let changes = NotificationCenter.default.addObserver(forName: NSControl.textDidChangeNotification,
+            object: field, queue: .main) { _ in
+                if input.hasMarkedText() { markedNotifications += 1 }
+            }
+        defer { NotificationCenter.default.removeObserver(changes) }
+
+        input.insertText("existing", replacementRange: input.selectedRange())
+        try await settle(host) { state.findQuery == "existing" }
+        state.searchResults = [.init(title: "Existing result", target: "#page=1")]
+        state.selectedSearchTarget = "#page=1"
+        let page = state.page
+        input.setMarkedText("zhong", selectedRange: NSRange(location: 5, length: 0),
+                            replacementRange: NSRange(location: 0, length: input.string.utf16.count))
+        // Exercise the real NSTextView -> NSTextField notification boundary;
+        // system input-method notification timing is verified separately.
+        input.didChangeText()
+        XCTAssertTrue(input.hasMarkedText())
+        XCTAssertGreaterThan(markedNotifications, 0)
+        XCTAssertFalse(delegate.control(field, textView: input, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        XCTAssertFalse(delegate.control(field, textView: input, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
+        state.status = "Composition update"
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(searches.isEmpty, "Neither the pending old query nor marked text may search during composition")
+        XCTAssertTrue(input.hasMarkedText())
+        XCTAssertEqual(input.string, "zhong")
+        XCTAssertEqual(state.page, page)
+        XCTAssertEqual(state.searchResults.map(\.title), ["Existing result"])
+        XCTAssertEqual(state.selectedSearchTarget, "#page=1")
+        XCTAssertEqual(closes, 0)
+
+        input.insertText("中文", replacementRange: input.markedRange())
+        try await settle(host) { state.findQuery == "中文" }
+        XCTAssertFalse(input.hasMarkedText())
+        try await Task.sleep(nanoseconds: 1_150_000_000)
+        XCTAssertEqual(searches.map(\.query), ["中文"], "Only the committed candidate should pass the original debounce")
+
+        input.insertText("pasted", replacementRange: NSRange(location: 0, length: input.string.utf16.count))
+        try await settle(host) { state.findQuery == "pasted" }
+        try await Task.sleep(nanoseconds: 650_000_000)
+        XCTAssertEqual(searches.map(\.query), ["中文", "pasted"])
+        input.insertText("", replacementRange: NSRange(location: 0, length: input.string.utf16.count))
+        try await settle(host) { searches.last?.query == "" }
+        input.insertText("manual", replacementRange: input.selectedRange())
+        try await settle(host) { state.findQuery == "manual" }
+        XCTAssertTrue(delegate.control(field, textView: input, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        try await settle(host) { searches.last?.query == "manual" }
+        XCTAssertEqual(searches.last?.inResults, floating)
+        try await Task.sleep(nanoseconds: 650_000_000)
+        XCTAssertEqual(searches.filter { $0.query == "manual" }.count, 1, "Return cancels the pending duplicate search")
+        XCTAssertTrue(delegate.control(field, textView: input, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
+        XCTAssertEqual(closes, 1)
+        XCTAssertFalse(state.showFind)
+        print("SUMRA_FIND_COMPOSITION floating=\(floating) marked_notifications=\(markedNotifications) queries=\(searches.map(\.query))")
     }
 
     func testContentsSearchKeepsCompositionThenAcceptsCommittedQuery() async throws {

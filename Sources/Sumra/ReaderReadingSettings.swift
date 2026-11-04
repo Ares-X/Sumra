@@ -97,19 +97,11 @@ import SumraCore
         let _ = language
         let _ = customThemes
         Form {
-            Section {
+            Section(L("Current Document")) {
                 if let document = state.document { Text(document.url.lastPathComponent).font(.headline) }
-                Text(L("Changes appear in your document immediately.")).font(.caption).foregroundStyle(.secondary)
-                Picker(L("Theme"), selection: Binding(get: { state.theme }, set: { value in
-                    state.setTheme(value)
-                })) {
-                    ForEach(ReaderTheme.choices(selected: state.theme)) { theme in Text(theme.displayName).tag(theme.id) }
-                }
-                HStack {
-                    Button(L("Choose Theme…"), action: state.chooseTheme)
-                    Spacer()
-                    Button(L("Custom Document Colors…"), action: state.configureDocumentColors)
-                }
+                Button(L("Custom Document Colors…"), action: state.configureDocumentColors)
+                Text(L("Layout and custom colors affect only this document."))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if state.supportsPagination {
                     Picker(L("Layout"), selection: Binding(
                         get: { state.spread ? ReaderMenuCommand.twoPages : state.flow == "continuous" ? .continuous : .paged },
@@ -124,6 +116,22 @@ import SumraCore
                     }
                 }
             }
+            Section {
+                Toggle(isOn: Binding(get: { state.typographyForAll }, set: { value in
+                    state.typographyForAll = value; state.applyTypography()
+                })) {
+                    Text(L("Apply to All and Save Defaults"))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(state.typographyForAll
+                     ? L("Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen.")
+                     : L("Only this document. Earlier changes to other documents and defaults are kept."))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if state.typographyForAll {
+                    Text(L("Turning this off keeps changes already applied."))
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             if typographyAvailable {
                 Section(L("Typography")) {
                     LabeledContent(L("Font")) {
@@ -135,9 +143,6 @@ import SumraCore
                     ReaderNumericSetting(label: L("Line height"), value: typography(\.lineHeight, overrideDocumentStyles: true),
                                          range: 1...2.4, step: 0.1, unit: "×")
                     Toggle(L("Use document styles"), isOn: typography(\.useDocumentCSS))
-                    Toggle(L("Use Changes as Defaults"), isOn: Binding(get: { state.typographyForAll }, set: { value in
-                        state.typographyForAll = value; state.applyTypography()
-                    }))
                     DisclosureGroup(L("Advanced Typography and CSS"), isExpanded: $advanced) {
                         ReaderCSSDraftEditor(text: $cssDraft).frame(height: 135)
                         Button(L("Apply CSS"), action: applyAdvanced)
@@ -168,9 +173,25 @@ import SumraCore
                     top: Binding(get: { state.controlTopMargin }, set: { state.setControlMargins(top: $0, bottom: state.controlBottomMargin) }),
                     bottom: Binding(get: { state.controlBottomMargin }, set: { state.setControlMargins(top: state.controlTopMargin, bottom: $0) }))
             }
+            Section(L("All Reading Windows")) {
+                Picker(L("Theme"), selection: Binding(get: { state.theme }, set: { value in
+                    state.setTheme(value)
+                })) {
+                    ForEach(ReaderTheme.choices(selected: state.theme)) { theme in Text(theme.displayName).tag(theme.id) }
+                }
+                Button(L("Choose Theme…"), action: state.chooseTheme)
+                Text(L("Theme changes all reading windows and replaces custom document colors and dividers."))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Section(L("Navigation")) {
-                Toggle(L("Keep scroll position when turning pages"), isOn: $preservePageTurnPosition)
-                Toggle(L("Keep current zoom when following links"), isOn: $keepZoomOnLinks)
+                Text(L("Navigation applies to all reading windows."))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Toggle(isOn: $preservePageTurnPosition) {
+                    Text(L("Keep scroll position when turning pages")).fixedSize(horizontal: false, vertical: true)
+                }
+                Toggle(isOn: $keepZoomOnLinks) {
+                    Text(L("Keep current zoom when following links")).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .id(state.document?.id)

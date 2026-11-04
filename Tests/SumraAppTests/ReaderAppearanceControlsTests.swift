@@ -350,6 +350,56 @@ final class ReaderAppearanceControlsTests: XCTestCase {
         XCTAssertEqual(state.font, "Iowan Old Style", "Closing the live panel retains its applied changes")
     }
 
+    func testReadingPanelMinimumWidthKeepsLocalizedFontControlsVisibleAndEditable() async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let language = defaults.object(forKey: "language")
+        defer { defaults.set(language, forKey: "language") }
+        for locale in ["en", "zh-Hans", "de"] {
+            defaults.set(locale, forKey: "language")
+            let state = ReaderState(recordsHistory: false)
+            state.document = ReadingDocument(url: URL(fileURLWithPath: "/minimum-width.txt"), content: .text("Reading"))
+            state.font = "serif"
+            let parent = appearanceWindow(state: state)
+            defer { parent.close(); state.windowClosed() }
+            state.editTypography()
+            let panel = try XCTUnwrap(parent.childWindows?.compactMap { $0 as? ReaderReadingSettingsPanel }.first)
+            defer { panel.dismiss(reducedMotion: true) }
+            panel.setContentSize(NSSize(width: 410, height: 620))
+            let content = try XCTUnwrap(panel.contentView)
+            XCTAssertEqual(content.bounds.width, 410, accuracy: 0.5)
+            for appliesToAll in [false, true] {
+                // Change the view state without publishing defaults to other readers.
+                state.typographyForAll = appliesToAll
+                for _ in 0..<20 {
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                    content.layoutSubtreeIfNeeded()
+                }
+                let combo = try XCTUnwrap(descendants(content, of: NSComboBox.self).first)
+                let frame = combo.convert(combo.bounds, to: content)
+                XCTAssertTrue(content.bounds.contains(frame), "\(locale), all=\(appliesToAll): font must fit the initial viewport: \(frame)")
+                XCTAssertGreaterThanOrEqual(combo.visibleRect.height, combo.bounds.height - 1,
+                    "\(locale), all=\(appliesToAll): the font field must not be clipped")
+                assertClickable(combo, in: content)
+                XCTAssertTrue(panel.makeFirstResponder(combo), "The font field must accept keyboard input at minimum width")
+                if appliesToAll, let directory = ProcessInfo.processInfo.environment["SUMRA_APPEARANCE_EVIDENCE_DIR"] {
+                    let output = URL(fileURLWithPath: directory, isDirectory: true)
+                    try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+                    let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))
+                    content.cacheDisplay(in: content.bounds, to: bitmap)
+                    let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                    try png.write(to: output.appendingPathComponent("reading-panel-410-\(locale).png"))
+                }
+            }
+            state.typographyForAll = false
+            let combo = try XCTUnwrap(descendants(content, of: NSComboBox.self).first)
+            combo.stringValue = "Iowan Old Style"
+            let delegate = try XCTUnwrap(combo.delegate as? ReaderFontNamePicker.Coordinator)
+            delegate.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: combo))
+            XCTAssertEqual(state.font, "Iowan Old Style", "\(locale): native font edits remain live at minimum width")
+        }
+    }
+
     func testDefaultTypographyReflectsSavedFontAndOffersInstalledSupplementalFamilies() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard

@@ -1,8 +1,9 @@
 # Reading controls and macOS integration
 
 The normal and floating toolbars show **Aa** in every interface language. It
-opens the nonmodal Reading Settings panel. Changes apply to the visible
-document while the panel stays open. Typography includes installed
+opens the nonmodal Reading Settings panel. Changes take effect while the panel
+stays open. Its sections distinguish current-document settings from controls
+that affect all reading windows. Typography includes installed
 font families and an editable name for supplemental fonts, size, line spacing,
 and margins. The existing native passage anchor keeps reflowable text at its
 reading location. Theme and layout controls share the reader's existing settings;
@@ -36,7 +37,13 @@ options change, and reflow retains the visible passage. Newly opened books read
 the latest defaults. A saved book or format snapshot predating an explicit global
 change cannot restore the older value of that option; unrelated book settings
 and positions remain intact. Later per-book changes from **Aa** can still be
-remembered. **Use Changes as Defaults** publishes Aa typography to all readers.
+remembered. **Apply to All and Save Defaults** publishes Aa typography, CSS,
+content margins and control clearance to all readers and saves those defaults.
+It also replaces older saved values for those options when a document reopens.
+Turning it off makes later changes local and does not undo changes already
+applied. This control remains available for PDF margins. Theme changes apply
+to every reading window and replace custom document colors and dividers.
+The panel's Navigation preferences are application-wide.
 Reading-toolbar layout and zoom actions remain local to the book rather than
 silently replacing the global defaults during restoration. Opening policies and
 startup choices take effect at their named action. Advanced Apply and Import use
@@ -63,6 +70,10 @@ When both Contents and Ask Document are open but the window is too narrow for
 both, the most recently requested sidebar is shown. The other sidebar’s toolbar
 or menu command switches to it. Widening the window restores both sidebars
 and the saved Contents width.
+Search Contents also reveals a hidden compact sidebar before focusing its
+search field. Cycle Focus skips hidden controls, and hiding a pane that owns
+keyboard focus returns focus to the document. Refreshing an existing outline
+keeps its controls mounted, so reflow does not interrupt typing in that field.
 Ask Document keeps its close button, question editor and Send action outside
 the scrollable configuration and conversation area, so they remain available
 in a short window.
@@ -173,13 +184,25 @@ results and highlights. Escape also ends a Command-G search while Find is
 closed; the retained query remains available for the next Command-G. Text
 input keeps native Escape handling, including input-method composition. Reopening
 Find searches the retained query and page range again.
+Input-method composition keeps the committed query and results in place and
+cancels pending delayed searches. Committing the candidate starts the usual
+search delay; candidate Return and Escape remain owned by the input method.
 
 Ask Document clears the submitted question when it enters the conversation.
-Closing and reopening the sidebar keeps the unsent question and the selected CLI in the same reader window. Replacing the document clears its draft. The CLI and document scope are visible in the sidebar. Choose Models beside the CLI to change its model or reasoning effort.
+Closing and reopening the sidebar keeps the unsent question, selected CLI,
+conversation and session in the same document window. Presentation mode also
+retains the conversation. Hiding the sidebar cancels an active request and keeps
+any partial reply, labeled as incomplete. Replacing or closing the document,
+changing the CLI, or choosing New Conversation clears the conversation.
+The CLI and document scope are visible in the sidebar. Choose Models beside
+the CLI to change its model or reasoning effort.
 You can draft your next question while the selected CLI responds. If the
 selected passage has no readable text, the draft stays in the editor. Cancel
 ends the request and keeps any text already received. Codex can reconnect an
 interrupted stream within the same turn.
+Replies follow the bottom while the reader stays there. Scrolling up to earlier
+answers suspends automatic following. Returning to the bottom or sending a new
+question resumes it.
 
 Replacing a PDF file attachment updates its annotation-list title when the note
 still equals the previous attachment filename. Custom notes, including an empty
@@ -188,7 +211,8 @@ persist together when saved.
 
 The command palette, bookmark browser and annotations list show a message
 when their filtered list is empty. PDF annotations are checked after the
-current document revision finishes loading.
+current document revision finishes loading. Replacing the document clears the
+annotation query and type filter; edits within the same PDF retain both filters.
 
 Settings → Keyboard Shortcuts supports command search, recording an actual key
 combination, conflict feedback, and resetting one command. Custom Toolbar Buttons

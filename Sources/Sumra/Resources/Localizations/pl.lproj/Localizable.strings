@@ -790,3 +790,13 @@
 "Type a search term to see matches." = "Wpisz szukaną frazę, aby zobaczyć dopasowania.";
 
 "Choose Custom in Margins to edit individual values." = "Wybierz Niestandardowy w opcji Marginesy, aby edytować poszczególne wartości.";
+"All Reading Windows" = "Wszystkie okna czytania";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "Motyw obejmuje wszystkie okna czytania i zastępuje własne kolory dokumentów oraz linie podziału.";
+"Current Document" = "Bieżący dokument";
+"Layout and custom colors affect only this document." = "Układ i własne kolory dotyczą tylko tego dokumentu.";
+"Apply to All and Save Defaults" = "Zastosuj do wszystkich i zapisz jako domyślne";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "Typografia, CSS, marginesy treści i odstępy od elementów sterujących dotyczą wszystkich otwartych dokumentów i zastępują zapisane ustawienia przy ich ponownym otwarciu.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "Tylko ten dokument. Wcześniejsze zmiany w innych dokumentach i ustawieniach domyślnych zostaną zachowane.";
+"Turning this off keeps changes already applied." = "Wyłączenie tej opcji zachowuje już zastosowane zmiany.";
+"Navigation applies to all reading windows." = "Nawigacja dotyczy wszystkich okien czytania.";
+"Incomplete reply" = "Niepełna odpowiedź";

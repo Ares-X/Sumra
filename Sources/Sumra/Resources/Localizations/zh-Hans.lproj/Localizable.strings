@@ -1038,3 +1038,13 @@
 "Type a search term to see matches." = "输入搜索词以查看匹配结果。";
 
 "Choose Custom in Margins to edit individual values." = "在“页边距”中选择“自定义”后，即可分别编辑各边数值。";
+"All Reading Windows" = "所有阅读窗口";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "主题会更改所有阅读窗口，并替换文档的自定义颜色和分隔线。";
+"Current Document" = "当前文档";
+"Layout and custom colors affect only this document." = "布局和自定义颜色仅影响当前文档。";
+"Apply to All and Save Defaults" = "应用到全部并保存为默认设置";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "字体排版、CSS、内容边距和控件间距会应用到所有已打开的文档，并替换文档重新打开时使用的已保存设置。";
+"Only this document. Earlier changes to other documents and defaults are kept." = "仅限当前文档。此前对其他文档和默认设置所做的更改会保留。";
+"Turning this off keeps changes already applied." = "关闭此选项会保留已应用的更改。";
+"Navigation applies to all reading windows." = "导航设置适用于所有阅读窗口。";
+"Incomplete reply" = "回复不完整";

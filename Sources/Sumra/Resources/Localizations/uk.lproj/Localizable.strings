@@ -783,3 +783,13 @@
 "Type a search term to see matches." = "Введіть пошуковий запит, щоб побачити збіги.";
 
 "Choose Custom in Margins to edit individual values." = "Виберіть «Власний» в розділі «Поля», щоб змінити окремі значення.";
+"All Reading Windows" = "Усі вікна читання";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "Тема застосовується до всіх вікон читання та замінює власні кольори документів і роздільники.";
+"Current Document" = "Поточний документ";
+"Layout and custom colors affect only this document." = "Макет і власні кольори застосовуються лише до цього документа.";
+"Apply to All and Save Defaults" = "Застосувати до всіх і зберегти як типові";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "Типографіка, CSS, поля вмісту та відступи від елементів керування застосовуються до всіх відкритих документів і замінюють збережені налаштування під час повторного відкриття документів.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "Лише цей документ. Попередні зміни інших документів і типових налаштувань зберігаються.";
+"Turning this off keeps changes already applied." = "Після вимкнення вже застосовані зміни зберігаються.";
+"Navigation applies to all reading windows." = "Налаштування навігації застосовуються до всіх вікон читання.";
+"Incomplete reply" = "Неповна відповідь";

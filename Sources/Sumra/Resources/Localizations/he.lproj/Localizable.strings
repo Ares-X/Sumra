@@ -790,3 +790,13 @@
 "Type a search term to see matches." = "הקלד מונח חיפוש כדי לראות התאמות.";
 
 "Choose Custom in Margins to edit individual values." = "כדי לערוך כל ערך בנפרד, יש לבחור מותאם אישית תחת שוליים.";
+"All Reading Windows" = "כל חלונות הקריאה";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "ערכת הנושא חלה על כל חלונות הקריאה ומחליפה את צבעי המסמכים והמפרידים המותאמים אישית.";
+"Current Document" = "המסמך הנוכחי";
+"Layout and custom colors affect only this document." = "הפריסה והצבעים המותאמים אישית חלים רק על מסמך זה.";
+"Apply to All and Save Defaults" = "החלה על הכול ושמירה כברירת מחדל";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "הטיפוגרפיה, ה־CSS, שולי התוכן והמרווח מהפקדים חלים על כל המסמכים הפתוחים ומחליפים את ההגדרות השמורות כשהמסמכים נפתחים מחדש.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "מסמך זה בלבד. שינויים קודמים במסמכים אחרים ובהגדרות ברירת המחדל נשמרים.";
+"Turning this off keeps changes already applied." = "כיבוי האפשרות משאיר את השינויים שכבר הוחלו.";
+"Navigation applies to all reading windows." = "הגדרות הניווט חלות על כל חלונות הקריאה.";
+"Incomplete reply" = "תשובה חלקית";

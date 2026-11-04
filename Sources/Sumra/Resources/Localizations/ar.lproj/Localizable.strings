@@ -790,3 +790,13 @@
 "Type a search term to see matches." = "اكتب عبارة بحث لعرض النتائج.";
 
 "Choose Custom in Margins to edit individual values." = "اختر مخصص في الهوامش لتحرير القيم الفردية.";
+"All Reading Windows" = "كل نوافذ القراءة";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "يغيّر المظهر كل نوافذ القراءة ويستبدل ألوان المستند والفواصل المخصصة.";
+"Current Document" = "المستند الحالي";
+"Layout and custom colors affect only this document." = "يؤثر التخطيط والألوان المخصصة في هذا المستند فقط.";
+"Apply to All and Save Defaults" = "تطبيق على الكل وحفظ كإعدادات افتراضية";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "تُطبَّق إعدادات الخطوط وCSS وهوامش المحتوى والمسافة حول عناصر التحكم على كل المستندات المفتوحة، وتحل محل الإعدادات المحفوظة عند إعادة فتح المستندات.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "هذا المستند فقط. تُحفظ التغييرات السابقة في المستندات الأخرى والإعدادات الافتراضية.";
+"Turning this off keeps changes already applied." = "يؤدي إيقاف هذا الخيار إلى الإبقاء على التغييرات المطبقة.";
+"Navigation applies to all reading windows." = "ينطبق التنقل على كل نوافذ القراءة.";
+"Incomplete reply" = "رد غير مكتمل";
