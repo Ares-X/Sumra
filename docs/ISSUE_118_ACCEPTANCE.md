@@ -115,9 +115,12 @@ visible rectangle. Temporary logging and the cold-mount probe are removed.
 The corrected runtime probe repeats the same original-A cold-open and top-edge
 sequence. All three native AX controls now appear, and the previously hidden
 ancestors have alpha 1, are not hidden and have nonempty visible rectangles.
-The toolbar, native tab strip and proxy remain absent. Physical hover confirmation
-and the corrected exact signed candidate remain pending; this local runtime
-probe does not authorize publishing the rejected draft.
+The toolbar, native tab strip and proxy remain absent. The user independently
+confirmed that physical pointer-only hover now reveals all three buttons. CUA
+native-button activation enters fullscreen; Always Show/Hide retain fullscreen;
+exit restores the original window and controls; native close returns to Home.
+The corrected exact signed candidate remains pending. This local runtime probe
+does not authorize publishing the rejected draft.
 
 ## Acceptance boundaries
 
