@@ -839,3 +839,13 @@
 "Type a search term to see matches." = "輸入搜尋詞以查看相符結果。";
 
 "Choose Custom in Margins to edit individual values." = "在「頁邊距」中選擇「自訂」後，即可分別編輯各邊數值。";
+"All Reading Windows" = "所有閱讀視窗";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "主題會變更所有閱讀視窗，並取代文件的自訂顏色和分隔線。";
+"Current Document" = "目前文件";
+"Layout and custom colors affect only this document." = "版面配置和自訂顏色僅影響目前文件。";
+"Apply to All and Save Defaults" = "套用至全部並儲存為預設值";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "字體排版、CSS、內容邊距和控制項間距會套用至所有已開啟的文件，並取代重新開啟文件時使用的已儲存設定。";
+"Only this document. Earlier changes to other documents and defaults are kept." = "僅限目前文件。先前對其他文件和預設值所做的變更會保留。";
+"Turning this off keeps changes already applied." = "關閉此選項會保留已套用的變更。";
+"Navigation applies to all reading windows." = "導覽設定適用於所有閱讀視窗。";
+"Incomplete reply" = "回覆不完整";

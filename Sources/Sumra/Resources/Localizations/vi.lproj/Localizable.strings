@@ -788,3 +788,13 @@
 "Type a search term to see matches." = "Nhập từ khóa tìm kiếm để xem các kết quả phù hợp.";
 
 "Choose Custom in Margins to edit individual values." = "Chọn Tùy chỉnh trong Lề để sửa từng giá trị.";
+"All Reading Windows" = "Tất cả cửa sổ đọc";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "Giao diện thay đổi mọi cửa sổ đọc và thay thế màu cùng đường phân cách tùy chỉnh của tài liệu.";
+"Current Document" = "Tài liệu hiện tại";
+"Layout and custom colors affect only this document." = "Bố cục và màu tùy chỉnh chỉ áp dụng cho tài liệu này.";
+"Apply to All and Save Defaults" = "Áp dụng cho tất cả và lưu mặc định";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "Kiểu chữ, CSS, lề nội dung và khoảng cách với các điều khiển áp dụng cho mọi tài liệu đang mở, đồng thời thay thế cài đặt đã lưu khi mở lại tài liệu.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "Chỉ tài liệu này. Các thay đổi trước đó đối với tài liệu khác và cài đặt mặc định được giữ nguyên.";
+"Turning this off keeps changes already applied." = "Tắt tùy chọn này vẫn giữ các thay đổi đã áp dụng.";
+"Navigation applies to all reading windows." = "Điều hướng áp dụng cho tất cả cửa sổ đọc.";
+"Incomplete reply" = "Phản hồi chưa hoàn chỉnh";

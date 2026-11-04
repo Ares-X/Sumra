@@ -117,10 +117,11 @@ struct ReaderView: View {
         }
         .onChange(of: state.focusCycle) { _ in
             if state.presentation { sidebarFocused = false; focusReader(); return }
-            let sidebarVisible = state.showContents || state.showBookmarks || state.showThumbnails || state.showAnnotations || (state.showSearchResults && !findFloating)
+            let sidebarVisible = !(state.compactSidebars && state.recentSidebarIsAI) &&
+                (state.showContents || state.showBookmarks || state.showThumbnails || state.showAnnotations || (state.showSearchResults && !findFloating))
             if findFloating && state.showFind && state.window?.isKeyWindow == false { focusReader() }
             else if state.findInputField?.currentEditor() != nil { focusReader() }
-            else if let tree = state.contentsFocusView, tree.window != nil {
+            else if sidebarVisible, let tree = state.contentsFocusView, tree.window != nil, !tree.visibleRect.isEmpty {
                 if tree.window?.firstResponder === tree {
                     if state.showFind { state.showFindPanel() } else { focusReader() }
                 } else { tree.window?.makeFirstResponder(tree) }
@@ -419,6 +420,7 @@ struct ReaderView: View {
                 }
                 if state.hasDocument && state.showAI && !state.presentation {
                     ReaderAISidebar(state: state).padding(.top, sidebarInset).padding(.bottom, sidebarBottomClearance)
+                        .background(ReaderPaneFocus(state: state, hidden: hideAI).frame(width: 0, height: 0))
                         .frame(width: hideAI ? 0 : nil).clipped().accessibilityHidden(hideAI).allowsHitTesting(!hideAI)
                         .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
                 }
@@ -449,7 +451,8 @@ struct ReaderView: View {
                     else if state.showSearchResults && !findFloating { ReaderSearchResults(state: state) }
                     else { contentsSidebar }
                 }.frame(minWidth: 180, idealWidth: 220, maxWidth: 360)
-                .focusable(!state.showContents || state.outline.isEmpty || state.outlineBusy).focused($sidebarFocused)
+                .focusable(!hidden && (!state.showContents || state.outline.isEmpty || state.outlineBusy)).focused($sidebarFocused)
+                .background(ReaderPaneFocus(state: state, hidden: hidden).frame(width: 0, height: 0))
                 .background(ReaderSidebarPosition(documentID: state.document?.id, hidden: hidden).frame(width: 0, height: 0))
                 .modifier(ReaderChromeEntrance())
         }
@@ -720,6 +723,34 @@ struct ReaderInitialViewport: NSViewRepresentable {
     }
 }
 
+// Zero-width panes remain mounted. Move focus back to the document when a
+// resize or sidebar choice hides the native control that currently owns it.
+private struct ReaderPaneFocus: NSViewRepresentable {
+    let state: ReaderState
+    let hidden: Bool
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ view: NSView, context: Context) {
+        guard hidden else { return }
+        DispatchQueue.main.async { [weak view, weak state] in
+            guard let view, let state, let window = view.window else { return }
+            window.contentView?.layoutSubtreeIfNeeded()
+            var ancestor = view.superview
+            while let pane = ancestor {
+                if let split = pane.superview as? NSSplitView, split.arrangedSubviews.contains(pane) {
+                    let responder = window.firstResponder as? NSView
+                    let editor = responder as? NSTextView
+                    let owner = editor?.isFieldEditor == true ? (editor?.delegate as? NSView) : responder
+                    if pane.frame.width < 1, owner?.isDescendant(of: pane) == true {
+                        window.makeFirstResponder((state.browserView as NSView?) ?? state.readerFocusView)
+                    }
+                    return
+                }
+                ancestor = pane.superview
+            }
+        }
+    }
+}
+
 // AppKit owns dragging. Restore its measured divider once when replacing the
 // document, because SwiftUI reallocates the split when the main pane is rebuilt.
 private struct ReaderSidebarPosition: NSViewRepresentable {
@@ -915,6 +946,7 @@ struct ReaderFindInput: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: ReaderFindInput
         var focusRevision: Int?
+        private var composing = false
         init(_ parent: ReaderFindInput) { self.parent = parent }
         func updateFocus(_ field: NSTextField) {
             guard field.window != nil, focusRevision != parent.state.findFocusRevision else { return }
@@ -922,7 +954,10 @@ struct ReaderFindInput: NSViewRepresentable {
             field.selectText(nil)
         }
         func controlTextDidChange(_ notification: Notification) {
-            if let field = notification.object as? NSTextField { parent.state.updateFindQuery(field.stringValue) }
+            guard let field = notification.object as? NSTextField else { return }
+            let marked = (field.currentEditor() as? NSTextView)?.hasMarkedText() == true
+            parent.state.updateFindQuery(field.stringValue, refresh: composing && !marked, composing: marked)
+            composing = marked
         }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             guard !textView.hasMarkedText() else { return false }

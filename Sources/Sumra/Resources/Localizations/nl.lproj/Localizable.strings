@@ -788,3 +788,13 @@
 "Type a search term to see matches." = "Typ een zoekterm om overeenkomsten te zien.";
 
 "Choose Custom in Margins to edit individual values." = "Kies Aangepast bij Marges om afzonderlijke waarden te bewerken.";
+"All Reading Windows" = "Alle leesvensters";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "Het thema geldt voor alle leesvensters en vervangt aangepaste documentkleuren en scheidingslijnen.";
+"Current Document" = "Huidig document";
+"Layout and custom colors affect only this document." = "De indeling en aangepaste kleuren gelden alleen voor dit document.";
+"Apply to All and Save Defaults" = "Op alles toepassen en als standaard bewaren";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "Typografie, CSS, inhoudsmarges en ruimte voor bedieningselementen gelden voor alle geopende documenten en vervangen de bewaarde instellingen wanneer documenten opnieuw worden geopend.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "Alleen dit document. Eerdere wijzigingen in andere documenten en standaardinstellingen blijven behouden.";
+"Turning this off keeps changes already applied." = "Als je dit uitschakelt, blijven reeds toegepaste wijzigingen behouden.";
+"Navigation applies to all reading windows." = "Navigatie geldt voor alle leesvensters.";
+"Incomplete reply" = "Onvolledig antwoord";

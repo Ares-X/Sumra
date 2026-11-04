@@ -790,3 +790,13 @@
 "Type a search term to see matches." = "মিল দেখতে একটি অনুসন্ধান শব্দ লিখুন।";
 
 "Choose Custom in Margins to edit individual values." = "প্রতিটি মান সম্পাদনা করতে মার্জিনে কাস্টম বেছে নিন।";
+"All Reading Windows" = "সব পড়ার উইন্ডো";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "থিম সব পড়ার উইন্ডোতে প্রযোজ্য হয় এবং নথির কাস্টম রং ও বিভাজক বদলে দেয়।";
+"Current Document" = "বর্তমান নথি";
+"Layout and custom colors affect only this document." = "লেআউট ও কাস্টম রং শুধু এই নথিতে প্রযোজ্য।";
+"Apply to All and Save Defaults" = "সবগুলোতে প্রয়োগ করে ডিফল্ট হিসেবে সংরক্ষণ করুন";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "টাইপোগ্রাফি, CSS, বিষয়বস্তুর মার্জিন ও নিয়ন্ত্রণগুলোর চারপাশের ফাঁকা জায়গার সেটিংস সব খোলা নথিতে প্রযোজ্য হয় এবং নথি আবার খোলার সময় সংরক্ষিত সেটিংসের জায়গায় ব্যবহৃত হয়।";
+"Only this document. Earlier changes to other documents and defaults are kept." = "শুধু এই নথি। অন্য নথি ও ডিফল্ট সেটিংসে আগের পরিবর্তনগুলো রাখা হবে।";
+"Turning this off keeps changes already applied." = "এটি বন্ধ করলেও ইতিমধ্যে প্রয়োগ করা পরিবর্তনগুলো থাকবে।";
+"Navigation applies to all reading windows." = "নেভিগেশন সব পড়ার উইন্ডোতে প্রযোজ্য।";
+"Incomplete reply" = "অসম্পূর্ণ উত্তর";

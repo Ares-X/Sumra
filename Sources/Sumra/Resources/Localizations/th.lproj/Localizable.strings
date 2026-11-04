@@ -790,3 +790,13 @@
 "Type a search term to see matches." = "พิมพ์คำค้นหาเพื่อดูผลลัพธ์ที่ตรงกัน";
 
 "Choose Custom in Margins to edit individual values." = "เลือกกำหนดเองในระยะขอบเพื่อแก้ไขแต่ละค่า";
+"All Reading Windows" = "หน้าต่างอ่านทั้งหมด";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "ธีมจะเปลี่ยนหน้าต่างอ่านทั้งหมด และแทนที่สีและเส้นแบ่งที่กำหนดเองของเอกสาร";
+"Current Document" = "เอกสารปัจจุบัน";
+"Layout and custom colors affect only this document." = "เค้าโครงและสีที่กำหนดเองมีผลกับเอกสารนี้เท่านั้น";
+"Apply to All and Save Defaults" = "ใช้กับทั้งหมดและบันทึกเป็นค่าเริ่มต้น";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "การจัดรูปแบบตัวอักษร, CSS, ระยะขอบเนื้อหา และระยะห่างจากส่วนควบคุมจะใช้กับเอกสารที่เปิดอยู่ทั้งหมด และแทนที่การตั้งค่าที่บันทึกไว้เมื่อเปิดเอกสารอีกครั้ง";
+"Only this document. Earlier changes to other documents and defaults are kept." = "เฉพาะเอกสารนี้ การเปลี่ยนแปลงก่อนหน้าในเอกสารอื่นและค่าเริ่มต้นจะยังคงอยู่";
+"Turning this off keeps changes already applied." = "เมื่อปิดตัวเลือกนี้ การเปลี่ยนแปลงที่ใช้ไปแล้วจะยังคงอยู่";
+"Navigation applies to all reading windows." = "การนำทางมีผลกับหน้าต่างอ่านทั้งหมด";
+"Incomplete reply" = "คำตอบไม่สมบูรณ์";

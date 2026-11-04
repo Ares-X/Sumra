@@ -57,6 +57,101 @@ final class ReaderSidebarLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testSearchContentsRevealsHiddenPaneAndMovesNativeFocusOnLeft() async throws {
+        try await checkCompactContentsFocus(right: false)
+    }
+
+    @MainActor
+    func testSearchContentsRevealsHiddenPaneAndMovesNativeFocusOnRight() async throws {
+        try await checkCompactContentsFocus(right: true)
+    }
+
+    @MainActor
+    private func checkCompactContentsFocus(right: Bool) async throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarWidth", "sidebarRight", "findFloating"]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        defaults.set(220.0, forKey: "sidebarWidth")
+        defaults.set(right, forKey: "sidebarRight")
+        defaults.set(false, forKey: "findFloating")
+        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
+        let reading = try nativePDFReadingFixture()
+        let state = ReaderState(recordsHistory: false)
+        state.document = reading; state.count = 1
+        state.outline = [.init(title: "Chapter One", target: "#page=1")]
+        state.showContents = true; state.showAI = true
+        state.aiQuestion = "Keep this draft"
+        let host = NSHostingView(rootView: ReaderView(state: state).environment(\.layoutDirection, .leftToRight))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 560, height: 640),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; state.window = window
+        defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(reading) {} }
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        func waitFor(_ ready: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+            let deadline = Date().addingTimeInterval(5)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if ready() { return }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            } while Date() < deadline
+            XCTFail("Compact sidebar focus did not settle", file: file, line: line)
+            throw CancellationError()
+        }
+        try await waitFor {
+            state.compactSidebars && state.contentsSearchField?.window === window &&
+                state.contentsFocusView != nil && state.readerFocusView != nil
+        }
+        let field = try XCTUnwrap(state.contentsSearchField)
+        let tree = try XCTUnwrap(state.contentsFocusView)
+        let split = try XCTUnwrap(views(host).compactMap { $0 as? NSSplitView }.first {
+            $0.isVertical && $0.arrangedSubviews.count == 3
+        })
+        let sidebar = split.arrangedSubviews[right ? 1 : 0]
+        try await waitFor { sidebar.frame.width < 1 }
+        XCTAssertTrue(field.visibleRect.isEmpty)
+        XCTAssertTrue(ReaderMenuCommand.contentsSearch.enabled(state))
+        ReaderMenuCommand.contentsSearch.run(state)
+        try await waitFor {
+            sidebar.frame.width >= 179 && !field.visibleRect.isEmpty &&
+                field.currentEditor() != nil && window.firstResponder === field.currentEditor()
+        }
+        let input = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        input.insertText("Chapter", replacementRange: input.selectedRange())
+        XCTAssertTrue(field.sendAction(try XCTUnwrap(field.action), to: field.target))
+        XCTAssertEqual(state.contentsQuery, "Chapter")
+        XCTAssertEqual(state.aiQuestion, "Keep this draft")
+        window.makeFirstResponder(tree)
+        ReaderMenuCommand.cycleFocus.run(state)
+        try await waitFor { window.firstResponder === state.readerFocusView }
+
+        window.setContentSize(CGSize(width: 1000, height: 640))
+        try await waitFor { !state.compactSidebars && sidebar.frame.width >= 179 }
+        state.recentSidebarIsAI = true
+        field.selectText(nil)
+        XCTAssertTrue(window.firstResponder === field.currentEditor())
+        window.setContentSize(CGSize(width: 560, height: 640))
+        try await waitFor { state.compactSidebars && sidebar.frame.width < 1 && window.firstResponder === state.readerFocusView }
+        for _ in 0..<3 {
+            ReaderMenuCommand.cycleFocus.run(state)
+            try await Task.sleep(nanoseconds: 30_000_000)
+            XCTAssertFalse(window.firstResponder === tree, "Cycle Focus must skip a mounted zero-width Contents tree")
+            XCTAssertNil(field.currentEditor())
+        }
+
+        window.setContentSize(CGSize(width: 1000, height: 640))
+        try await waitFor { !state.compactSidebars }
+        let editor = try XCTUnwrap(views(host).compactMap { $0 as? NSTextView }.first { $0.isEditable && !$0.isFieldEditor })
+        window.makeFirstResponder(editor)
+        state.recentSidebarIsAI = false
+        window.setContentSize(CGSize(width: 560, height: 640))
+        try await waitFor { state.compactSidebars && split.arrangedSubviews[2].frame.width < 1 && window.firstResponder === state.readerFocusView }
+        XCTAssertEqual(state.aiQuestion, "Keep this draft")
+        XCTAssertFalse(window.isVisible)
+    }
+
+    @MainActor
     func testNarrowLeftSearchSidebarPreservesReadingWidthAndItsSavedPreference() async throws {
         try await checkNarrowSearch(right: false)
     }

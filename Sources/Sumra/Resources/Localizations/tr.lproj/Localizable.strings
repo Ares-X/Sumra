@@ -790,3 +790,13 @@
 "Type a search term to see matches." = "Eşleşmeleri görmek için bir arama terimi yazın.";
 
 "Choose Custom in Margins to edit individual values." = "Her değeri düzenlemek için Kenar Boşlukları altında Özel seçeneğini seçin.";
+"All Reading Windows" = "Tüm Okuma Pencereleri";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "Tema tüm okuma pencerelerine uygulanır ve belgelerin özel renklerini ve ayırıcılarını değiştirir.";
+"Current Document" = "Geçerli Belge";
+"Layout and custom colors affect only this document." = "Düzen ve özel renkler yalnızca bu belgeyi etkiler.";
+"Apply to All and Save Defaults" = "Tümüne Uygula ve Varsayılan Olarak Kaydet";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "Tipografi, CSS, içerik kenar boşlukları ve denetim boşlukları tüm açık belgelere uygulanır ve belgeler yeniden açıldığında kayıtlı ayarların yerini alır.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "Yalnızca bu belge. Diğer belgelerde ve varsayılan ayarlarda daha önce yapılan değişiklikler korunur.";
+"Turning this off keeps changes already applied." = "Bu seçenek kapatıldığında uygulanmış değişiklikler korunur.";
+"Navigation applies to all reading windows." = "Gezinme ayarları tüm okuma pencerelerine uygulanır.";
+"Incomplete reply" = "Eksik yanıt";

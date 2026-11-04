@@ -417,6 +417,10 @@ struct ContentsSearchInput: NSViewRepresentable {
         if coordinator.state.contentsSearchField === field { coordinator.state.contentsSearchField = nil }
     }
     final class Field: NSSearchField {
+        override func layout() {
+            super.layout()
+            (delegate as? Coordinator)?.updateFocus(self)
+        }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             (delegate as? Coordinator)?.updateFocus(self)
@@ -426,7 +430,8 @@ struct ContentsSearchInput: NSViewRepresentable {
         let state: ReaderState
         init(state: ReaderState) { self.state = state }
         func updateFocus(_ field: NSSearchField) {
-            guard state.contentsSearchRequested, field.window != nil else { return }
+            guard state.contentsSearchRequested, field.window != nil,
+                  !field.isHiddenOrHasHiddenAncestor, !field.visibleRect.isEmpty else { return }
             state.contentsSearchRequested = false
             field.selectText(nil)
         }
@@ -774,6 +779,10 @@ struct AnnotationList: View {
                     Text(L("No results")).foregroundStyle(.secondary).padding()
                 }
             }
+        }
+        .onChange(of: state.document?.id) { _ in
+            query = ""
+            kind = "All"
         }
         .task(id: revision) {
             if let pages = state.nativePDF {

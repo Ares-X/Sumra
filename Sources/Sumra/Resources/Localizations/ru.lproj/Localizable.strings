@@ -790,3 +790,13 @@
 "Type a search term to see matches." = "Введите поисковый запрос, чтобы увидеть совпадения.";
 
 "Choose Custom in Margins to edit individual values." = "Выберите «Настраиваемый» в разделе «Поля», чтобы изменить отдельные значения.";
+"All Reading Windows" = "Все окна чтения";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "Тема применяется ко всем окнам чтения и заменяет пользовательские цвета документов и разделители.";
+"Current Document" = "Текущий документ";
+"Layout and custom colors affect only this document." = "Макет и пользовательские цвета применяются только к этому документу.";
+"Apply to All and Save Defaults" = "Применить ко всем и сохранить по умолчанию";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "Типографика, CSS, поля содержимого и отступы от элементов управления применяются ко всем открытым документам и заменяют сохранённые настройки при повторном открытии документов.";
+"Only this document. Earlier changes to other documents and defaults are kept." = "Только этот документ. Предыдущие изменения других документов и настроек по умолчанию сохраняются.";
+"Turning this off keeps changes already applied." = "При отключении уже применённые изменения сохраняются.";
+"Navigation applies to all reading windows." = "Настройки навигации применяются ко всем окнам чтения.";
+"Incomplete reply" = "Неполный ответ";

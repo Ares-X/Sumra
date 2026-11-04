@@ -708,6 +708,7 @@ final class ReaderAIModel: ObservableObject {
     @Published var error: String?
     @Published private(set) var sessionID: String?
     private(set) var revision = 0
+    private(set) var followRequest = 0
     private var control: ReaderAIProcess?
     private var sessionProvider: ReaderAIProvider?
     private var sessionDirectory: URL?
@@ -715,6 +716,7 @@ final class ReaderAIModel: ObservableObject {
     func begin(question: String, provider: String? = nil) -> Int {
         cancel()
         error = nil
+        followRequest += 1
         messages.append(.init(role: "user", text: question, complete: false))
         messages.append(.init(role: "assistant", text: "", provider: provider, complete: false))
         busy = true
@@ -838,10 +840,82 @@ private struct ReaderAIHistoryPicker: View {
     }
 }
 
+// The native clip view owns scrolling. Content growth must not be mistaken for
+// the reader moving away from the bottom, so only origin changes suspend follow.
+private struct ReaderAIConversationScrollObserver: NSViewRepresentable {
+    let followRequest: Int
+
+    func makeNSView(context: Context) -> ReaderAIConversationScrollView { ReaderAIConversationScrollView() }
+    func updateNSView(_ view: ReaderAIConversationScrollView, context: Context) {
+        if view.followRequest != followRequest {
+            view.followRequest = followRequest
+            view.following = true
+        }
+        // SwiftUI applies the new text's layout after updating representables.
+        DispatchQueue.main.async { [weak view] in view?.followBottom() }
+    }
+    static func dismantleNSView(_ view: ReaderAIConversationScrollView, coordinator: ()) { view.detach() }
+}
+
+private final class ReaderAIConversationScrollView: NSView {
+    var followRequest = 0
+    var following = true
+    private weak var scroll: NSScrollView?
+    private var observers = [NSObjectProtocol]()
+    private var previousOrigin = CGPoint.zero
+    private var scrolling = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        detach()
+        guard window != nil, let scroll = enclosingScrollView, let document = scroll.documentView else { return }
+        self.scroll = scroll
+        previousOrigin = scroll.contentView.bounds.origin
+        scroll.contentView.postsBoundsChangedNotifications = true
+        document.postsFrameChangedNotifications = true
+        observers = [
+            NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in
+                self?.boundsChanged()
+            },
+            NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: .main) { [weak self] _ in
+                self?.followBottom()
+            }
+        ]
+        DispatchQueue.main.async { [weak self] in self?.followBottom() }
+    }
+
+    func detach() {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.removeAll()
+        scroll = nil
+    }
+
+    private func boundsChanged() {
+        guard let scroll, let document = scroll.documentView else { return }
+        let visible = scroll.documentVisibleRect
+        let origin = scroll.contentView.bounds.origin
+        if !scrolling, origin != previousOrigin {
+            let distance = document.isFlipped ? document.bounds.maxY - visible.maxY : visible.minY - document.bounds.minY
+            following = distance <= 1
+        }
+        previousOrigin = origin
+    }
+
+    func followBottom() {
+        guard following, !scrolling, let scroll, let document = scroll.documentView else { return }
+        scrolling = true
+        let y = document.isFlipped ? max(document.bounds.minY, document.bounds.maxY - scroll.documentVisibleRect.height) : document.bounds.minY
+        scroll.contentView.scroll(to: CGPoint(x: scroll.contentView.bounds.minX, y: y))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        previousOrigin = scroll.contentView.bounds.origin
+        scrolling = false
+    }
+}
+
 struct ReaderAISidebar: View {
     @ObservedObject var state: ReaderState
     @AppStorage("language") private var language = "system"
-    @StateObject private var model = ReaderAIModel()
+    @ObservedObject private var model: ReaderAIModel
     @State private var showModelOptions = false
     private var provider: ReaderAIProvider { state.aiProvider }
     @State private var providerModel = ""
@@ -855,6 +929,11 @@ struct ReaderAISidebar: View {
     @State private var loadingModels = false
     @State private var catalogTask: Task<Void, Never>?
     @State private var catalogControl: ReaderAIProcess?
+
+    init(state: ReaderState) {
+        self.state = state
+        self.model = state.aiModel
+    }
 
     private var directory: URL? {
         guard let url = state.document?.url else { return nil }
@@ -870,65 +949,65 @@ struct ReaderAISidebar: View {
                 Button { state.showAI = false } label: { Image(systemName: "xmark") }
                     .buttonStyle(.plain).help(L("Close Sidebar"))
             }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Picker(L("CLI"), selection: $state.aiProvider) {
-                                ForEach(ReaderAIProvider.allCases) { Text($0.rawValue).tag($0) }
-                            }
-                            Button(L("Models")) { showModelOptions.toggle() }
-                                .popover(isPresented: $showModelOptions) {
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        modelOptions
-                                    }
-                                    .padding()
-                                    .frame(width: 300)
-                                }
-                        }.disabled(model.busy || preparing)
-                        HStack {
-                            Button(L("History")) { showHistory = true }.disabled(directory == nil || model.busy || preparing)
-                            Spacer()
-                            Button(L("New Conversation")) { cancel(); model.clear() }.disabled(model.messages.isEmpty && model.sessionID == nil)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Picker(L("CLI"), selection: $state.aiProvider) {
+                            ForEach(ReaderAIProvider.allCases) { Text($0.rawValue).tag($0) }
                         }
-                        Picker(L("Document context"), selection: $entireDocument) {
-                            Text(L("Selection / Current Passage")).tag(false)
-                            Text(L("Entire Document")).tag(true)
-                        }.disabled(model.busy || preparing)
-                        Text(L(entireDocument
-                             ? "Send shares the full document text with your CLI provider. Conversation history is stored by the provider."
-                             : "Send shares the selected text or current page/passage with your CLI provider. Conversation history is stored by the provider."))
-                            .font(.caption).foregroundStyle(.secondary)
-                        LazyVStack(alignment: .leading, spacing: 14) {
-                            ForEach(model.messages) { message in
-                                VStack(alignment: .leading, spacing: 5) {
-                                    HStack {
-                                        Text(message.role == "user" ? L("You") : message.role == "tool" ? L("Tool") : message.provider ?? L("Assistant")).font(.caption.bold())
-                                        Spacer()
-                                        if message.role == "assistant", !message.text.isEmpty {
-                                            Button(L("Copy")) {
-                                                NSPasteboard.general.clearContents()
-                                                NSPasteboard.general.setString(message.text, forType: .string)
-                                            }.font(.caption)
-                                        }
-                                    }
-                                    if message.text.isEmpty, message.role == "assistant", model.busy, message.id == model.messages.last?.id {
-                                        HStack(spacing: 6) {
-                                            ProgressView().controlSize(.small).accessibilityHidden(true)
-                                            Text(String(format: L("Waiting for %@…"), provider.rawValue))
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    } else {
-                                        Text(message.text).textSelection(.enabled)
-                                    }
-                                }.id(message.id)
+                        Button(L("Models")) { showModelOptions.toggle() }
+                            .popover(isPresented: $showModelOptions) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    modelOptions
+                                }
+                                .padding()
+                                .frame(width: 300)
                             }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                        if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+                    }.disabled(model.busy || preparing)
+                    HStack {
+                        Button(L("History")) { showHistory = true }.disabled(directory == nil || model.busy || preparing)
+                        Spacer()
+                        Button(L("New Conversation")) { cancel(); model.clear() }.disabled(model.messages.isEmpty && model.sessionID == nil)
                     }
-                }.onChange(of: model.messages) { messages in
-                    if let id = messages.last?.id { proxy.scrollTo(id, anchor: .bottom) }
+                    Picker(L("Document context"), selection: $entireDocument) {
+                        Text(L("Selection / Current Passage")).tag(false)
+                        Text(L("Entire Document")).tag(true)
+                    }.disabled(model.busy || preparing)
+                    Text(L(entireDocument
+                         ? "Send shares the full document text with your CLI provider. Conversation history is stored by the provider."
+                         : "Send shares the selected text or current page/passage with your CLI provider. Conversation history is stored by the provider."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        ForEach(model.messages) { message in
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack {
+                                    Text(message.role == "user" ? L("You") : message.role == "tool" ? L("Tool") : message.provider ?? L("Assistant")).font(.caption.bold())
+                                    Spacer()
+                                    if message.role == "assistant", !message.text.isEmpty {
+                                        Button(L("Copy")) {
+                                            NSPasteboard.general.clearContents()
+                                            NSPasteboard.general.setString(message.text, forType: .string)
+                                        }.font(.caption)
+                                    }
+                                }
+                                if message.text.isEmpty, message.role == "assistant", model.busy, message.id == model.messages.last?.id {
+                                    HStack(spacing: 6) {
+                                        ProgressView().controlSize(.small).accessibilityHidden(true)
+                                        Text(String(format: L("Waiting for %@…"), provider.rawValue))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } else {
+                                    Text(message.text).textSelection(.enabled)
+                                    if message.role == "assistant", !message.complete, message.id != model.messages.last?.id || !model.busy {
+                                        Text(L("Incomplete reply")).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }.id(message.id)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
                 }
+                .background(ReaderAIConversationScrollObserver(followRequest: model.followRequest))
             }.frame(minHeight: 0, maxHeight: .infinity)
             TextEditor(text: $state.aiQuestion).font(.body).frame(height: 85)
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3)))
@@ -963,9 +1042,9 @@ struct ReaderAISidebar: View {
             }
         }
         .onAppear(perform: loadPreferences)
-        .onChange(of: state.document?.id) { _ in cancel(); model.clear(); showHistory = false; entireDocument = false }
+        .onChange(of: state.document?.id) { _ in cancel(); showHistory = false; entireDocument = false }
         .onChange(of: provider) { _ in cancel(); model.clear(); loadPreferences() }
-        .onDisappear { cancel(); model.clear() }
+        .onDisappear { cancel() }
     }
 
     @ViewBuilder private var modelOptions: some View {

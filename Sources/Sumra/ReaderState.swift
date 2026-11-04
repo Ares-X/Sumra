@@ -283,6 +283,7 @@ final class ReaderState: ObservableObject {
             if document != nil { restoredPayload = nil }
             if document?.id != oldValue?.id {
                 aiQuestion = ""
+                aiModel.clear()
                 browserProgress = nil; browserPage = nil; browserPageCount = nil
                 scrollProgress.update(nil)
                 pdfEditingEnabled = false; nativePDFInfo = nil; nativePDFSelection = nil; nativePDFAnnotationTool = nil
@@ -431,6 +432,7 @@ final class ReaderState: ObservableObject {
     @Published var paletteContentsVisible = false
     @Published var tabColor: UInt32? { didSet { applyTabColor() } }
     @Published var showAI = false
+    let aiModel = ReaderAIModel()
     @Published var aiQuestion = ""
     @Published var aiProvider = ReaderAIProvider.codex
     @Published var recentSidebarIsAI = true
@@ -1308,9 +1310,19 @@ extension ReaderState {
     func showContentsSearch() {
         contentsSearchRequested = true
         showContents = true
-        if let field = contentsSearchField, field.window != nil {
+        let revealing = revealCompactSidebar(ai: false)
+        if !revealing, let field = contentsSearchField, field.window != nil,
+           !field.isHiddenOrHasHiddenAncestor, !field.visibleRect.isEmpty {
             contentsSearchRequested = false
             field.selectText(nil)
+        } else {
+            // SwiftUI keeps a compact pane mounted at zero width. Let the new
+            // layout become visible before handing its search field focus.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.contentsSearchRequested, let field = self.contentsSearchField else { return }
+                field.window?.contentView?.layoutSubtreeIfNeeded()
+                (field.delegate as? ContentsSearchInput.Coordinator)?.updateFocus(field)
+            }
         }
     }
 
@@ -1335,7 +1347,11 @@ extension ReaderState {
         if let target = (browserView as NSView?) ?? readerFocusView { window?.makeFirstResponder(target) }
     }
 
-    func updateFindQuery(_ query: String, refresh: Bool = false) {
+    func updateFindQuery(_ query: String, refresh: Bool = false, composing: Bool = false) {
+        if composing {
+            pendingFind?.cancel(); pendingFind = nil
+            return
+        }
         guard query != findQuery || refresh else { return }
         pendingFind?.cancel(); pendingFind = nil
         let replacesSearch = !findQuery.isEmpty && findQuery != query
@@ -1354,6 +1370,8 @@ extension ReaderState {
             guard !Task.isCancelled, let self, self.document?.id == documentID,
                   self.showFind, self.findQuery == query else { return }
             self.pendingFind = nil
+            // AppKit may mark text before sending a control change notification.
+            guard (self.findInputField?.currentEditor() as? NSTextView)?.hasMarkedText() != true else { return }
             self.findNext()
         }
     }

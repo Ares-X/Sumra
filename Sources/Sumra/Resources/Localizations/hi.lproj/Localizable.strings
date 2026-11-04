@@ -790,3 +790,13 @@
 "Type a search term to see matches." = "मिलते-जुलते परिणाम देखने के लिए खोज शब्द टाइप करें।";
 
 "Choose Custom in Margins to edit individual values." = "अलग-अलग मान संपादित करने के लिए हाशिए में कस्टम चुनें।";
+"All Reading Windows" = "सभी रीडिंग विंडो";
+"Theme changes all reading windows and replaces custom document colors and dividers." = "थीम सभी रीडिंग विंडो बदलती है और दस्तावेज़ के कस्टम रंगों व विभाजकों की जगह लेती है।";
+"Current Document" = "वर्तमान दस्तावेज़";
+"Layout and custom colors affect only this document." = "लेआउट और कस्टम रंग केवल इस दस्तावेज़ पर लागू होते हैं।";
+"Apply to All and Save Defaults" = "सभी पर लागू करें और डिफ़ॉल्ट सहेजें";
+"Typography, CSS, content margins and control clearance apply to all open documents and replace saved settings when documents reopen." = "टाइपोग्राफ़ी, CSS, सामग्री के मार्जिन और कंट्रोल के आसपास की जगह की सेटिंग सभी खुले दस्तावेज़ों पर लागू होती हैं और दस्तावेज़ दोबारा खोलने पर सहेजी गई सेटिंग की जगह लेती हैं।";
+"Only this document. Earlier changes to other documents and defaults are kept." = "केवल यह दस्तावेज़। अन्य दस्तावेज़ों और डिफ़ॉल्ट में पहले किए गए बदलाव बने रहेंगे।";
+"Turning this off keeps changes already applied." = "इसे बंद करने पर पहले से लागू बदलाव बने रहेंगे।";
+"Navigation applies to all reading windows." = "नेविगेशन सभी रीडिंग विंडो पर लागू होता है।";
+"Incomplete reply" = "अधूरा जवाब";
