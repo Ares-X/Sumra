@@ -33,6 +33,71 @@ offscreen rendering are recorded separately from real desktop interactions.
 
 ## Local checks
 
+### Post-release manual follow-up and adaptive floating tabs
+
+The user tested installed 0.2.32 after the Sparkle upgrade. Lower-half floating
+tab clicks switched documents in the requested windowed/fullscreen replay, and
+the subsequent fullscreen/new-tab Mission Control inspection showed no extra
+black desktop. Resizing second-round C showed no visible transient stretch.
+These are human observations for those sequences, not exhaustive frame or Space
+lifecycle coverage.
+
+The same replay exposed a top-right resize cursor that still initiates window
+dragging, excessive fullscreen top clearance, a fixed-width floating tab group,
+and mouse-wheel overflow that cannot reach the other documents. The corner and
+fullscreen-clearance findings remain separate pending work. Screenshots and
+the user's observations are retained in `build/issue118/manual-followup-20261105`
+in the primary checkout.
+
+The adaptive tab design keeps the existing three floating surfaces. The center
+group requests enough room for its document count and readable titles, while its
+actual width is limited by the measured navigation and tool groups. It stays
+centered where possible and shifts only to avoid either neighbor. Narrow windows
+retain the existing merged surface. Tabs share the available width, retain their
+120-point minimum and independent close targets, and overflow horizontally only
+when they cannot fit. Adding/closing tabs and resizing recompute the layout;
+mounting or activating a selected tab brings it into view without undoing manual
+scrolling. The plus button remains outside the scrolling viewport.
+
+The tab viewport owns ordinary vertical-wheel translation while preserving
+native horizontal gestures. It interprets precise versus discrete deltas using
+the [AppKit scrolling delta contract](https://developer.apple.com/documentation/appkit/nsevent/scrollingdeltay).
+The original native tab group remains the document/selection owner.
+
+Previous sizing coverage mounted the inner tab strip on its own, bypassing the
+outer 360-point cap, and asserted only that overflow geometry existed. Follow-up
+coverage mounts the complete floating toolbar and exercises wheel input rather
+than equating a scroll view with reachable documents. Implementation and local
+checks for this follow-up do not constitute a new signed release acceptance.
+
+The first real preview exposed another missing fixture condition: native
+full-size-content windows passed a 48-point titlebar safe area into the nested
+hosting view, moving its labels below the 28-point viewport. The new containment
+case failed before the correction. The tab content host now owns zero safe-area
+insets because its parent has already positioned this window chrome. The input
+fixture also mounts the actual ReaderView and locates its tab viewport by the
+document surface, rather than accidentally sending wheel events to the reader.
+
+Five adaptive-tab cases and three adjacent native-tab cases have passing final
+evidence across focused runs: count/width/side-control layout, membership and zoom
+label changes, vertical/horizontal wheel reachability, selection reveal including
+RTL, full-size native target containment, existing two-tab targets, long-title
+selection and native color markers. This combines seven passes in `tests-accepted`
+with the corrected wheel fixture's pass in `tests-reader-viewport`; it is not a
+claim that the earlier eight-case invocation was entirely green. Baseline runs
+reject the original fixed cap and unreachable vertical-wheel overflow. The main
+debug build and the independent preview's deep strict signature check also pass.
+
+Real CUA input in the corrected preview opened all eight original EPUBs in one
+group. At 900 points the center surface used about 488 points, and vertical wheel
+input reached both ends without changing the document. Clicking the lower half
+of the revealed last tab selected F. Fullscreen and Window > Fill both expanded
+the strip to show all eight tabs between the side controls. Leaving fullscreen
+restored the narrower viewport with F still visible. These observations cover
+the local ad-hoc preview on macOS 27.0.1; signed 0.2.33 acceptance is pending.
+
+### Original 0.2.32 checks
+
 The initial isolated full run recorded 1,575 passes, five failures and 40 skips.
 The five failures were investigated individually: titlebar activation unnecessarily
 reordered an already-key test window; the fullscreen fixture did not span the

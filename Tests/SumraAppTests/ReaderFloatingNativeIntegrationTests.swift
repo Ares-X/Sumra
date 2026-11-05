@@ -1008,7 +1008,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
 
     func testSelectedLongTitleTabScrollsIntoViewOnMountAndReactivation() async throws {
         _ = NSApplication.shared
-        let windows = (0..<6).map { index in
+        let windows = (0..<12).map { index in
             let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 560, height: 150),
                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
@@ -1069,7 +1069,8 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
                 XCTAssertLessThan(last.upperBound, rendered.pixelsWide)
             }
             if islands.count == 3 {
-                XCTAssertLessThanOrEqual(CGFloat(islands[1].count) / scale, 360.5)
+                XCTAssertGreaterThan(CGFloat(islands[1].count) / scale, 360,
+                                     "Crowded tabs use the available space between the side controls")
             }
             let scroll = try XCTUnwrap(scrollView(in: host))
             let document = try XCTUnwrap(scroll.documentView)

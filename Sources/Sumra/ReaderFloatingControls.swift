@@ -32,13 +32,11 @@ import AppKit
                         Spacer(minLength: 0)
                     }
                 } else {
-                    HStack(alignment: compact ? .center : .top, spacing: 0) {
+                    ReaderFloatingLayout(spacing: compact ? 8 : 12) {
                         navigation(compact: compact).fixedSize()
                             .accessibilityElement(children: .contain).accessibilityIdentifier("floating-navigation")
-                        Spacer(minLength: compact ? 8 : 12)
-                        documents(compact: compact).frame(minWidth: 0, maxWidth: 360)
+                        documents(compact: compact)
                             .accessibilityElement(children: .contain).accessibilityIdentifier("floating-documents")
-                        Spacer(minLength: compact ? 8 : 12)
                         tools(compact: compact).fixedSize()
                             .accessibilityElement(children: .contain).accessibilityIdentifier("floating-tools")
                     }
@@ -110,6 +108,34 @@ import AppKit
 
 }
 
+/// Measure the actual side controls before offering the middle group its space.
+/// A short group stays centered; a crowded group can use the asymmetric space
+/// between both sides without overlapping either of them.
+private struct ReaderFloatingLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        return CGSize(width: proposal.width ?? sizes.reduce(2 * spacing) { $0 + $1.width },
+                      height: sizes.map(\.height).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let left = subviews[0].sizeThatFits(.unspecified)
+        let right = subviews[2].sizeThatFits(.unspecified)
+        let start = bounds.minX + left.width + spacing
+        let end = bounds.maxX - right.width - spacing
+        let width = min(subviews[1].sizeThatFits(.unspecified).width, max(0, end - start))
+        let x = max(start, min(bounds.midX - width / 2, end - width))
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+                          proposal: ProposedViewSize(left))
+        subviews[1].place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading,
+                          proposal: ProposedViewSize(width: width, height: bounds.height))
+        subviews[2].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing,
+                          proposal: ProposedViewSize(right))
+    }
+}
+
 /// Home is a separate launch surface, with a fixed header in its layout.
 @MainActor struct ReaderHomeHeader: View {
     var body: some View {
@@ -138,7 +164,9 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
 /// The native document window group is the only tab model.
 @MainActor struct ReaderDocumentTabs: View {
     @ObservedObject var state: ReaderState
+    @Environment(\.layoutDirection) private var layoutDirection
     @State private var tabs: [Tab] = []
+    @State private var selectionRevision = 0
 
     private struct Tab: Equatable, Identifiable {
         let id: Int
@@ -159,10 +187,22 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
                 }
             } else { tabStrip }
         }
+        .frame(idealWidth: preferredWidth)
         .font(.system(size: 12)).buttonStyle(ReaderFloatingButtonStyle())
         .foregroundStyle(Color(nsColor: ReaderTheme.color(state.palette.text)))
         .onAppear(perform: updateTabs)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didUpdateNotification)) { _ in updateTabs() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if notification.object as? NSWindow === state.window { selectionRevision += 1 }
+        }
+    }
+
+    private var preferredWidth: CGFloat {
+        let titles = tabs.isEmpty ? [state.document?.url.lastPathComponent ?? "Sumra"] : tabs.map(\.title)
+        let labelWidth = titles.map { ($0 as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width }.max() ?? 0
+        // Keep long filenames readable without letting one title occupy the bar.
+        let tabWidth = min(220, max(120, ceil(labelWidth) + 55))
+        return CGFloat(titles.count) * tabWidth + CGFloat(titles.count - 1) * 4 + 28
     }
 
     private var documentTitle: some View {
@@ -174,53 +214,46 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
     private var tabStrip: some View {
         HStack(spacing: 4) {
             GeometryReader { geometry in
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
-                            ForEach(tabs) { tab in
-                                ZStack(alignment: .trailing) {
-                                    Button { selectTab(tab.id) } label: {
-                                        HStack(spacing: 6) {
-                                            if let color = tab.color {
-                                                Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
-                                            }
-                                            Text(tab.title).lineLimit(1).truncationMode(.middle)
-                                                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                let tabWidth = max(120, (geometry.size.width - CGFloat(tabs.count - 1) * 4) / CGFloat(tabs.count))
+                let selectedIndex = tabs.firstIndex { $0.id == state.window?.windowNumber } ?? 0
+                let visualIndex = layoutDirection == .rightToLeft ? tabs.count - 1 - selectedIndex : selectedIndex
+                ReaderTabScrollView(contentWidth: CGFloat(tabs.count) * (tabWidth + 4) - 4,
+                                    selectedRange: CGRect(x: CGFloat(visualIndex) * (tabWidth + 4), y: 0, width: tabWidth, height: 28),
+                                    selectionRevision: selectionRevision) {
+                    HStack(spacing: 4) {
+                        ForEach(tabs) { tab in
+                            ZStack(alignment: .trailing) {
+                                Button { selectTab(tab.id) } label: {
+                                    HStack(spacing: 6) {
+                                        if let color = tab.color {
+                                            Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
                                         }
-                                        .padding(.leading, 8)
-                                        .padding(.trailing, 34) // Leave space for the separate close target.
-                                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                                        .contentShape(Rectangle())
+                                        Text(tab.title).lineLimit(1).truncationMode(.middle)
+                                            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .help(tab.title).accessibilityLabel(tab.title)
-                                    .accessibilityValue(tab.id == state.window?.windowNumber ? L("Selected") : "")
-                                    closeButton(window(tab.id), title: tab.title)
-                                        .padding(.trailing, 8)
+                                    .padding(.leading, 8)
+                                    .padding(.trailing, 34) // Leave space for the separate close target.
+                                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                                    .contentShape(Rectangle())
                                 }
-                                .frame(width: max(120, (geometry.size.width - CGFloat(tabs.count - 1) * 4) / CGFloat(tabs.count)), height: 28)
-                                .background(Color(nsColor: ReaderTheme.color(state.palette.text))
-                                    .opacity(tab.id == state.window?.windowNumber ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 5))
-                                .id(tab.id)
-                                .contextMenu {
-                                    Button(L("Close Tab")) { if let tabWindow = window(tab.id) { ReaderWindows.close(tabWindow) } }
-                                    Button(L("Move Tab to New Window")) { window(tab.id)?.moveTabToNewWindow(nil) }
-                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .help(tab.title).accessibilityLabel(tab.title)
+                                .accessibilityValue(tab.id == state.window?.windowNumber ? L("Selected") : "")
+                                closeButton(window(tab.id), title: tab.title)
+                                    .padding(.trailing, 8)
+                            }
+                            .frame(width: tabWidth, height: 28)
+                            .background(Color(nsColor: ReaderTheme.color(state.palette.text))
+                                .opacity(tab.id == state.window?.windowNumber ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 5))
+                            .id(tab.id)
+                            .contextMenu {
+                                Button(L("Close Tab")) { if let tabWindow = window(tab.id) { ReaderWindows.close(tabWindow) } }
+                                Button(L("Move Tab to New Window")) { window(tab.id)?.moveTabToNewWindow(nil) }
                             }
                         }
                     }
-                    .onAppear { proxy.scrollTo(state.window?.windowNumber, anchor: .center) }
-                    .onChange(of: tabs) { _ in proxy.scrollTo(state.window?.windowNumber, anchor: .center) }
-                    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-                        if notification.object as? NSWindow === state.window {
-                            proxy.scrollTo(state.window?.windowNumber, anchor: .center)
-                        }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
-                        if notification.object as? NSWindow === state.window {
-                            proxy.scrollTo(state.window?.windowNumber, anchor: .center)
-                        }
-                    }
+                    .font(.system(size: 12)).buttonStyle(ReaderFloatingButtonStyle())
+                    .foregroundStyle(Color(nsColor: ReaderTheme.color(state.palette.text)))
                 }
             }.frame(height: 28)
             command(.newTab, "plus")
