@@ -185,6 +185,44 @@ struct ReaderToolbarAppearance: ViewModifier {
         private var cursorToolbarShown = false
         private weak var cursorToolbarView: NSView?
         private var toolbarCursorTracking: NSTrackingArea?
+        private var nativeDragView: NativeDragView?
+
+        // The visible SwiftUI titlebar can leave blank native views that do not
+        // start a move themselves. Receive those hits in the titlebar, after
+        // NSWindow has had its opportunity to begin native edge resizing.
+        final class NativeDragView: NSView {
+            weak var owner: Host?
+            private var findingUnderlyingHit = false
+            override var mouseDownCanMoveWindow: Bool { true }
+            override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+            override func hitTest(_ point: NSPoint) -> NSView? {
+                guard !findingUnderlyingHit, let owner,
+                      bounds.contains(convert(point, from: superview)) else { return nil }
+                if let event = NSApp.currentEvent, event.type == .leftMouseDown,
+                   event.clickCount != 1 || event.modifierFlags.contains(.command) { return nil }
+                findingUnderlyingHit = true
+                defer { findingUnderlyingHit = false }
+                return owner.isTitlebarDragPoint(convert(convert(point, from: superview), to: nil)) ? self : nil
+            }
+            override func mouseDown(with event: NSEvent) { owner?.mouseDown(with: event) }
+        }
+
+        private func updateNativeDragView() {
+            guard let parent, let state, !state.usesCustomChrome, state.toolbarShown,
+                  !parent.styleMask.contains(.fullScreen),
+                  let titlebar = originalButtonAppearance[.closeButton]?.button.superview else {
+                nativeDragView?.removeFromSuperview(); nativeDragView = nil
+                return
+            }
+            let view = nativeDragView ?? NativeDragView()
+            view.owner = self
+            if view.superview !== titlebar || titlebar.subviews.last !== view {
+                view.frame = titlebar.bounds
+                view.autoresizingMask = [.width, .height]
+                titlebar.addSubview(view, positioned: .above, relativeTo: nil)
+            }
+            nativeDragView = view
+        }
         override func layout() {
             super.layout()
             updateDragCursor()
@@ -352,7 +390,10 @@ struct ReaderToolbarAppearance: ViewModifier {
             }
             // Fullscreen native tabs share their companion chrome. Only the
             // selected document may write that surface's current appearance.
-            if let selected = parent.tabGroup?.selectedWindow, selected !== parent { return }
+            if let selected = parent.tabGroup?.selectedWindow, selected !== parent {
+                nativeDragView?.removeFromSuperview(); nativeDragView = nil
+                return
+            }
             if !state.toolbarHoverVisible {
                 hoverDismiss?.cancel(); hoverDismiss = nil
             }
@@ -428,6 +469,7 @@ struct ReaderToolbarAppearance: ViewModifier {
             updateToolbarWindow(opacity: revealWindowButtons ? 1 : readerOpacity)
             updateTitlebarViews(opacity: readerOpacity, hidden: readerHidden,
                                 opacityOwner: revealWindowButtons ? nil : toolbarContent)
+            updateNativeDragView()
             updateDragCursor()
             if parent.frame != frame { parent.setFrame(frame, display: false) }
             if !state.usesCustomChrome, let content = parent.contentView {
@@ -721,6 +763,7 @@ struct ReaderToolbarAppearance: ViewModifier {
         }
 
         func detach() {
+            nativeDragView?.removeFromSuperview(); nativeDragView = nil
             let originalFrame = parent?.frame
             // Dismantling runs inside SwiftUI's view update. Cancel work here;
             // focus/window notifications own observable visibility changes.

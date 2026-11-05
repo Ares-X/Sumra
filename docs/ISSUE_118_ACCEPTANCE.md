@@ -183,7 +183,33 @@ did not produce a verified frame change because of inconsistent dual-display
 input targeting, so physical resize acceptance remains pending.
 
 Evidence is under `build/issue118/window-chrome-20261105` in the primary checkout.
-The exact signed 0.2.34 desktop replay and installed update are pending.
+The first signed 0.2.34 candidate from `ab54a3af95baa17fa64ba7dbec2e4fb17d92d0b6`
+passed file, original-certificate, frozen-source and update-signature verification,
+but failed human desktop acceptance: the blank native titlebar area between the
+filename and first toolbar control could no longer drag the window. Its rejected
+manifest is `ffde82f41b7a90d41e89654654cf78cd4cc360cae39c8dcebb166c79d0c325ed`;
+these bytes must not be published.
+
+The dispatch test stopped at a spy NSWindow and never exercised the visible
+native hit's mouseDown. The correction mounts a drag receiver in the actual
+native titlebar. It yields controls, accessories, Command clicks and double-clicks
+to their existing owners and starts a move only after AppKit dispatches to it.
+The monitor still preserves edge events. The receiver is removed when its
+chrome, selected tab or host no longer owns that titlebar.
+
+The new regression measures the filename-to-first-control gap, obtains its
+actual root hit and verifies that hit starts a drag with the original event.
+The rejected source fails at the absent receiver before entering Window Server
+tracking. Native gesture checks dequeue their events before hit testing rather
+than assuming direct sendEvent sets currentEvent. Eight affected final cases pass across the corrected native drag case and the
+adjacent input, late-control, reading-overlay and fullscreen cases. The event
+queue may return a new NSEvent instance: the test verifies its fields and uses
+that dequeued event as the identity boundary. Its first stricter identity
+assumption failed and was corrected; the subsequent focused rerun passes.
+The local GUI preview uses the new source and the signed app's SDK 15.5 runtime
+policy stamp, but remains an ad-hoc build from the local compiler. Corrected
+preview and signed-package desktop acceptance and the installed update remain
+pending.
 
 ### Original 0.2.32 checks
 

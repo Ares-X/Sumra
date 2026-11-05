@@ -281,12 +281,12 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
         }
     }
 
-    func testNativeToolbarBlankFilenameAndControlsKeepNativeMouseDownAndCursor() async throws {
+    func testNativeToolbarBlankAndFilenameDragAfterHitTestingWhileControlsKeepNativeInput() async throws {
         _ = NSApplication.shared
         let previousCursor = NSCursor.current
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/native-input.txt"), content: .text("Selectable body"))
-        state.immersiveControls = false
+        state.immersiveControls = false; state.toolbarDisplayMode = .hidden
         let window = DragWindow(contentRect: NSRect(x: 2200, y: 100, width: 1100, height: 600),
                                 styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -312,9 +312,11 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
         try await Task.sleep(nanoseconds: 100_000_000)
         let close = try XCTUnwrap(window.standardWindowButton(.closeButton))
         let titlebar = try XCTUnwrap(close.superview)
+        let root = try XCTUnwrap(content.superview)
         let filename = NSTextField(labelWithString: "Reading.txt")
         filename.frame = NSRect(x: 350, y: 5, width: 180, height: 22)
         titlebar.addSubview(filename)
+        let nativeTitlebarViews = titlebar.subviews
 
         func event(_ type: NSEvent.EventType, at point: NSPoint,
                    flags: NSEvent.ModifierFlags = [], clickCount: Int = 1) throws -> NSEvent {
@@ -325,11 +327,30 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
         func center(_ view: NSView) -> NSPoint {
             view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
         }
+        func currentMouseDown(_ event: NSEvent) throws -> NSEvent {
+            NSApp.postEvent(event, atStart: true)
+            let fetched = try XCTUnwrap(NSApp.nextEvent(matching: .leftMouseDown, until: .distantPast,
+                                                        inMode: .default, dequeue: true))
+            XCTAssertEqual(fetched.windowNumber, event.windowNumber)
+            XCTAssertEqual(fetched.locationInWindow, event.locationInWindow)
+            XCTAssertEqual(fetched.modifierFlags, event.modifierFlags)
+            XCTAssertEqual(fetched.clickCount, event.clickCount)
+            XCTAssertTrue(NSApp.currentEvent === fetched, "Hit testing must observe the actual dequeued event")
+            return fetched
+        }
+        func dragReceiver(at point: NSPoint) throws -> NSView {
+            let hit = root.hitTest(root.convert(point, from: nil))
+            return try XCTUnwrap(hit.flatMap { view in
+                view === titlebar.subviews.last && !nativeTitlebarViews.contains { $0 === view } ? view : nil
+            }, "The visible blank gap must hit its mounted drag receiver before mouseDown is dispatched")
+        }
+        var revealedDragView: NSView?
+        var blankPoint = NSPoint.zero
         for mode in [ReaderToolbarDisplayMode.shown, .auto] {
             state.toolbarDisplayMode = mode
             state.toolbarHoverVisible = true; state.toolbarHoverOpacity = 1
             observer.updateChrome()
-            window.contentView?.superview?.layoutSubtreeIfNeeded()
+            root.layoutSubtreeIfNeeded()
             XCTAssertGreaterThan(titlebar.bounds.height, 0)
             XCTAssertGreaterThan(filename.bounds.height, 0)
             XCTAssertFalse(filename.isEditable)
@@ -340,10 +361,19 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
                 XCTAssertFalse(control.isHiddenOrHasHiddenAncestor)
             }
             XCTAssertTrue(items.page.isEditable)
-            let blank = titlebar.convert(NSPoint(x: 220, y: titlebar.bounds.midY), to: nil)
+            let filenameFrame = filename.convert(filename.bounds, to: nil)
+            let firstItemFrame = items.button.convert(items.button.bounds, to: nil)
+            XCTAssertLessThan(filenameFrame.maxX, firstItemFrame.minX,
+                              "The fixture must contain the reported blank gap between the filename and first toolbar control")
+            let blank = NSPoint(x: (filenameFrame.maxX + firstItemFrame.minX) / 2,
+                                y: firstItemFrame.midY)
+            blankPoint = blank
+            XCTAssertTrue(titlebar.convert(titlebar.bounds, to: nil).contains(blank))
             let body = NSPoint(x: 220, y: 200)
             let draggable = [blank, center(filename)]
             let excluded = [body, center(close), center(items.button), center(items.page)]
+            let nativeDragView = try dragReceiver(at: blank)
+            revealedDragView = nativeDragView
             for point in draggable {
                 for control in [close, items.button, items.page] as [NSView] {
                     XCTAssertFalse(control.convert(control.bounds, to: nil).contains(point), "The blank/title fixture must be outside toolbar controls")
@@ -351,27 +381,71 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
                 NSCursor.iBeam.set()
                 observer.handleMouseMoved(try event(.mouseMoved, at: point))
                 XCTAssertEqual(NSCursor.current, NSCursor.arrow, "Native toolbar blank/title must clear the text cursor in \(mode)")
+                let hit = try XCTUnwrap(root.hitTest(root.convert(point, from: nil)))
+                guard hit === nativeDragView else {
+                    XCTFail("The actual native blank/title hit must reach the drag receiver in \(mode), hit=\(type(of: hit))")
+                    return
+                }
                 let down = try event(.leftMouseDown, at: point)
+                let dragCount = window.dragEvents.count
                 NSApp.sendEvent(down)
-                XCTAssertTrue(window.dispatchedEvents.last === down, "The native titlebar must own its original mouseDown")
-                XCTAssertTrue(window.dragEvents.isEmpty)
+                XCTAssertTrue(window.dispatchedEvents.last === down, "AppKit must first receive the original event for native edge dispatch")
+                XCTAssertEqual(window.dragEvents.count, dragCount, "The monitor must leave window dragging to the dispatched view")
+                // Invoke the actual hit owner after the native dispatch boundary.
+                // The window spy prevents Window Server drag tracking.
+                hit.mouseDown(with: down)
+                XCTAssertEqual(window.dragEvents.count, dragCount + 1)
+                XCTAssertTrue(window.dragEvents.last === down, "The visible blank/title hit must drag using its original mouseDown")
             }
             for point in excluded {
+                let hit = try XCTUnwrap(root.hitTest(root.convert(point, from: nil)))
+                XCTAssertFalse(hit === nativeDragView,
+                               "Reading content and real controls must remain their actual hit owners")
                 let down = try event(.leftMouseDown, at: point)
+                let dragCount = window.dragEvents.count
                 NSApp.sendEvent(down)
                 XCTAssertTrue(window.dispatchedEvents.last === down, "Reading content and real controls keep their own mouseDown")
-                XCTAssertTrue(window.dragEvents.isEmpty)
+                XCTAssertEqual(window.dragEvents.count, dragCount)
             }
-            for nativeClick in [try event(.leftMouseDown, at: center(filename), flags: .command),
+            for requestedClick in [try event(.leftMouseDown, at: center(filename), flags: .command),
                                 try event(.leftMouseDown, at: center(filename), clickCount: 2)] {
+                let dragCount = window.dragEvents.count
+                let nativeClick = try currentMouseDown(requestedClick)
+                let nativeHit = try XCTUnwrap(root.hitTest(root.convert(nativeClick.locationInWindow, from: nil)))
+                XCTAssertFalse(nativeHit === nativeDragView, "Command clicks and double-clicks must hit the original native title owner")
                 NSApp.sendEvent(nativeClick)
                 XCTAssertTrue(window.dispatchedEvents.last === nativeClick, "Native title path menus and double-click actions retain their original event")
-                XCTAssertTrue(window.dragEvents.isEmpty)
+                XCTAssertEqual(window.dragEvents.count, dragCount)
             }
+            _ = try currentMouseDown(event(.leftMouseDown, at: blank))
             NSCursor.iBeam.set()
             observer.handleMouseMoved(try event(.mouseMoved, at: body))
             XCTAssertEqual(NSCursor.current, NSCursor.iBeam, "The document retains its text cursor")
         }
+        let previousDragView = try XCTUnwrap(revealedDragView)
+        state.toolbarDisplayMode = .auto
+        observer.pointerMoved(to: NSPoint(x: 220, y: 200)); observer.updateChrome()
+        root.layoutSubtreeIfNeeded()
+        XCTAssertFalse(state.toolbarHoverVisible)
+        XCTAssertNil(previousDragView.superview, "Auto must remove the native drag receiver when the toolbar hides")
+        state.toolbarDisplayMode = .hidden
+        observer.updateChrome()
+        XCTAssertNil(previousDragView.superview, "Always Hide must leave native titlebar input to the reading-band receiver")
+        state.toolbarDisplayMode = .shown
+        observer.updateChrome(); root.layoutSubtreeIfNeeded()
+        let remountedDragView = try dragReceiver(at: blankPoint)
+        XCTAssertFalse(remountedDragView === previousDragView)
+        observer.removeFromSuperview()
+        XCTAssertNil(remountedDragView.superview, "Detaching the host must retire its native drag receiver")
+        content.addSubview(observer)
+        observer.updateChrome(); root.layoutSubtreeIfNeeded()
+        let reattachedDragView = try dragReceiver(at: blankPoint)
+        XCTAssertFalse(reattachedDragView === remountedDragView)
+        let remountedDown = try event(.leftMouseDown, at: blankPoint)
+        let dragCount = window.dragEvents.count
+        reattachedDragView.mouseDown(with: remountedDown)
+        XCTAssertEqual(window.dragEvents.count, dragCount + 1)
+        XCTAssertTrue(window.dragEvents.last === remountedDown, "The remounted receiver must still drag using the original mouseDown")
     }
 }
 #endif
