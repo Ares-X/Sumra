@@ -4,8 +4,9 @@ Report: [v0.2.31 issues](https://github.com/Ares-X/Sumra/issues/118).
 Baseline app: 0.2.31 (33), source `a8a07ec640d9307f70dc30fd89183bef7df1154f`.
 Desktop environment: arm64 Mac, macOS 27.0.1. This does not establish runtime
 acceptance on the macOS 13 deployment target or the reporter's display setup.
-The corrected signed 0.2.32 candidate is accepted within the boundaries below and
-published. The installed 0.2.31 → 0.2.32 Sparkle upgrade passed.
+The corrected signed 0.2.32 candidate and adaptive floating-tab follow-up 0.2.33
+are accepted within the boundaries below and published. The installed
+0.2.31 → 0.2.32 and 0.2.32 → 0.2.33 Sparkle upgrades passed.
 
 The earlier acceptance missed particular action sequences and made broader claims
 than its observations supported. The regressions below exercise the actual owner
@@ -67,8 +68,8 @@ The original native tab group remains the document/selection owner.
 Previous sizing coverage mounted the inner tab strip on its own, bypassing the
 outer 360-point cap, and asserted only that overflow geometry existed. Follow-up
 coverage mounts the complete floating toolbar and exercises wheel input rather
-than equating a scroll view with reachable documents. Implementation and local
-checks for this follow-up do not constitute a new signed release acceptance.
+than equating a scroll view with reachable documents. These local checks remain
+separate from the signed release acceptance recorded below.
 
 The first real preview exposed another missing fixture condition: native
 full-size-content windows passed a 48-point titlebar safe area into the nested
@@ -94,7 +95,53 @@ input reached both ends without changing the document. Clicking the lower half
 of the revealed last tab selected F. Fullscreen and Window > Fill both expanded
 the strip to show all eight tabs between the side controls. Leaving fullscreen
 restored the narrower viewport with F still visible. These observations cover
-the local ad-hoc preview on macOS 27.0.1; signed 0.2.33 acceptance is pending.
+the local ad-hoc preview on macOS 27.0.1.
+
+### Signed 0.2.33 and installed update
+
+Adaptive floating tabs [PR #124](https://github.com/Ares-X/Sumra/pull/124) merged as
+`14e13be4756bd624ec80deda12bfd85d2f310f54`. The
+[candidate workflow](https://github.com/Ares-X/Sumra/actions/runs/41973045480)
+built that revision. The 0.2.33 (35) package passed all asset checksums, frozen
+source/build correspondence, the original signing certificate, deep strict code
+signature, all 140 app-file hashes and public-key-only Sparkle verification.
+It is arm64, minimum macOS 13, compiled with Swift 6.1.2 and SDK 15.5.
+The accepted manifest digest is
+`6c2b1d3e625aef49e3425f462df03da5a264e6edc8af8e04649383ac4d42c9cc`.
+
+Real CUA input in that exact signed app repeated the original-book tab sequence.
+The centered surface grew from one to two to eight documents, and all eight fit
+between the side groups in a wide window. Native Window > Move & Resize > Left
+narrowed the window while retaining the selected last tab. Vertical wheel input
+reached both ends without changing documents; physical lower-half clicks selected
+the revealed A and D tabs. Actual native fullscreen expanded all eight tabs.
+Closing six selected tabs shrank the surface back to two; exiting fullscreen
+restored the half-width window with F selected. Labels and close targets remained
+vertically contained.
+
+Finder Quick Look using the exact signed preview extension advanced original I
+from chapter 1 to 2 and the numbered comic from page 1 to 2. Finder icon view
+rendered both thumbnails using the exact signed thumbnail extension. Runtime
+paths were verified for the app and both extensions. The temporary Finder window,
+Quick Look and candidate app were closed; candidate registrations were removed
+and installed extension registrations restored. All eight original hashes were
+unchanged. Detailed receipts are under
+`build/issue118/manual-followup-20261105/release` in the primary checkout.
+
+The [publication workflow](https://github.com/Ares-X/Sumra/actions/runs/41974781161)
+published [0.2.33](https://github.com/Ares-X/Sumra/releases/tag/v0.2.33) without
+rebuilding: all six asset IDs, sizes and digests match the accepted draft.
+Anonymous downloads of the public app ZIP and default-branch appcast match the
+accepted files. The installed 0.2.32 app then completed Help > Check for Updates >
+Install Update > Install and Relaunch. About shows 0.2.33 (35), the running process
+is `/Applications/Sumra.app/Contents/MacOS/Sumra`, all 140 installed file hashes
+match the accepted provenance, and its deep strict signature passes.
+
+The corner resize/drag mismatch and reported fullscreen top clearance remain
+pending. Hardware trackpad momentum, physical macOS 13 and exhaustive Space
+transitions were not exercised. Disposable preview/candidate app copies, Finder
+fixture copies and duplicate release archives were retired after checking for
+active consumers; recipes, logs, manifests and verification receipts are retained.
 
 ### Original 0.2.32 checks
 
