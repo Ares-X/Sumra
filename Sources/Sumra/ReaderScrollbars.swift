@@ -19,7 +19,12 @@ enum ReaderScrollbars {
 
     static func clearControls(in scroll: NSScrollView, above top: CGFloat, below bottom: CGFloat) {
         let insets = NSEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
-        if !NSEdgeInsetsEqual(scroll.scrollerInsets, insets) { scroll.scrollerInsets = insets }
+        if !NSEdgeInsetsEqual(scroll.scrollerInsets, insets) {
+            scroll.scrollerInsets = insets
+            // AppKit defers track layout after an inset change. Apply it now,
+            // before hover controls or a native tab bar can cover the old track.
+            scroll.tile()
+        }
     }
 
     /// The system owns scrolling, dragging and overlay timing. These settings
@@ -92,8 +97,10 @@ enum ReaderScrollbars {
             observeScrollFrame(window == nil ? nil : scroll)
             guard let scroll, scroll.window === window, window != nil else { return }
             let frame = convert(scroll.bounds, from: scroll)
+            // With no overlay, SwiftUI's native content inset already clears
+            // the titlebar and tabs even when the scroll view extends above us.
             ReaderScrollbars.clearControls(in: scroll,
-                above: max(0, bounds.minY + top - frame.minY),
+                above: top > 0 ? max(0, bounds.minY + top - frame.minY) : 0,
                 below: max(0, frame.maxY - (bounds.maxY - bottom)))
         }
     }

@@ -14,6 +14,55 @@ than its observations supported. The regressions below exercise the actual owner
 of each demonstrated failure. Simulated AppKit state, direct button actions and
 offscreen rendering are recorded separately from real desktop interactions.
 
+## Complete report review (2026-11-05, in progress)
+
+The 15 items below were re-read against the original text and all attached
+videos/screenshots. Previous passing observations remain valid for their stated
+sequence; they do not establish that the entire issue is fixed. In particular,
+T4 now reproduces in installed 0.2.34. No 0.2.35 release is accepted yet.
+
+| Item | Original sequence that must be preserved | Current conclusion / next check |
+| --- | --- | --- |
+| W1 | Home hover in/out → green enters fullscreen → pointer leaves without clicking → reveal → green exits → pointer leaves | Glyph tracking has prior coverage. Home button bodies remain visible in installed 0.2.34 fullscreen; follow-up fix and native tests are pending acceptance. |
+| W2 | Floating single document → hover green until system move/resize menu appears → leave/re-enter → green fullscreen → pointer-only leave | Prior page clicks do not substitute for the pointer-only tracking path. Replay after the Home/native-window changes. |
+| T1 | Two original EPUB tabs → click the unselected tab's top/middle/bottom → actual fullscreen → repeat after horizontal scrolling | Multiple prior physical passes, plus the later nested safe-area fix. The attempted offscreen SwiftUI click fixture did not dispatch selection even with the native window route and was retired; it is not product failure evidence or a passing input test. Replay real fullscreen targets. Original failure is not fully explained. |
+| T2 | Four mixed-format floating tabs → select left/middle/right (scrolling if needed) → red closes the whole group; tab x closes one | Native owner regression and one physical right-tab close pass. Retest the mixed group in the final package. |
+| T3 | Four normal tabs, third selected → close third → keep pointer in bar and select surviving left/middle/right → only then leave bar | Previous three-to-two observation is narrower. Compare rendered separators at each step. No established root cause yet. |
+| T4 | Normal fullscreen → one Open operation selects six mixed formats → inspect Spaces → exit fullscreen → activate every new tab; separately floating duplicate | **REPRODUCED in installed 0.2.34:** MOBI/FB2/AZW3/CBZ lack native close/minimize controls after exit; EPUB/CBR/original A retain them. The single-new/duplicate checks missed this batch lifecycle. Space count remains unobserved by CUA. |
+| C1 | Floating fullscreen on each current display, including menu-excluded window frame | Signed 0.2.34 and human follow-up establish the corrected 16pt window inset. Reuse this evidence unless touched. |
+| C2 | Another app active → first click normal reader top → switch to another Sumra window by its top; Show/Auto/Hide | Prior Calculator→Auto pass covers only one mode/window transition. Complete the sequence with both windows. |
+| C3 | Normal Always Hide window → top-left reveal → fullscreen → New Tab/open file → reveal again; only window controls, no tab shadow | Earlier signed/human passes cover several parts. Complete the new-file fullscreen chain and keep native reader separate from Home's custom header. |
+| C4 | CBZ/CBR, normal progress Auto, normal toolbar Auto then Hide → reveal footer | Generated owner regression and actual comic footer pass exist. Preserve the reserved row and page position while checking adjacent scrollbar behavior. |
+| L1 | Original second-round C, two pages/cover off → resize larger and through extreme shapes | Pixel regression and user's installed-version resize pass are valid. They do not establish continuous first-frame timing; no need to erase that bounded acceptance. |
+| L2 | First file open, paged Actual/zoom, Auto toolbar/progress, no resize → reveal both controls and drag both axes → fullscreen → Always Show without/with tabs | First-open paged/Actual, 200% overflow and both real scrollbar endpoints pass in windowed/fullscreen preview using the captioned C substitute. Always Show and native-tab changes reproduce excess clearance. A new immediate-track regression fails on old code; native geometry logs also show SwiftUI's existing content inset being counted twice. Combined correction is undergoing acceptance. The reporter's rare half-obscured case remains an unconfirmed lead. |
+| L3 | A three pictured shapes; captioned original C four pictured shapes; I minimum-width/max-height Actual; second-round C narrow/tall Actual, all cover off/two pages | Reuse A and second-round C observations. The captioned C is a different book, not second-round C or F. Verify its historical original candidate and I's actual minimum width. |
+| P1 | Palette Home/Open/Browse Files and thumbnail Page2/Page3 single clicks; separate real double-click/Return execution | Native owner raster timing and prior desktop execution pass. CUA action+capture duration is not click-to-first-highlight latency. |
+| P2 | Focus search → click action row → immediately Up/Down → Return, also after scrolling | Stable responder regression and baseline/candidate desktop comparison pass. Include final selected-command execution in the combined palette replay. |
+
+Follow-ups from this chat are part of the same acceptance scope: adaptive floating
+tab width and wheel reachability (0.2.33), corner resize versus drag, native blank
+titlebar dragging and floating fullscreen gap (0.2.34), and Home fullscreen
+control visibility (pending). They must not be confused with the similarly named
+native Always Hide reader controls in C3.
+
+The remaining work is grouped into coherent journeys rather than separate
+releases: Home/floating hover; normal fullscreen batch-open and tab closing;
+external activation and Always Hide; first-open paged scrollbars/comic footer;
+exact EPUB examples; palette/thumbnail selection and execution. Fix demonstrated
+failures at their owners, run affected regressions, then replay the changed
+journeys in one final signed package before promotion. Missing physical hover,
+continuous frames or Mission Control observations stay explicitly unverified.
+
+Original-media review and current installed reproduction receipts are retained
+under `build/issue118/full-review-20261105` in the primary checkout. The six-format
+replay uses the existing reporter format sampler. Its MOBI is named
+`sample_illustrated.mobi`; the original video shows `sample_illustrated2.mobi`,
+so byte identity of that one file is not established. The captioned C candidate
+is the earlier reporter `misalignedepubC.epub` (SHA-256
+`08401f026d2ee35a89d982abd30a44699c6fea9ef106dd7ecc9817c483bcea9d`),
+whose vertical image and `IMAGE SUBTITLE` match the pictured structure; exact
+identity with the issue's `repeat-misalignedepubC.epub` is not established.
+
 ## Behavior and evidence
 
 | Report | Change and regression evidence | Real desktop evidence / remaining work |
@@ -258,6 +307,76 @@ active consumers. The rejected private 0.2.34 draft is removed; one exact reject
 ZIP, source hashes and failure evidence remain locally until reporter confirmation.
 The installed 0.2.34 app remains open for the user. Physical macOS 13, hardware
 trackpad momentum and exhaustive Spaces transitions were not exercised.
+
+### Home fullscreen follow-up after 0.2.34
+
+The user reported the welcome window's traffic lights remaining visible in
+fullscreen. This is a custom Home header, not the reader's progress/status bar.
+The installed 0.2.34 reproduces it: after native fullscreen entry, clicking the
+central search field leaves the red and green controls visibly painted while
+minimize is disabled. This sequence was not included in the earlier signed
+reader acceptance. The Home regression only mounted its header at two windowed
+widths, without the window chrome observer or a fullscreen transition.
+
+Home's header was unconditional and the existing pointer owner explicitly
+required a document. The correction lets fullscreen Home use that same pointer
+owner independently of reading-toolbar preferences. Its header observes native
+fullscreen state, hiding paint, hit targets and accessibility together while
+retaining its layout space. Windowed Home keeps its controls visible.
+
+This follow-up requires its own regression, signed-package and installed-update
+evidence. It does not establish that every sequence in the original report is
+resolved.
+
+### Combined fullscreen and scrollbar correction
+
+Replaying normal fullscreen followed by one six-format Open operation reproduced
+the missing native controls in installed 0.2.34. The chrome owner captured zero
+button opacity while those new windows were fullscreen, then restored that stale
+value after AppKit returned them to windowed mode. Native button opacity now
+remains with AppKit throughout attachment, updates and teardown. The new owner
+regression fails against the old implementation. In the preview, all seven tabs
+retain close, minimize and fullscreen accessibility controls after exit; some
+shared-window captures omit the separate native titlebar, so this alone is not
+complete painted-control acceptance.
+
+The first-open paged replay also found both parts of the reported scrollbar gap.
+Changing `scrollerInsets` deferred actual track layout until another native layout
+event. The old tests themselves called `tile()` before checking the track. The
+owner now tiles when its inset changes, and the test observes actual tracks
+immediately across nonzero, changed and zero clearance in both scroller styles.
+
+In Always Show, SwiftUI's scroll view can still extend under the native titlebar
+while its `contentInsets` already reserve that area. Real geometry logging showed
+a 38pt overlap, 45.5pt content inset (native area plus content padding), and a
+second 38pt scroller inset. With a tab bar, the overlap grew to 66pt. A request
+for zero overlay clearance now leaves that existing native reserve alone; Auto
+Hide retains the explicit overlay clearance. A separate native geometry test
+reproduces the duplicate reserve and checks the actual track without moving the
+viewport or changing the system-owned content inset. Both new scrollbar cases
+fail before their respective corrections.
+
+The linked-SDK 15.5 diagnostic run uses the local compiler and a changed test-host
+SDK policy stamp, not the release compiler. Its existing Always Hide offscreen
+hit-test case fails identically against both the shipped and candidate owners;
+the three native controls paint and the overlay yields, but the root hit target
+differs in that isolated host. This is retained as a diagnostic limitation rather
+than deleting the assertion or treating the invocation as green. Actual signed
+Always Hide acceptance remains necessary.
+
+The final source has passing evidence for 15 affected cases across the focused
+SDK-policy and normal-host runs. This combines 14 passes in the diagnostic batch
+with the unchanged Always Hide case's normal-host pass; it is not a claim that
+the diagnostic invocation was wholly green. Source inputs stayed frozen and
+isolated preference/pasteboard suites were cleaned after every run.
+
+The final ad-hoc preview repeats first-open paged Actual Size, Auto to Always
+Show, Show Tab Bar, Hide Tab Bar, fullscreen at 200%, both scrollbar drags near
+their far ends (AX values above 0.998), exit fullscreen and Always Show. Tracks now remain adjacent to the current
+native controls without a resize, with no accumulated top gap. The historical
+captioned C is used explicitly as a substitute for the unavailable Carpenters
+book. This preview uses a local compiler with the SDK-policy stamp; the release
+compiler, exact signed app and installed update still require their own checks.
 
 ### Original 0.2.32 checks
 

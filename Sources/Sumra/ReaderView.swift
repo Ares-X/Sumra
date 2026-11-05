@@ -33,7 +33,7 @@ struct ReaderView: View {
         let hasTopControls = findControlsShown || editingControlsShown || speechControlsShown
         let topClearance = floatingTopClearance(forControls: hasTopControls)
         VStack(spacing: 0) {
-            if !state.hasDocument { ReaderHomeHeader() }
+            if !state.hasDocument { ReaderHomeHeader(state: state) }
             if findControlsShown {
                 ReaderFindControls(state: state, floating: $findFloating, close: closeFind)
                     .modifier(ReaderChromeEntrance())

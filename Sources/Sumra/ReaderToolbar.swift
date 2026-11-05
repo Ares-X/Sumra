@@ -129,7 +129,7 @@ struct ReaderToolbarAppearance: ViewModifier {
         private var visibilityFrame: NSRect?
         private var hoverDismiss: Task<Void, Never>?
         private var menuTracking = false
-        private var originalButtonAppearance: [NSWindow.ButtonType: (button: NSButton, hidden: Bool, alpha: CGFloat)] = [:]
+        private var originalButtonAppearance: [NSWindow.ButtonType: (button: NSButton, hidden: Bool)] = [:]
         private weak var toolbarWindow: NSWindow?
         private weak var toolbarContent: NSView?
         private var originalToolbarChrome: (contentAlpha: CGFloat, ignoresMouse: Bool, background: NSColor, opaque: Bool, shadow: Bool)?
@@ -341,6 +341,13 @@ struct ReaderToolbarAppearance: ViewModifier {
 
         func updateChrome(revealingNativeControls systemChrome: Bool) {
             guard let parent, let original, let state else { return }
+            if state.windowFullscreen != parent.styleMask.contains(.fullScreen) {
+                // Publish native window state after SwiftUI commits this view update.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let parent = self.parent, let state = self.state else { return }
+                    state.windowFullscreen = parent.styleMask.contains(.fullScreen)
+                }
+            }
             // SwiftUI can attach this host before AppKit installs native
             // window controls. Capture each control when it becomes available.
             for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton, .documentIconButton] {
@@ -361,7 +368,7 @@ struct ReaderToolbarAppearance: ViewModifier {
                     guard let native = content.superview.flatMap({ nativeButton(in: $0) }) else { continue }
                     button = native
                 }
-                originalButtonAppearance[type] = (button, button.isHidden, button.alphaValue)
+                originalButtonAppearance[type] = (button, button.isHidden)
             }
             if observedDocumentID != state.document?.id {
                 observedDocumentID = state.document?.id
@@ -442,9 +449,10 @@ struct ReaderToolbarAppearance: ViewModifier {
             if parent.titlebarAppearsTransparent != transparent { parent.titlebarAppearsTransparent = transparent }
             if parent.titlebarSeparatorStyle != separator { parent.titlebarSeparatorStyle = separator }
             if parent.backgroundColor != background { parent.backgroundColor = background }
-            // AppKit owns native fullscreen button opacity and document-icon
-            // visibility. Restoring their windowed values paints them over
-            // the title before the system reveals its menu.
+            // AppKit owns native button opacity, including fullscreen exit.
+            // A tab first mounted fullscreen can have alpha zero; retaining
+            // that temporary value would disable its windowed controls later.
+            // Fullscreen document-icon visibility also belongs to AppKit.
             let nativeFullscreen = parent.styleMask.contains(.fullScreen)
             for (type, appearance) in originalButtonAppearance {
                 if nativeFullscreen, type == .documentIconButton { continue }
@@ -455,7 +463,6 @@ struct ReaderToolbarAppearance: ViewModifier {
                 // controls captured here, never to that later lookup result.
                 let button = appearance.button
                 if button.isHidden != hideButton { button.isHidden = hideButton }
-                if !nativeFullscreen, button.alphaValue != appearance.alpha { button.alphaValue = appearance.alpha }
             }
             // Older systems lack SwiftUI's title-item removal policy. Their
             // unified title reserves space from the visible native buttons.
@@ -657,8 +664,9 @@ struct ReaderToolbarAppearance: ViewModifier {
         func pointerMoved(to point: NSPoint) {
             guard let parent, let state else { return }
             let tracksWindowButtons = state.toolbarDisplayMode == .hidden
-            guard !state.presentation, state.hasDocument,
-                  state.toolbarDisplayMode == .auto || tracksWindowButtons else {
+            let fullscreenHome = !state.hasDocument && parent.styleMask.contains(.fullScreen)
+            guard !state.presentation,
+                  fullscreenHome || (state.hasDocument && (state.toolbarDisplayMode == .auto || tracksWindowButtons)) else {
                 setHoverVisible(false, immediately: true)
                 return
             }
@@ -685,13 +693,14 @@ struct ReaderToolbarAppearance: ViewModifier {
 
         private func setHoverVisible(_ shown: Bool, immediately: Bool = false) {
             guard let state else { return }
+            let immediateHover = !state.hasDocument || state.toolbarDisplayMode == .hidden
             if shown {
                 hoverDismiss?.cancel(); hoverDismiss = nil
                 if !state.toolbarHoverVisible { state.toolbarHoverVisible = true }
                 if state.toolbarHoverOpacity != 1 {
-                    withAnimation(reducedMotion || state.toolbarDisplayMode == .hidden ? nil : ReaderMotion.reveal) { state.toolbarHoverOpacity = 1 }
+                    withAnimation(reducedMotion || immediateHover ? nil : ReaderMotion.reveal) { state.toolbarHoverOpacity = 1 }
                 }
-            } else if immediately || reducedMotion || state.toolbarDisplayMode == .hidden {
+            } else if immediately || reducedMotion || immediateHover {
                 hoverDismiss?.cancel(); hoverDismiss = nil
                 if state.toolbarHoverOpacity != 0 { state.toolbarHoverOpacity = 0 }
                 if state.toolbarHoverVisible { state.toolbarHoverVisible = false }
@@ -802,7 +811,6 @@ struct ReaderToolbarAppearance: ViewModifier {
                 let fullscreen = parent.styleMask.contains(.fullScreen)
                 for (type, appearance) in originalButtonAppearance {
                     if !fullscreen || type != .documentIconButton { appearance.button.isHidden = appearance.hidden }
-                    if !fullscreen { appearance.button.alphaValue = appearance.alpha }
                 }
                 if parent.frame != frame { parent.setFrame(frame, display: false) }
             }

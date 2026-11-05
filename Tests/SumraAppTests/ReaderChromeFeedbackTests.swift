@@ -5,6 +5,49 @@ import XCTest
 @testable import Sumra
 
 @MainActor final class ReaderChromeFeedbackTests: XCTestCase {
+    func testFullscreenCreatedNativeTabKeepsAppKitButtonOpacityAfterExit() throws {
+        final class TabWindow: NSWindow {
+            var fullscreen = true
+            override var styleMask: NSWindow.StyleMask {
+                get { fullscreen ? super.styleMask.union(.fullScreen) : super.styleMask.subtracting(.fullScreen) }
+                set { super.styleMask = newValue.subtracting(.fullScreen) }
+            }
+        }
+        _ = NSApplication.shared
+        let window = TabWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let buttons = try [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].map {
+            try XCTUnwrap(window.standardWindowButton($0))
+        }
+        // A new tab first mounts while AppKit's fullscreen controls are hidden.
+        // These remain the same native buttons when AppKit restores the window.
+        for button in buttons { button.alphaValue = 0 }
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/fullscreen-batch-tab.txt"), content: .text("Book"))
+        state.immersiveControls = false; state.toolbarDisplayMode = .shown; state.window = window
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        window.contentView?.addSubview(observer)
+        defer {
+            observer.detach(); window.fullscreen = false
+            window.contentView = nil; window.close(); state.windowClosed()
+        }
+        window.fullscreen = false
+        // Model the platform restoring its own opacity on fullscreen exit.
+        // The chrome owner must not put its initial fullscreen snapshot back.
+        for button in buttons { button.alphaValue = 1 }
+        observer.updateChrome(revealingNativeControls: false)
+        for button in buttons {
+            XCTAssertEqual(button.alphaValue, 1, "A tab created fullscreen must keep AppKit's restored windowed controls")
+            XCTAssertFalse(button.isHidden)
+        }
+        for button in buttons { button.alphaValue = 0.5 }
+        observer.detach()
+        XCTAssertTrue(buttons.allSatisfy { $0.alphaValue == 0.5 },
+            "Teardown must not restore opacity this owner never changed")
+    }
+
     func testFullscreenCreatedTabDoesNotTransferNativeZeroAlphaToFloatingButtonsOnExit() throws {
         final class TabWindow: NSWindow {
             var fullscreen = false

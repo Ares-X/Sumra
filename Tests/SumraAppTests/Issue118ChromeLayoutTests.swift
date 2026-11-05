@@ -35,7 +35,6 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         state.readerScrollView = scroll
         XCTAssertEqual(scroll.scrollerInsets.top, 52)
         XCTAssertEqual(scroll.scrollerInsets.bottom, 56)
-        scroll.tile()
         XCTAssertEqual(scroll.contentView.frame, clip)
         let track = clearance.convert(try XCTUnwrap(scroll.verticalScroller).bounds, from: scroll.verticalScroller)
         XCTAssertGreaterThanOrEqual(track.minY, 52)
