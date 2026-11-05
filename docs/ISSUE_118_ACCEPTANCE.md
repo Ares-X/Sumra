@@ -5,9 +5,10 @@ Baseline app: 0.2.31 (33), source `a8a07ec640d9307f70dc30fd89183bef7df1154f`.
 Desktop environment: arm64 Mac, macOS 27.0.1. This does not establish runtime
 acceptance on the macOS 13 deployment target or the reporter's display setup.
 The corrected signed 0.2.32 candidate, adaptive floating-tab follow-up 0.2.33
-and window drag/resize/fullscreen-spacing follow-up 0.2.34 are accepted within
-the boundaries below and published. The installed 0.2.31 → 0.2.32,
-0.2.32 → 0.2.33 and 0.2.33 → 0.2.34 Sparkle upgrades passed.
+window drag/resize/fullscreen-spacing follow-up 0.2.34 and combined fullscreen/
+scrollbar follow-up 0.2.35 are accepted within the boundaries below and published.
+The installed 0.2.31 → 0.2.32, 0.2.32 → 0.2.33, 0.2.33 → 0.2.34 and
+0.2.34 → 0.2.35 Sparkle upgrades passed.
 
 The earlier acceptance missed particular action sequences and made broader claims
 than its observations supported. The regressions below exercise the actual owner
@@ -20,7 +21,7 @@ The 15 items below were re-read against the original text and all attached
 videos/screenshots. Previous passing observations remain valid for their stated
 sequence; they do not establish that the entire issue is fixed. In particular,
 T4 reproduces in installed 0.2.34. The combined 0.2.35 candidate is accepted
-within the evidence boundaries below; publication and installed update are pending.
+within the evidence boundaries below; publication and the installed update passed.
 
 | Item | Original sequence that must be preserved | Current conclusion / next check |
 | --- | --- | --- |
@@ -43,7 +44,7 @@ within the evidence boundaries below; publication and installed update are pendi
 Follow-ups from this chat are part of the same acceptance scope: adaptive floating
 tab width and wheel reachability (0.2.33), corner resize versus drag, native blank
 titlebar dragging and floating fullscreen gap (0.2.34), and Home fullscreen
-control visibility (accepted signed 0.2.35 candidate). They must not be confused with the similarly named
+control visibility (released in 0.2.35). They must not be confused with the similarly named
 native Always Hide reader controls in C3.
 
 The remaining work is grouped into coherent journeys rather than separate
@@ -377,9 +378,9 @@ their far ends (AX values above 0.998), exit fullscreen and Always Show. Tracks 
 native controls without a resize, with no accumulated top gap. The historical
 captioned C is used explicitly as a substitute for the unavailable Carpenters
 book. This preview uses a local compiler with the SDK-policy stamp; the exact
-signed-package observations follow below, and the installed update remains pending.
+signed-package and installed-update observations follow below.
 
-### Exact signed 0.2.35 candidate
+### Signed 0.2.35 and installed update
 
 [PR #128](https://github.com/Ares-X/Sumra/pull/128) groups the Home fullscreen,
 native-button lifecycle and scrollbar corrections. The
@@ -415,6 +416,32 @@ macOS 13, continuous first-frame timing, actual minimum-width C/I geometry,
 all three C2 modes across two windows, or missing reporter sample bytes.
 Receipts and viewed contact sheets are under
 `build/issue118/full-review-20261105/release` in the primary checkout.
+
+[PR #128](https://github.com/Ares-X/Sumra/pull/128) merged as
+`251d5ba6254ba0597170897f329cc60a4ba500dd`. The
+[publication workflow](https://github.com/Ares-X/Sumra/actions/runs/42019306815)
+published [0.2.35](https://github.com/Ares-X/Sumra/releases/tag/v0.2.35) from the
+accepted candidate without rebuilding. All six asset IDs, sizes and digests match
+the draft. The anonymous ZIP SHA-256 is
+`43ccdf5fa8c07a14911a511233788f968ca5035fcf0ef2325fddff8fc61223bb`;
+the anonymous default-branch appcast matches the accepted feed and its Sparkle
+signature passes public-key-only verification.
+
+Installed 0.2.34 detected 0.2.35 and completed Help > Check for Updates > Install
+Update > Install and Relaunch. About shows 0.2.35 (37); the replacement process
+runs from `/Applications/Sumra.app`. All 140 installed app-file hashes match the
+accepted provenance and deep strict code signature verification passes. Original
+I opens using the no-history GUI action and its first Right-arrow advance renders
+the yellow image and facing dedication. Both registered extensions point only
+to installed 0.2.35.
+
+The task-owned 967 MB test/build scratch, candidate app, Finder fixture copies and
+duplicate source/public app archives were removed after checking active consumers.
+Preview preferences are removed; scoped user settings are restored and the private
+backup is gone. One accepted app ZIP, original media, source/test receipts,
+manifests and screenshots remain for reproducing the report. The installed app
+remains open for the user. No reporter comment or automatic issue closure was
+performed.
 
 ### Original 0.2.32 checks
 
