@@ -4,9 +4,10 @@ Report: [v0.2.31 issues](https://github.com/Ares-X/Sumra/issues/118).
 Baseline app: 0.2.31 (33), source `a8a07ec640d9307f70dc30fd89183bef7df1154f`.
 Desktop environment: arm64 Mac, macOS 27.0.1. This does not establish runtime
 acceptance on the macOS 13 deployment target or the reporter's display setup.
-The corrected signed 0.2.32 candidate and adaptive floating-tab follow-up 0.2.33
-are accepted within the boundaries below and published. The installed
-0.2.31 → 0.2.32 and 0.2.32 → 0.2.33 Sparkle upgrades passed.
+The corrected signed 0.2.32 candidate, adaptive floating-tab follow-up 0.2.33
+and window drag/resize/fullscreen-spacing follow-up 0.2.34 are accepted within
+the boundaries below and published. The installed 0.2.31 → 0.2.32,
+0.2.32 → 0.2.33 and 0.2.33 → 0.2.34 Sparkle upgrades passed.
 
 The earlier acceptance missed particular action sequences and made broader claims
 than its observations supported. The regressions below exercise the actual owner
@@ -46,7 +47,7 @@ lifecycle coverage.
 The same replay exposed a top-right resize cursor that still initiates window
 dragging, excessive fullscreen top clearance, a fixed-width floating tab group,
 and mouse-wheel overflow that cannot reach the other documents. The corner and
-fullscreen-clearance findings remain separate pending work. Screenshots and
+fullscreen-clearance findings are addressed in the 0.2.34 follow-up below. Screenshots and
 the user's observations are retained in `build/issue118/manual-followup-20261105`
 in the primary checkout.
 
@@ -137,8 +138,8 @@ Install Update > Install and Relaunch. About shows 0.2.33 (35), the running proc
 is `/Applications/Sumra.app/Contents/MacOS/Sumra`, all 140 installed file hashes
 match the accepted provenance, and its deep strict signature passes.
 
-The corner resize/drag mismatch and reported fullscreen top clearance remain
-pending. Hardware trackpad momentum, physical macOS 13 and exhaustive Space
+The corner resize/drag mismatch and reported fullscreen top clearance were
+still pending at 0.2.33. Hardware trackpad momentum, physical macOS 13 and exhaustive Space
 transitions were not exercised. Disposable preview/candidate app copies, Finder
 fixture copies and duplicate release archives were retired after checking for
 active consumers; recipes, logs, manifests and verification receipts are retained.
@@ -180,7 +181,7 @@ excludes its 33-point notch strip from the window; the group remains 16 points
 inside that window, with no additional application menu reservation. Temporary
 geometry instrumentation is removed from production source. CUA corner drags
 did not produce a verified frame change because of inconsistent dual-display
-input targeting, so physical resize acceptance remains pending.
+input targeting. Physical resize acceptance is recorded separately below.
 
 Evidence is under `build/issue118/window-chrome-20261105` in the primary checkout.
 The first signed 0.2.34 candidate from `ab54a3af95baa17fa64ba7dbec2e4fb17d92d0b6`
@@ -207,9 +208,56 @@ queue may return a new NSEvent instance: the test verifies its fields and uses
 that dequeued event as the identity boundary. Its first stricter identity
 assumption failed and was corrected; the subsequent focused rerun passes.
 The local GUI preview uses the new source and the signed app's SDK 15.5 runtime
-policy stamp, but remains an ad-hoc build from the local compiler. Corrected
-preview and signed-package desktop acceptance and the installed update remain
-pending.
+policy stamp, but remains an ad-hoc build from the local compiler. The user
+confirmed that both native blank-titlebar dragging and top-right resizing work
+in that corrected preview.
+
+### Signed 0.2.34 acceptance
+
+The [corrected candidate workflow](https://github.com/Ares-X/Sumra/actions/runs/41993469200)
+built source `f4f709fff36ad57b3e0a5bc4019b26b1e4d4ea86`. The exact 0.2.34 (36)
+package passes all asset checksums, including corresponding source, all 140
+app-file hashes, the original signing certificate, deep strict signature,
+frozen source/build correspondence and public-key Sparkle verification. Its
+manifest digest is
+`7639c047597ca599bb8ba6d4b3fa427fe3a994654398970f567ef9bf2634c985`.
+
+In that signed package, original A retains the 16-point floating inset during
+real fullscreen; exiting restores native controls, and the first native Next
+advances to chapter 2. The user independently repeated the native blank-titlebar
+drag and top-right resize in this final signed package and confirmed both work.
+The local preview confirmation is not substituted for this signed-package check.
+
+Finder shows original I and comic PAGE 1 thumbnails. Quick Look advances I from
+chapter 1 to 2, rendering its yellow page, and the comic from PAGE 1 to PAGE 2.
+The app and both extension process paths point to the corrected signed bundle.
+The temporary Finder window and Quick Look were closed, the candidate exited,
+installed extension registrations were restored, and scoped test preferences
+were restored without replacing the user's whole preference domain.
+
+[PR #126](https://github.com/Ares-X/Sumra/pull/126) merged as
+`c80ee48e60c662bce77eeb11bc3dbf1dea774572`. The
+[publication workflow](https://github.com/Ares-X/Sumra/actions/runs/42002203498)
+published [0.2.34](https://github.com/Ares-X/Sumra/releases/tag/v0.2.34) from those
+accepted bytes. All six public asset IDs, sizes and digests match the candidate;
+the anonymous ZIP SHA-256 is
+`047a24dc15f18df8590e2689ab457cf871978e5cc73ca0cdb04901cb8c3aa5e9`.
+The anonymous default-branch appcast matches the accepted feed, and its public-key
+Sparkle signature verification passes.
+
+Installed 0.2.33 detected the public update and completed Help > Check for
+Updates > Install Update > Install and Relaunch. About shows 0.2.34 (36).
+The new process runs from `/Applications/Sumra.app`; all 140 installed file
+hashes match accepted provenance and deep strict signature verification passes.
+The installed 0.2.34 preview/thumbnail registrations point only to that app.
+
+Evidence is retained under `build/issue118/window-chrome-20261105/release-corrected`
+in the primary checkout. Temporary previews, candidate bundles, Finder fixture
+copies, build scratch and duplicate release archives were removed after checking
+active consumers. The rejected private 0.2.34 draft is removed; one exact rejected
+ZIP, source hashes and failure evidence remain locally until reporter confirmation.
+The installed 0.2.34 app remains open for the user. Physical macOS 13, hardware
+trackpad momentum and exhaustive Spaces transitions were not exercised.
 
 ### Original 0.2.32 checks
 
