@@ -9,11 +9,14 @@ import XCTest
 final class ReaderNativeTitlebarInputTests: XCTestCase {
     private final class DragWindow: NSWindow {
         var dragEvents: [NSEvent] = []
+        var dispatchedEvents: [NSEvent] = []
         var key = true
         var activations = 0
         override var isKeyWindow: Bool { key }
         override func makeKeyAndOrderFront(_ sender: Any?) { key = true; activations += 1 }
         override func performDrag(with event: NSEvent) { dragEvents.append(event) }
+        // Stop at the native dispatch boundary without starting Window Server tracking.
+        override func sendEvent(_ event: NSEvent) { dispatchedEvents.append(event) }
     }
 
     func testNativeTitlebarClicksActivateTheWindowInEveryToolbarMode() throws {
@@ -40,11 +43,58 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
             let before = window.activations
             let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
                 timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-            _ = observer.handleMouseDown(event)
+            NSApp.sendEvent(event)
             XCTAssertTrue(window.isKeyWindow, "Clicking native titlebar space must activate \(mode)")
             XCTAssertEqual(window.activations, before + 1)
+            XCTAssertTrue(window.dispatchedEvents.last === event, "Activation must preserve native titlebar input")
+            XCTAssertTrue(window.dragEvents.isEmpty)
         }
         XCTAssertFalse(window.isVisible)
+    }
+
+    func testNativeResizeEdgesReachWindowBeforeAnyOverlayDrag() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/resize-dispatch.txt"), content: .text("Book"))
+        state.immersiveControls = false
+        let window = DragWindow(contentRect: NSRect(x: 2200, y: 100, width: 900, height: 600),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "native-resize-dispatch")
+        let content = try XCTUnwrap(window.contentView)
+        let observer = ReaderToolbarWindow.Host(frame: content.bounds)
+        observer.autoresizingMask = [.width, .height]
+        observer.state = state; observer.reducedMotion = true
+        content.addSubview(observer)
+        defer { observer.detach(); window.contentView = nil; window.close(); state.windowClosed() }
+        let root = try XCTUnwrap(content.superview)
+        let titlebar = try XCTUnwrap(window.standardWindowButton(.closeButton)?.superview)
+        var sampledDraggableHit = false
+        for mode in ReaderToolbarDisplayMode.allCases {
+            state.toolbarDisplayMode = mode
+            observer.updateChrome(); root.layoutSubtreeIfNeeded()
+            let rect = titlebar.convert(titlebar.bounds, to: nil)
+            XCTAssertGreaterThan(rect.height, 0)
+            // Sample inside the outermost physical pixel, without guessing
+            // how many points AppKit reserves for its native resize regions.
+            let pixel = 1 / window.backingScaleFactor
+            let points = [NSPoint(x: rect.midX, y: rect.maxY - pixel / 2),
+                          NSPoint(x: rect.maxX - pixel / 2, y: rect.midY),
+                          NSPoint(x: rect.maxX - pixel / 2, y: rect.maxY - pixel / 2)]
+            for point in points {
+                XCTAssertTrue(rect.contains(point))
+                let hit = try XCTUnwrap(root.hitTest(root.convert(point, from: nil)))
+                sampledDraggableHit = sampledDraggableHit || hit.mouseDownCanMoveWindow
+                let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+                    timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+                let count = window.dispatchedEvents.count
+                NSApp.sendEvent(event)
+                XCTAssertEqual(window.dispatchedEvents.count, count + 1, "AppKit must receive every native edge mouseDown in \(mode)")
+                XCTAssertTrue(window.dispatchedEvents.last === event, "Native resizing needs the unmodified original event")
+                XCTAssertTrue(window.dragEvents.isEmpty, "The monitor must not replace a potential native resize with a window move")
+            }
+        }
+        XCTAssertTrue(sampledDraggableHit, "At least one edge sample must exercise the native/overlay drag eligibility that previously swallowed input")
     }
 
     private final class DraggableAccessoryView: NSView {
@@ -114,8 +164,10 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
                 XCTAssertTrue(hit === target, "The fixture must hit the native accessory background or its actual descendant")
                 XCTAssertTrue(hit.mouseDownCanMoveWindow, "The native owner may report draggable input")
                 for flags: NSEvent.ModifierFlags in [[], [.control, .shift]] {
-                    XCTAssertFalse(observer.handleMouseDown(try down(at: point, flags: flags)),
-                        "The titlebar accessory owns its mouseDown even when its native hit reports draggable")
+                    let event = try down(at: point, flags: flags)
+                    NSApp.sendEvent(event)
+                    XCTAssertTrue(window.dispatchedEvents.last === event,
+                        "The native window must receive accessory input even when its hit reports draggable")
                     XCTAssertTrue(window.dragEvents.isEmpty)
                 }
             }
@@ -127,8 +179,12 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
         let hiddenPoint = accessory.view.convert(NSPoint(x: accessory.view.bounds.width * 0.75, y: accessory.view.bounds.midY), to: nil)
         let hiddenHit = try XCTUnwrap(root.hitTest(root.convert(hiddenPoint, from: nil)))
         XCTAssertFalse(hiddenHit === accessory.view || hiddenHit.isDescendant(of: accessory.view))
-        XCTAssertTrue(observer.handleMouseDown(try down(at: hiddenPoint)),
-            "The hidden accessory's former bounds must not take drag input from the reading overlay")
+        XCTAssertTrue(hiddenHit.mouseDownCanMoveWindow, "The hidden accessory must yield the band to a draggable native or reading surface")
+        let event = try down(at: hiddenPoint)
+        NSApp.sendEvent(event)
+        XCTAssertTrue(window.dispatchedEvents.last === event,
+            "AppKit must dispatch the hidden accessory's former bounds to the current hit owner")
+        XCTAssertTrue(window.dragEvents.isEmpty)
     }
 
     func testRevealedNativeTabsKeepTheirMouseDownAndTitleClearance() async throws {
@@ -218,13 +274,14 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
                 let hit = root.hitTest(root.convert(point, from: nil))
                 XCTAssertTrue(hit === accessory || hit?.isDescendant(of: accessory) == true,
                     "The native tab accessory must receive its own input")
-                XCTAssertFalse(observer.handleMouseDown(event), "Native tab clicks must reach AppKit instead of starting a window drag")
+                NSApp.sendEvent(event)
+                XCTAssertTrue(window.dispatchedEvents.last === event, "Native tab clicks must reach AppKit")
                 XCTAssertTrue(window.dragEvents.isEmpty)
             }
         }
     }
 
-    func testNativeToolbarBlankAndFilenameOwnCursorAndDragWithoutConsumingControls() async throws {
+    func testNativeToolbarBlankFilenameAndControlsKeepNativeMouseDownAndCursor() async throws {
         _ = NSApplication.shared
         let previousCursor = NSCursor.current
         let state = ReaderState(recordsHistory: false)
@@ -295,22 +352,21 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
                 observer.handleMouseMoved(try event(.mouseMoved, at: point))
                 XCTAssertEqual(NSCursor.current, NSCursor.arrow, "Native toolbar blank/title must clear the text cursor in \(mode)")
                 let down = try event(.leftMouseDown, at: point)
-                let previousCount = window.dragEvents.count
-                XCTAssertTrue(observer.handleMouseDown(down))
-                XCTAssertEqual(window.dragEvents.count, previousCount + 1)
-                XCTAssertTrue(window.dragEvents.last === down, "Window Server dragging needs the original mouseDown event")
+                NSApp.sendEvent(down)
+                XCTAssertTrue(window.dispatchedEvents.last === down, "The native titlebar must own its original mouseDown")
+                XCTAssertTrue(window.dragEvents.isEmpty)
             }
             for point in excluded {
                 let down = try event(.leftMouseDown, at: point)
-                let previousCount = window.dragEvents.count
-                XCTAssertFalse(observer.handleMouseDown(down), "Reading content and real controls keep their own mouseDown")
-                XCTAssertEqual(window.dragEvents.count, previousCount)
+                NSApp.sendEvent(down)
+                XCTAssertTrue(window.dispatchedEvents.last === down, "Reading content and real controls keep their own mouseDown")
+                XCTAssertTrue(window.dragEvents.isEmpty)
             }
             for nativeClick in [try event(.leftMouseDown, at: center(filename), flags: .command),
                                 try event(.leftMouseDown, at: center(filename), clickCount: 2)] {
-                let previousCount = window.dragEvents.count
-                XCTAssertFalse(observer.handleMouseDown(nativeClick), "Native title path menus and double-click actions retain their original event")
-                XCTAssertEqual(window.dragEvents.count, previousCount)
+                NSApp.sendEvent(nativeClick)
+                XCTAssertTrue(window.dispatchedEvents.last === nativeClick, "Native title path menus and double-click actions retain their original event")
+                XCTAssertTrue(window.dragEvents.isEmpty)
             }
             NSCursor.iBeam.set()
             observer.handleMouseMoved(try event(.mouseMoved, at: body))

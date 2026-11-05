@@ -166,7 +166,15 @@ struct ReaderToolbarAppearance: ViewModifier {
         override var mouseDownCanMoveWindow: Bool { true }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func mouseDown(with event: NSEvent) {
-            if !handleMouseDown(event) { super.mouseDown(with: event) }
+            guard event.clickCount == 1, !event.modifierFlags.contains(.command),
+                  let parent, event.window === parent,
+                  isTitlebarDragPoint(event.locationInWindow) else {
+                super.mouseDown(with: event)
+                return
+            }
+            // AppKit has dispatched this mouse-down to the document overlay,
+            // after retaining ownership of native window-edge resizing.
+            parent.performDrag(with: event)
         }
         override func resetCursorRects() {
             let rect = titlebarDragRect
@@ -220,19 +228,12 @@ struct ReaderToolbarAppearance: ViewModifier {
                 return view.convert(view.bounds, to: nil).contains(point)
             }
         }
-        func handleMouseDown(_ event: NSEvent) -> Bool {
+        private func activateForTitlebarMouseDown(_ event: NSEvent) {
             if event.type == .leftMouseDown, let parent, event.window === parent,
                nativeTitlebarRect.contains(convert(event.locationInWindow, from: nil)) {
                 if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
                 if !parent.isKeyWindow { parent.makeKeyAndOrderFront(nil) }
             }
-            guard event.type == .leftMouseDown, event.clickCount == 1, !event.modifierFlags.contains(.command),
-                  let parent, event.window === parent,
-                  isTitlebarDragPoint(event.locationInWindow) else { return false }
-            // The visible native toolbar is above the document overlay. Route
-            // its empty title area to AppKit using the original mouse-down.
-            parent.performDrag(with: event)
-            return true
         }
         override func viewWillMove(toWindow newWindow: NSWindow?) {
             detach()
@@ -252,7 +253,7 @@ struct ReaderToolbarAppearance: ViewModifier {
             }
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown]) { [weak self] event in
                 if event.type == .leftMouseDown {
-                    if self?.handleMouseDown(event) == true { return nil }
+                    self?.activateForTitlebarMouseDown(event)
                 } else { self?.handleMouseMoved(event) }
                 return event
             }
@@ -334,11 +335,13 @@ struct ReaderToolbarAppearance: ViewModifier {
                     self.pointerMoved(to: parent.mouseLocationOutsideOfEventStream)
                 }
             }
-            // Notched displays can put the fullscreen window below the menu
-            // strip already. Reserve only the part still inside this window,
-            // keeping controls stationary when AppKit reveals its native menu.
+            // Floating controls keep their windowed inset in fullscreen. The
+            // transient system menu overlays the reader; reserving its hidden
+            // strip permanently leaves an empty band above the floating bar.
+            // Native chrome still reserves only the menu portion inside this
+            // window, since notched displays can already exclude that strip.
             let excludedMenuHeight = parent.screen.map { max(0, $0.frame.maxY - parent.frame.maxY) } ?? 0
-            let menuHeight = parent.styleMask.contains(.fullScreen) && state.hasDocument
+            let menuHeight = parent.styleMask.contains(.fullScreen) && state.hasDocument && !state.usesFloatingChrome
                 ? max(0, (NSApp.mainMenu?.menuBarHeight ?? 0) - excludedMenuHeight) : 0
             if reservedMenuHeight != menuHeight {
                 reservedMenuHeight = menuHeight

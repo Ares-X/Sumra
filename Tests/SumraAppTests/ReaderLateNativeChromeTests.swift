@@ -9,12 +9,14 @@ final class ReaderLateNativeChromeTests: XCTestCase {
     private final class LateButtonWindow: NSWindow {
         var exposesNativeButtons = false
         var dragEvents: [NSEvent] = []
+        var dispatchedEvents: [NSEvent] = []
         override var isKeyWindow: Bool { true }
         override func standardWindowButton(_ type: NSWindow.ButtonType) -> NSButton? {
             exposesNativeButtons ? super.standardWindowButton(type) : nil
         }
         func mountedButton(_ type: NSWindow.ButtonType) -> NSButton? { super.standardWindowButton(type) }
         override func performDrag(with event: NSEvent) { dragEvents.append(event) }
+        override func sendEvent(_ event: NSEvent) { dispatchedEvents.append(event) }
     }
 
     func testLateMountedNativeButtonsFollowAutoVisibilityAndKeepTitlebarInput() throws {
@@ -70,7 +72,14 @@ final class ReaderLateNativeChromeTests: XCTestCase {
         let hit = try XCTUnwrap(root.hitTest(root.convert(top, from: nil)))
         XCTAssertTrue(hit === observer, "The hidden native title band must stop text selection after late control installation")
         XCTAssertTrue(hit.mouseDownCanMoveWindow)
-        XCTAssertFalse(observer.handleMouseDown(try down(at: body)), "The reading body must retain its input")
+        let overlayDown = try down(at: top)
+        observer.mouseDown(with: overlayDown)
+        XCTAssertTrue(window.dragEvents.last === overlayDown, "The dispatched overlay mouseDown must retain window dragging")
+        let bodyDown = try down(at: body)
+        let dragCount = window.dragEvents.count
+        NSApp.sendEvent(bodyDown)
+        XCTAssertTrue(window.dispatchedEvents.last === bodyDown, "The reading body must retain its input")
+        XCTAssertEqual(window.dragEvents.count, dragCount)
 
         for mode in [ReaderToolbarDisplayMode.auto, .shown] {
             state.toolbarDisplayMode = mode
@@ -80,14 +89,16 @@ final class ReaderLateNativeChromeTests: XCTestCase {
             for button in buttons {
                 XCTAssertFalse(button.isHiddenOrHasHiddenAncestor, "Late native controls must reveal with the toolbar")
                 let center = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
-                XCTAssertFalse(observer.handleMouseDown(try down(at: center)), "Native window controls retain their input")
+                let event = try down(at: center)
+                NSApp.sendEvent(event)
+                XCTAssertTrue(window.dispatchedEvents.last === event, "Native window controls retain their input")
+                XCTAssertEqual(window.dragEvents.count, dragCount)
             }
             for point in [blank, filename.convert(NSPoint(x: filename.bounds.midX, y: filename.bounds.midY), to: nil)] {
                 let event = try down(at: point)
-                let count = window.dragEvents.count
-                XCTAssertTrue(observer.handleMouseDown(event), "Native toolbar blank space and filename must keep window dragging")
-                XCTAssertEqual(window.dragEvents.count, count + 1)
-                XCTAssertTrue(window.dragEvents.last === event)
+                NSApp.sendEvent(event)
+                XCTAssertTrue(window.dispatchedEvents.last === event, "Native toolbar blank space and filename must retain AppKit input")
+                XCTAssertEqual(window.dragEvents.count, dragCount)
             }
             XCTAssertEqual(window.frame, originalFrame)
         }

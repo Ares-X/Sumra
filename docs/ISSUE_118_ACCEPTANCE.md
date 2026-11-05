@@ -143,6 +143,48 @@ transitions were not exercised. Disposable preview/candidate app copies, Finder
 fixture copies and duplicate release archives were retired after checking for
 active consumers; recipes, logs, manifests and verification receipts are retained.
 
+### Window-edge and fullscreen-spacing follow-up
+
+The corner mismatch comes from the reader's local mouse-down monitor: it treated
+draggable titlebar hits as window moves and consumed the original event before
+AppKit could handle native resizing. The monitor now performs activation only
+and preserves the original event. The reading overlay starts a move only when
+AppKit dispatches a mouse-down to that view. Native titlebar, toolbar, accessory
+and tab input remains with AppKit; no guessed edge width or custom resize logic
+is introduced.
+
+The extra floating fullscreen gap was a permanent reservation for the transient
+system menu. Floating controls now retain the same 16-point inset inside the
+window in both modes, with native menu reveal left to AppKit's overlay. Native
+nonfloating chrome retains its existing menu clearance. Reading margins, Find
+and scrollbar clearance continue to follow the actual controls.
+
+The old source fails the new native-dispatch regression in Auto Hide and Always
+Hide and places the rendered fullscreen floating group 49 points below the top
+instead of the windowed 16 points. The fixture now verifies original event
+delivery at all sampled top/right/corner points; native extreme-edge hits need
+not report themselves draggable. The rendered ReaderView fixture checks exact
+position, both full-height and menu-excluded window frames, menu reveal, reading
+position and Find/scrollbar restoration. These are isolated native fixtures,
+not physical Window Server resize or fullscreen transition evidence.
+
+Fifteen focused final cases pass across the input, native-control, fullscreen
+and adaptive-tab runs. This combines the corrected five-case input rerun with
+the other ten passing cases, rather than calling the earlier fixture-precondition
+failure a green run. The main debug build also passes.
+
+Actual fullscreen transitions with original A were measured in the local GUI
+preview on both displays. On the external display the floating navigation group
+starts 16 points inside the fullscreen window. On the built-in display macOS
+excludes its 33-point notch strip from the window; the group remains 16 points
+inside that window, with no additional application menu reservation. Temporary
+geometry instrumentation is removed from production source. CUA corner drags
+did not produce a verified frame change because of inconsistent dual-display
+input targeting, so physical resize acceptance remains pending.
+
+Evidence is under `build/issue118/window-chrome-20261105` in the primary checkout.
+The exact signed 0.2.34 desktop replay and installed update are pending.
+
 ### Original 0.2.32 checks
 
 The initial isolated full run recorded 1,575 passes, five failures and 40 skips.

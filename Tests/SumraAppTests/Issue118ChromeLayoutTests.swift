@@ -48,8 +48,9 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         XCTAssertFalse(scroll.postsFrameChangedNotifications, "Releasing chrome restores the reader's notification setting")
     }
 
-    func testFullscreenToolbarReservesOnlyMenuHeightMissingFromTheWindowFrame() async throws {
+    func testFullscreenChromeSwitchPreservesNativeMenuClearanceWithoutAddingFloatingSpace() async throws {
         final class FullscreenWindow: NSWindow {
+            override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
             override var styleMask: NSWindow.StyleMask {
                 get { super.styleMask.union(.fullScreen) }
                 set { super.styleMask = newValue.subtracting(.fullScreen) }
@@ -64,7 +65,7 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         XCTAssertGreaterThan(menuHeight, 0)
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/fullscreen-inset.txt"), content: .text("Book"))
-        state.immersiveControls = true; state.toolbarDisplayMode = .shown
+        state.immersiveControls = false; state.toolbarDisplayMode = .shown
         let window = FullscreenWindow(contentRect: CGRect(x: screen.frame.minX + 40, y: screen.frame.minY + 40, width: 700, height: 500),
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
@@ -78,14 +79,18 @@ final class Issue118ChromeLayoutTests: XCTestCase {
             window.setFrame(CGRect(x: screen.frame.minX + 40, y: screen.frame.maxY - excludedMenuHeight - 500,
                 width: 700, height: 500), display: false)
             XCTAssertTrue(window.screen === screen, "The invisible fixture must use the measured screen")
-            observer.updateChrome(revealingNativeControls: false)
-            try await Task.sleep(nanoseconds: 10_000_000)
-            XCTAssertEqual(inset, menuHeight - excludedMenuHeight, accuracy: 0.01,
-                "A notch fullscreen window that already excludes the menu strip must not reserve it twice")
-            observer.updateChrome(revealingNativeControls: true)
-            try await Task.sleep(nanoseconds: 10_000_000)
-            XCTAssertEqual(inset, menuHeight - excludedMenuHeight, accuracy: 0.01,
-                "Native menu reveal must not move the floating toolbar")
+            for floating in [false, true, false] {
+                state.immersiveControls = floating
+                let expected = floating ? 0 : menuHeight - excludedMenuHeight
+                for menuVisible in [false, true, false] {
+                    observer.updateChrome(revealingNativeControls: menuVisible)
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                    XCTAssertEqual(inset, expected, accuracy: 0.01,
+                        floating
+                            ? "Floating chrome must retain its windowed inset while AppKit overlays transient native chrome"
+                            : "Native chrome must reserve only the menu strip not already excluded by the fullscreen frame")
+                }
+            }
         }
     }
 

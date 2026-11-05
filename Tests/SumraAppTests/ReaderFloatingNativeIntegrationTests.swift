@@ -7,7 +7,7 @@ import XCTest
 
 @MainActor
 final class ReaderFloatingNativeIntegrationTests: XCTestCase {
-    func testPositiveFullscreenReadingClearanceCountsMenuOnceAndZeroAllowsOverlap() async throws {
+    func testFullscreenPreservesConfiguredFloatingReadingClearanceAndZeroAllowsOverlap() async throws {
         final class FullscreenWindow: NSWindow {
             var fullscreen = false
             override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
@@ -118,7 +118,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
             let baselineFrame = scroll.convert(scroll.bounds, to: nil)
             window.fullscreen = true; state.controlTopMargin = clearance
             host.updateChrome(revealingNativeControls: false)
-            let effective = mode == .hidden || clearance == 0 ? 0 : clearance + menu.measuredHeight
+            let effective = mode == .hidden ? 0 : clearance
             let expectedExtra = max(0, effective - pageMargin)
             var readingFrame: CGRect?
             var readingOffset: CGPoint?
@@ -130,7 +130,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
                 let frame = scroll.convert(scroll.bounds, to: nil)
                 XCTAssertEqual(baselineFrame.maxY - frame.maxY, expectedExtra, accuracy: 1)
                 XCTAssertEqual(baselineGlyph.maxY - glyph.maxY, expectedExtra, accuracy: 1,
-                    "Positive clearance must count the menu once while zero preserves overlap")
+                    "Fullscreen must preserve configured reading clearance while zero allows toolbar overlap")
                 if let readingFrame { XCTAssertEqual(frame, readingFrame, "Hover must not move the reading viewport") }
                 else { readingFrame = frame }
                 if let readingOffset { XCTAssertEqual(scroll.contentView.bounds.origin, readingOffset, "Hover must preserve the reading position") }
@@ -148,7 +148,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
         XCTAssertTrue(window.ignoresMouseEvents)
     }
 
-    func testFullscreenFloatingTargetsClearMenuWithoutMovingBookOnReveal() async throws {
+    func testFullscreenFloatingTargetsKeepWindowedTopInsetAndBookFrameOnMenuReveal() async throws {
         final class FullscreenWindow: NSWindow {
             var fullscreen = false
             override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
@@ -181,9 +181,6 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
         let window = FullscreenWindow(contentViewController: controller)
         window.styleMask.formUnion([.titled, .closable, .resizable])
         let screen = try XCTUnwrap(NSScreen.screens.first)
-        // This simulated fullscreen case covers the whole screen top, as on
-        // a display without a notch. Separate geometry coverage tests windows
-        // whose native frame already excludes the menu strip.
         let fullscreenFrame = CGRect(x: screen.frame.midX - 500, y: screen.frame.maxY - 700, width: 1000, height: 700)
         window.title = "Floating fullscreen menu clearance"
         window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
@@ -210,86 +207,99 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
             }
         }
         try await settle()
-        for mode in [ReaderToolbarDisplayMode.shown, .auto, .hidden] {
-            state.toolbarDisplayMode = mode
-            for margin in [0.0, 200.0] {
-                state.controlTopMargin = margin; state.showFind = false
-                window.fullscreen = false
-                try XCTUnwrap(observer(in: controller.view)).updateChrome(revealingNativeControls: false)
-                try await settle()
-                let scroll = try XCTUnwrap(state.readerScrollView)
-                let windowedBookFrame = scroll.convert(scroll.bounds, to: nil)
-                window.fullscreen = true
-                let host = try XCTUnwrap(observer(in: controller.view))
-                host.reducedMotion = true
-                host.updateChrome(revealingNativeControls: false)
-                try await settle()
-                let bookFrame = scroll.convert(scroll.bounds, to: nil)
-                let menuClearance = mode == .hidden || margin == 0 ? 0 : menuHeight
-                let expectedFrame = CGRect(x: windowedBookFrame.minX, y: windowedBookFrame.minY,
-                    width: windowedBookFrame.width, height: windowedBookFrame.height - menuClearance)
-                XCTAssertEqual(bookFrame, expectedFrame,
-                    "Positive reading clearance counts the fullscreen menu once; zero and Always Hide add no reservation")
-                let viewport = scroll.contentView.safeAreaRect.size
-                let trackInsets = scroll.scrollerInsets
-                var targets = [CGRect]()
-                for menuVisible in [true, false, true] {
+        // Native fullscreen can cover the screen top or already exclude its
+        // menu band. Both keep the same inset inside the reader window.
+        for excludedMenuHeight in [CGFloat(0), menuHeight] {
+            window.fullscreen = false
+            window.setFrame(fullscreenFrame.offsetBy(dx: 0, dy: -excludedMenuHeight), display: false)
+            XCTAssertEqual(window.frame.maxY, screen.frame.maxY - excludedMenuHeight, accuracy: 0.01)
+            for mode in [ReaderToolbarDisplayMode.shown, .auto, .hidden] {
+                state.toolbarDisplayMode = mode
+                for margin in [0.0, 200.0] {
+                    state.controlTopMargin = margin; state.showFind = false
+                    window.fullscreen = false
+                    let host = try XCTUnwrap(observer(in: controller.view))
+                    host.reducedMotion = true
                     host.pointerMoved(to: CGPoint(x: window.frame.width / 2, y: window.frame.height - 1))
-                    host.updateChrome(revealingNativeControls: menuVisible)
+                    host.updateChrome(revealingNativeControls: false)
                     try await settle()
-                    let elements = try accessibleElements(in: window)
+                    let scroll = try XCTUnwrap(state.readerScrollView)
+                    let windowedBookFrame = scroll.convert(scroll.bounds, to: nil)
                     let groupID = mode == .hidden ? "floating-window-controls" : "floating-navigation"
-                    let group = try XCTUnwrap(elements.first { $0.identifier == groupID }).frame
-                    XCTAssertLessThanOrEqual(group.maxY, window.frame.maxY - menuHeight,
-                        "The actual floating controls must paint entirely below the native menu strip")
-                    let buttons = try XCTUnwrap(windowButtons(in: controller.view)).subviews.compactMap { $0 as? NSButton }
-                    XCTAssertEqual(buttons.count, 3)
-                    for button in buttons {
-                        let frame = window.convertToScreen(button.convert(button.bounds, to: nil))
-                        XCTAssertLessThanOrEqual(frame.maxY, window.frame.maxY - menuHeight,
-                            "Every native traffic-light target must remain fully below the menu")
+                    let windowedElements = try accessibleElements(in: window)
+                    let windowedGroup = try XCTUnwrap(windowedElements.first { $0.identifier == groupID }).frame
+                    XCTAssertEqual(window.frame.maxY - windowedGroup.maxY, 16, accuracy: 1,
+                        "The actual floating surface must retain its 16-point windowed inset")
+                    window.fullscreen = true
+                    host.updateChrome(revealingNativeControls: false)
+                    try await settle()
+                    let bookFrame = scroll.convert(scroll.bounds, to: nil)
+                    XCTAssertEqual(bookFrame, windowedBookFrame,
+                        "Entering fullscreen must preserve the book's configured reading room")
+                    let viewport = scroll.contentView.safeAreaRect.size
+                    let trackInsets = scroll.scrollerInsets
+                    var targets = [CGRect]()
+                    for menuVisible in [true, false, true] {
+                        host.pointerMoved(to: CGPoint(x: window.frame.width / 2, y: window.frame.height - 1))
+                        host.updateChrome(revealingNativeControls: menuVisible)
+                        try await settle()
+                        let elements = try accessibleElements(in: window)
+                        let group = try XCTUnwrap(elements.first { $0.identifier == groupID }).frame
+                        XCTAssertEqual(group.maxY, windowedGroup.maxY, accuracy: 1,
+                            "Fullscreen and native menu reveal must retain the windowed floating inset")
+                        XCTAssertEqual(window.frame.maxY - group.maxY, 16, accuracy: 1,
+                            "Fullscreen must not leave permanent blank space for transient native chrome")
+                        let buttons = try XCTUnwrap(windowButtons(in: controller.view)).subviews.compactMap { $0 as? NSButton }
+                        XCTAssertEqual(buttons.count, 3)
+                        for button in buttons {
+                            let frame = window.convertToScreen(button.convert(button.bounds, to: nil))
+                            XCTAssertLessThanOrEqual(frame.maxY, group.maxY,
+                                "Every native traffic-light target must stay inside its floating surface")
+                            XCTAssertGreaterThanOrEqual(frame.minY, group.minY)
+                        }
+                        if mode != .hidden {
+                            let open = try XCTUnwrap(elements.first { $0.label == L("Open Document") }).frame
+                            XCTAssertLessThanOrEqual(open.maxY, group.maxY,
+                                "The actionable icon target must stay inside its floating surface")
+                            XCTAssertGreaterThanOrEqual(open.minY, group.minY)
+                        }
+                        if let previous = targets.last { XCTAssertEqual(group, previous) }
+                        targets.append(group)
+                        let target = window.convertPoint(fromScreen: CGPoint(x: group.midX, y: group.minY + 1))
+                        host.pointerMoved(to: target)
+                        if mode != .shown { XCTAssertTrue(state.toolbarHoverVisible, "The bottom of shifted controls must retain hover") }
+                        XCTAssertEqual(scroll.convert(scroll.bounds, to: nil), bookFrame)
+                        XCTAssertEqual(scroll.contentView.safeAreaRect.size, viewport)
+                        XCTAssertTrue(NSEdgeInsetsEqual(scroll.scrollerInsets, trackInsets),
+                            "Menu reveal must not move scrollbar tracks")
                     }
-                    if mode != .hidden {
-                        let open = try XCTUnwrap(elements.first { $0.label == L("Open Document") }).frame
-                        XCTAssertLessThanOrEqual(open.maxY, window.frame.maxY - menuHeight,
-                            "The actionable icon target must clear the menu, not only its capsule background")
-                    }
-                    if let previous = targets.last { XCTAssertEqual(group, previous) }
-                    targets.append(group)
-                    let target = window.convertPoint(fromScreen: CGPoint(x: group.midX, y: group.minY + 1))
-                    host.pointerMoved(to: target)
-                    if mode != .shown { XCTAssertTrue(state.toolbarHoverVisible, "The bottom of shifted controls must retain hover") }
-                    XCTAssertEqual(scroll.convert(scroll.bounds, to: nil), bookFrame)
-                    XCTAssertEqual(scroll.contentView.safeAreaRect.size, viewport)
-                    XCTAssertTrue(NSEdgeInsetsEqual(scroll.scrollerInsets, trackInsets),
-                        "Menu reveal must not move scrollbar tracks")
+                    state.showFind = true
+                    try await settle()
+                    let field = try XCTUnwrap(state.findInputField)
+                    let input = window.convertToScreen(field.convert(field.bounds, to: nil))
+                    XCTAssertLessThanOrEqual(input.maxY, try XCTUnwrap(targets.last).minY,
+                        "Docked Find must remain below the actual floating toolbar")
+                    let currentScroll = try XCTUnwrap(state.readerScrollView)
+                    let clearance = try XCTUnwrap(clearanceHost(in: controller.view))
+                    let currentFrame = clearance.convert(currentScroll.bounds, from: currentScroll)
+                    let controlsBottom = clearance.convert(window.convertPoint(fromScreen:
+                        CGPoint(x: 0, y: try XCTUnwrap(targets.last).minY)), from: nil).y
+                    let remainingClearance = max(0, controlsBottom - currentFrame.minY)
+                    print("Floating Find track: mode=\(mode.rawValue) margin=\(margin) sameScroll=\(currentScroll === scroll) capturedMounted=\(scroll.window === window) currentMounted=\(currentScroll.window === window) capturedFrame=\(scroll.convert(scroll.bounds, to: nil)) currentFrame=\(currentScroll.convert(currentScroll.bounds, to: nil)) clearanceFrame=\(clearance.bounds) clearanceTop=\(clearance.top) remaining=\(remainingClearance) capturedInset=\(scroll.scrollerInsets.top) currentInset=\(currentScroll.scrollerInsets.top)")
+                    XCTAssertTrue(currentScroll.window === window, "The asserted scrollbar must belong to the current mounted reader")
+                    XCTAssertEqual(remainingClearance, 0, "Find must move the current reader below the whole control band")
+                    XCTAssertEqual(currentScroll.scrollerInsets.top, 0,
+                        "The docked controls already consume the floating toolbar clearance")
+                    state.showFind = false
+                    try await settle()
+                    let restoredScroll = try XCTUnwrap(state.readerScrollView)
+                    XCTAssertTrue(restoredScroll.window === window)
+                    XCTAssertEqual(restoredScroll.convert(restoredScroll.bounds, to: nil), bookFrame,
+                        "Closing Find must restore the current reader's original frame")
+                    XCTAssertEqual(restoredScroll.contentView.safeAreaRect.size, viewport)
+                    XCTAssertTrue(NSEdgeInsetsEqual(restoredScroll.scrollerInsets, trackInsets),
+                        "Closing Find must restore the original live scrollbar clearance for \(mode.rawValue), margin \(margin)")
                 }
-                state.showFind = true
-                try await settle()
-                let field = try XCTUnwrap(state.findInputField)
-                let input = window.convertToScreen(field.convert(field.bounds, to: nil))
-                XCTAssertLessThanOrEqual(input.maxY, try XCTUnwrap(targets.last).minY,
-                    "Docked Find must share the floating toolbar's measured menu clearance")
-                let currentScroll = try XCTUnwrap(state.readerScrollView)
-                let clearance = try XCTUnwrap(clearanceHost(in: controller.view))
-                let currentFrame = clearance.convert(currentScroll.bounds, from: currentScroll)
-                let controlsBottom = clearance.convert(window.convertPoint(fromScreen:
-                    CGPoint(x: 0, y: try XCTUnwrap(targets.last).minY)), from: nil).y
-                let remainingClearance = max(0, controlsBottom - currentFrame.minY)
-                print("Floating Find track: mode=\(mode.rawValue) margin=\(margin) sameScroll=\(currentScroll === scroll) capturedMounted=\(scroll.window === window) currentMounted=\(currentScroll.window === window) capturedFrame=\(scroll.convert(scroll.bounds, to: nil)) currentFrame=\(currentScroll.convert(currentScroll.bounds, to: nil)) clearanceFrame=\(clearance.bounds) clearanceTop=\(clearance.top) remaining=\(remainingClearance) capturedInset=\(scroll.scrollerInsets.top) currentInset=\(currentScroll.scrollerInsets.top)")
-                XCTAssertTrue(currentScroll.window === window, "The asserted scrollbar must belong to the current mounted reader")
-                XCTAssertEqual(remainingClearance, 0, "Find must move the current reader below the whole control band")
-                XCTAssertEqual(currentScroll.scrollerInsets.top, 0,
-                    "The docked controls already consume the toolbar and menu clearance")
-                state.showFind = false
-                try await settle()
-                let restoredScroll = try XCTUnwrap(state.readerScrollView)
-                XCTAssertTrue(restoredScroll.window === window)
-                XCTAssertEqual(restoredScroll.convert(restoredScroll.bounds, to: nil), bookFrame,
-                    "Closing Find must restore the current reader's original frame")
-                XCTAssertEqual(restoredScroll.contentView.safeAreaRect.size, viewport)
-                XCTAssertTrue(NSEdgeInsetsEqual(restoredScroll.scrollerInsets, trackInsets),
-                    "Closing Find must restore the original live scrollbar clearance for \(mode.rawValue), margin \(margin)")
             }
         }
     }
