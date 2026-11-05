@@ -138,6 +138,9 @@ private struct ReaderFloatingLayout: Layout {
 
 /// Home is a separate launch surface, with a fixed header in its layout.
 @MainActor struct ReaderHomeHeader: View {
+    @ObservedObject var state: ReaderState
+    private var visible: Bool { !state.windowFullscreen || state.toolbarHoverVisible }
+
     var body: some View {
         HStack(spacing: 0) {
             ReaderFloatingWindowButtons().frame(width: 54, height: 20)
@@ -148,6 +151,9 @@ private struct ReaderFloatingLayout: Layout {
         .background(Color(nsColor: .windowBackgroundColor))
         .background(ReaderHomeDragRegion())
         .accessibilityElement(children: .contain).accessibilityIdentifier("home-header")
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+        .accessibilityHidden(!visible)
     }
 }
 

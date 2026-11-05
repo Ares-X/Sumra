@@ -589,7 +589,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
         window.title = "Home chrome integration fixture"
         let state = ReaderState(recordsHistory: false)
         state.window = window
-        let host = NSHostingView(rootView: ReaderHomeHeader())
+        let host = NSHostingView(rootView: ReaderHomeHeader(state: state))
         window.contentView = host; window.orderBack(nil)
         defer { window.contentView = nil; window.orderOut(nil); window.close(); state.windowClosed() }
         func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }

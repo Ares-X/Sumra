@@ -14,6 +14,56 @@ than its observations supported. The regressions below exercise the actual owner
 of each demonstrated failure. Simulated AppKit state, direct button actions and
 offscreen rendering are recorded separately from real desktop interactions.
 
+## Complete report review (2026-11-05)
+
+The 15 items below were re-read against the original text and all attached
+videos/screenshots. Previous passing observations remain valid for their stated
+sequence; they do not establish that the entire issue is fixed. In particular,
+T4 reproduces in installed 0.2.34. The combined 0.2.35 candidate is accepted
+within the evidence boundaries below; publication and installed update are pending.
+
+| Item | Original sequence that must be preserved | Current conclusion / next check |
+| --- | --- | --- |
+| W1 | Home hover in/out → green enters fullscreen → pointer leaves without clicking → reveal → green exits → pointer leaves | Home button bodies remain visible in installed 0.2.34 fullscreen. Mounted regressions reject the old behavior. Signed 0.2.35 hides the entire header after fullscreen entry/body focus and restores it on exit. The user confirms pointer-only hiding, reveal and green-button exit in that signed package. |
+| W2 | Floating single document → hover green until system move/resize menu appears → leave/re-enter → green fullscreen → pointer-only leave | The user confirms signed 0.2.35 Auto Hide: green-button system menu → leave/re-enter → fullscreen → pointer-only leave/reveal, then exit with responsive button glyphs. The initial handoff mistakenly left Always Show selected; its failure to auto-hide was an invalid test precondition, not a product regression. |
+| T1 | Two original EPUB tabs → click the unselected tab's top/middle/bottom → actual fullscreen → repeat after horizontal scrolling | Final preview passes 12 physical clicks at both original tabs' top/middle/bottom, windowed and fullscreen after horizontal gestures. The offscreen click fixture could not dispatch selection and was retired. No remaining failure reproduced; the original failure is not fully explained. |
+| T2 | Four mixed-format floating tabs → select left/middle/right (scrolling if needed) → red closes the whole group; tab x closes one | Owner regression covers all selection positions. Final preview repeats four mixed tabs with the third selected: physical red closes all four; the Window menu contains no remaining document. Prior individual tab-x behavior remains covered. |
+| T3 | Four normal tabs, third selected → close third → keep pointer in bar and select surviving left/middle/right → only then leave bar | Final preview repeats four-to-three with the third selected. Immediate close and middle selection fill the bar without the pointer leaving. Left/right clicks select correctly, but those captures omit native chrome, so their paint is unverified. No separate root cause established. |
+| T4 | Normal fullscreen → one Open operation selects six mixed formats → inspect Spaces → exit fullscreen → activate every new tab; separately floating duplicate | **REPRODUCED in installed 0.2.34 and corrected:** new MOBI/FB2/AZW3/CBZ retained stale zero native-button opacity. Exact signed 0.2.35 repeats the one-operation six-format open and exit; all seven tabs expose close/minimize/enabled fullscreen. The user confirms all four previously affected formats show their buttons and Mission Control has no extra black desktop after this batch sequence. |
+| C1 | Floating fullscreen on each current display, including menu-excluded window frame | Signed 0.2.34 and human follow-up establish the corrected 16pt window inset. Reuse this evidence unless touched. |
+| C2 | Another app active → first click normal reader top → switch to another Sumra window by its top; Show/Auto/Hide | Prior Calculator→Auto pass covers only one mode/window transition. Complete the sequence with both windows. |
+| C3 | Normal Always Hide window → top-left reveal → fullscreen → New Tab/open file → reveal again; only window controls, no tab shadow | Exact signed 0.2.35 repeats Always Hide → top-left click → native green fullscreen → open original I. Windowed reveal exposes only the three controls; the fullscreen new document has no toolbar/tab shadow. Pure hover remains separate from the AX button/click evidence. |
+| C4 | CBZ/CBR, normal progress Auto, normal toolbar Auto then Hide → reveal footer | Generated owner regression and actual comic footer pass exist. Preserve the reserved row and page position while checking adjacent scrollbar behavior. |
+| L1 | Original second-round C, two pages/cover off → resize larger and through extreme shapes | Pixel regression and user's installed-version resize pass are valid. They do not establish continuous first-frame timing; no need to erase that bounded acceptance. |
+| L2 | First file open, paged Actual/zoom, Auto toolbar/progress, no resize → reveal both controls and drag both axes → fullscreen → Always Show without/with tabs | Both excess-clearance defects have failing-before regressions. Exact signed 0.2.35 passes Actual/200%, Auto → fullscreen, both physical scrollbar drags to AX 1.0, exit → Always Show, and native tabs → separate single window, with adjacent tracks and no resize. Uses the captioned C substitute. The unavailable Carpenters book and rare half-obscured case remain unverified. |
+| L3 | A three pictured shapes; captioned original C four pictured shapes; I minimum-width/max-height Actual; second-round C narrow/tall Actual, all cover off/two pages | Prior A/second-round C observations remain valid. Final preview adds the historical captioned C candidate in tall and wide Actual/Fit Page and I in tall Actual. CUA did not achieve the actual minimum width; do not treat half-screen width as that boundary. Exact captioned-file identity remains unknown. |
+| P1 | Palette Home/Open/Browse Files and thumbnail Page2/Page3 single clicks; separate real double-click/Return execution | Final preview physical single clicks on Home/Open/Browse Files select and keep the palette open. Thumbnail single click → Down → Return opens page 3; physical double-click opens page 2. Exact first-highlight latency remains unmeasured; AX row activation is not a mouse-click substitute. |
+| P2 | Focus search → click action row → immediately Up/Down → Return, also after scrolling | Stable responder regression and baseline comparison pass. Final preview repeats physical search focus → Home row click → Down → Return and opens the real Open dialog. Thumbnail keyboard execution also passes. |
+
+Follow-ups from this chat are part of the same acceptance scope: adaptive floating
+tab width and wheel reachability (0.2.33), corner resize versus drag, native blank
+titlebar dragging and floating fullscreen gap (0.2.34), and Home fullscreen
+control visibility (accepted signed 0.2.35 candidate). They must not be confused with the similarly named
+native Always Hide reader controls in C3.
+
+The remaining work is grouped into coherent journeys rather than separate
+releases: Home/floating hover; normal fullscreen batch-open and tab closing;
+external activation and Always Hide; first-open paged scrollbars/comic footer;
+exact EPUB examples; palette/thumbnail selection and execution. Fix demonstrated
+failures at their owners, run affected regressions, then replay the changed
+journeys in one final signed package before promotion. Missing physical hover,
+continuous frames or Mission Control observations stay explicitly unverified.
+
+Original-media review and current installed reproduction receipts are retained
+under `build/issue118/full-review-20261105` in the primary checkout. The six-format
+replay uses the existing reporter format sampler. Its MOBI is named
+`sample_illustrated.mobi`; the original video shows `sample_illustrated2.mobi`,
+so byte identity of that one file is not established. The captioned C candidate
+is the earlier reporter `misalignedepubC.epub` (SHA-256
+`08401f026d2ee35a89d982abd30a44699c6fea9ef106dd7ecc9817c483bcea9d`),
+whose vertical image and `IMAGE SUBTITLE` match the pictured structure; exact
+identity with the issue's `repeat-misalignedepubC.epub` is not established.
+
 ## Behavior and evidence
 
 | Report | Change and regression evidence | Real desktop evidence / remaining work |
@@ -258,6 +308,113 @@ active consumers. The rejected private 0.2.34 draft is removed; one exact reject
 ZIP, source hashes and failure evidence remain locally until reporter confirmation.
 The installed 0.2.34 app remains open for the user. Physical macOS 13, hardware
 trackpad momentum and exhaustive Spaces transitions were not exercised.
+
+### Home fullscreen follow-up after 0.2.34
+
+The user reported the welcome window's traffic lights remaining visible in
+fullscreen. This is a custom Home header, not the reader's progress/status bar.
+The installed 0.2.34 reproduces it: after native fullscreen entry, clicking the
+central search field leaves the red and green controls visibly painted while
+minimize is disabled. This sequence was not included in the earlier signed
+reader acceptance. The Home regression only mounted its header at two windowed
+widths, without the window chrome observer or a fullscreen transition.
+
+Home's header was unconditional and the existing pointer owner explicitly
+required a document. The correction lets fullscreen Home use that same pointer
+owner independently of reading-toolbar preferences. Its header observes native
+fullscreen state, hiding paint, hit targets and accessibility together while
+retaining its layout space. Windowed Home keeps its controls visible.
+
+This follow-up requires its own regression, signed-package and installed-update
+evidence. It does not establish that every sequence in the original report is
+resolved.
+
+### Combined fullscreen and scrollbar correction
+
+Replaying normal fullscreen followed by one six-format Open operation reproduced
+the missing native controls in installed 0.2.34. The chrome owner captured zero
+button opacity while those new windows were fullscreen, then restored that stale
+value after AppKit returned them to windowed mode. Native button opacity now
+remains with AppKit throughout attachment, updates and teardown. The new owner
+regression fails against the old implementation. In the preview, all seven tabs
+retain close, minimize and fullscreen accessibility controls after exit; some
+shared-window captures omit the separate native titlebar, so this alone is not
+complete painted-control acceptance.
+
+The first-open paged replay also found both parts of the reported scrollbar gap.
+Changing `scrollerInsets` deferred actual track layout until another native layout
+event. The old tests themselves called `tile()` before checking the track. The
+owner now tiles when its inset changes, and the test observes actual tracks
+immediately across nonzero, changed and zero clearance in both scroller styles.
+
+In Always Show, SwiftUI's scroll view can still extend under the native titlebar
+while its `contentInsets` already reserve that area. Real geometry logging showed
+a 38pt overlap, 45.5pt content inset (native area plus content padding), and a
+second 38pt scroller inset. With a tab bar, the overlap grew to 66pt. A request
+for zero overlay clearance now leaves that existing native reserve alone; Auto
+Hide retains the explicit overlay clearance. A separate native geometry test
+reproduces the duplicate reserve and checks the actual track without moving the
+viewport or changing the system-owned content inset. Both new scrollbar cases
+fail before their respective corrections.
+
+The linked-SDK 15.5 diagnostic run uses the local compiler and a changed test-host
+SDK policy stamp, not the release compiler. Its existing Always Hide offscreen
+hit-test case fails identically against both the shipped and candidate owners;
+the three native controls paint and the overlay yields, but the root hit target
+differs in that isolated host. This is retained as a diagnostic limitation rather
+than deleting the assertion or treating the invocation as green. Actual signed
+Always Hide acceptance remains necessary.
+
+The final source has passing evidence for 15 affected cases across the focused
+SDK-policy and normal-host runs. This combines 14 passes in the diagnostic batch
+with the unchanged Always Hide case's normal-host pass; it is not a claim that
+the diagnostic invocation was wholly green. Source inputs stayed frozen and
+isolated preference/pasteboard suites were cleaned after every run.
+
+The final ad-hoc preview repeats first-open paged Actual Size, Auto to Always
+Show, Show Tab Bar, Hide Tab Bar, fullscreen at 200%, both scrollbar drags near
+their far ends (AX values above 0.998), exit fullscreen and Always Show. Tracks now remain adjacent to the current
+native controls without a resize, with no accumulated top gap. The historical
+captioned C is used explicitly as a substitute for the unavailable Carpenters
+book. This preview uses a local compiler with the SDK-policy stamp; the exact
+signed-package observations follow below, and the installed update remains pending.
+
+### Exact signed 0.2.35 candidate
+
+[PR #128](https://github.com/Ares-X/Sumra/pull/128) groups the Home fullscreen,
+native-button lifecycle and scrollbar corrections. The
+[candidate workflow](https://github.com/Ares-X/Sumra/actions/runs/42014573419)
+built source `ef1fb5fdf451f6acf9e7f02cb537db62a918bb4d` as 0.2.35 (37), using
+Swift 6.1.2 and SDK 15.5. All asset hashes, frozen source correspondence,
+140 signed app-file hashes, original certificate, deep strict code signature and
+public-key-only Sparkle verification pass. Candidate manifest SHA-256:
+`1527e3bef5537cae0a5b97e90d8f55ebcef372642ad6963b2c08f86a12a87ef0`.
+
+On macOS 27.0.1, this exact package passes Home fullscreen/body-focus header
+hiding and exit restoration, the normal fullscreen six-format batch-open/exit
+with seven complete native control sets, and the signed scrollbar journey in L2
+above. Both actual fullscreen scrollbar drags reach AX 1.0. The Always Hide
+new-file chain exposes only window controls in the windowed reveal and no
+residual toolbar/tab strip in the captured fullscreen document.
+
+Finder icon view renders fresh original-I and numbered-comic thumbnails.
+Quick Look advances original I from chapter 1 to 2 and the comic from page 1 to
+2. Both extension process paths point to the exact candidate. The temporary
+Finder and Quick Look windows and the candidate app are closed. Candidate
+extension registrations are removed, installed 0.2.34 registrations restored,
+and scoped preferences restored with the private backup removed.
+
+The user confirms pure pointer-only Home hiding/reveal/exit, native button paint
+in the previously affected MOBI/FB2/AZW3/CBZ tabs, and no extra black desktops in
+Mission Control. The floating replay first had an invalid precondition: the
+handoff left Always Show selected while asking for Auto Hide behavior. After
+selecting Auto Hide, the user confirms system-menu hover, fullscreen hide/reveal
+and responsive windowed button glyphs. No code change was made for that setup
+error. The candidate is accepted for promotion. No claim is made for physical
+macOS 13, continuous first-frame timing, actual minimum-width C/I geometry,
+all three C2 modes across two windows, or missing reporter sample bytes.
+Receipts and viewed contact sheets are under
+`build/issue118/full-review-20261105/release` in the primary checkout.
 
 ### Original 0.2.32 checks
 

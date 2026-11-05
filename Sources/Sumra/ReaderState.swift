@@ -473,12 +473,13 @@ final class ReaderState: ObservableObject {
     @Published var rectangularSelection = false
     @Published var hasSelection = false
     @Published var toolbarDisplayMode = ReaderToolbarDisplayMode.load() {
-        didSet { if toolbarDisplayMode != oldValue { toolbarHoverVisible = false } }
+        didSet { if hasDocument, toolbarDisplayMode != oldValue { toolbarHoverVisible = false } }
     }
     @Published var toolbarHoverVisible = false {
         didSet { if !toolbarHoverVisible, toolbarHoverOpacity != 0 { toolbarHoverOpacity = 0 } }
     }
     @Published var toolbarHoverOpacity = 0.0
+    @Published var windowFullscreen = false
     @Published var immersiveControls = UserDefaults.standard.bool(forKey: "immersiveControls")
     var usesFloatingChrome: Bool { hasDocument && immersiveControls && !presentation }
     var usesCustomChrome: Bool { !hasDocument || usesFloatingChrome }
