@@ -86,13 +86,14 @@ final class QuickLookBookTests: XCTestCase {
     }
 
     @MainActor
-    private func previewControls(_ controller: PreviewViewController) throws -> (NSButton, NSTextField, NSButton, QuickLookPageView) {
+    private func previewControls(_ controller: PreviewViewController) throws -> (NSButton, NSTextField, NSButton, QuickLookPageView, NSTextField) {
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
         let views = descendants(controller.view)
         return (try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "‹" }),
-                try XCTUnwrap(views.compactMap { $0 as? NSTextField }.first),
+                try XCTUnwrap(views.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue != "previewError" }),
                 try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "›" }),
-                try XCTUnwrap(views.compactMap { $0 as? QuickLookPageView }.first))
+                try XCTUnwrap(views.compactMap { $0 as? QuickLookPageView }.first),
+                try XCTUnwrap(views.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "previewError" }))
     }
 
     @MainActor
@@ -114,14 +115,18 @@ final class QuickLookBookTests: XCTestCase {
         window.contentViewController = controller
         defer { controller.viewDidDisappear(); window.contentViewController = nil; window.close() }
         try await controller.preparePreviewOfFile(at: url)
-        let (previous, label, next, pageView) = try previewControls(controller)
+        let (previous, label, next, pageView, errorLabel) = try previewControls(controller)
+        controller.view.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThanOrEqual(previous.frame.width, 44); XCTAssertGreaterThanOrEqual(previous.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(next.frame.width, 44); XCTAssertGreaterThanOrEqual(next.frame.height, 44)
         XCTAssertFalse(previous.isEnabled); XCTAssertTrue(next.isEnabled)
         next.performClick(nil)
         try await waitForPreview("Next button must display page 2") { label.stringValue == "2/3" }
         let lastImage = try XCTUnwrap(pageView.image)
         XCTAssertTrue(previous.isEnabled); XCTAssertTrue(next.isEnabled)
         next.performClick(nil)
-        try await waitForPreview("Decode failure must be visible") { label.stringValue.contains("03.png") }
+        try await waitForPreview("Decode failure must be visible") { !errorLabel.isHidden && errorLabel.stringValue.contains("03.png") }
+        XCTAssertEqual(label.stringValue, "2/3")
         XCTAssertTrue(pageView.image === lastImage, "A failed page must retain the successful bitmap")
         XCTAssertTrue(previous.isEnabled); XCTAssertTrue(next.isEnabled)
         XCTAssertTrue(window.makeFirstResponder(controller.view))
@@ -130,6 +135,7 @@ final class QuickLookBookTests: XCTestCase {
             isARepeat: false, keyCode: 123))
         try XCTUnwrap(window.firstResponder).keyDown(with: left)
         try await waitForPreview("Left key must return from the failed page to page 1") { label.stringValue == "1/3" }
+        XCTAssertTrue(errorLabel.isHidden)
         XCTAssertFalse(previous.isEnabled); XCTAssertTrue(next.isEnabled)
         let right = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "\u{f703}", charactersIgnoringModifiers: "\u{f703}",
@@ -148,16 +154,18 @@ final class QuickLookBookTests: XCTestCase {
         let controller = PreviewViewController()
         defer { controller.viewDidDisappear() }
         try await controller.preparePreviewOfFile(at: first)
-        let (previous, label, next, pageView) = try previewControls(controller)
+        let (previous, label, next, pageView, errorLabel) = try previewControls(controller)
         let firstImage = try XCTUnwrap(pageView.image)
         next.performClick(nil)
-        try await waitForPreview("The bad second image must report its name") { label.stringValue.contains("02.png") }
+        try await waitForPreview("The bad second image must report its name") { !errorLabel.isHidden && errorLabel.stringValue.contains("02.png") }
+        XCTAssertEqual(label.stringValue, "1/2")
         XCTAssertTrue(pageView.image === firstImage)
         XCTAssertFalse(previous.isEnabled); XCTAssertTrue(next.isEnabled)
         next.performClick(nil)
         // Replace while a navigation task is still outstanding on the main actor.
         try await controller.preparePreviewOfFile(at: replacement)
         XCTAssertEqual(label.stringValue, "1/2")
+        XCTAssertTrue(errorLabel.isHidden)
         XCTAssertFalse(previous.isEnabled); XCTAssertTrue(next.isEnabled)
         next.performClick(nil)
         try await waitForPreview("Replacement navigation must not be blocked or overwritten by the cancelled task") { label.stringValue == "2/2" }

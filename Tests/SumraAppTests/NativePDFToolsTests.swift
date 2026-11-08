@@ -98,10 +98,14 @@ final class NativePDFToolsTests: XCTestCase {
         XCTAssertFalse(after.editingEnabled)
     }
 
+    private func readAttachments(_ file: NativeFile) throws -> [PDFTools.Attachment] {
+        try file.pdfAttachmentMetadata().map { try file.pdfAttachment($0) }
+    }
+
     func testLivePDFExportsMetadataAndAllAttachmentContainersWithoutChangingTheDocument() throws {
         let directory = try fixtureDirectory(), source = directory.appendingPathComponent("attachments-and-xmp.pdf")
         let xmp = "<?xpacket begin=''?><x:xmpmeta xmlns:x='adobe:ns:meta/'>原始 metadata</x:xmpmeta><?xpacket end='w'?>"
-        func stream(_ value: String) -> String { "<< /Length \(value.utf8.count) >>\nstream\n\(value)\nendstream" }
+        func stream(_ value: String) -> String { "<< /Params << /Size \(value.utf8.count) >> /Length \(value.utf8.count) >>\nstream\n\(value)\nendstream" }
         let bytes = rawPDF([
             "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles 11 0 R >> /AF [7 0 R] /Metadata 17 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -120,7 +124,12 @@ final class NativePDFToolsTests: XCTestCase {
         try bytes.write(to: source)
         let file = try NativeFile(source, engine: .mupdf), before = try XCTUnwrap(file.pdfInfo())
         XCTAssertEqual(try file.pdfXMP(), Data(xmp.utf8))
-        let attachments = try file.pdfAttachments()
+        let metadata = try file.pdfAttachmentMetadata()
+        XCTAssertEqual(metadata.map(\.size), [6, 4, 7, 6, 10])
+        XCTAssertEqual(try file.pdfAttachment(metadata[1]).data, Data("root".utf8))
+        let another = try NativeFile(source, engine: .mupdf)
+        XCTAssertThrowsError(try another.pdfAttachment(metadata[1]))
+        let attachments = try metadata.map { try file.pdfAttachment($0) }
         XCTAssertEqual(attachments.map(\.name), ["shared.txt", "root.txt", "unicode.txt", "legacy.txt", "annotation.txt"])
         XCTAssertEqual(attachments.map(\.data), ["shared", "root", "unicode", "legacy", "annotation"].map { Data($0.utf8) })
         XCTAssertEqual(attachments.first?.description, "Shared attachment")
@@ -132,14 +141,14 @@ final class NativePDFToolsTests: XCTestCase {
         try Data("unsaved replacement".utf8).write(to: replacement)
         try file.pdfSetEditing(true)
         try file.pdfEditAnnotation(page: 0, id: 5, edits: [.attachment(replacement, filename: "replacement.bin", mime: "application/octet-stream")])
-        let changed = try file.pdfAttachments()
+        let changed = try readAttachments(file)
         XCTAssertFalse(changed.contains { $0.name == "annotation.txt" })
         XCTAssertEqual(changed.first { $0.name == "replacement.bin" }?.data, Data("unsaved replacement".utf8))
         XCTAssertEqual(try Data(contentsOf: source), bytes, "Exports read the live edit without reopening or rewriting its source")
         let encrypted = directory.appendingPathComponent("no-copy.pdf")
         try NativePDFTools.encrypt(source: source, destination: encrypted, ownerPassword: "owner", userPassword: "reader", permissions: 1)
         let restricted = try NativeFile(encrypted, engine: .mupdf, password: "reader")
-        XCTAssertThrowsError(try restricted.pdfAttachments())
+        XCTAssertThrowsError(try readAttachments(restricted))
         XCTAssertEqual(try restricted.pdfXMP(), Data(xmp.utf8), "Metadata remains readable without content-copy permission")
     }
 
@@ -170,7 +179,12 @@ final class NativePDFToolsTests: XCTestCase {
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Native/AttachmentCompressionLimit.pdf")
         let file = try NativeFile(source, engine: .mupdf), before = try XCTUnwrap(file.pdfInfo())
-        // A 144 MiB Flate stream exceeds MuPDF's existing relative compression threshold.
+        // Listing must not decode the 144 MiB Flate stream; extracting it retains MuPDF's limit.
+        let metadata = try file.pdfAttachmentMetadata()
+        XCTAssertEqual(metadata.count, 1)
+        XCTAssertThrowsError(try file.pdfAttachment(metadata[0])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("compression bomb"), error.localizedDescription)
+        }
         XCTAssertThrowsError(try file.pdfAttachment(page: 0, id: 4)) { error in
             XCTAssertTrue(error.localizedDescription.contains("compression bomb"), error.localizedDescription)
         }
@@ -2487,11 +2501,11 @@ final class NativePDFToolsTests: XCTestCase {
         let visibleAnnotations = try reopened.pdfAnnotations(0)
         XCTAssertEqual(visibleAnnotations.count, types.count)
         XCTAssertEqual(Set(visibleAnnotations.map(\.type)), Set(types), "MuPDF must keep the structural Popup out of the reader's annotation list")
-        XCTAssertEqual(try reopened.pdfAttachments().first?.name, "attached.txt")
-        XCTAssertEqual(try reopened.pdfAttachments().first?.data, payload)
+        XCTAssertEqual(try readAttachments(reopened).first?.name, "attached.txt")
+        XCTAssertEqual(try readAttachments(reopened).first?.data, payload)
         let next = directory.appendingPathComponent("saved-again.pdf")
         try reopened.pdfWrite(to: next)
-        XCTAssertEqual(try NativeFile(next, engine: .mupdf).pdfAttachments().first?.data, payload)
+        XCTAssertEqual(try readAttachments(NativeFile(next, engine: .mupdf)).first?.data, payload)
     }
 
     @MainActor func testAnnotationOpacityUsesNativeAppearanceAndSurvivesSaving() throws {
@@ -2568,7 +2582,7 @@ final class NativePDFToolsTests: XCTestCase {
         let independent = try XCTUnwrap(PDFDocument(url: output))
         XCTAssertEqual(independent.page(at: 0)?.annotations.first?.contents, "edited note")
         let reopened = try NativeFile(output, engine: .mupdf)
-        XCTAssertEqual(try reopened.pdfAttachments().first?.data.count, size)
+        XCTAssertEqual(try readAttachments(reopened).first?.data.count, size)
         XCTAssertEqual(try Data(contentsOf: source), bytes)
     }
 
@@ -2595,7 +2609,7 @@ final class NativePDFToolsTests: XCTestCase {
         let saved = try XCTUnwrap(PDFDocument(url: output))
         XCTAssertTrue(saved.isEncrypted); XCTAssertTrue(saved.unlock(withPassword: "owner"))
         let reopened = try NativeFile(output, engine: .mupdf, password: "owner")
-        XCTAssertEqual(try reopened.pdfAttachments().first?.data, replacementBytes)
+        XCTAssertEqual(try readAttachments(reopened).first?.data, replacementBytes)
         var annots: CGPDFArrayRef?, annotation: CGPDFDictionaryRef?, additional: CGPDFDictionaryRef?, action: CGPDFDictionaryRef?, uri: CGPDFStringRef?
         XCTAssertTrue(CGPDFDictionaryGetArray(try XCTUnwrap(saved.page(at: 0)?.pageRef?.dictionary), "Annots", &annots))
         XCTAssertTrue(CGPDFArrayGetDictionary(try XCTUnwrap(annots), 0, &annotation))
@@ -2605,7 +2619,7 @@ final class NativePDFToolsTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(CGPDFStringCopyTextString(XCTUnwrap(uri))) as String, "https://example.org/original")
         let again = directory.appendingPathComponent("replaced-again.pdf")
         try reopened.pdfWrite(to: again)
-        XCTAssertEqual(try NativeFile(again, engine: .mupdf, password: "owner").pdfAttachments().first?.data, replacementBytes)
+        XCTAssertEqual(try readAttachments(NativeFile(again, engine: .mupdf, password: "owner")).first?.data, replacementBytes)
         let target = directory.appendingPathComponent("clipboard-target.pdf"), pasted = directory.appendingPathComponent("pasted.pdf")
         try rawPDF(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
                     "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] >>"]).write(to: target)
@@ -2617,7 +2631,7 @@ final class NativePDFToolsTests: XCTestCase {
             edits: [.attachment(asset, filename: copied.name, mime: "application/octet-stream")]))
         try FileManager.default.removeItem(at: asset)
         try destination.pdfWrite(to: pasted)
-        XCTAssertEqual(try NativeFile(pasted, engine: .mupdf).pdfAttachments().first?.data, replacementBytes)
+        XCTAssertEqual(try readAttachments(NativeFile(pasted, engine: .mupdf)).first?.data, replacementBytes)
         XCTAssertEqual(try Data(contentsOf: encrypted), protected)
     }
 

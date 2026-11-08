@@ -13,7 +13,20 @@ struct BrowserPrintSnapshot: Decodable, Sendable {
     let html: String
     let resources: [Resource]
 
-    func makePDF(source: any BrowserSource, directory: URL) async throws -> (url: URL, count: Int) {
+    func makePDF(source: any BrowserSource, directory: URL, archive: Data? = nil) async throws -> (url: URL, count: Int) {
+        var archived: [URL: Data] = [:]
+        if let archive {
+            let root = try PropertyListSerialization.propertyList(from: archive, format: nil)
+            func collect(_ value: Any) {
+                guard let frame = value as? [String: Any] else { return }
+                for item in (frame["WebSubresources"] as? [[String: Any]] ?? []) {
+                    if let name = item["WebResourceURL"] as? String, let url = URL(string: name),
+                       let data = item["WebResourceData"] as? Data { archived[url] = data }
+                }
+                for child in (frame["WebSubframeArchives"] as? [Any] ?? []) { collect(child) }
+            }
+            collect(root)
+        }
         if !resources.isEmpty {
             try FileManager.default.createDirectory(at: directory.appendingPathComponent("resources"),
                                                     withIntermediateDirectories: false)
@@ -31,15 +44,37 @@ struct BrowserPrintSnapshot: Decodable, Sendable {
                     guard let decoded = Data(base64Encoded: payload) else { throw ReadError("Invalid embedded print resource") }
                     data = decoded
                 } else {
-                    guard let decoded = payload.removingPercentEncoding else { throw ReadError("Invalid embedded print resource") }
-                    data = Data(decoded.utf8)
+                    let bytes = Array(payload.utf8)
+                    var decoded = Data(), index = 0
+                    func hex(_ byte: UInt8) -> UInt8? {
+                        switch byte {
+                        case 48...57: return byte - 48
+                        case 65...70: return byte - 55
+                        case 97...102: return byte - 87
+                        default: return nil
+                        }
+                    }
+                    while index < bytes.count {
+                        if bytes[index] == 37 {
+                            guard index + 2 < bytes.count, let high = hex(bytes[index + 1]),
+                                  let low = hex(bytes[index + 2]) else { throw ReadError("Invalid embedded print resource") }
+                            decoded.append(high << 4 | low); index += 3
+                        } else {
+                            decoded.append(bytes[index]); index += 1
+                        }
+                    }
+                    data = decoded
                 }
             case "https", "http":
-                let result = try await URLSession.shared.data(from: resource.url)
-                guard let response = result.1 as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-                    throw ReadError("Cannot read print resource: " + resource.url.absoluteString)
+                if let loaded = archived[resource.url] {
+                    data = loaded
+                } else {
+                    let result = try await URLSession.shared.data(from: resource.url)
+                    guard let response = result.1 as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
+                        throw ReadError("Cannot read print resource: " + resource.url.absoluteString)
+                    }
+                    data = result.0
                 }
-                data = result.0
             default: throw ReadError("Unsupported print resource: " + resource.url.absoluteString)
             }
             try data.write(to: directory.appendingPathComponent(resource.path))
@@ -702,8 +737,17 @@ struct BrowserReader: NSViewRepresentable {
                         let value = try result.get()
                         let snapshot = try JSONDecoder().decode(BrowserPrintSnapshot.self,
                             from: JSONSerialization.data(withJSONObject: value))
+                        let needsArchive = snapshot.resources.contains { ["http", "https"].contains($0.url.scheme) }
+                        let archive: Data?
+                        if needsArchive {
+                            archive = try await withCheckedThrowingContinuation { continuation in
+                                view.createWebArchiveData { continuation.resume(with: $0) }
+                            }
+                        } else { archive = nil }
+                        try Task.checkCancellation()
+                        guard self.isPrintCurrent(job, view: view) else { return }
                         let directory = try TemporaryDirectory()
-                        let pdf = try await snapshot.makePDF(source: self.source, directory: directory.url)
+                        let pdf = try await snapshot.makePDF(source: self.source, directory: directory.url, archive: archive)
                         try Task.checkCancellation()
                         guard self.isPrintCurrent(job, view: view) else { return }
                         self.printDirectory = directory

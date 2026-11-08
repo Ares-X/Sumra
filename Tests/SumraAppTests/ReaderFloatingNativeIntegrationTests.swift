@@ -308,6 +308,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
         let role: NSAccessibility.Role
         let label: String?
         let value: String?
+        let help: String?
         let frame: CGRect
         let identifier: String?
         func accessibilityRole() -> NSAccessibility.Role { role }
@@ -346,7 +347,8 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
                 width: size.width, height: size.height)
             let item = AccessibleElement(role: NSAccessibility.Role(rawValue: attribute(element, kAXRoleAttribute) as? String ?? ""),
                 label: attribute(element, kAXDescriptionAttribute) as? String ?? attribute(element, kAXTitleAttribute) as? String,
-                value: attribute(element, kAXValueAttribute) as? String, frame: frame,
+                value: attribute(element, kAXValueAttribute) as? String,
+                help: attribute(element, kAXHelpAttribute) as? String, frame: frame,
                 identifier: attribute(element, kAXIdentifierAttribute) as? String)
             return [item] + (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).flatMap(descendants)
         }
@@ -356,6 +358,30 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
     private func frame(of element: AccessibleElement, in view: NSView) -> CGRect {
         guard let window = view.window else { return .zero }
         return view.convert(window.convertFromScreen(element.frame), from: nil)
+    }
+
+    func testSingleFloatingDocumentExposesFullTitleWhenNarrow() async throws {
+        _ = NSApplication.shared; NSApp.finishLaunching()
+        let title = "a-long-document-title-that-does-not-fit-the-floating-tab.epub"
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/\(title)"), content: .text("book"))
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 180, height: 80),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.title = "Single floating document title test"
+        window.alphaValue = 0; window.ignoresMouseEvents = true
+        state.window = window
+        let host = NSHostingView(rootView: ReaderDocumentTabs(state: state))
+        window.contentView = host; window.orderBack(nil)
+        defer { state.windowClosed(); window.contentView = nil; window.orderOut(nil); window.close() }
+        for _ in 0..<30 {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let elements = try accessibleElements(in: window)
+        let titleElement = try XCTUnwrap(elements.first { $0.help == title })
+        XCTAssertLessThan(titleElement.frame.width, (title as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium)
+        ]).width, "The complete title must remain discoverable when its visible text is truncated")
     }
 
     func testEmptyContentsHeaderRemainsAtTheTopOfItsPane() async throws {
@@ -658,7 +684,9 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
             XCTAssertEqual(buttons.count, 4, "Both documents keep independent selection and close targets")
             let closeButtons = buttons.filter { $0.accessibilityLabel()?.hasPrefix(L("Close Tab") + ": ") == true }
             XCTAssertEqual(closeButtons.count, 2)
-            XCTAssertTrue(closeButtons.allSatisfy { $0.accessibilityFrame().height >= 20 })
+            XCTAssertTrue(closeButtons.allSatisfy {
+                $0.accessibilityFrame().width >= 28 && $0.accessibilityFrame().height >= 28
+            }, "Close targets should fill the tab height and remain easy to hit")
             for title in ["first-book.epub", "second-book.epub"] {
                 let selection = try XCTUnwrap(buttons.first { $0.accessibilityLabel() == title })
                 XCTAssertGreaterThanOrEqual(selection.accessibilityFrame().height, 28,
@@ -667,7 +695,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
             if width >= 360 {
                 let frame = scroll.convert(scroll.bounds, to: host)
                 let lastClose = try XCTUnwrap(closeButtons.map { self.frame(of: $0, in: host) }.max { $0.maxX < $1.maxX })
-                XCTAssertEqual(lastClose.maxX, frame.maxX - 8, accuracy: 1,
+                XCTAssertEqual(lastClose.maxX, frame.maxX - 4, accuracy: 1,
                                "Fitting tabs use the available strip instead of leaving an empty trailing region")
             } else {
                 XCTAssertGreaterThan(try XCTUnwrap(scroll.documentView).bounds.width, scroll.contentView.bounds.width,

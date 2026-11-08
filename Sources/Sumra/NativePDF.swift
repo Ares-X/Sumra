@@ -287,10 +287,12 @@ extension NativeFile {
     }
 
     private static func pdfAttachment(name: String?, description: String?, data: Data) -> PDFTools.Attachment {
-        let rawName = name ?? "attachment"
-        let filename = (rawName.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent
-        return .init(name: filename.isEmpty || filename == "." || filename == ".." ? "attachment" : filename,
-                     description: description, data: data)
+        .init(name: pdfAttachmentName(name), description: description, data: data)
+    }
+
+    private static func pdfAttachmentName(_ name: String?) -> String {
+        let filename = ((name ?? "attachment").replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent
+        return filename.isEmpty || filename == "." || filename == ".." ? "attachment" : filename
     }
 
     func pdfXMP() throws -> Data? {
@@ -304,20 +306,35 @@ extension NativeFile {
         return Data(bytesNoCopy: bytes, count: length, deallocator: .free)
     }
 
-    func pdfAttachments() throws -> [PDFTools.Attachment] {
-        typealias Output = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<UInt8>?, Int) -> Void
+    func pdfAttachmentMetadata() throws -> [PDFTools.AttachmentMetadata] {
+        typealias Output = @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32, Int32, Int64) -> Void
         typealias Get = @convention(c) (UnsafeMutableRawPointer, Output, UnsafeMutableRawPointer, UnsafeMutablePointer<CChar>) -> Int32
-        var attachments = [PDFTools.Attachment]()
-        _ = try withUnsafeMutablePointer(to: &attachments) { result in
-            try pdfCall("lf_pdf_live_attachments", Get.self) { get, error in
-                get(document, { result, name, description, bytes, length in
-                    let data = bytes.map { Data(bytes: $0, count: length) } ?? Data()
-                    result.assumingMemoryBound(to: [PDFTools.Attachment].self).pointee.append(NativeFile.pdfAttachment(
-                        name: name.map { String(cString: $0) }, description: description.map { String(cString: $0) }, data: data))
-                }, result, &error)
+        typealias Result = (UUID, [PDFTools.AttachmentMetadata])
+        var result: Result = (attachmentSourceID, [])
+        _ = try withUnsafeMutablePointer(to: &result) { pointer in
+            try pdfCall("lf_pdf_live_attachment_metadata", Get.self) { get, error in
+                get(document, { pointer, name, description, number, generation, size in
+                    let result = pointer.assumingMemoryBound(to: Result.self)
+                    let sourceID = result.pointee.0
+                    result.pointee.1.append(.init(name: NativeFile.pdfAttachmentName(name.map { String(cString: $0) }),
+                        description: description.map { String(cString: $0) }, size: size >= 0 ? size : nil,
+                        sourceID: sourceID, objectNumber: number, generation: generation))
+                }, pointer, &error)
             }
         }
-        return attachments
+        return result.1
+    }
+
+    func pdfAttachment(_ metadata: PDFTools.AttachmentMetadata) throws -> PDFTools.Attachment {
+        guard metadata.sourceID == attachmentSourceID else { throw ReadError("The PDF attachment belongs to another document") }
+        typealias Get = @convention(c) (UnsafeMutableRawPointer, Int32, Int32, UnsafeMutablePointer<Int>, UnsafeMutablePointer<CChar>) -> UnsafeMutableRawPointer?
+        guard let get = symbol("lf_pdf_live_attachment_stream", Get.self) else { throw ReadError("Incompatible MuPDF engine: lf_pdf_live_attachment_stream") }
+        var error = [CChar](repeating: 0, count: 512), length = 0
+        guard let bytes = get(document, metadata.objectNumber, metadata.generation, &length, &error) else {
+            throw Self.failure(error, "Cannot read PDF attachment")
+        }
+        return .init(name: metadata.name, description: metadata.description,
+                     data: Data(bytesNoCopy: bytes, count: length, deallocator: .free))
     }
 
     func pdfStampImage(page: Int, id: Int32) throws -> Data? {

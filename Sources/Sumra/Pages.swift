@@ -1172,7 +1172,8 @@ actor Pages {
         } onCancel: { cancellation.cancel() }
     }
     func pdfXMP() throws -> Data? { try pdfNative().pdfXMP() }
-    func pdfAttachments() throws -> [PDFTools.Attachment] { try pdfNative().pdfAttachments() }
+    func pdfAttachmentMetadata() throws -> [PDFTools.AttachmentMetadata] { try pdfNative().pdfAttachmentMetadata() }
+    func pdfAttachment(_ metadata: PDFTools.AttachmentMetadata) throws -> PDFTools.Attachment { try pdfNative().pdfAttachment(metadata) }
     func pdfPageBoxes(_ page: Int) throws -> [CGRect?] { try pdfNative().pdfPageBoxes(page) }
     func pdfPageLabel(_ page: Int) throws -> String {
         guard let native = document.native else { throw ReadError("Document is not a PDF") }
@@ -5417,6 +5418,10 @@ struct NativeReadingAccessibilitySnapshot {
         private var paintedTileGeometry: (transform: CGAffineTransform, origin: CGPoint)?
         private var paintedTiles = Set<RasterLayout.Tile>()
         private var tileTasks = [RasterLayout.Tile: Task<Void, Never>]()
+        private var failedTiles = Set<RasterLayout.Tile>()
+        #if DEBUG
+        var renderTileForTesting: ((RasterLayout.Tile) async throws -> CGImage)?
+        #endif
         private var tilePredictionTask: Task<Void, Never>?
         private var tilePredictionPriority: ReaderRenderPriority?
         private var tilePredictionTile: RasterLayout.Tile?
@@ -5752,7 +5757,8 @@ struct NativeReadingAccessibilitySnapshot {
             } else if !retainingOutput { previousTiles = nil }
             for task in tileTasks.values { task.cancel() }
             tilePredictionTask = nil; tilePredictionPriority = nil; tilePredictionTile = nil
-            tileTasks.removeAll(); tileImages.removeAll(); paintedTiles.removeAll(); tileKey = nil
+            tileTasks.removeAll(); failedTiles.removeAll()
+            tileImages.removeAll(); paintedTiles.removeAll(); tileKey = nil
             paintedTileGeometry = nil
             if viewportTileSize != nil { readingReady = false; traceFirstPaint = true }
         }
@@ -5790,6 +5796,7 @@ struct NativeReadingAccessibilitySnapshot {
             if let tile = tilePredictionTile, wanted.contains(tile) { tilePredictionPriority?.promote() }
             for (tile, task) in tileTasks where !wanted.contains(tile) && tile != tilePredictionTile { task.cancel() }
             tileTasks = tileTasks.filter { wanted.contains($0.key) || $0.key == tilePredictionTile }
+            failedTiles.formIntersection(wanted)
             let pixelScale = CGFloat(pixelWidth) / pageBounds.width
             let pixels = visible.offsetBy(dx: -pageBounds.minX, dy: -pageBounds.minY)
                 .applying(CGAffineTransform(scaleX: pixelScale, y: pixelScale))
@@ -5810,10 +5817,16 @@ struct NativeReadingAccessibilitySnapshot {
             paintedTiles.formIntersection(tileImages.keys)
             updateViewportReadingReady()
             let documentID = state.document?.id
-            for tile in requested where tileImages[tile] == nil && tileTasks[tile] == nil {
+            for tile in requested where tileImages[tile] == nil && tileTasks[tile] == nil && !failedTiles.contains(tile) {
                 tileTasks[tile] = Task { [weak self] in
                     do {
+                        #if DEBUG
+                        let bitmap: CGImage
+                        if let render = self?.renderTileForTesting { bitmap = try await render(tile) }
+                        else { bitmap = try await pages.image(key.location, width: key.width, transparent: key.transparent, region: tile.rect, pdfStyle: key.pdfStyle) }
+                        #else
                         let bitmap = try await pages.image(key.location, width: key.width, transparent: key.transparent, region: tile.rect, pdfStyle: key.pdfStyle)
+                        #endif
                         guard !Task.isCancelled, let self, self.tileKey == key,
                               self.state?.document?.id == documentID else { return }
                         self.tileImages[tile] = bitmap
@@ -5823,6 +5836,8 @@ struct NativeReadingAccessibilitySnapshot {
                     } catch {
                         guard !Task.isCancelled, let self, self.tileKey == key,
                               self.state?.document?.id == documentID else { return }
+                        self.tileTasks.removeValue(forKey: tile)
+                        self.failedTiles.insert(tile)
                         self.state?.error = error.localizedDescription
                     }
                 }
@@ -5852,7 +5867,7 @@ struct NativeReadingAccessibilitySnapshot {
                   window?.inLiveResize == false, let key = tileKey, let pages, let state,
                   tilePredictionTask == nil else { return }
             let candidates = predictionTiles(direction: direction)
-            guard let tile = candidates.first(where: { tileImages[$0] == nil && tileTasks[$0] == nil }) else { return }
+            guard let tile = candidates.first(where: { tileImages[$0] == nil && tileTasks[$0] == nil && !failedTiles.contains($0) }) else { return }
             let bytes = tileImages.values.reduce(0) { $0 + $1.bytesPerRow * $1.height }
             guard bytes + tile.width * tile.height * 4 <= 64 * 1024 * 1024 else { return }
             tilePredictionTile = tile; tilePredictionDirection = direction
@@ -5871,11 +5886,12 @@ struct NativeReadingAccessibilitySnapshot {
                     NativeReadingPerformance.mark("tile-prediction-ready", pages: pages, revision: key.revision, page: self.page)
                     self.updateTiles(); self.needsDisplay = true
                 } catch {
-                    if !Task.isCancelled, let self, self.tileKey == key, self.tilePredictionTile == tile {
+                    if !Task.isCancelled, let self, self.tileKey == key, self.tilePredictionTile == tile,
+                       self.state?.document?.id == documentID {
                         self.tileTasks.removeValue(forKey: tile); self.tilePredictionTask = nil; self.tilePredictionPriority = nil; self.tilePredictionTile = nil
                         let visible = RasterLayout.tiles(bounds: self.pageBounds, pixelWidth: self.pixelWidth, resolution: self.tileResolution,
                             visible: self.visibleRect.applying(self.pageTransform.inverted()), maximumSize: self.viewportTileSize)
-                        if visible.contains(tile) { self.state?.error = error.localizedDescription }
+                        if visible.contains(tile) { self.failedTiles.insert(tile); self.state?.error = error.localizedDescription }
                     }
                 }
             }

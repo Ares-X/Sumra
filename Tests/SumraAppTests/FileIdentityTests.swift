@@ -272,7 +272,15 @@ final class FileIdentityTests: XCTestCase {
         try await checkMovedPDF(withCommittedAnnotation: false)
     }
 
-    private func checkMovedPDF(withCommittedAnnotation: Bool) async throws {
+    func testRenameEditedPDFPreservesEditsAndPendingForm() async throws {
+        try await checkMovedPDF(withCommittedAnnotation: true, usingRenameAlert: true)
+    }
+
+    func testRenameWaitsForInProgressPDFSave() async throws {
+        try await checkMovedPDF(withCommittedAnnotation: true, usingRenameAlert: true, savingDuringRename: true)
+    }
+
+    private func checkMovedPDF(withCommittedAnnotation: Bool, usingRenameAlert: Bool = false, savingDuringRename: Bool = false) async throws {
         let directory = try TemporaryDirectory()
         let source = directory.url.appendingPathComponent("editable.pdf")
         let moved = directory.url.appendingPathComponent("renamed.pdf")
@@ -319,9 +327,11 @@ final class FileIdentityTests: XCTestCase {
         let square = liveAnnotations.first(where: { $0.type == "Square" })
         if let square { state.nativePDFSelection = .annotation(page: 0, square) }
         let host = NSView(frame: CGRect(x: 0, y: 0, width: 240, height: 320))
+        var releaseSave: CheckedContinuation<Void, Never>?
         let editor = NativePDFFormEditor(widget: widget, host: host, frame: CGRect(x: 10, y: 10, width: 220, height: 30),
             commitValue: { input in
                 guard case .text(let value) = input else { XCTFail("Expected text field input"); return }
+                if savingDuringRename { await withCheckedContinuation { releaseSave = $0 } }
                 try await pages.pdfSetWidgetValue(page: 0, id: widget.id, value: value)
                 try await state.nativePDFDidChange(pages)
             }, didClose: { state.nativePDFFormEditor = nil; state.nativePDFFormPage = nil },
@@ -332,7 +342,64 @@ final class FileIdentityTests: XCTestCase {
         XCTAssertEqual(state.modified, withCommittedAnnotation)
         XCTAssertTrue(state.canSave)
 
-        try FileManager.default.moveItem(at: source, to: moved)
+        if savingDuringRename {
+            state.savePDF()
+            try await waitFor { releaseSave != nil }
+            RunLoop.main.perform(inModes: [.modalPanel]) {
+                MainActor.assumeIsolated {
+                    (NSApp.modalWindow?.initialFirstResponder as? NSTextField)?.stringValue = moved.lastPathComponent
+                    NSApp.stopModal(withCode: .alertFirstButtonReturn)
+                }
+            }
+            state.renameFile()
+            XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: moved.path))
+            releaseSave?.resume()
+            try await waitFor { state.document?.url == moved && !state.busy }
+            XCTAssertNil(state.error)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+            let saved = try Pages(moved, format: .pdf)
+            let annotations = try await saved.pdfAnnotations(0)
+            XCTAssertEqual(annotations.first(where: { $0.type == "Square" })?.contents, "Preserve this edited appearance")
+            XCTAssertEqual(annotations.first(where: { $0.type == "Widget" })?.value, "Pending draft kept")
+            withExtendedLifetime((editor, host, formDocument)) {}
+            return
+        }
+
+        if usingRenameAlert {
+            RunLoop.main.perform(inModes: [.modalPanel]) {
+                MainActor.assumeIsolated { NSApp.stopModal(withCode: .alertSecondButtonReturn) }
+            }
+            state.renameFile()
+            XCTAssertEqual(state.document?.url, source)
+            XCTAssertTrue(state.modified)
+            XCTAssertTrue(state.nativePDFFormEditor === editor)
+            let occupied = directory.url.appendingPathComponent("occupied.pdf")
+            let sentinel = Data("existing file".utf8)
+            try sentinel.write(to: occupied)
+            RunLoop.main.perform(inModes: [.modalPanel]) {
+                MainActor.assumeIsolated {
+                    (NSApp.modalWindow?.initialFirstResponder as? NSTextField)?.stringValue = occupied.lastPathComponent
+                    NSApp.stopModal(withCode: .alertFirstButtonReturn)
+                }
+            }
+            state.renameFile()
+            XCTAssertNotNil(state.error)
+            XCTAssertEqual(try Data(contentsOf: occupied), sentinel)
+            XCTAssertEqual(state.document?.url, source)
+            XCTAssertTrue(state.modified)
+            XCTAssertTrue(state.nativePDFFormEditor === editor)
+            state.error = nil
+            RunLoop.main.perform(inModes: [.modalPanel]) {
+                MainActor.assumeIsolated {
+                    (NSApp.modalWindow?.initialFirstResponder as? NSTextField)?.stringValue = moved.lastPathComponent
+                    NSApp.stopModal(withCode: .alertFirstButtonReturn)
+                }
+            }
+            state.renameFile()
+        } else {
+            try FileManager.default.moveItem(at: source, to: moved)
+        }
         try await waitFor { state.document?.url == moved && !state.busy }
         XCTAssertTrue(state.nativePDF === pages, "Moving a modified PDF must retain its live edits")
         XCTAssertFalse(try XCTUnwrap(state.document).hasSeparatePDFSource)
@@ -363,6 +430,35 @@ final class FileIdentityTests: XCTestCase {
             XCTAssertGreaterThan(try redPixels(image), 8_000, "The saved PDF must render the edited annotation appearance")
         }
         withExtendedLifetime((editor, host, formDocument)) {}
+    }
+
+    func testRenameRejectsReplacementOfSourceWhileAlertIsOpen() async throws {
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let source = directory.url.appendingPathComponent("original.txt")
+        let original = directory.url.appendingPathComponent("original-moved.txt")
+        let destination = directory.url.appendingPathComponent("renamed.txt")
+        try "original".write(to: source, atomically: true, encoding: .utf8)
+        let state = ReaderState(recordsHistory: false)
+        defer { state.windowClosed(); withExtendedLifetime(directory) {} }
+        state.openWithoutHistory(source)
+        try await waitFor { state.document != nil && !state.busy }
+        XCTAssertNotNil(state.fileBookmark)
+        RunLoop.main.perform(inModes: [.modalPanel]) {
+            MainActor.assumeIsolated {
+                do {
+                    try FileManager.default.moveItem(at: source, to: original)
+                    try "replacement".write(to: source, atomically: true, encoding: .utf8)
+                } catch { XCTFail("Could not replace fixture: \(error)") }
+                (NSApp.modalWindow?.initialFirstResponder as? NSTextField)?.stringValue = destination.lastPathComponent
+                NSApp.stopModal(withCode: .alertFirstButtonReturn)
+            }
+        }
+        state.renameFile()
+        XCTAssertNotNil(state.error)
+        XCTAssertEqual(try String(contentsOf: source, encoding: .utf8), "replacement")
+        XCTAssertEqual(try String(contentsOf: original, encoding: .utf8), "original")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
     private func redPixels(_ image: CGImage) throws -> Int {

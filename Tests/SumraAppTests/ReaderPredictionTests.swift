@@ -194,14 +194,14 @@ final class ReaderPredictionTests: XCTestCase {
         return folder
     }
 
-    private func twoChapterEPUB(in directory: URL) throws -> URL {
+    private func twoChapterEPUB(in directory: URL, paragraphs: Int = 24) throws -> URL {
         let metadata = directory.appendingPathComponent("META-INF", isDirectory: true)
         try FileManager.default.createDirectory(at: metadata, withIntermediateDirectories: true)
         let files = [
             "mimetype": "application/epub+zip",
             "META-INF/container.xml": "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>",
             "content.opf": "<package xmlns='http://www.idpf.org/2007/opf' version='2.0'><metadata/><manifest><item id='a' href='a.xhtml' media-type='application/xhtml+xml'/><item id='b' href='b.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='a'/><itemref idref='b'/></spine></package>",
-            "a.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><body>" + String(repeating: "<p>First chapter has ordinary readable text near its seam.</p>", count: 24) + "</body></html>",
+            "a.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><body>" + String(repeating: "<p>First chapter has ordinary readable text near its seam.</p>", count: paragraphs) + "</body></html>",
             "b.xhtml": "<html xmlns='http://www.w3.org/1999/xhtml'><body>" + String(repeating: "<p>Second chapter keeps readable text after crossing the seam.</p>", count: 24) + "</body></html>"
         ]
         for (name, content) in files {
@@ -327,6 +327,105 @@ final class ReaderPredictionTests: XCTestCase {
         XCTAssertEqual(state.readerScrollView?.documentView?.subviews.count, 1)
     }
 
+    #if DEBUG
+    func testVisibleTileFailureWaitsForExplicitRerender() async throws {
+        let engine = try NativeFile.libraryURL(for: .mupdf)
+        guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine is required") }
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let input = directory.url.appendingPathComponent("tile-recovery.html")
+        try ("<html><body>" + String(repeating: "<p>A natural chapter with visible text.</p>", count: 160) + "</body></html>")
+            .write(to: input, atomically: true, encoding: .utf8)
+        let pages = try Pages(input, format: .html), state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: input, content: .pages(pages))
+        state.reflowable = true; state.searchable = true; state.automaticLayout = false
+        state.flow = "continuous"; state.fit = "width"; state.spread = false
+        state.fontSize = 17; state.lineHeight = 1.4; state.font = "serif"; state.theme = "light"; state.margin = 24
+        state.userCSS = ""; state.useDocumentCSS = true; state.pageMargins = nil
+        state.freePan = false; state.trimEmptyMargins = false; state.uniformPageWidth = false
+        state.landscapeAsSpread = false; state.scrollbarMode = "hidden"
+        _ = state.applyChapterLayout(await pages.chapterLayout)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host
+        defer {
+            state.windowClosed(); window.makeFirstResponder(nil); window.contentView = nil; window.close()
+            withExtendedLifetime(directory) {}
+        }
+        try await waitFor(host, state: state) {
+            RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: 0))
+        }
+        let canvas = try XCTUnwrap(state.readerFocusView as? RasterCanvas.Canvas)
+        defer { canvas.renderTileForTesting = nil }
+        let tiles = try XCTUnwrap(field("tileImages", in: canvas) as? [RasterLayout.Tile: CGImage])
+        let target = try XCTUnwrap(tiles.keys.min(by: { $0.y < $1.y }))
+        let viewport = canvas.visibleRect
+        var attempts = 0, shouldFail = true
+        canvas.renderTileForTesting = { tile in
+            if tile == target {
+                attempts += 1
+                if shouldFail { throw NSError(domain: "TileRecoveryTest", code: 1) }
+            }
+            return try await pages.image(canvas.location, width: canvas.pixelWidth, region: tile.rect)
+        }
+        canvas.clearTiles(); canvas.updateTiles()
+        let deadline = Date().addingTimeInterval(5)
+        while state.error == nil, Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNotNil(state.error)
+        XCTAssertEqual(attempts, 1)
+        let tasks = try XCTUnwrap(field("tileTasks", in: canvas) as? [RasterLayout.Tile: Task<Void, Never>])
+        XCTAssertNil(tasks[target], "A failed request must no longer be in flight")
+        state.error = nil
+        for _ in 0..<3 { canvas.updateTiles(); paint(host); try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(attempts, 1, "Ordinary refreshes must not repeatedly decode a failed tile")
+        XCTAssertNil(state.error)
+        XCTAssertEqual(canvas.visibleRect, viewport)
+
+        // Reload creates a fresh canvas/tile generation at the saved position.
+        // Clear the generation here to exercise the same boundary without replacing the fixture.
+        shouldFail = false
+        canvas.clearTiles(); canvas.updateTiles()
+        try await waitFor(host, state: state) {
+            (field("tileImages", in: canvas) as? [RasterLayout.Tile: CGImage])?[target] != nil
+        }
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(canvas.visibleRect, viewport)
+
+        var oldRequest: CheckedContinuation<CGImage, Error>?
+        var newRequest: CheckedContinuation<CGImage, Error>?
+        canvas.renderTileForTesting = { tile in
+            if tile == target { return try await withCheckedThrowingContinuation { oldRequest = $0 } }
+            return try await pages.image(canvas.location, width: canvas.pixelWidth, region: tile.rect)
+        }
+        canvas.clearTiles(); canvas.updateTiles()
+        let oldDeadline = Date().addingTimeInterval(5)
+        while oldRequest == nil, Date() < oldDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        let old = try XCTUnwrap(oldRequest)
+        canvas.renderTileForTesting = { tile in
+            if tile == target { return try await withCheckedThrowingContinuation { newRequest = $0 } }
+            return try await pages.image(canvas.location, width: canvas.pixelWidth, region: tile.rect)
+        }
+        canvas.clearTiles(); canvas.updateTiles()
+        let replacementDeadline = Date().addingTimeInterval(5)
+        while newRequest == nil, Date() < replacementDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        guard let replacement = newRequest else {
+            old.resume(throwing: CancellationError())
+            XCTFail("Replacement tile request did not start")
+            return
+        }
+        old.resume(throwing: NSError(domain: "TileRecoveryTest", code: 2))
+        try await Task.sleep(nanoseconds: 10_000_000)
+        let replacementTasks = field("tileTasks", in: canvas) as? [RasterLayout.Tile: Task<Void, Never>]
+        XCTAssertNotNil(replacementTasks?[target], "An obsolete completion must not clear its replacement")
+        XCTAssertNil(state.error)
+        replacement.resume(returning: tiles[target]!)
+        try await waitFor(host, state: state) {
+            (field("tileImages", in: canvas) as? [RasterLayout.Tile: CGImage])?[target] != nil
+        }
+    }
+
+    #endif
     func testNaturalChapterWarmsNextViewportAndRetainsPaintedTileAcrossShortScroll() async throws {
         let engine = try NativeFile.libraryURL(for: .mupdf)
         guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine is required") }
