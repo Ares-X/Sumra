@@ -7,6 +7,95 @@ import SumraCore
 
 @MainActor
 final class ReaderPrintingTests: XCTestCase {
+    func testSourcePrintCaptureFollowsPhysicalPagesWithRepeatedDraws() throws {
+        try requireMuPDF()
+        let directory = try TemporaryDirectory()
+        let first = Data(String(decoding: fixture(widths: [120], rotations: [0]), as: UTF8.self)
+            .replacingOccurrences(of: "[40 20 160 220]", with: "[00 00 120 200]").utf8)
+        let second = Data(String(decoding: first, as: UTF8.self)
+            .replacingOccurrences(of: "FIRST PRINT", with: "OTHER PRINT")
+            .replacingOccurrences(of: "1 0 0 rg", with: "0 0 1 rg").utf8)
+        let view = try ReaderPrinting.PDFPrintView(pageCount: 2, preservePrintText: true) { $0 == 1 ? first : second }
+        let previewInfo = NSPrintInfo()
+        previewInfo.paperSize = CGSize(width: 595, height: 842)
+        previewInfo.jobDisposition = .save
+        _ = try render(view, info: previewInfo, to: directory.url.appendingPathComponent("preview.pdf"))
+        XCTAssertNil(view.error, "Drawing outside a physical page must not start source capture")
+        let paper = CGSize(width: 595, height: 842)
+        let clip = CGRect(x: 0, y: 0, width: 120, height: 200)
+        func page(_ index: Int) -> ReaderPrinting.PDFPrintView.SourcePrintPage {
+            .init(index: index, bytes: index == 1 ? first : second, paper: paper,
+                  transform: CGAffineTransform(translationX: 100, y: 100), clip: clip)
+        }
+        let output = directory.url.appendingPathComponent("physical-pages.pdf")
+        var box = CGRect(origin: .zero, size: paper)
+        let system = try XCTUnwrap(CGContext(output as CFURL, mediaBox: &box, nil))
+        // Preview redraws outside a physical page do not belong to the output.
+        try view.captureSourcePrintPage(page(1))
+        try view.captureSourcePrintPage(page(2))
+        for index in [2, 1, 1] {
+            system.beginPDFPage(nil); system.endPDFPage()
+            view.beginSourcePrintPage()
+            try view.captureSourcePrintPage(page(index))
+            try view.captureSourcePrintPage(page(index)) // Repeated draws on one physical page.
+            try view.endSourcePrintPage()
+        }
+        system.closePDF()
+        try view.finishSourcePrint(to: output)
+        let result = try XCTUnwrap(PDFDocument(url: output))
+        XCTAssertEqual(result.pageCount, 3)
+        let graphics = try XCTUnwrap(CGPDFDocument(output as CFURL))
+        for (offset, expected) in ["OTHER PRINT", "FIRST PRINT", "FIRST PRINT"].enumerated() {
+            XCTAssertTrue(try XCTUnwrap(result.page(at: offset)?.string).contains(expected))
+            let red = try colorCoverage(XCTUnwrap(graphics.page(at: offset + 1))).red
+            XCTAssertEqual(red > 100, offset != 0)
+        }
+        view.beginSourcePrintPage()
+        try view.captureSourcePrintPage(page(1))
+        XCTAssertThrowsError(try view.captureSourcePrintPage(page(2)), "Two source pages on one physical page cannot be replaced safely")
+    }
+
+    func testSavedPrintPreservesDescendingPageOrder() throws {
+        try requireMuPDF()
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let first = Data(String(decoding: fixture(widths: [120], rotations: [0]), as: UTF8.self)
+            .replacingOccurrences(of: "[40 20 160 220]", with: "[00 00 120 200]").utf8)
+        let second = Data(String(decoding: first, as: UTF8.self)
+            .replacingOccurrences(of: "FIRST PRINT", with: "OTHER PRINT")
+            .replacingOccurrences(of: "1 0 0 rg", with: "0 0 1 rg").utf8)
+        let view = try ReaderPrinting.PDFPrintView(pageCount: 2, preservePrintText: true) { page in
+            page == 1 ? first : second
+        }
+        let output = directory.url.appendingPathComponent("descending.pdf")
+        let info = NSPrintInfo()
+        info.paperSize = CGSize(width: 595, height: 842)
+        info.jobDisposition = .save
+        info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = output
+        let operation = try ReaderPrinting.makePrintOperation(view, info: info, title: "Descending", preferences: nil)
+        operation.pageOrder = .descendingPageOrder
+        operation.showsPrintPanel = false
+        operation.showsProgressPanel = false
+        XCTAssertTrue(operation.run())
+        XCTAssertNil(view.error)
+        let system = try XCTUnwrap(PDFDocument(url: output))
+        let expected = try (0..<system.pageCount).map { try XCTUnwrap(system.page(at: $0)?.string) }
+        XCTAssertEqual(expected.count, 2)
+        XCTAssertEqual(Set(expected.filter { $0.contains("FIRST PRINT") || $0.contains("OTHER PRINT") }).count, 2)
+        let systemPDF = try XCTUnwrap(CGPDFDocument(output as CFURL))
+        let systemRed = try (1...2).map { try colorCoverage(XCTUnwrap(systemPDF.page(at: $0))).red }
+        XCTAssertEqual(systemRed.filter { $0 > 100 }.count, 1)
+        try view.finishSavedPrint(operation)
+        let saved = try XCTUnwrap(PDFDocument(url: output))
+        XCTAssertEqual(saved.pageCount, expected.count)
+        let corrected = try XCTUnwrap(CGPDFDocument(output as CFURL))
+        for (index, text) in expected.enumerated() {
+            XCTAssertEqual(try XCTUnwrap(saved.page(at: index)?.string), text)
+            let red = try colorCoverage(XCTUnwrap(corrected.page(at: index + 1))).red
+            XCTAssertEqual(red > 100, systemRed[index] > 100)
+        }
+    }
+
     func testLazyMarkdownPrintViewRequestsOnlyNeededPageAndCachesItsPDF() throws {
         let bytes = fixture(widths: [120], rotations: [0])
         var requested = [Int]()
