@@ -328,6 +328,92 @@ final class ReaderPredictionTests: XCTestCase {
     }
 
     #if DEBUG
+    func testReloadRestoresVisibleTileAfterFailure() async throws {
+        let engine = try NativeFile.libraryURL(for: .mupdf)
+        guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine is required") }
+        _ = NSApplication.shared
+        let directory = try TemporaryDirectory()
+        let input = try twoChapterEPUB(in: directory.url, paragraphs: 400)
+        let state = ReaderState(recordsHistory: false)
+        state.flow = "continuous"; state.fit = "width"; state.spread = false
+        state.fontSize = 17; state.lineHeight = 1.4; state.font = "serif"; state.theme = "light"
+        state.automaticLayout = false; state.freePan = false; state.scrollbarMode = "hidden"
+        state.showContents = false
+        let host = NSHostingView(rootView: ReaderView(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; state.window = window
+        window.orderFront(nil)
+        defer { state.windowClosed(); window.contentView = nil; window.close(); withExtendedLifetime(directory) {} }
+        func paint() {
+            host.layoutSubtreeIfNeeded()
+            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) { host.cacheDisplay(in: host.bounds, to: bitmap) }
+        }
+        func wait(line: UInt = #line, _ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            repeat {
+                paint()
+                if condition() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            let canvas = state.readerFocusView as? RasterCanvas.Canvas
+            XCTFail(state.error ?? "Reader timed out: busy=\(state.busy), flow=\(state.flow), page=\(state.page), scroll=\(String(describing: state.readerScrollView?.contentView.bounds)), canvas=\(String(describing: canvas)), ready=\(String(describing: canvas?.readingReady)), viewport=\(String(describing: canvas?.viewportTileSize))", line: line)
+            throw NSError(domain: "TileReloadTestTimeout", code: 1)
+        }
+        state.openWithoutHistory(input)
+        try await wait {
+            guard case .pages(let pages) = state.document?.content else { return false }
+            return RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
+        }
+        guard case .pages(let pages) = state.document?.content else { return XCTFail("Expected native EPUB") }
+        state.setFlow("continuous")
+        try await wait {
+            guard let canvas = state.readerFocusView as? RasterCanvas.Canvas else { return false }
+            return canvas.viewportTileSize != nil &&
+                RasterReader.pageIsRendered(in: canvas, pages: pages, location: state.pageLocation(state.page))
+        }
+        state.send(.preservePosition(.init(page: 0, x: 0, y: 600)))
+        try await wait {
+            guard let scroll = state.readerScrollView else { return false }
+            return scroll.contentView.bounds.minY >= 599 &&
+                RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: state.pageLocation(state.page))
+        }
+        let canvas = try XCTUnwrap(state.readerFocusView as? RasterCanvas.Canvas)
+        defer { canvas.renderTileForTesting = nil }
+        let before = try XCTUnwrap(RasterReader.visiblePageBounds(in: canvas, pages: pages, location: state.pageLocation(state.page)))
+        let oldID = try XCTUnwrap(state.document?.id), location = state.pageLocation(state.page)
+        let visible = RasterLayout.tiles(bounds: canvas.pageBounds, pixelWidth: canvas.pixelWidth,
+            resolution: canvas.tileResolution, visible: before, maximumSize: canvas.viewportTileSize)
+        let target = try XCTUnwrap(visible.first)
+        var failures = 0
+        canvas.renderTileForTesting = { tile in
+            if tile == target { failures += 1; throw NSError(domain: "TileReloadTest", code: 1) }
+            return try await pages.image(canvas.location, width: canvas.pixelWidth, region: tile.rect)
+        }
+        canvas.clearTiles(); canvas.updateTiles()
+        let failureDeadline = Date().addingTimeInterval(5)
+        while state.error == nil, Date() < failureDeadline { paint(); try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNotNil(state.error)
+        XCTAssertEqual(failures, 1)
+        state.error = nil
+        for _ in 0..<5 { paint(); try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(failures, 1)
+        XCTAssertNil(state.error)
+
+        state.reload()
+        try await wait {
+            guard state.document?.id != oldID, case .pages(let reopened) = state.document?.content else { return false }
+            return !state.busy && RasterReader.pageIsRendered(in: state.readerFocusView, pages: reopened, location: location)
+        }
+        guard case .pages(let reopened) = state.document?.content else { return XCTFail("Reload did not open the EPUB") }
+        let after = try XCTUnwrap(RasterReader.visiblePageBounds(in: state.readerFocusView, pages: reopened, location: location))
+        XCTAssertEqual(state.document?.url, input)
+        XCTAssertEqual(state.pageLocation(state.page), location)
+        XCTAssertEqual(after.minY, before.minY, accuracy: 2)
+        XCTAssertNil(state.error)
+        XCTAssertEqual(failures, 1)
+    }
+
     func testVisibleTileFailureWaitsForExplicitRerender() async throws {
         let engine = try NativeFile.libraryURL(for: .mupdf)
         guard FileManager.default.fileExists(atPath: engine.path) else { throw XCTSkip("MuPDF engine is required") }
