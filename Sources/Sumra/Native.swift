@@ -221,6 +221,7 @@ final class NativePDFRenderSnapshot: @unchecked Sendable {
 // layout, PDF interpretation, editing and output on its context. Immutable
 // PDF display-list snapshots can rasterize on independent worker contexts.
 final class NativeFile {
+    let attachmentSourceID = UUID()
     typealias Open = @convention(c) (UnsafePointer<CChar>, UnsafeMutablePointer<CChar>) -> UnsafeMutableRawPointer?
     typealias OpenClassified = @convention(c) (UnsafePointer<CChar>, UnsafePointer<CChar>?, UnsafeMutablePointer<Int32>, UnsafeMutablePointer<CChar>, Int32) -> UnsafeMutableRawPointer?
     typealias Close = @convention(c) (UnsafeMutableRawPointer) -> Void

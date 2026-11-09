@@ -195,6 +195,75 @@ final class BrowserPrintSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testPrintUsesLoadedRemoteImageAndPercentEncodedBinary() async throws {
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8S0AAAAASUVORK5CYII="))
+        let fixture = try TemporaryDirectory()
+        let image = fixture.url.appendingPathComponent("image.png")
+        let requests = fixture.url.appendingPathComponent("requests")
+        try png.write(to: image)
+        let server = Process(), output = Pipe()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        server.arguments = ["-u", "-c", """
+        import http.server, sys
+        image, requests = sys.argv[1:]
+        class Handler(http.server.BaseHTTPRequestHandler):
+            count = 0
+            def do_GET(self):
+                Handler.count += 1
+                open(requests, 'w').write(str(Handler.count))
+                self.send_response(200 if Handler.count == 1 else 403)
+                self.send_header('Content-Type', 'image/png')
+                self.end_headers()
+                if Handler.count == 1:
+                    self.wfile.write(open(image, 'rb').read())
+            def log_message(self, *args): pass
+        server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+        print(server.server_port, flush=True)
+        server.serve_forever()
+        """, image.path, requests.path]
+        server.standardOutput = output
+        try server.run()
+        defer { server.terminate(); server.waitUntilExit() }
+        var portBytes = Data()
+        while let byte = try output.fileHandleForReading.read(upToCount: 1), !byte.isEmpty, byte != Data([10]) {
+            portBytes.append(byte)
+        }
+        let port = try XCTUnwrap(String(data: portBytes, encoding: .utf8))
+        let encoded = png.map { String(format: "%%%02X", $0) }.joined()
+        let html = """
+        <meta charset="utf-8"><p>Remote and embedded images</p>
+        <img id="remote" width="40" height="40" src="http://127.0.0.1:\(port)/once.png">
+        <img id="embedded" width="40" height="40" src="data:image/png,\(encoded)">
+        """
+        let view = try await reader(["topic.html": Data(html.utf8)])
+        let result = try await evaluate("""
+        await window.leafPreparePrint();
+        const remote = document.getElementById('remote'), embedded = document.getElementById('embedded');
+        const snapshot = window.leafPrintSnapshot();
+        return {html:snapshot.html, resources:snapshot.resources,
+                remoteLoaded:remote.complete && remote.naturalWidth > 0,
+                embeddedLoaded:embedded.complete && embedded.naturalWidth > 0};
+        """, in: view)
+        XCTAssertEqual(result["remoteLoaded"] as? Bool, true)
+        XCTAssertEqual(result["embeddedLoaded"] as? Bool, true)
+        let snapshot = try JSONDecoder().decode(BrowserPrintSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: result))
+        let archive: Data = try await withCheckedThrowingContinuation { continuation in
+            view.createWebArchiveData { continuation.resume(with: $0) }
+        }
+        let coordinator = try XCTUnwrap(view.navigationDelegate as? BrowserReader.Coordinator)
+        let directory = try TemporaryDirectory()
+        let prepared = try await snapshot.makePDF(source: coordinator.source, directory: directory.url, archive: archive)
+        let pdf = try NativeFile(prepared.url, engine: .mupdf)
+        XCTAssertTrue(try XCTUnwrap(pdf.text(0)).contains("Remote and embedded images"))
+        XCTAssertGreaterThanOrEqual(try pdf.imageBounds(0).count, 2)
+        for resource in snapshot.resources {
+            XCTAssertEqual(try Data(contentsOf: directory.url.appendingPathComponent(resource.path)), png)
+        }
+        XCTAssertEqual(try String(contentsOf: requests, encoding: .utf8), "1")
+    }
+
+    @MainActor
     func testCaptureFailureRestoresPrintMediaAndReadingViewport() async throws {
         let html = """
         <meta charset="utf-8">

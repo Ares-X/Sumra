@@ -23,6 +23,15 @@ enum PDFTools {
         let url: String?
     }
 
+    struct AttachmentMetadata {
+        let name: String
+        let description: String?
+        let size: Int64?
+        let sourceID: UUID
+        let objectNumber: Int32
+        let generation: Int32
+    }
+
     struct Attachment {
         /// A display filename, never an extraction path.
         let name: String
@@ -181,12 +190,13 @@ enum PDFTools {
               (try? template.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true,
               !pages.isEmpty, pages.allSatisfy({ $0 >= 0 && $0 < Int.max }) else { throw Failure("Choose pages and a local output filename") }
         _ = try imageType(for: template)
-        var path = (template.pathExtension.isEmpty ? template.appendingPathExtension("png") : template).path
-        if pages.count > 1, !path.contains("%d") {
-            let url = URL(fileURLWithPath: path)
-            path = url.deletingPathExtension().path + "-%d." + url.pathExtension
+        let output = template.pathExtension.isEmpty ? template.appendingPathExtension("png") : template
+        var name = output.lastPathComponent
+        if pages.count > 1, !name.contains("%d") {
+            name = output.deletingPathExtension().lastPathComponent + "-%d." + output.pathExtension
         }
-        let destinations = pages.map { URL(fileURLWithPath: path.replacingOccurrences(of: "%d", with: String($0 + 1))) }
+        let directory = output.deletingLastPathComponent()
+        let destinations = pages.map { directory.appendingPathComponent(name.replacingOccurrences(of: "%d", with: String($0 + 1))) }
         let inputs = Set(sources.map(fileIdentity))
         var outputs = Set<AnyHashable>()
         for destination in destinations {

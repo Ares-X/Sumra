@@ -207,7 +207,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
         let titles = tabs.isEmpty ? [state.document?.url.lastPathComponent ?? "Sumra"] : tabs.map(\.title)
         let labelWidth = titles.map { ($0 as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width }.max() ?? 0
         // Keep long filenames readable without letting one title occupy the bar.
-        let tabWidth = min(220, max(120, ceil(labelWidth) + 55))
+        let tabWidth = min(220, max(120, ceil(labelWidth) + 63))
         return CGFloat(titles.count) * tabWidth + CGFloat(titles.count - 1) * 4 + 28
     }
 
@@ -215,6 +215,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
         Text(state.document?.url.lastPathComponent ?? "Sumra")
             .font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .help(state.document?.url.lastPathComponent ?? "Sumra")
     }
 
     private var tabStrip: some View {
@@ -238,7 +239,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
                                             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                                     }
                                     .padding(.leading, 8)
-                                    .padding(.trailing, 34) // Leave space for the separate close target.
+                                    .padding(.trailing, 38) // Leave space for the separate close target.
                                     .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                                     .contentShape(Rectangle())
                                 }
@@ -246,7 +247,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
                                 .help(tab.title).accessibilityLabel(tab.title)
                                 .accessibilityValue(tab.id == state.window?.windowNumber ? L("Selected") : "")
                                 closeButton(window(tab.id), title: tab.title)
-                                    .padding(.trailing, 8)
+                                    .padding(.trailing, 4)
                             }
                             .frame(width: tabWidth, height: 28)
                             .background(Color(nsColor: ReaderTheme.color(state.palette.text))
@@ -269,7 +270,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
     private func closeButton(_ window: NSWindow?, title: String? = nil) -> some View {
         Button { if let window { ReaderWindows.close(window) } } label: {
             Image(systemName: "xmark").font(.system(size: 9, weight: .medium))
-                .frame(width: 20, height: 20).contentShape(Rectangle())
+                .frame(width: 28, height: 28).contentShape(Rectangle())
         }
         .help(L("Close Tab"))
         .accessibilityLabel(L("Close Tab") + ": " + (title ?? state.document?.url.lastPathComponent ?? ""))

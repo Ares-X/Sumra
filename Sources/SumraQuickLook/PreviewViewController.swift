@@ -5,6 +5,7 @@ import Quartz
 final class PreviewViewController: NSViewController, QLPreviewingController {
     private let image = QuickLookPageView()
     private let label = NSTextField(labelWithString: "")
+    private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private let previous = NSButton(title: "‹", target: nil, action: nil)
     private let next = NSButton(title: "›", target: nil, action: nil)
     private var book: QuickLookBook?
@@ -16,7 +17,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         view = root
         let controls = NSStackView(views: [previous, label, next])
         controls.alignment = .centerY; controls.spacing = 16
-        let stack = NSStackView(views: [image, controls])
+        let stack = NSStackView(views: [image, errorLabel, controls])
         stack.orientation = .vertical; stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
@@ -26,8 +27,17 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
             stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
             image.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            image.heightAnchor.constraint(greaterThanOrEqualToConstant: 100)
+            image.heightAnchor.constraint(greaterThanOrEqualToConstant: 100),
+            errorLabel.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
+            previous.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            previous.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            next.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            next.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
         ])
+        errorLabel.alignment = .center
+        errorLabel.textColor = .secondaryLabelColor
+        errorLabel.identifier = NSUserInterfaceItemIdentifier("previewError")
+        errorLabel.isHidden = true
         image.setContentHuggingPriority(.defaultLow, for: .vertical)
         image.setAccessibilityElement(true)
         image.setAccessibilityRole(.image)
@@ -41,7 +51,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     func preparePreviewOfFile(at url: URL) async throws {
         rendering?.cancel(); rendering = nil
         _ = view
-        book = nil; image.image = nil; label.stringValue = ""
+        book = nil; image.image = nil; label.stringValue = ""; errorLabel.isHidden = true
         previous.isEnabled = false; next.isEnabled = false
         let document = try QuickLookBook(url: url)
         book = document
@@ -68,7 +78,8 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
             } catch is CancellationError {} catch {
                 guard let self, self.book === book else { return }
                 previous.isEnabled = hasPrevious; next.isEnabled = hasNext
-                label.stringValue = error.localizedDescription
+                errorLabel.stringValue = error.localizedDescription
+                errorLabel.isHidden = false
             }
         }
     }
@@ -76,6 +87,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     private func display(_ page: QuickLookBook.Page) {
         image.image = page.image
         label.stringValue = page.label
+        errorLabel.isHidden = true
         previous.isEnabled = page.hasPrevious; next.isEnabled = page.hasNext
     }
 

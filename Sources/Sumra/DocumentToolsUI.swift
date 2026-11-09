@@ -11,6 +11,53 @@ enum PDFDocumentTool: String {
 }
 
 @MainActor
+final class PDFAttachmentPopup: NSPopUpButton {
+    @objc func updateAttachmentToolTip() { toolTip = selectedItem?.title }
+}
+
+@MainActor
+enum PDFAttachmentControls {
+    private static func width(_ titles: [String], availableWidth: CGFloat, extra: CGFloat) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let measured = titles.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        return min(max(120, ceil(measured + extra)), max(120, availableWidth))
+    }
+
+    static func popup(titles: [String], availableWidth: CGFloat) -> NSPopUpButton {
+        let picker = PDFAttachmentPopup(frame: NSRect(x: 0, y: 0, width: width(titles, availableWidth: availableWidth, extra: 46), height: 26))
+        picker.addItems(withTitles: titles)
+        picker.cell?.lineBreakMode = .byTruncatingMiddle
+        for (index, title) in titles.enumerated() { picker.item(at: index)?.toolTip = title }
+        picker.target = picker
+        picker.action = #selector(PDFAttachmentPopup.updateAttachmentToolTip)
+        picker.updateAttachmentToolTip()
+        return picker
+    }
+
+    static func label(name: String, availableWidth: CGFloat) -> NSTextField {
+        let label = NSTextField(labelWithString: name)
+        label.frame = NSRect(x: 0, y: 0, width: width([name], availableWidth: availableWidth, extra: 4), height: 22)
+        label.maximumNumberOfLines = 1
+        label.lineBreakMode = .byTruncatingMiddle
+        label.toolTip = name
+        return label
+    }
+}
+
+private enum PDFAttachmentChoice {
+    case loaded(PDFTools.Attachment)
+    case metadata(PDFTools.AttachmentMetadata)
+
+    var name: String {
+        switch self { case .loaded(let file): return file.name; case .metadata(let file): return file.name }
+    }
+
+    func read(from pages: Pages) async throws -> PDFTools.Attachment {
+        switch self { case .loaded(let file): return file; case .metadata(let file): return try await pages.pdfAttachment(file) }
+    }
+}
+
+@MainActor
 struct PDFEditingBar: View {
     @ObservedObject var state: ReaderState
     @AppStorage("language") private var language = "system"
@@ -249,34 +296,55 @@ extension ReaderState {
             do {
                 try await nativePDFFormEditor?.commit()
                 guard current() else { return }
-                let files: [PDFTools.Attachment]
-                if let selected {
+                let files: [PDFTools.AttachmentMetadata]
+                if selected != nil {
                     guard try await pages.pdfInfo()?.permissions.copy == true else { throw ReadError("This PDF does not allow attachment extraction") }
                     guard current() else { return }
-                    files = [selected]
-                } else { files = try await pages.pdfAttachments() }
+                    files = []
+                } else { files = try await pages.pdfAttachmentMetadata() }
                 let source = pages.pdfSourceURL
                 guard current() else { return }
-                guard !files.isEmpty else { status = L("This PDF has no embedded files"); return }
+                guard selected != nil || !files.isEmpty else { status = L("This PDF has no embedded files"); return }
                 let alert = NSAlert(); alert.messageText = L("Embedded Files")
-                let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 460, height: 26))
-                picker.addItems(withTitles: files.map { $0.name + " (" + ByteCountFormatter.string(fromByteCount: Int64($0.data.count), countStyle: .file) + ")" })
-                alert.accessoryView = selected == nil ? picker : NSTextField(labelWithString: files[0].name)
+                let screenWidth = (window?.screen ?? NSScreen.main)?.visibleFrame.width ?? 800
+                let availableWidth = min(screenWidth - 160, max(120, (window?.frame.width ?? screenWidth) - 80))
+                let titles = files.map { file in
+                    guard let size = file.size else { return file.name }
+                    return file.name + " (" + ByteCountFormatter.string(fromByteCount: size, countStyle: .file) + ")"
+                }
+                let picker = PDFAttachmentControls.popup(titles: titles, availableWidth: availableWidth)
+                if let selected {
+                    alert.accessoryView = PDFAttachmentControls.label(name: selected.name, availableWidth: availableWidth)
+                } else {
+                    alert.accessoryView = picker
+                    alert.window.initialFirstResponder = picker
+                }
                 alert.addButton(withTitle: L("Open in New Tab"))
                 alert.addButton(withTitle: L("Save…"))
                 alert.addButton(withTitle: L("Cancel"))
                 let answer = alert.runModal()
-                guard current(), files.indices.contains(picker.indexOfSelectedItem) else { return }
-                let file = files[picker.indexOfSelectedItem]
-                if answer == .alertFirstButtonReturn {
-                    try openEmbeddedFile(file)
-                } else if answer == .alertSecondButtonReturn {
-                    let panel = NSSavePanel(); panel.nameFieldStringValue = file.name
-                    guard panel.runModal() == .OK, current(), let destination = panel.url else { return }
-                    guard ![reading.url, source].contains(where: { PDFTools.sameFile(destination, $0) }) else {
+                guard current(), answer == .alertFirstButtonReturn || answer == .alertSecondButtonReturn else { return }
+                let choice: PDFAttachmentChoice
+                if let selected { choice = .loaded(selected) }
+                else {
+                    guard files.indices.contains(picker.indexOfSelectedItem) else { return }
+                    choice = .metadata(files[picker.indexOfSelectedItem])
+                }
+                var destination: URL?
+                if answer == .alertSecondButtonReturn {
+                    let panel = NSSavePanel(); panel.nameFieldStringValue = choice.name
+                    guard panel.runModal() == .OK, current(), let url = panel.url else { return }
+                    guard ![reading.url, source].contains(where: { PDFTools.sameFile(url, $0) }) else {
                         throw ReadError("Choose a different location for the attachment")
                     }
+                    destination = url
+                }
+                let file = try await choice.read(from: pages)
+                guard current() else { return }
+                if let destination {
                     try await Task.detached { try file.data.write(to: destination, options: .atomic) }.value
+                } else {
+                    try openEmbeddedFile(file)
                 }
             } catch { if current() { self.error = error.localizedDescription } }
         }
@@ -452,7 +520,7 @@ extension ReaderState {
                 guard current() else { return }
                 let sources = [reading.url, sourceURL]
                 if tool == .attachments {
-                    let attachments = try await pages.pdfAttachments()
+                    let attachments = try await pages.pdfAttachmentMetadata()
                     guard current() else { return }
                     guard !attachments.isEmpty else { status = L("This PDF has no embedded files"); return }
                     let panel = NSOpenPanel()
@@ -468,7 +536,9 @@ extension ReaderState {
                         guard !sources.contains(where: { PDFTools.sameFile($0, destination) }) else {
                             throw ReadError("Choose a different file for attachment output")
                         }
-                        try await Task.detached(priority: .userInitiated) { try attachment.data.write(to: destination, options: .atomic) }.value
+                        let file = try await pages.pdfAttachment(attachment)
+                        guard current() else { return }
+                        try await Task.detached(priority: .userInitiated) { try file.data.write(to: destination, options: .atomic) }.value
                         guard current() else { return }
                         completed += 1
                     }

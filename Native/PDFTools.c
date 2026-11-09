@@ -1805,30 +1805,26 @@ API void *lf_pdf_live_xmp(void *opaque, size_t *length, char *error) {
     fz_catch(ctx) { snprintf(error, 512, "%s", fz_convert_error(ctx, NULL)); free(result); *length = 0; return NULL; }
     return result;
 }
-typedef void (*LiveAttachmentOutput)(void *, const char *, const char *, const unsigned char *, size_t);
-static void live_export_filespec(fz_context *ctx, pdf_obj *filespec, pdf_obj *seen,
-                                LiveAttachmentOutput output, void *opaque) {
+typedef void (*LiveAttachmentMetadataOutput)(void *, const char *, const char *, int, int, int64_t);
+static void live_list_filespec(fz_context *ctx, pdf_obj *filespec, pdf_obj *seen,
+                               LiveAttachmentMetadataOutput output, void *opaque) {
     pdf_obj *files = pdf_dict_get(ctx, filespec, PDF_NAME(EF));
     pdf_obj *keys[] = {PDF_NAME(UF), PDF_NAME(F), PDF_NAME(DOS), PDF_NAME(Mac), PDF_NAME(Unix)};
     for (int i = 0; i < 5; ++i) {
         pdf_obj *stream = pdf_dict_get(ctx, files, keys[i]);
         if (!pdf_is_stream(ctx, stream) || pdf_array_contains(ctx, seen, stream)) continue;
-        fz_buffer *buffer = NULL; fz_var(buffer);
-        fz_try(ctx) {
-            pdf_array_push(ctx, seen, stream);
-            buffer = pdf_load_stream(ctx, stream);
-            unsigned char *bytes; size_t count = fz_buffer_storage(ctx, buffer, &bytes);
-            pdf_obj *name = pdf_dict_get(ctx, filespec, keys[i]);
-            if (!name) name = pdf_dict_geta(ctx, filespec, PDF_NAME(UF), PDF_NAME(F));
-            pdf_obj *description = pdf_dict_get(ctx, filespec, PDF_NAME(Desc));
-            output(opaque, name ? pdf_to_text_string(ctx, name) : "attachment",
-                   description ? pdf_to_text_string(ctx, description) : NULL, bytes, count);
-        }
-        fz_always(ctx) { fz_drop_buffer(ctx, buffer); }
-        fz_catch(ctx) { fz_rethrow(ctx); }
+        pdf_array_push(ctx, seen, stream);
+        pdf_obj *name = pdf_dict_get(ctx, filespec, keys[i]);
+        if (!name) name = pdf_dict_geta(ctx, filespec, PDF_NAME(UF), PDF_NAME(F));
+        pdf_obj *description = pdf_dict_get(ctx, filespec, PDF_NAME(Desc));
+        pdf_obj *size = pdf_dict_getp(ctx, stream, "Params/Size");
+        output(opaque, name ? pdf_to_text_string(ctx, name) : "attachment",
+               description ? pdf_to_text_string(ctx, description) : NULL,
+               pdf_to_num(ctx, stream), pdf_to_gen(ctx, stream),
+               pdf_is_int(ctx, size) ? pdf_to_int64(ctx, size) : -1);
     }
 }
-API int lf_pdf_live_attachments(void *opaque, LiveAttachmentOutput output, void *user, char *error) {
+API int lf_pdf_live_attachment_metadata(void *opaque, LiveAttachmentMetadataOutput output, void *user, char *error) {
     SumraMuPDFDocument *d = opaque; fz_context *ctx = d->ctx;
     pdf_obj *names = NULL, *seen = NULL; int ok = 0;
     fz_var(names); fz_var(seen); fz_var(ok);
@@ -1840,24 +1836,45 @@ API int lf_pdf_live_attachments(void *opaque, LiveAttachmentOutput output, void 
         // EngineMupdf::PdfLoadAttachments delegates name-tree traversal to MuPDF.
         names = pdf_load_name_tree(ctx, doc, PDF_NAME(EmbeddedFiles));
         for (int i = 0, n = pdf_dict_len(ctx, names); i < n; ++i)
-            live_export_filespec(ctx, pdf_dict_get_val(ctx, names, i), seen, output, user);
+            live_list_filespec(ctx, pdf_dict_get_val(ctx, names, i), seen, output, user);
         // Retain the existing export coverage for associated files and page
         // attachments, de-duplicating shared streams across all containers.
         for (int page = -1, count = pdf_count_pages(ctx, doc); page < count; ++page) {
             pdf_obj *object = page < 0 ? pdf_dict_get(ctx, pdf_trailer(ctx, doc), PDF_NAME(Root)) : pdf_lookup_page_obj(ctx, doc, page);
             pdf_obj *associated = pdf_dict_get(ctx, object, PDF_NAME(AF));
             for (int i = 0, n = pdf_array_len(ctx, associated); i < n; ++i)
-                live_export_filespec(ctx, pdf_array_get(ctx, associated, i), seen, output, user);
+                live_list_filespec(ctx, pdf_array_get(ctx, associated, i), seen, output, user);
             if (page < 0) continue;
             pdf_obj *annotations = pdf_dict_get(ctx, object, PDF_NAME(Annots));
             for (int i = 0, n = pdf_array_len(ctx, annotations); i < n; ++i)
-                live_export_filespec(ctx, pdf_dict_get(ctx, pdf_array_get(ctx, annotations, i), PDF_NAME(FS)), seen, output, user);
+                live_list_filespec(ctx, pdf_dict_get(ctx, pdf_array_get(ctx, annotations, i), PDF_NAME(FS)), seen, output, user);
         }
         ok = 1;
     }
     fz_always(ctx) { pdf_drop_obj(ctx, names); pdf_drop_obj(ctx, seen); }
     fz_catch(ctx) { snprintf(error, 512, "%s", fz_convert_error(ctx, NULL)); }
     return ok;
+}
+API void *lf_pdf_live_attachment_stream(void *opaque, int number, int generation, size_t *length, char *error) {
+    SumraMuPDFDocument *d = opaque; fz_context *ctx = d->ctx;
+    pdf_obj *stream = NULL; fz_buffer *buffer = NULL; void *result = NULL;
+    *length = 0; fz_var(stream); fz_var(buffer); fz_var(result);
+    fz_try(ctx) {
+        pdf_document *doc = live_pdf(d);
+        if (!pdf_has_permission(ctx, doc, FZ_PERMISSION_COPY))
+            fz_throw(ctx, FZ_ERROR_ARGUMENT, "This PDF does not permit copying attachments");
+        stream = pdf_new_indirect(ctx, doc, number, generation);
+        if (!pdf_is_stream(ctx, stream)) fz_throw(ctx, FZ_ERROR_ARGUMENT, "The PDF attachment no longer exists");
+        buffer = pdf_load_stream(ctx, stream);
+        unsigned char *bytes; size_t count = fz_buffer_storage(ctx, buffer, &bytes);
+        result = malloc(count ? count : 1);
+        if (!result) fz_throw(ctx, FZ_ERROR_SYSTEM, "Cannot allocate attachment");
+        if (count) memcpy(result, bytes, count);
+        *length = count;
+    }
+    fz_always(ctx) { pdf_drop_obj(ctx, stream); fz_drop_buffer(ctx, buffer); }
+    fz_catch(ctx) { snprintf(error, 512, "%s", fz_convert_error(ctx, NULL)); free(result); *length = 0; return NULL; }
+    return result;
 }
 API void *lf_pdf_live_attachment(void *opaque, int page_number, int object_number,
                                  size_t *length, char **name, char **description, char *error) {

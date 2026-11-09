@@ -1,0 +1,33 @@
+# Sumra 0.2.36 acceptance
+
+The baseline was installed 0.2.35 (37) on an arm64 Mac running macOS 27.0.1. Corrected candidate source `0a8c1fa0e30325f43e6af749f03324a73a6b401e` and the additional Reload regression are in [PR 134](https://github.com/Ares-X/Sumra/pull/134).
+
+| Issue | Reproduction and verification |
+| --- | --- |
+| #96 | The earlier fix in `64846d5` already commits Quick Look navigation only after successful rendering. This release preserves the page counter alongside a separate error message and enlarges the arrow targets. All seven Quick Look cases passed with the updated engine and the six original Issue 42 samples. |
+| #121 | Installed 0.2.35 asked to discard an edited PDF during Rename, then asked again when closing the renamed file. The new native alert tests cover the actual Rename entry, cancel, name collision, replaced source, pending form, in-progress save, and save at the new path. |
+| #122 | Installed 0.2.35 actually wrote `baseline.png` to the neighboring `图像-1` folder after the user selected `图像-%d`. Tests render single and multiple pages into nested Unicode directories containing `%d`, verify the chosen parent and check a sentinel in the neighboring expanded directory. |
+| #130 | Five attachments of 24 MiB each were listed on the same PDF. In separate cold old/new engine processes, the first enumeration changed from 54.127 to 0.062 ms, the second from 46.831 to 0.005 ms, and the sampled post-list footprint from 28.53 to 4.33 MiB. Both the second item and all five extracted payloads matched the independent hashes, with source bytes unchanged. These are single-sample engine/bridge timings with uncontrolled filesystem cache. PDF files without a declared decoded size display the name alone. |
+| #131 | A controlled visible-tile failure in a real macOS ReaderView opening a long EPUB produced one error. Ordinary redraws did not start a retry loop. Reload reopened the file at the same chapter and scroll position and painted the tile. A separate delayed-completion regression checks that an obsolete task cannot clear its replacement. The failure is deliberately injected at the render boundary. |
+| #132 and #133 | Installed 0.2.35 failed Export PDF on a displayed percent-encoded PNG. In a separate real HTML reader, a loopback server returned a visible purple image once and 403 on the second GET, reproducing the export failure. The WKWebView regression rendered both images, verified their bytes in native PDF preparation, and observed exactly one remote request. Remote resources unavailable in WebKit’s archive still require a working URL for retrieval. |
+
+The floating tab close area grew from 20×20 to 28×28 points while preserving the multi-tab glyph center. Truncated single-document titles expose the complete name. Attachment controls measure the names and available width, use middle truncation, and expose the full selected name. The Quick Look navigation controls are at least 44×44 points.
+
+Across the relevant focused runs, 132 distinct cases passed. The first additional Reload fixture restored a default paged layout during file open, making the requested continuous scroll impossible. The corrected fixture chooses continuous mode after opening and passes through the normal Reload entry. The localization audit passes. Local tests use the rebuilt MuPDF and isolated preferences/pasteboards.
+
+The first 0.2.36 signed candidate (`a63ed2249de8f7190cad1541944b2a7d3e321095`) passed these GUI checks on the test Mac:
+
+- The 120 MiB PDF list could be cancelled, reopened, and its second attachment saved with the expected SHA-256. First/warm UI action-to-observation times were 521/497 ms on installed 0.2.35 and 497/430 ms on the candidate. They include automation observation overhead. The bridge figures above measure the enumeration itself.
+- The edited PDF was moved, kept its pending rectangle, then saved a `/Square` annotation at the new URL. Both PNG pages were written into the literal `图像-%d` folder. The neighboring sentinel was byte-identical.
+- The selected tab’s lower close edge and an unselected tab’s upper close edge each closed only the intended document. Clicking the tab body selected the document.
+- HTML Export PDF produced two pages. The rendered first page showed the red/green/blue image and the second showed the purple/gold image, with one server request. Using the system print panel to save the same HTML then failed with `This print page order cannot preserve searchable text.` Saving the exported PDF from its native reader worked. That candidate was rejected.
+
+The corrected print owner collects one source page for each AppKit physical page and excludes preview redraws outside the page. Twenty-one print tests pass on the frozen correction, including ordinary AppKit file saving, page order `[2, 1, 1]`, repeat drawing within one output page, and text/color comparison. AppKit selected ascending order in the no-panel descending-order experiment. The controlled physical-page sequence explicitly exercises repeated and descending source pages.
+
+The corrected signed package is 0.2.36 (38), arm64, built with Swift 6.1.2 and SDK 15.5. Asset hashes, build-to-source provenance, the original signing certificate, 140 bundle file hashes and the Sparkle signature passed. The accepted manifest SHA-256 is `5e03e9a4b519ad9525c50c643036dd7e8a180f21e3e8a7e3ab4ba7eb7d3183e6`.
+
+In that exact app, the same HTML was exported and then printed through the system panel’s PDF save action. Both files contained the same two pages and searchable text in the same order. At 72 dpi both page rasters were pixel-identical. The three colored bands and the one-use purple image were visible, and the server recorded one GET. The repeated attachment extraction matched the second payload hash. Rename followed by Save wrote the rectangle into the new PDF, and the two exported PNGs and neighboring sentinel were verified on disk.
+
+Finder used the corrected app’s preview and thumbnail extensions. Both fixture thumbnails rendered. The original EPUB advanced from chapter 1 to chapter 2. A damaged third comic page left the second image and `2/3` counter visible alongside the error. The enabled Previous button returned to `1/3` and cleared the error. In this Finder folder, Left switched to the neighboring EPUB, including after clicking the preview image. The isolated extension test covers keyboard input delivered to its view. The Finder key-routing requirement is still open under #96. External report #118 still awaits confirmation on its outstanding scenarios.
+
+[Release PR and publication record](https://github.com/Ares-X/Sumra/pull/134) · [Signed candidate workflow](https://github.com/Ares-X/Sumra/actions/runs/42502226364)

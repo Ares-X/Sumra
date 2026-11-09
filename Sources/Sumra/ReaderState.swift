@@ -1992,13 +1992,32 @@ extension ReaderState {
         guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.utf8.contains(0) else { error = L("Enter a filename without path separators"); return }
         let destination = reading.url.deletingLastPathComponent().appendingPathComponent(name)
         guard destination != reading.url else { return }
-        afterDiscard { [self] in
-        do {
-            stopWatch()
-            try FileManager.default.moveItem(at: reading.url, to: destination)
-            followMovedFile(from: reading.url, to: destination)
-        } catch { watchFile(reading.url); self.error = error.localizedDescription }
+        let loadGeneration = generation
+        let move = { [self] in
+            guard document?.id == reading.id, document?.url == reading.url, generation == loadGeneration, !busy else { return }
+            if let fileBookmark {
+                guard let original = DocumentFileIdentity.resolve(fileBookmark), PDFTools.sameFile(original, reading.url) else {
+                    error = L("File moved or deleted"); return
+                }
+            }
+            do {
+                stopWatch()
+                try FileManager.default.moveItem(at: reading.url, to: destination)
+                followMovedFile(from: reading.url, to: destination)
+            } catch { watchFile(reading.url); self.error = error.localizedDescription }
         }
+        if let saving = pdfSaveTask {
+            // An ordinary save would otherwise reload the old path after it finishes.
+            closeRequestRevision &+= 1
+            Task {
+                do { _ = try await saving.value; move() }
+                catch {
+                    if document?.id == reading.id, document?.url == reading.url, generation == loadGeneration {
+                        self.error = error.localizedDescription
+                    }
+                }
+            }
+        } else { move() }
     }
 
     func trashFile(openNext: Bool) {

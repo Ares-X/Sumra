@@ -295,7 +295,15 @@ enum ReaderPrinting {
         private var placement = NSPoint.zero
         private var preservesPrintText = false
         private var sourcePrintPDF: NativePDFTools.SourcePrintPDF?
-        private var lastSourcePrintPage: Int?
+        struct SourcePrintPage: Equatable {
+            let index: Int
+            let bytes: Data
+            let paper: CGSize
+            let transform: CGAffineTransform
+            let clip: CGRect
+        }
+        private var sourcePrintPage: SourcePrintPage?
+        private var sourcePrintPageActive = false
 
         init(url: URL, scaling: Scaling = .shrink, regions requested: [[CGRect]]? = nil, rotation: Int = 0,
              contentBounds: [CGRect]? = nil, selection: Bool = false) throws {
@@ -410,12 +418,10 @@ enum ReaderPrinting {
             guard typeStatus == noErr, type == PMDestinationType(kPMDestinationFile),
                   locationStatus == noErr, formatStatus == noErr, mime == "application/pdf",
                   let output = info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] as? URL,
-                  let destination, output.standardizedFileURL == destination.standardizedFileURL,
-                  let sourcePrintPDF else {
+                  let destination, output.standardizedFileURL == destination.standardizedFileURL else {
                 throw ReadError("Cannot preserve text in this saved print PDF. The system output was retained.")
             }
-            try sourcePrintPDF.finish(output)
-            self.sourcePrintPDF = nil
+            try finishSourcePrint(to: output)
         }
 
         private func page(_ index: Int) throws -> Page {
@@ -457,11 +463,54 @@ enum ReaderPrinting {
             return bounds
         }
         override func locationOfPrintRect(_ rect: NSRect) -> NSPoint { placement }
+        func beginSourcePrintPage() {
+            sourcePrintPage = nil
+            sourcePrintPageActive = true
+        }
+
+        override func beginPage(in rect: NSRect, atPlacement location: NSPoint) {
+            beginSourcePrintPage()
+            super.beginPage(in: rect, atPlacement: location)
+        }
+
+        func captureSourcePrintPage(_ page: SourcePrintPage) throws {
+            guard sourcePrintPageActive else { return }
+            if let existing = sourcePrintPage, existing != page {
+                throw ReadError("This print layout cannot preserve searchable text.")
+            }
+            sourcePrintPage = page
+        }
+
+        func endSourcePrintPage() throws {
+            defer { sourcePrintPage = nil; sourcePrintPageActive = false }
+            if let page = sourcePrintPage {
+                if sourcePrintPDF == nil { sourcePrintPDF = try NativePDFTools.SourcePrintPDF() }
+                try sourcePrintPDF?.add(page.bytes, paperSize: page.paper, transform: page.transform, clip: page.clip)
+            }
+        }
+
+        func finishSourcePrint(to output: URL) throws {
+            guard let sourcePrintPDF else { throw ReadError("Cannot preserve text in this saved print PDF. The system output was retained.") }
+            try sourcePrintPDF.finish(output)
+            self.sourcePrintPDF = nil
+        }
+
+        override func endPage() {
+            if error == nil {
+                do { try endSourcePrintPage() }
+                catch { fail(error) }
+            }
+            sourcePrintPage = nil
+            sourcePrintPageActive = false
+            super.endPage()
+        }
+
         override func beginDocument() {
             // AppKit can render a preview before starting the saved document
             // on the same view. Source pages belong to that drawing pass.
             sourcePrintPDF = nil
-            lastSourcePrintPage = nil
+            sourcePrintPage = nil
+            sourcePrintPageActive = false
             super.beginDocument()
         }
         override func draw(_ dirtyRect: NSRect) {
@@ -538,7 +587,7 @@ enum ReaderPrinting {
             context.concatenate(transform)
             context.clip(to: value.region)
             if let clips = value.clips { context.clip(to: clips) }
-            if preservesPrintText, let operation, !operation.isCopyingOperation,
+            if preservesPrintText, sourcePrintPageActive, let operation, !operation.isCopyingOperation,
                info?.jobDisposition == .save {
                 do {
                     // Native print-page clips are rectangles and all rotations
@@ -553,15 +602,9 @@ enum ReaderPrinting {
                           let bytes = value.sourcePDF else {
                         throw ReadError("This print layout cannot preserve searchable text.")
                     }
-                    if let lastSourcePrintPage, index < lastSourcePrintPage {
-                        throw ReadError("This print page order cannot preserve searchable text.")
-                    }
-                    if lastSourcePrintPage != index {
-                        if sourcePrintPDF == nil { sourcePrintPDF = try NativePDFTools.SourcePrintPDF() }
-                        try sourcePrintPDF?.add(bytes, paperSize: paper, transform: context.ctm,
-                                                clip: context.boundingBoxOfClipPath)
-                        lastSourcePrintPage = index
-                    }
+                    let captured = SourcePrintPage(index: index, bytes: bytes, paper: paper,
+                        transform: context.ctm, clip: context.boundingBoxOfClipPath)
+                    try captureSourcePrintPage(captured)
                 } catch { fail(error); return }
             }
             context.drawPDFPage(page)

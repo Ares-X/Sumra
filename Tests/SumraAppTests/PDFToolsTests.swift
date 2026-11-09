@@ -245,6 +245,34 @@ final class PDFToolsTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: source), original)
     }
 
+    @MainActor
+    func testImageExportKeepsPlaceholderDirectoriesAndSentinelUntouched() async throws {
+        try requireMuPDF()
+        let root = try outputDirectory()
+        let selected = root.appendingPathComponent("收据-%d/%d", isDirectory: true)
+        let other = root.appendingPathComponent("收据-1/1", isDirectory: true)
+        try FileManager.default.createDirectory(at: selected, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        let sentinel = other.appendingPathComponent("book-1.png")
+        let original = Data("do not overwrite".utf8)
+        try original.write(to: sentinel)
+        let source = root.appendingPathComponent("source.pdf")
+        try XCTUnwrap(document().dataRepresentation()).write(to: source)
+        let pdf = try Pages(source, format: .pdf)
+        for (pages, filename, expected) in [([0], "single.png", ["single.png"]),
+                                             ([0, 2], "book.png", ["book-1.png", "book-3.png"]),
+                                             ([0, 2], "page-%d.png", ["page-1.png", "page-3.png"])] {
+            let destinations = try PDFTools.imageDestinations(pages: pages, template: selected.appendingPathComponent(filename), sources: [source])
+            XCTAssertEqual(destinations.map(\.lastPathComponent), expected)
+            for (page, destination) in zip(pages, destinations) {
+                XCTAssertEqual(destination.deletingLastPathComponent(), selected)
+                let bytes = try await pdf.pdfRenderedImage(page: page, dpi: 72, type: .png, rotation: 0)
+                try bytes.write(to: destination, options: .atomic)
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: sentinel), original)
+    }
+
     func testPageImageOutputPlanRejectsInputAndOutputAliases() throws {
         let directory = try outputDirectory(), source = directory.appendingPathComponent("source.pdf")
         let original = try XCTUnwrap(document().dataRepresentation()), prior = Data("preserve this input".utf8)
