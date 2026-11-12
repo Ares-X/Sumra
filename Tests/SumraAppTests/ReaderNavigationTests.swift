@@ -1180,22 +1180,53 @@ final class ReaderNavigationTests: XCTestCase {
         state.document = reading
         state.nativePDFInfo = try await state.nativePDF?.pdfInfo()
         state.count = 10
-        state.spread = false
+        state.spread = false; state.flow = "paged"; state.fit = "page"
+        state.automaticLayout = false; state.freePan = false
+        let pages = try XCTUnwrap(state.nativePDF)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 500),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { state.windowClosed(); window.contentView = nil; window.close() }
+        func drain() async throws {
+            var complete = false
+            state.send(.none) { complete = true }
+            let deadline = Date().addingTimeInterval(5)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if complete { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            _ = try XCTUnwrap(complete ? true : nil, state.error ?? "Page jump did not complete")
+        }
+        try await drain()
         let jumps: [(Int, () -> Void)] = [
             (3, { state.turn(1) }), (7, { state.go("8") }),
             (0, { state.firstPage() }), (9, { state.lastPage() })
         ]
         for (page, jump) in jumps {
+            state.send(.page(2))
+            try await drain()
             state.updatePosition(.init(page: 2, x: 20, y: 30, anchor: "0:2"))
+            var published: ReadingPosition?
+            let subscription = state.$page.dropFirst().sink { target in
+                if target == page { published = state.location }
+            }
             jump()
-            // A close before the reader callback must restore the requested
-            // page, never an anchor/coordinate belonging to the previous page.
+            try await drain()
+            subscription.cancel()
+            let position = try XCTUnwrap(published)
+            XCTAssertNil(position.anchor)
+            XCTAssertNil(position.x)
+            XCTAssertNil(position.y)
+            // Once the viewport accepts the jump, persistence belongs to the
+            // new page, with no chapter anchor from the preceding page.
             state.persist()
             let saved = try JSONDecoder().decode(ReadingPosition.self, from: XCTUnwrap(defaults.data(forKey: key)))
             XCTAssertEqual(saved.page, page)
             XCTAssertNil(saved.anchor)
-            XCTAssertNil(saved.x)
-            XCTAssertNil(saved.y)
+            XCTAssertNotEqual(saved.x, 20)
+            XCTAssertNotEqual(saved.y, 30)
         }
     }
     @MainActor
@@ -1231,7 +1262,7 @@ final class ReaderNavigationTests: XCTestCase {
         state.firstPage()
         XCTAssertEqual(state.page, 0)
         state.lastPage()
-        XCTAssertEqual(state.page, 7)
+        XCTAssertEqual(state.page, 0, "Queued input must not publish a future location before the reader handles it")
         state.didHandleCommand(state.command.revision)
         await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
         XCTAssertEqual(state.command.action, .page(7))
@@ -1663,22 +1694,32 @@ final class ReaderNavigationTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(info).dirty)
     }
     @MainActor
-    func testBackForwardAndNewBranchRestoreActualPosition() {
+    func testBackForwardAndNewBranchRestoreActualPosition() async {
         let state = ReaderState()
+        func acknowledge() async {
+            state.didHandleCommand(state.command.revision)
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        }
         state.updatePosition(.init(page: 2, x: 12, y: 30, anchor: "2:1"))
         state.navigate(.page(8))
         state.updatePosition(.init(page: 8, x: 5, y: 15, anchor: "3:2"))
+        await acknowledge()
         state.navigateHistory(-1)
+        await acknowledge()
         XCTAssertEqual(state.page, 2)
         XCTAssertEqual(state.location.anchor, "2:1")
         XCTAssertEqual(state.location.y, 30)
         state.navigateHistory(1)
+        await acknowledge()
         XCTAssertEqual(state.page, 8)
         state.navigateHistory(-1)
+        await acknowledge()
         state.navigate(.page(10))
         state.updatePosition(.init(page: 10))
+        await acknowledge()
         XCTAssertFalse(state.canNavigateForward)
         state.navigateHistory(-1)
+        await acknowledge()
         XCTAssertEqual(state.page, 2)
     }
 
@@ -1695,16 +1736,26 @@ final class ReaderNavigationTests: XCTestCase {
     }
 
     @MainActor
-    func testHistoryBoundAndEmptyHistory() {
+    func testHistoryBoundAndEmptyHistory() async {
         let state = ReaderState()
+        func acknowledge() async {
+            state.didHandleCommand(state.command.revision)
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        }
         state.navigateHistory(-1)
         XCTAssertFalse(state.canNavigateBack)
         for index in 0..<70 {
             state.page = index
             state.navigate(.page(index + 1))
+            await acknowledge()
         }
         state.page = 70
-        for _ in 0..<100 { state.navigateHistory(-1) }
+        for _ in 0..<100 {
+            if state.canNavigateBack {
+                state.navigateHistory(-1)
+                await acknowledge()
+            } else { state.navigateHistory(-1) }
+        }
         XCTAssertEqual(state.page, 21)
         XCTAssertFalse(state.canNavigateBack)
     }
