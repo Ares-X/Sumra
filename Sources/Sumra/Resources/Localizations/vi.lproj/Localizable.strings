@@ -798,3 +798,9 @@
 "Turning this off keeps changes already applied." = "Tắt tùy chọn này vẫn giữ các thay đổi đã áp dụng.";
 "Navigation applies to all reading windows." = "Điều hướng áp dụng cho tất cả cửa sổ đọc.";
 "Incomplete reply" = "Phản hồi chưa hoàn chỉnh";
+
+"Browse Folder…" = "Duyệt thư mục…";
+
+"Read Images as Pages" = "Đọc ảnh dưới dạng trang";
+
+"No supported images found in this folder. Supported image types: %@" = "Không tìm thấy ảnh được hỗ trợ trong thư mục này. Các loại ảnh được hỗ trợ: %@";

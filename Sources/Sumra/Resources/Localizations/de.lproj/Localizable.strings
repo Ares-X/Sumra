@@ -798,3 +798,9 @@
 "Turning this off keeps changes already applied." = "Beim Ausschalten bleiben bereits angewendete Änderungen erhalten.";
 "Navigation applies to all reading windows." = "Die Navigation gilt für alle Lesefenster.";
 "Incomplete reply" = "Unvollständige Antwort";
+
+"Browse Folder…" = "Ordner durchsuchen…";
+
+"Read Images as Pages" = "Bilder als Seiten lesen";
+
+"No supported images found in this folder. Supported image types: %@" = "In diesem Ordner wurden keine unterstützten Bilder gefunden. Unterstützte Bildtypen: %@";

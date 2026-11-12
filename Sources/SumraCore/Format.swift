@@ -38,6 +38,7 @@ public extension Format {
     internal static func nativeImageSignature(_ prefix: Data) -> (format: Format, engine: String)? {
         nativeImageSignatures.first { prefix.starts(with: $0.bytes) }.map { ($0.format, $0.engine) }
     }
+    static var comicImageExtensions: [String] { extensions.filter { isComicImage("image." + $0) } }
     static func isComicImage(_ name: String) -> Bool { detect(name) == .image || imageEngine(name) != nil }
     static func imageEngine(_ name: String, prefix: Data = Data()) -> String? {
         let ext = (name as NSString).pathExtension.lowercased()

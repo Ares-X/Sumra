@@ -798,3 +798,9 @@
 "Turning this off keeps changes already applied." = "Desativar esta opção mantém as alterações já aplicadas.";
 "Navigation applies to all reading windows." = "A navegação aplica-se a todas as janelas de leitura.";
 "Incomplete reply" = "Resposta incompleta";
+
+"Browse Folder…" = "Explorar pasta…";
+
+"Read Images as Pages" = "Ler imagens como páginas";
+
+"No supported images found in this folder. Supported image types: %@" = "Não foram encontradas imagens compatíveis nesta pasta. Tipos de imagem compatíveis: %@";

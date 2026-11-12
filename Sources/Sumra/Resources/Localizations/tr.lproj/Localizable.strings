@@ -800,3 +800,9 @@
 "Turning this off keeps changes already applied." = "Bu seçenek kapatıldığında uygulanmış değişiklikler korunur.";
 "Navigation applies to all reading windows." = "Gezinme ayarları tüm okuma pencerelerine uygulanır.";
 "Incomplete reply" = "Eksik yanıt";
+
+"Browse Folder…" = "Klasöre Göz At…";
+
+"Read Images as Pages" = "Görüntüleri Sayfa Olarak Oku";
+
+"No supported images found in this folder. Supported image types: %@" = "Bu klasörde desteklenen görüntü bulunamadı. Desteklenen görüntü türleri: %@";

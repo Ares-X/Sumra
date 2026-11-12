@@ -800,3 +800,9 @@
 "Turning this off keeps changes already applied." = "При отключении уже применённые изменения сохраняются.";
 "Navigation applies to all reading windows." = "Настройки навигации применяются ко всем окнам чтения.";
 "Incomplete reply" = "Неполный ответ";
+
+"Browse Folder…" = "Просмотреть папку…";
+
+"Read Images as Pages" = "Читать изображения как страницы";
+
+"No supported images found in this folder. Supported image types: %@" = "В этой папке нет поддерживаемых изображений. Поддерживаемые типы изображений: %@";

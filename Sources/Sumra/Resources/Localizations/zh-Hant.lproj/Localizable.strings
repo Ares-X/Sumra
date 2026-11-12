@@ -849,3 +849,9 @@
 "Turning this off keeps changes already applied." = "關閉此選項會保留已套用的變更。";
 "Navigation applies to all reading windows." = "導覽設定適用於所有閱讀視窗。";
 "Incomplete reply" = "回覆不完整";
+
+"Browse Folder…" = "瀏覽資料夾…";
+
+"Read Images as Pages" = "將圖片作為頁面閱讀";
+
+"No supported images found in this folder. Supported image types: %@" = "此資料夾中沒有支援的圖片。支援的圖片類型：%@";

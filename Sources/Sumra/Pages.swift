@@ -286,7 +286,13 @@ fileprivate final class RasterDocument {
             archive = nil; names = []; source = nil
             native = try NativeFile(url, engine: format == .djvu ? .djvu : .mupdf, password: password, deferReflowLayout: deferReflowLayout, deferMarkdownMetadata: format == .markdown); storedCount = native!.count
         }
-        guard count > 0 || deferReflowLayout && native?.reflowable == true else { throw ReadError("No readable pages found") }
+        guard count > 0 || deferReflowLayout && native?.reflowable == true else {
+            if format == .comic, url.hasDirectoryPath {
+                throw ReadError(String(format: L("No supported images found in this folder. Supported image types: %@"),
+                                       Format.comicImageExtensions.map { $0.uppercased() }.joined(separator: ", ")))
+            }
+            throw ReadError("No readable pages found")
+        }
     }
     func outline() throws -> [ContentsItem] {
         if let native { return try native.outline() }

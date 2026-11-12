@@ -272,6 +272,16 @@ extension ReaderState {
             // in anchor. Legacy line-only positions precede that line's anchors.
             return (.init(page: position.page), Double(Int(position.anchor ?? "") ?? 0), 0)
         }
+        if format == .chm {
+            // WebKit's paged RTL scroll origin moves toward negative x.
+            if position.flow == "paged" || position.spread == true {
+                return (.init(page: position.page), (position.x ?? 0) * (position.rtl == true ? -1 : 1), position.y ?? 0)
+            }
+            return (.init(page: position.page), position.y ?? 0, position.x ?? 0)
+        }
+        if format == .pdf {
+            return (.init(page: position.page), position.y ?? 0, position.x ?? 0)
+        }
         if (format == .markdown || format == .html), position.page == 0,
            position.anchor == nil, position.pageCount == nil {
             return (.init(page: 0), position.y ?? 0, position.x ?? 0)

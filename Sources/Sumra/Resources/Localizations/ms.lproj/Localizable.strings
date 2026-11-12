@@ -793,3 +793,9 @@
 "Turning this off keeps changes already applied." = "Mematikan pilihan ini mengekalkan perubahan yang telah digunakan.";
 "Navigation applies to all reading windows." = "Navigasi digunakan pada semua tetingkap bacaan.";
 "Incomplete reply" = "Balasan tidak lengkap";
+
+"Browse Folder…" = "Layari Folder…";
+
+"Read Images as Pages" = "Baca Imej sebagai Halaman";
+
+"No supported images found in this folder. Supported image types: %@" = "Tiada imej yang disokong ditemui dalam folder ini. Jenis imej yang disokong: %@";

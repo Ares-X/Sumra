@@ -1211,6 +1211,7 @@ final class ReaderToolbarTests: XCTestCase {
             styleMask: .borderless, backing: .buffered, defer: false)
         parent.isReleasedWhenClosed = false; companion.isReleasedWhenClosed = false
         parent.alphaValue = 0; companion.alphaValue = 0
+        companion.backgroundColor = .white; companion.isOpaque = true
         parent.addChildWindow(companion, ordered: .above)
         let content = try XCTUnwrap(companion.contentView)
         // Model AppKit's companion lookup using a real factory button, without
@@ -1317,6 +1318,24 @@ final class ReaderToolbarTests: XCTestCase {
         observer.updateChrome(revealingNativeControls: false)
         XCTAssertEqual(content.alphaValue, 0, accuracy: 0.001)
         XCTAssertTrue(companion.ignoresMouseEvents)
+
+        // Leaving Always Hide must not leave the companion's opaque backing
+        // covering the book while the Auto toolbar is hidden.
+        state.toolbarDisplayMode = .auto
+        observer.pointerMoved(to: NSPoint(x: 350, y: 100))
+        observer.updateChrome(revealingNativeControls: false)
+        XCTAssertEqual(content.alphaValue, 0, accuracy: 0.001)
+        XCTAssertFalse(companion.isOpaque)
+        XCTAssertEqual(companion.backgroundColor, .clear)
+        XCTAssertTrue(companion.ignoresMouseEvents)
+        observer.pointerMoved(to: NSPoint(x: 350, y: parent.frame.height - 1))
+        observer.updateChrome(revealingNativeControls: false)
+        XCTAssertEqual(content.alphaValue, 1, accuracy: 0.001)
+        XCTAssertTrue(companion.isOpaque)
+        XCTAssertEqual(companion.backgroundColor, .white)
+        XCTAssertFalse(companion.ignoresMouseEvents)
+        XCTAssertFalse(tools.isHidden)
+        XCTAssertEqual(tools.alphaValue, 1, accuracy: 0.001)
     }
 
     func testFloatingFullscreenKeepsNativeCompanionHiddenWhenMenuAndFactoryLookupChange() throws {
@@ -1903,7 +1922,7 @@ final class ReaderToolbarTests: XCTestCase {
             let screen = try XCTUnwrap(NSScreen.screens.first { $0.localizedName == display })
             window.setFrameOrigin(NSPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.minY + 40))
         }
-        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(nil)
         defer { window.makeFirstResponder(nil); window.contentView = nil; window.close(); state.windowClosed() }
         for _ in 0..<100 {
             host.layoutSubtreeIfNeeded()
@@ -1919,6 +1938,19 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertEqual(state.page, 2, "Focusing the input must not navigate")
         editor.insertText("4", replacementRange: editor.selectedRange())
         editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        guard case .page(let requestedPage) = state.command.action else {
+            return XCTFail("Return must enqueue a page command")
+        }
+        XCTAssertEqual(requestedPage, 3)
+        // This fixture hosts only the toolbar input. Simulate the reader
+        // applying and acknowledging its command before checking the label.
+        state.updatePosition(.init(page: requestedPage))
+        state.didHandleCommand(state.command.revision)
+        for _ in 0..<100 {
+            host.layoutSubtreeIfNeeded()
+            if field.stringValue == "4" { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
         XCTAssertEqual(state.page, 3)
         XCTAssertEqual(field.stringValue, "4")
         XCTAssertNil(field.currentEditor())
@@ -1929,7 +1961,9 @@ final class ReaderToolbarTests: XCTestCase {
         ReaderMenuCommand.goToPage.run(state)
         XCTAssertEqual(nextEditor.string, "2", "Repeated focus preserves the draft and selects it")
         XCTAssertEqual(nextEditor.selectedRange(), NSRange(location: 0, length: 1))
+        let committedRevision = state.command.revision
         nextEditor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        XCTAssertEqual(state.command.revision, committedRevision)
         XCTAssertEqual(state.page, 3)
         XCTAssertEqual(field.stringValue, "4")
         XCTAssertNil(field.currentEditor())
@@ -1938,6 +1972,7 @@ final class ReaderToolbarTests: XCTestCase {
         let lastEditor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         lastEditor.insertText("1", replacementRange: lastEditor.selectedRange())
         window.makeFirstResponder(nil)
+        XCTAssertEqual(state.command.revision, committedRevision)
         XCTAssertEqual(state.page, 3, "Leaving an unfinished draft must not navigate")
         XCTAssertEqual(field.stringValue, "4")
 

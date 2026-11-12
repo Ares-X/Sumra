@@ -793,3 +793,9 @@
 "Turning this off keeps changes already applied." = "Після вимкнення вже застосовані зміни зберігаються.";
 "Navigation applies to all reading windows." = "Налаштування навігації застосовуються до всіх вікон читання.";
 "Incomplete reply" = "Неповна відповідь";
+
+"Browse Folder…" = "Переглянути папку…";
+
+"Read Images as Pages" = "Читати зображення як сторінки";
+
+"No supported images found in this folder. Supported image types: %@" = "У цій папці немає підтримуваних зображень. Підтримувані типи зображень: %@";

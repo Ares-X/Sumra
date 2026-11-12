@@ -804,3 +804,9 @@
 "Turning this off keeps changes already applied." = "オフにしても、適用済みの変更は保持されます。";
 "Navigation applies to all reading windows." = "ナビゲーションはすべての閲覧ウインドウに適用されます。";
 "Incomplete reply" = "不完全な返信";
+
+"Browse Folder…" = "フォルダを参照…";
+
+"Read Images as Pages" = "画像をページとして読む";
+
+"No supported images found in this folder. Supported image types: %@" = "このフォルダに対応する画像が見つかりませんでした。対応する画像形式：%@";

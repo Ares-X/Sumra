@@ -50,3 +50,9 @@
 "Reading appearance and layout update immediately. Opening options apply to the next document." = "Reading appearance and layout update immediately. Opening options apply to the next document.";
 
 "Choose Custom in Margins to edit individual values." = "Choose Custom in Margins to edit individual values.";
+
+"Browse Folder…" = "Browse Folder…";
+
+"Read Images as Pages" = "Read Images as Pages";
+
+"No supported images found in this folder. Supported image types: %@" = "No supported images found in this folder. Supported image types: %@";

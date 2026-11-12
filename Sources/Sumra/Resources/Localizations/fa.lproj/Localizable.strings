@@ -793,3 +793,9 @@
 "Turning this off keeps changes already applied." = "خاموش‌کردن این گزینه تغییرات اعمال‌شده را حفظ می‌کند.";
 "Navigation applies to all reading windows." = "پیمایش برای همهٔ پنجره‌های مطالعه اعمال می‌شود.";
 "Incomplete reply" = "پاسخ ناقص";
+
+"Browse Folder…" = "مرور پوشه…";
+
+"Read Images as Pages" = "خواندن تصاویر به‌صورت صفحه";
+
+"No supported images found in this folder. Supported image types: %@" = "هیچ تصویر پشتیبانی‌شده‌ای در این پوشه یافت نشد. انواع تصویر پشتیبانی‌شده: %@";

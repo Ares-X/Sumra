@@ -149,5 +149,10 @@ const indexCHM = async meta => {
         .filter(topic => pathFor(topic.target)).map(canonicalItem)
         .filter((topic, i, topics) => topics.findIndex(other => other.target === topic.target) === i) }))
         .filter(entry => entry.topics.length)
-    return { pages, toc: flatten(toc).map(canonicalItem), keywords: keywordIndex }
+    let home = ''
+    try {
+        const target = resourceURL(meta.home, `${base}/entry/`)
+        if (meta.home && pathFor(target)) home = canonicalItem({ target }).target
+    } catch { /* an invalid home leaves the first indexed topic as the default */ }
+    return { pages, home, toc: flatten(toc).map(canonicalItem), keywords: keywordIndex }
 }

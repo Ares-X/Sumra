@@ -798,3 +798,9 @@
 "Turning this off keeps changes already applied." = "Als je dit uitschakelt, blijven reeds toegepaste wijzigingen behouden.";
 "Navigation applies to all reading windows." = "Navigatie geldt voor alle leesvensters.";
 "Incomplete reply" = "Onvolledig antwoord";
+
+"Browse Folder…" = "Door map bladeren…";
+
+"Read Images as Pages" = "Afbeeldingen als pagina’s lezen";
+
+"No supported images found in this folder. Supported image types: %@" = "Geen ondersteunde afbeeldingen gevonden in deze map. Ondersteunde afbeeldingstypen: %@";
