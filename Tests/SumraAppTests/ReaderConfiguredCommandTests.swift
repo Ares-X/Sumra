@@ -1,6 +1,7 @@
 #if os(macOS)
 import XCTest
 import PDFKit
+import SwiftUI
 @testable import Sumra
 
 final class ReaderConfiguredCommandTests: XCTestCase {
@@ -46,21 +47,42 @@ final class ReaderConfiguredCommandTests: XCTestCase {
         XCTAssertEqual(commands[0].arguments?.theme, "light-warm")
     }
 
-    @MainActor func testRepeatedPageCommandMovesFacingRowsOnceAndClampsAtEnd() throws {
-        let state = ReaderState()
+    @MainActor func testRepeatedPageCommandMovesFacingRowsOnceAndClampsAtEnd() async throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
         state.document = try nativePDFReadingFixture(pageCount: 9)
         state.count = 9; state.spread = true; state.cover = true; state.page = 0
+        state.flow = "paged"; state.fit = "page"; state.automaticLayout = false; state.freePan = false
+        let pages = try XCTUnwrap(state.nativePDF)
+        let host = NSHostingView(rootView: RasterReader(state: state, pages: pages))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 500),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { state.windowClosed(); window.contentView = nil; window.close() }
+        func settle(_ page: Int) async throws {
+            var complete = false
+            state.send(.none) { complete = true }
+            let deadline = Date().addingTimeInterval(5)
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if complete, state.page == page,
+                   RasterReader.pageIsRendered(in: state.readerFocusView, pages: pages, location: .init(page: page)) { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } while Date() < deadline && state.error == nil
+            _ = try XCTUnwrap(Optional<Bool>.none, state.error ?? "Facing-page command did not reach \(page)")
+        }
+        try await settle(0)
         let forward = try ReaderConfiguredCommand.read("""
         [{"name":"next three","command":"next","arguments":{"n":3}}]
         """)[0]
         forward.run(state)
-        XCTAssertEqual(state.page, 5)
+        try await settle(5)
         state.turn(1, count: .max)
-        XCTAssertEqual(state.page, 7)
+        try await settle(7)
         state.turn(-1, count: 2)
-        XCTAssertEqual(state.page, 3)
+        try await settle(3)
         state.turn(1, count: 0)
-        XCTAssertEqual(state.page, 3)
+        try await settle(3)
     }
 
     @MainActor func testExplicitToggleIsIdempotentAndUsesExistingState() throws {

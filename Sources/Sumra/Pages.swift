@@ -3657,14 +3657,25 @@ private struct ReaderKeyboardFocus: ViewModifier {
             }
         case .find(let query, let backwards, let options, let selection, let inResults): find(query, backwards: backwards, options: options ?? .init(), fromSelection: selection, inResults: inResults)
         case .turnPages(let distance, let toBottom):
+            guard distance != 0, state.count > 0 else { return }
             acknowledge = false
             let pageOffset = UserDefaults.standard.bool(forKey: "preservePageTurnPosition") && !state.reflowable && state.flow != "continuous"
                 ? Self.pageLocalOffset(in: state.readerFocusView) : nil
             let forward = distance > 0
+            if (state.chapterLayout?.chapterCount ?? 1) <= 1 {
+                navigationTask?.cancel(); selections.clear(state); state.selectedText = ""
+                let target = state.pageAfterTurning(distance, from: state.page, toBottom: toBottom)
+                let position = ReadingPosition(page: target, pageLocalOffset: pageOffset)
+                state.updatePosition(position)
+                state.commandPositionApplied = true
+                replaceScrollRequest(.init(position, toBottom: pageOffset == nil && toBottom, commandRevision: command.revision))
+                break
+            }
             let location = state.pageLocation(forward ? max(state.visiblePages.lowerBound, state.visiblePages.upperBound - 1) : state.visiblePages.lowerBound)
             navigationTask?.cancel()
             navigationTask = Task {
-                defer { state.didHandleCommand(command.revision) }
+                var handedToViewport = false
+                defer { if !handedToViewport { state.didHandleCommand(command.revision) } }
                 do {
                     var restored = try await pages.advance(location, by: forward ? 1 : -1)
                     if abs(distance) > 1 {
@@ -3681,9 +3692,11 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     selections.clear(state); state.selectedText = ""
                     if pages.isPDF { state.apply(restored); state.persist() }
                     else { state.updatePosition(restored) }
+                    state.commandPositionApplied = true
                     var position = state.currentPosition
                     position.pageLocalOffset = pageOffset
-                    replaceScrollRequest(.init(position, toBottom: pageOffset == nil && toBottom))
+                    replaceScrollRequest(.init(position, toBottom: pageOffset == nil && toBottom, commandRevision: command.revision))
+                    handedToViewport = true
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
             }
         case .progress(let progress):
@@ -3742,16 +3755,19 @@ private struct ReaderKeyboardFocus: ViewModifier {
             let forward = turn.direction > 0
             let target = forward ? state.visiblePages.upperBound : state.visiblePages.lowerBound - 1
             guard target >= 0, target < state.count else { return }
-            if turn.toBottom { state.send(.turnPages(turn.direction, toBottom: true)) }
-            else { state.turn(turn.direction) }
+            // The derived turn belongs to this input, before any later keys.
+            // Its viewport handoff owns completion of the same revision.
+            acknowledge = false
+            performCommand(.init(revision: command.revision, action: .turnPages(turn.direction, toBottom: turn.toBottom)))
         case .fit(let mode) where ReadingZoom.usesContent(mode):
             replaceScrollRequest(.init(.init(page: state.page)))
         case .page(let page):
+            acknowledge = false
             navigationTask?.cancel(); selections.clear(state); state.selectedText = ""
-            var position = ReadingPosition(page: page)
-            if state.page == page { position.pageLocalOffset = state.currentPosition.pageLocalOffset }
-            replaceScrollRequest(.init(position))
+            let position = ReadingPosition(page: page)
+            replaceScrollRequest(.init(position, commandRevision: command.revision))
             state.updatePosition(position)
+            state.commandPositionApplied = true
         case .restore(let saved), .preservePosition(let saved):
             acknowledge = false
             navigationTask?.cancel()
@@ -4855,6 +4871,7 @@ private struct WindowScale: NSViewRepresentable {
     @State private var pixelWidth = 0
     @State private var tileResolution = 0
     @State private var renderedID = ""
+    @State private var failedRenderID: String?
     @State private var links = [RasterLink]()
     @State private var pdfAnnotations = [PDFAnnotationSnapshot]()
     @State private var pdfLinks = [PDFLinkSnapshot]()
@@ -4921,6 +4938,13 @@ private struct WindowScale: NSViewRepresentable {
                         uniform: state.uniformPageWidth && !continuousReflow, transparent: state.showTransparencyGrid,
                         pdfStyle: pdfStyle, engineeringAuto: state.engineeringEnhance == "auto",
                         maximumTileSize: NSScreen.main.map { CGSize(width: $0.frame.width * scale, height: $0.frame.height * scale) }, facingPage: prediction?.facingPage ?? facingPage, displaySize: prediction == nil ? displaySize ?? finiteDisplaySize : nil, rtl: state.rtl, viewportOnly: continuousReflow, preheating: preheating)
+    }
+    private func finishFailedNavigation() {
+        guard failedRenderID == renderID, let pending = scrollRequest, pending.commandRevision != nil,
+              state.pageRange(containing: pending.position.page).contains(index) else { return }
+        // This page cannot consume a viewport request, including one arriving
+        // after its render failed. Keep the error and allow recovery navigation.
+        scrollRequest = nil
     }
     var body: some View {
         let content = pageContent, facing = pageFacing
@@ -4999,8 +5023,15 @@ private struct WindowScale: NSViewRepresentable {
                                                   page: index, size: renderViewport)
                     // The actor can supersede this surface before SwiftUI
                     // cancels its task. Keep its painted output until handoff.
-                } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
+                } catch {
+                    if !Task.isCancelled, documentID == state.document?.id, request == renderID {
+                        state.error = error.localizedDescription
+                        failedRenderID = request
+                        finishFailedNavigation()
+                    }
+                }
             }
+            .onChange(of: scrollRequest) { _ in finishFailedNavigation() }
             .onDisappear { image = nil }
     }
 }

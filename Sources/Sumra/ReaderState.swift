@@ -567,11 +567,13 @@ final class ReaderState: ObservableObject {
     private struct PendingAction {
         var action: ReaderAction
         var completed: (() -> Void)?
+        var recordsNavigation = false
     }
     private var pendingActions: [PendingAction] = []
     private var commandCompletion: (() -> Void)?
     private var commandInFlight = false
     private var claimedCommandRevision: Int?
+    var commandPositionApplied = false
     private(set) var editRevision = 0
     private var loading: Task<Void, Never>?
     private var confirmingClose = false
@@ -687,6 +689,15 @@ extension ReaderState {
         PageRows.range(page: page, count: count, spread: spread && isFixed && !presentation,
             cover: cover, landscape: landscapeAsSpread ? landscapePages : [],
             pairingStart: facingPageAnchor.flatMap { chapterLayout?.page(for: $0) })
+    }
+    func pageAfterTurning(_ distance: Int, from page: Int, toBottom: Bool = false) -> Int {
+        var range = pageRange(containing: page)
+        for _ in 0..<min(abs(distance), count) {
+            let target = distance > 0 ? min(count - 1, range.upperBound) : max(0, range.lowerBound - 1)
+            let next = pageRange(containing: target)
+            if next == range { break }; range = next
+        }
+        return toBottom && distance < 0 ? range.upperBound - 1 : range.lowerBound
     }
     var canSaveCopy: Bool { document?.url.hasDirectoryPath == false }
 
@@ -856,7 +867,7 @@ extension ReaderState {
         return true
     }
 
-    func send(_ action: ReaderAction, completed: (() -> Void)? = nil) {
+    func send(_ action: ReaderAction, completed: (() -> Void)? = nil, recordsNavigation: Bool = false) {
         // Input can queue behind an in-flight command without advancing its
         // revision yet. It still terminates the current raster pinch now.
         switch action {
@@ -899,7 +910,7 @@ extension ReaderState {
         if (reflowable || isText || isBrowser), action == .style, pendingActions.last?.action == .style {
             pendingActions.removeLast()
         }
-        pendingActions.append(.init(action: action, completed: completed))
+        pendingActions.append(.init(action: action, completed: completed, recordsNavigation: recordsNavigation))
         dispatchCommand()
     }
 
@@ -928,7 +939,9 @@ extension ReaderState {
     private func dispatchCommand() {
         guard !commandInFlight, !pendingActions.isEmpty else { return }
         commandInFlight = true
+        commandPositionApplied = false
         let next = pendingActions.removeFirst()
+        if next.recordsNavigation { recordNavigation() }
         commandCompletion = next.completed
         command = .init(revision: command.revision &+ 1, action: next.action)
     }
@@ -1063,10 +1076,12 @@ extension ReaderState {
     }
 
     func navigate(_ action: ReaderAction, completed: (() -> Void)? = nil) {
+        var recordsNavigation = true
         if case .href(let target) = action, searchResults.contains(where: { $0.target == target }) {
             selectedSearchTarget = target
-        } else { recordNavigation() }
-        send(action, completed: completed)
+            recordsNavigation = false
+        }
+        send(action, completed: completed, recordsNavigation: recordsNavigation)
     }
 
     func linkPosition(_ destination: ReadingPosition) -> ReadingPosition {
@@ -1403,12 +1418,12 @@ extension ReaderState {
     }
     func firstPage() {
         if isBrowser { navigate(.location("first")) }
-        else { recordNavigation(); updatePosition(.init(page: 0)); send(.page(0)) }
+        else { navigate(.page(0)) }
     }
     func lastPage() {
         guard count > 0 else { return }
         if isBrowser || (chapterLayout?.chapterCount ?? 1) > 1 { navigate(.location("last")) }
-        else { recordNavigation(); updatePosition(.init(page: count - 1)); send(.page(count - 1)) }
+        else { navigate(.page(count - 1)) }
     }
     func scroll(_ direction: ReaderScrollDirection, amount: ReaderScrollAmount = .line, count: Int = 1) { send(.scroll(direction, amount, count: count)) }
 
@@ -1481,21 +1496,10 @@ extension ReaderState {
 
     func turn(_ delta: Int, count steps: Int = 1) {
         guard steps > 0 else { return }
-        if isBrowser || isText || (chapterLayout?.chapterCount ?? 1) > 1 {
-            send(.turnPages(delta > 0 ? steps : -steps))
-            return
-        }
-        guard count > 0 else { return }
-        var range = visiblePages
-        for _ in 0..<min(steps, count) {
-            let target = delta > 0 ? min(count - 1, range.upperBound) : max(0, range.lowerBound - 1)
-            let next = pageRange(containing: target)
-            if next == range { break }; range = next
-        }
-        let offset = UserDefaults.standard.bool(forKey: "preservePageTurnPosition") && !reflowable && flow != "continuous"
-            ? RasterReader.pageLocalOffset(in: readerFocusView) : nil
-        updatePosition(.init(page: range.lowerBound, pageLocalOffset: offset))
-        send(.page(page))
+        // Resolve relative input when it reaches the reader, after the previous
+        // navigation has installed its viewport. Publishing here lets queued
+        // absolute page commands replay older positions behind a key burst.
+        send(.turnPages(delta > 0 ? steps : -steps))
     }
 
     func requestPageInput() {
@@ -1550,10 +1554,7 @@ extension ReaderState {
     private func goToPhysicalPage(_ input: String) {
         guard let value = Double(input), value.isFinite else { status = "Page or label not found"; return }
         let target = Int(max(0, min(Double(max(0, count - 1)), value - 1)))
-        if isBrowser { navigate(.page(target)); return }
-        recordNavigation()
-        updatePosition(.init(page: target))
-        send(.page(page))
+        navigate(.page(target))
     }
 
     var printInfo: NSPrintInfo {
@@ -1924,7 +1925,39 @@ extension ReaderState {
 
     func persist() {
         guard !UserDefaults.standard.bool(forKey: "disableReadingState"), recordsHistory, let document,
-              let position = filePosition, let data = try? JSONEncoder().encode(position) else { return }
+              var position = filePosition else { return }
+        // Closing may precede the reader's first callback. Keep queued explicit
+        // fixed-page destinations in the saved position without publishing them
+        // ahead of earlier input. Scroll commands still need live geometry.
+        if case .pages = document.content, count > 0, (chapterLayout?.chapterCount ?? 1) <= 1 {
+            let actions = (commandInFlight && !commandPositionApplied ? [command.action] : [])
+                + pendingActions.map(\.action)
+            var knownPage = true
+            for action in actions {
+                let target: Int
+                var offset: PageLocalOffset?
+                switch action {
+                case .page(let page): target = page; knownPage = true
+                case .turnPages(let distance, let toBottom):
+                    guard knownPage else { continue }
+                    target = pageAfterTurning(distance, from: position.page, toBottom: toBottom)
+                    if UserDefaults.standard.bool(forKey: "preservePageTurnPosition"), !reflowable, flow != "continuous" {
+                        offset = RasterReader.pageLocalOffset(in: readerFocusView)
+                    }
+                case .scroll, .restore, .href, .progress, .location:
+                    // These destinations depend on the reader/decoder. A later
+                    // absolute page reestablishes a known persistence target.
+                    knownPage = false
+                    continue
+                default: continue
+                }
+                position.page = target
+                position.anchor = nil; position.x = nil; position.y = nil
+                position.nativePassage = nil; position.markdownPassage = nil; position.scrollFraction = nil
+                position.pageLocalOffset = offset
+            }
+        }
+        guard let data = try? JSONEncoder().encode(position) else { return }
         UserDefaults.standard.set(data, forKey: "position:" + document.url.standardizedFileURL.path)
         if let renderer = document.markdownRenderer {
             let key = "position:" + document.url.standardizedFileURL.path + ":markdown:" + renderer.rawValue
