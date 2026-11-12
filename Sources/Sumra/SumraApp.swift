@@ -224,10 +224,7 @@ struct WindowTabs: NSViewRepresentable {
             let url = state?.document?.url
             if window.representedURL != url { window.representedURL = url }
             closeGuard?.openingPath = openingPath
-            let home = closeGuard?.isHome == true
-            let mode: NSWindow.TabbingMode = home || UserDefaults.standard.bool(forKey: "disableTabs") ? .disallowed : .preferred
-            if window.tabbingMode != mode { window.tabbingMode = mode }
-            if home, let group = window.tabGroup, group.windows.count > 1 { group.removeWindow(window) }
+            closeGuard?.updateTabbingPolicy(window)
         }
 
 
@@ -323,6 +320,12 @@ final class ReaderCloseGuard: NSResponder, NSWindowDelegate, NSUserInterfaceVali
         super.init()
     }
     required init?(coder: NSCoder) { previous = nil; super.init(coder: coder) }
+    func updateTabbingPolicy(_ window: NSWindow) {
+        let home = isHome
+        let mode: NSWindow.TabbingMode = home || UserDefaults.standard.bool(forKey: "disableTabs") ? .disallowed : .preferred
+        if window.tabbingMode != mode { window.tabbingMode = mode }
+        if home, let group = window.tabGroup, group.windows.count > 1 { group.removeWindow(window) }
+    }
     // Preserve reader selection commands when a sibling sidebar has focus.
     @objc func copy(_ sender: Any?) { state?.send(.copy) }
     override func selectAll(_ sender: Any?) { state?.send(.selectAll) }
@@ -923,6 +926,9 @@ enum ReaderWindows {
     }
 
     static func placeTab(_ window: NSWindow, beside parent: NSWindow, restorationID: UUID?) {
+        // Home's first file starts loading synchronously; its SwiftUI host may
+        // not have updated the native tab policy before the next scene mounts.
+        (parent.delegate as? ReaderCloseGuard)?.updateTabbingPolicy(parent)
         let siblings = parent.tabGroup?.windows ?? [parent]
         guard !siblings.contains(window) else { return }
         if let restorationID, let index = restorationPayloads.firstIndex(where: { $0.id == restorationID }) {
@@ -1589,6 +1595,7 @@ struct DocumentFileBrowser: View {
 // Keep file selection and its destination focus in DocumentFileBrowser.
 @MainActor
 private struct ReaderFileSearchInput: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
     @Binding var text: String
     @Binding var focused: Bool
     let down: () -> Void
@@ -1604,6 +1611,7 @@ private struct ReaderFileSearchInput: NSViewRepresentable {
     }
     func updateNSView(_ field: SearchField, context: Context) {
         context.coordinator.parent = self
+        field.isEnabled = isEnabled
         field.placeholderString = L("Search files")
         field.setAccessibilityLabel(L("Search files"))
         if (field.currentEditor() as? NSTextView)?.hasMarkedText() != true, field.stringValue != text { field.stringValue = text }
@@ -1624,22 +1632,26 @@ private struct ReaderFileSearchInput: NSViewRepresentable {
         init(_ parent: ReaderFileSearchInput) { self.parent = parent }
         func updateFocus(_ field: NSTextField) {
             guard let window = field.window else { return }
-            if parent.focused {
+            if parent.focused && parent.isEnabled {
                 if field.currentEditor() == nil { field.selectText(nil) }
             } else if let editor = field.currentEditor(), window.firstResponder === editor {
                 window.makeFirstResponder(nil)
             }
         }
         func controlTextDidChange(_ notification: Notification) {
+            guard parent.isEnabled else { return }
             if let field = notification.object as? NSTextField, parent.text != field.stringValue { parent.text = field.stringValue }
         }
         func controlTextDidBeginEditing(_ notification: Notification) {
+            guard parent.isEnabled else { return }
             if !parent.focused { parent.focused = true }
         }
         func controlTextDidEndEditing(_ notification: Notification) {
+            guard parent.isEnabled else { return }
             if parent.focused { parent.focused = false }
         }
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard parent.isEnabled else { return true }
             guard !textView.hasMarkedText() else { return false }
             if selector == #selector(NSResponder.moveDown(_:)) { parent.down() }
             else if selector == #selector(NSResponder.insertNewline(_:)) { parent.submit() }
@@ -1653,6 +1665,7 @@ private struct ReaderFileSearchInput: NSViewRepresentable {
 // still owns selection, scrolling, menus and opening files.
 @MainActor
 private struct ReaderFileKeys: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
     let performanceOwner: ObjectIdentifier
     let viewChange: UInt64?
     let thumbnails: Bool
@@ -1661,7 +1674,7 @@ private struct ReaderFileKeys: NSViewRepresentable {
     let submit: () -> Void
     func makeNSView(context: Context) -> KeyView { KeyView(frame: .zero) }
     func updateNSView(_ view: KeyView, context: Context) {
-        view.parent = self
+        view.parent = isEnabled ? self : nil
         view.updateFocus()
         if let viewChange, viewChange != view.drawnChange { view.needsDisplay = true }
     }
@@ -1675,11 +1688,12 @@ private struct ReaderFileKeys: NSViewRepresentable {
             NativeReadingPerformance.mark("home-view-first-draw", pagesIdentity: parent.performanceOwner,
                                           started: started, size: bounds.size, flags: parent.thumbnails ? 1 : 0)
         }
-        override var acceptsFirstResponder: Bool { true }
+        override var acceptsFirstResponder: Bool { parent != nil }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); updateFocus() }
         func updateFocus() {
             if parent?.focused == true, let window, window.firstResponder !== self { window.makeFirstResponder(self) }
+            else if parent == nil, let window, window.firstResponder === self { window.makeFirstResponder(nil) }
         }
         override func resignFirstResponder() -> Bool {
             let result = super.resignFirstResponder()

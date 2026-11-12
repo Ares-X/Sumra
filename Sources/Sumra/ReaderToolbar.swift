@@ -122,6 +122,7 @@ struct ReaderToolbarAppearance: ViewModifier {
         private weak var parent: NSWindow?
         private var monitor: Any?
         private var tracking: NSTrackingArea?
+        private var observedDisplayMode: ReaderToolbarDisplayMode?
         private var observedDocumentID: UUID?
         private weak var observedToolbar: NSToolbar?
         private var toolbarObservation: NSKeyValueObservation?
@@ -370,10 +371,11 @@ struct ReaderToolbarAppearance: ViewModifier {
                 }
                 originalButtonAppearance[type] = (button, button.isHidden)
             }
-            if observedDocumentID != state.document?.id {
+            if observedDocumentID != state.document?.id || observedDisplayMode != state.toolbarDisplayMode {
                 observedDocumentID = state.document?.id
-                // Opening or replacing a book need not produce a key-window
-                // notification or a mouse move. Sample after SwiftUI commits
+                observedDisplayMode = state.toolbarDisplayMode
+                // Opening a book or choosing a toolbar mode need not produce
+                // another mouse move. Sample after SwiftUI commits
                 // the new reading controls, outside its view update.
                 DispatchQueue.main.async { [weak self] in
                     guard let self, let parent = self.parent, parent.isKeyWindow else { return }
@@ -549,10 +551,10 @@ struct ReaderToolbarAppearance: ViewModifier {
             }
             let background = ReaderTheme.color(state.palette.background).cgColor
             for index in titlebarViews.indices {
-                // Own the controller only while Always Hide collapses it. A
+                // Own the controller while custom chrome or Always Hide collapses it. A
                 // native Show/Hide Tab Bar action otherwise owns its state.
                 if var accessory = titlebarViews[index].accessory {
-                    if hidesNativeToolbar {
+                    if hidesNativeToolbar || state.usesCustomChrome {
                         if accessory.originalHidden == nil { accessory.originalHidden = accessory.controller.isHidden }
                         titlebarViews[index].accessory = accessory
                         if !accessory.controller.isHidden { accessory.controller.isHidden = true }
@@ -595,9 +597,9 @@ struct ReaderToolbarAppearance: ViewModifier {
             let button = parent.standardWindowButton(.closeButton)
             let factoryControl = button?.superview is ReaderFloatingWindowButtons.Buttons
             // The factory can become the standard lookup before AppKit creates
-            // the fullscreen companion. Follow the original native container
+            // the fullscreen companion. Follow the captured native button
             // into that window so its first appearance is hidden as well.
-            let owner = factoryControl ? nativeControlsContainer?.window : button?.window
+            let owner = factoryControl ? originalButtonAppearance[.closeButton]?.button.window : button?.window
             // A tab created in fullscreen can mount its floating factory after
             // native controls have already left the document frame. Its native
             // accessory still identifies that tab's own fullscreen companion.
@@ -779,7 +781,7 @@ struct ReaderToolbarAppearance: ViewModifier {
             hoverDismiss?.cancel(); hoverDismiss = nil
             trackToolbarCursor(in: nil)
             menuTracking = false
-            observedDocumentID = nil
+            observedDocumentID = nil; observedDisplayMode = nil
             NotificationCenter.default.removeObserver(self)
             toolbarObservation?.invalidate(); toolbarObservation = nil
             observedToolbar = nil; visibilityFrame = nil

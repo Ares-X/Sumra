@@ -695,7 +695,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
             if width >= 360 {
                 let frame = scroll.convert(scroll.bounds, to: host)
                 let lastClose = try XCTUnwrap(closeButtons.map { self.frame(of: $0, in: host) }.max { $0.maxX < $1.maxX })
-                XCTAssertEqual(lastClose.maxX, frame.maxX - 4, accuracy: 1,
+                XCTAssertEqual(lastClose.maxX, frame.maxX, accuracy: 1,
                                "Fitting tabs use the available strip instead of leaving an empty trailing region")
             } else {
                 XCTAssertGreaterThan(try XCTUnwrap(scroll.documentView).bounds.width, scroll.contentView.bounds.width,

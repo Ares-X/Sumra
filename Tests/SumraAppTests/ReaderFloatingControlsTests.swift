@@ -86,6 +86,7 @@ import SumraCore
         host.addSubview(controls)
         defer { controls.stopObservingWindow(); window.contentView = nil; window.close() }
         func raster() throws -> Data {
+            controls.needsDisplay = true
             let bitmap = try XCTUnwrap(controls.bitmapImageRepForCachingDisplay(in: controls.bounds))
             controls.cacheDisplay(in: controls.bounds, to: bitmap)
             return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
@@ -94,6 +95,7 @@ import SumraCore
         controls.updateTrackingAreas()
         let outside = try raster()
         window.pointer = controls.convert(NSPoint(x: 27, y: 10), to: nil)
+        let stationaryPointer = window.pointer
         let entered = try XCTUnwrap(NSEvent.enterExitEvent(with: .mouseEntered, location: window.pointer,
             modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
             eventNumber: 0, trackingNumber: 0, userData: nil))
@@ -103,6 +105,8 @@ import SumraCore
         // put. No mouseExited event is supplied by this regression.
         controls.frame.origin.y += 100
         controls.updateTrackingAreas()
+        XCTAssertEqual(window.pointer, stationaryPointer)
+        XCTAssertTrue(controls.visibleRect.contains(controls.bounds), "The moved controls remain visible; clipping must not clear hover")
         XCTAssertEqual(try raster(), outside)
         window.pointer = controls.convert(NSPoint(x: 27, y: 10), to: nil)
         controls.updateTrackingAreas()
@@ -111,8 +115,12 @@ import SumraCore
     }
 
     func testFloatingNativeWindowButtonsPaintHoverAndClearItWithoutReplacingTheirActions() throws {
+        final class PointerWindow: NSWindow {
+            var pointer = NSPoint(x: 300, y: 200)
+            override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
+        }
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 100, height: 60),
+        let window = PointerWindow(contentRect: CGRect(x: 2200, y: 100, width: 100, height: 60),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let controls = ReaderFloatingWindowButtons.Buttons(frame: CGRect(x: 16, y: 20, width: 54, height: 20))
@@ -127,6 +135,7 @@ import SumraCore
         }
         controls.updateTrackingAreas()
         func pointer(_ type: NSEvent.EventType, at point: NSPoint) throws -> NSEvent {
+            window.pointer = type == .mouseExited ? NSPoint(x: 300, y: 200) : controls.convert(point, to: nil)
             if type == .mouseMoved {
                 return try XCTUnwrap(NSEvent.mouseEvent(with: type, location: controls.convert(point, to: nil),
                     modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
@@ -175,6 +184,7 @@ import SumraCore
             XCTAssertNotEqual(try raster(buttons[2]), normalZoom, "Option changes the green control to its zoom symbol")
             XCTAssertEqual(try raster(buttons[0]), normalClose)
             controls.modifierFlagsChanged([])
+            window.pointer = NSPoint(x: 300, y: 200)
             controls.removeFromSuperview()
             host.addSubview(controls)
             XCTAssertEqual(try raster(), baseline, "Unmounting clears a retained hover")
