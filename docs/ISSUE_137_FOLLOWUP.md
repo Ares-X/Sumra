@@ -105,8 +105,7 @@ between the screen top and reading area revealed and hid the floating controls;
 see `background-top-center.png` and `background-hidden-from-center.png`.
 The final affected local regression run passed 109 cases and skipped one
 SDK-dependent native title test, with source, preferences and clipboard isolation
-verified (`tests-release-window/receipt.json`). Formal signed acceptance remains
-a separate release step.
+verified (`tests-release-window/receipt.json`). Formal signed acceptance is recorded below.
 
 The guest initially showed file information instead of loading the candidate
 preview. After moving the candidate into `~/Applications` and opening it through
@@ -136,6 +135,49 @@ Baseline: main `88ab0b8b7898fa867215b46d381eb1288094c39b`, installed
 [#137](https://github.com/Ares-X/Sumra/issues/137) uses macOS 15.7.5.
 These are different runtime environments. No reporter comments are part of
 this task.
+
+## Signed 0.2.39 acceptance, November 12
+
+The accepted app is build 41 from source
+`c928c9a875f8a46b9c1ed49ddd9e906f27b340e6`, built by
+[release run 43236590415](https://github.com/Ares-X/Sumra/actions/runs/43236590415).
+Its ZIP SHA-256 is
+`b20d5b01c76acc2ce679cd304573f225d5d045fe47eac374e9aa029b339ea051`;
+the accepted SHA256SUMS digest is
+`fbe23267a8acadefcb12f0877766fd2cdc429eda24a14441fc01d7db012737f2`.
+All asset checksums, 140 app files, five app symlinks, 632 allowlisted tracked
+source files, the existing certificate, deep strict code signature and Sparkle
+Ed25519 signature passed. Repository metadata outside the existing source-export
+allowlist is recorded separately, not represented as compiled source.
+
+The exact ZIP was transferred into the macOS 26.6.2 guest and its checksum and
+signature rechecked. Actual pointer movement, GUI file panels and native menus
+established the following on that guest:
+
+- Fullscreen Home opened CBR, CBZ, AZW3, EPUB, FB2 and MOBI together. Selecting
+  the first CBR and duplicating it produced seven tabs. Always Hide → Auto Hide
+  with a stationary top pointer displayed the complete controls and tabs;
+  moving only the pointer into the page hid them. Mission Control showed Desktop
+  and one Sumra fullscreen Space, with no extra black Space.
+- Floating green-button system menus appeared both windowed and fullscreen.
+  After dismissing the menu, moving to the neighboring folder button cleared
+  the traffic-light symbols. Clicking the green button entered fullscreen;
+  moving into the page hid the floating controls. The keyboard shortcut exited
+  fullscreen. System-menu dismissal by pointer alone is not claimed.
+- Read Images as Pages on the books-only fixture directory produced the explicit
+  supported-image error, retained the folder after dismissal, and allowed its
+  CBZ to open directly from the retained browser.
+- Finder loaded the signed preview from the task app path (PID 62832). Recovery.cbz
+  advanced from 1/3 to 2/3, retained 2/3 with an explicit error for corrupt 03.png,
+  and returned to 1/3 using Previous. This does not establish arrow-key routing.
+
+Evidence is retained under `build/issue137-remaining`: release
+`signed-verification.json`, `tests-release-window/receipt.json`, and the VM
+`signed-*` action receipts and screenshots. The source commit remains unchanged;
+this later documentation update records acceptance of those already-built bytes.
+Reporter macOS 15.7.5, physical trackpad inertia, sub-frame transition clipping,
+native tab width behavior and Quick Look arrow-key routing retain the limits
+above. Both #137 and #96 remain open.
 
 ## Original-report checklist
 
