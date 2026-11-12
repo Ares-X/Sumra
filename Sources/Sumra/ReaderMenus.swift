@@ -910,7 +910,7 @@ struct CommandPalette: View {
         case "#":
             items = ReaderFiles.recent.map { url in
                 Item(id: "file:" + url.path, title: url.lastPathComponent, detail: url.deletingLastPathComponent().path) {
-                    ReaderWindows.open([url], in: state) { state.createWindow?($0) }
+                    ReaderFiles.openRecent(url, in: state) { state.createWindow?($0) }
                 }
             }
         case "$":

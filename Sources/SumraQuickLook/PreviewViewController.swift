@@ -101,6 +101,12 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 // can exceed the Finder host's allocated area and clip the preview at Retina sizes.
 final class QuickLookPageView: NSView {
     var image: CGImage? { didSet { needsDisplay = true } }
+    // The clicked page must take keyboard focus, including in a Quick Look panel.
+    // Its unhandled keys continue to PreviewKeys through the responder chain.
+    override var acceptsFirstResponder: Bool { true }
+    override var needsPanelToBecomeKey: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self) }
     override func draw(_ dirtyRect: NSRect) {
         guard let image, let context = NSGraphicsContext.current?.cgContext else { return }
         context.draw(image, in: QuickLookBook.fitted(CGSize(width: image.width, height: image.height), in: bounds.size))

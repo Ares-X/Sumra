@@ -1048,3 +1048,9 @@
 "Turning this off keeps changes already applied." = "关闭此选项会保留已应用的更改。";
 "Navigation applies to all reading windows." = "导航设置适用于所有阅读窗口。";
 "Incomplete reply" = "回复不完整";
+
+"Browse Folder…" = "浏览文件夹…";
+
+"Read Images as Pages" = "将图片作为页面阅读";
+
+"No supported images found in this folder. Supported image types: %@" = "此文件夹中没有支持的图片。支持的图片类型：%@";

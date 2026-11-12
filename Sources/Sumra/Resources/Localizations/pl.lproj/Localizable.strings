@@ -800,3 +800,9 @@
 "Turning this off keeps changes already applied." = "Wyłączenie tej opcji zachowuje już zastosowane zmiany.";
 "Navigation applies to all reading windows." = "Nawigacja dotyczy wszystkich okien czytania.";
 "Incomplete reply" = "Niepełna odpowiedź";
+
+"Browse Folder…" = "Przeglądaj folder…";
+
+"Read Images as Pages" = "Czytaj obrazy jako strony";
+
+"No supported images found in this folder. Supported image types: %@" = "W tym folderze nie znaleziono obsługiwanych obrazów. Obsługiwane typy obrazów: %@";

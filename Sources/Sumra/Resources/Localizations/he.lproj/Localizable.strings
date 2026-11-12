@@ -800,3 +800,9 @@
 "Turning this off keeps changes already applied." = "כיבוי האפשרות משאיר את השינויים שכבר הוחלו.";
 "Navigation applies to all reading windows." = "הגדרות הניווט חלות על כל חלונות הקריאה.";
 "Incomplete reply" = "תשובה חלקית";
+
+"Browse Folder…" = "עיון בתיקייה…";
+
+"Read Images as Pages" = "קריאת תמונות כעמודים";
+
+"No supported images found in this folder. Supported image types: %@" = "לא נמצאו תמונות נתמכות בתיקייה זו. סוגי תמונות נתמכים: %@";

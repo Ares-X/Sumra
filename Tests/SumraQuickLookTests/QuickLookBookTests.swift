@@ -109,8 +109,9 @@ final class QuickLookBookTests: XCTestCase {
         let url = try archive(["01.png": png(20, 40, red: 1), "02.png": png(80, 40, red: 0.5),
                                "03.png": Data("broken image".utf8)], suffix: "cbz")
         let controller = PreviewViewController()
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 800),
-                              styleMask: .borderless, backing: .buffered, defer: false)
+        let window = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 640, height: 800),
+                             styleMask: .borderless, backing: .buffered, defer: false)
+        window.becomesKeyOnlyIfNeeded = true
         window.isReleasedWhenClosed = false
         window.contentViewController = controller
         defer { controller.viewDidDisappear(); window.contentViewController = nil; window.close() }
@@ -129,18 +130,30 @@ final class QuickLookBookTests: XCTestCase {
         XCTAssertEqual(label.stringValue, "2/3")
         XCTAssertTrue(pageView.image === lastImage, "A failed page must retain the successful bitmap")
         XCTAssertTrue(previous.isEnabled); XCTAssertTrue(next.isEnabled)
-        XCTAssertTrue(window.makeFirstResponder(controller.view))
+        XCTAssertFalse(window.firstResponder === pageView, "Preparing a preview must preserve the host's initial focus")
+        let point = pageView.convert(CGPoint(x: pageView.bounds.midX, y: pageView.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(controller.view.hitTest(controller.view.convert(point, from: nil)))
+        XCTAssertTrue(hit === pageView)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let click = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            // Deliver at the clicked native view boundary without activating an
+            // offscreen panel on the user's desktop. Finder routing is GUI UAT.
+            if type == .leftMouseDown { hit.mouseDown(with: click) }
+            else { hit.mouseUp(with: click) }
+        }
+        XCTAssertTrue(window.firstResponder === pageView, "Clicking the visible page must focus it without selecting the root manually")
         let left = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "\u{f702}", charactersIgnoringModifiers: "\u{f702}",
             isARepeat: false, keyCode: 123))
-        try XCTUnwrap(window.firstResponder).keyDown(with: left)
+        window.sendEvent(left)
         try await waitForPreview("Left key must return from the failed page to page 1") { label.stringValue == "1/3" }
         XCTAssertTrue(errorLabel.isHidden)
         XCTAssertFalse(previous.isEnabled); XCTAssertTrue(next.isEnabled)
         let right = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "\u{f703}", charactersIgnoringModifiers: "\u{f703}",
             isARepeat: false, keyCode: 124))
-        try XCTUnwrap(window.firstResponder).keyDown(with: right)
+        window.sendEvent(right)
         try await waitForPreview("Right key remains usable after recovery") { label.stringValue == "2/3" }
         previous.performClick(nil)
         try await waitForPreview("Previous button remains usable after recovery") { label.stringValue == "1/3" }

@@ -8,6 +8,46 @@ import XCTest
 @testable import Sumra
 
 final class BrowserReaderTests: XCTestCase {
+    @MainActor
+    func testCHMBookmarksDistinguishTopicScrollPositions() async throws {
+        _ = NSApplication.shared
+        let html = String(repeating: "<p>Long topic with readable text and content.</p>", count: 300)
+        let defaults = UserDefaults.standard, previous = defaults.object(forKey: "bookmarks")
+        defer { defaults.set(previous, forKey: "bookmarks") }
+        let (state, view) = try await loadedReaderFixture(topic: ("/first.html", Data(html.utf8)), home: "/first.html")
+        let path = try XCTUnwrap(state.document?.url.path)
+        _ = try await evaluate("scrollTo(0,100)", in: view)
+        try await waitUntil { abs((state.currentPosition.y ?? 0) - 100) < 2 }
+        let first = ReaderBookmark(title: "First", path: path, position: try XCTUnwrap(state.filePosition))
+        _ = try await evaluate("scrollTo(0,2300)", in: view)
+        try await waitUntil { abs((state.currentPosition.y ?? 0) - 2300) < 2 }
+        let second = ReaderBookmark(title: "Second", path: path, position: try XCTUnwrap(state.filePosition))
+        state.bookmarks = [first, second]; state.bookmarksByName = false
+        XCTAssertEqual(state.sortedBookmarks.map(\.id), [first.id, second.id])
+        state.toggleBookmark()
+        XCTAssertEqual(state.bookmarks.map(\.id), [first.id], "Toggle must retain the other scroll position")
+        state.bookmarks = [first, second]
+        state.moveBookmark(1)
+        let coordinator = try XCTUnwrap(view.navigationDelegate as? BrowserReader.Coordinator)
+        let command = state.command
+        state.send(.none); coordinator.command = command.revision; coordinator.deliver(command, to: view)
+        var restoredY: Double?
+        for _ in 0..<200 {
+            restoredY = try await evaluate("return scrollY", in: view) as? Double
+            if abs((restoredY ?? 0) - 100) < 2 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(try XCTUnwrap(restoredY), 100, accuracy: 2)
+
+        var start = first.position, later = first.position
+        start.flow = "paged"; start.rtl = true; start.x = 0; start.y = 0
+        later.flow = "paged"; later.rtl = true; later.x = -700; later.y = 0
+        let a = ReaderBookmark(title: "RTL start", path: path, position: start)
+        let b = ReaderBookmark(title: "RTL later", path: path, position: later)
+        state.bookmarks = [b, a]
+        XCTAssertEqual(state.sortedBookmarks.map(\.id), [a.id, b.id], "Negative WebKit offsets follow RTL reading order")
+    }
+
     private func system(_ records: [(UInt16, Data)]) -> Data {
         var result = Data([3, 0, 0, 0])
         for (type, bytes) in records {

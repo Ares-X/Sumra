@@ -800,3 +800,9 @@
 "Turning this off keeps changes already applied." = "इसे बंद करने पर पहले से लागू बदलाव बने रहेंगे।";
 "Navigation applies to all reading windows." = "नेविगेशन सभी रीडिंग विंडो पर लागू होता है।";
 "Incomplete reply" = "अधूरा जवाब";
+
+"Browse Folder…" = "फ़ोल्डर ब्राउज़ करें…";
+
+"Read Images as Pages" = "चित्रों को पृष्ठों के रूप में पढ़ें";
+
+"No supported images found in this folder. Supported image types: %@" = "इस फ़ोल्डर में कोई समर्थित चित्र नहीं मिला। समर्थित चित्र प्रकार: %@";

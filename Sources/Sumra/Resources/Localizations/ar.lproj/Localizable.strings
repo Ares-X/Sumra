@@ -800,3 +800,9 @@
 "Turning this off keeps changes already applied." = "يؤدي إيقاف هذا الخيار إلى الإبقاء على التغييرات المطبقة.";
 "Navigation applies to all reading windows." = "ينطبق التنقل على كل نوافذ القراءة.";
 "Incomplete reply" = "رد غير مكتمل";
+
+"Browse Folder…" = "استعراض مجلد…";
+
+"Read Images as Pages" = "قراءة الصور كصفحات";
+
+"No supported images found in this folder. Supported image types: %@" = "لم يتم العثور على صور مدعومة في هذا المجلد. أنواع الصور المدعومة: %@";

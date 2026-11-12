@@ -535,6 +535,13 @@ struct BrowserReader: NSViewRepresentable {
                             throw ReadError("Cannot read the CHM topic index")
                         }
                         pages = urls.compactMap(URL.init(string:))
+                        if (initialPosition == nil || state.useDocumentOpenAction),
+                           let home = book["home"] as? String, !home.isEmpty {
+                            var position = initialPosition ?? .init()
+                            position.anchor = home
+                            initialPosition = position
+                        }
+                        state.useDocumentOpenAction = false
                         let items = try JSONSerialization.data(withJSONObject: book["toc"] ?? [])
                         outline = try JSONDecoder().decode([ContentsItem].self, from: items)
                         let keywords = try JSONSerialization.data(withJSONObject: book["keywords"] ?? [])

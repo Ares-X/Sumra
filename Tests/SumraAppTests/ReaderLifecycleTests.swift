@@ -920,6 +920,7 @@ final class ReaderLifecycleTests: XCTestCase {
 
     @MainActor
     func testMarkupBookmarkCommandsUseCurrentFileOffsets() throws {
+        _ = NSApplication.shared
         let directory = try TemporaryDirectory(), root = directory.url.resolvingSymlinksInPath()
         let a = root.appendingPathComponent("A.md"), b = root.appendingPathComponent("B.md")
         try Data("# A\n".utf8).write(to: a); try Data("# B\n".utf8).write(to: b)
@@ -955,6 +956,7 @@ final class ReaderLifecycleTests: XCTestCase {
 
     @MainActor
     func testMarkdownBookmarksUsePassagesAndRetainLegacyOrdering() throws {
+        _ = NSApplication.shared
         _ = NSApplication.shared
         let directory = try TemporaryDirectory(), file = directory.url.resolvingSymlinksInPath().appendingPathComponent("Book.md")
         try Data("# Book\n\nText\n".utf8).write(to: file)

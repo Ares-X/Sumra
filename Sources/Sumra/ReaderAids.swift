@@ -272,6 +272,16 @@ extension ReaderState {
             // in anchor. Legacy line-only positions precede that line's anchors.
             return (.init(page: position.page), Double(Int(position.anchor ?? "") ?? 0), 0)
         }
+        if format == .chm {
+            // WebKit's paged RTL scroll origin moves toward negative x.
+            if position.flow == "paged" || position.spread == true {
+                return (.init(page: position.page), (position.x ?? 0) * (position.rtl == true ? -1 : 1), position.y ?? 0)
+            }
+            return (.init(page: position.page), position.y ?? 0, position.x ?? 0)
+        }
+        if format == .pdf {
+            return (.init(page: position.page), position.y ?? 0, position.x ?? 0)
+        }
         if (format == .markdown || format == .html), position.page == 0,
            position.anchor == nil, position.pageCount == nil {
             return (.init(page: 0), position.y ?? 0, position.x ?? 0)
@@ -322,6 +332,18 @@ extension ReaderState {
         position.x.flatMap { $0.isFinite ? $0 : nil } ?? 0
     }
 
+    private func samePDFBookmarkPosition(_ first: ReadingPosition, _ second: ReadingPosition, path: String) -> Bool {
+        guard Format.detect(path) == .pdf, first.page == second.page,
+              let canvas = readerFocusView as? RasterCanvas.Canvas, canvas.location == pageLocation(second.page) else { return false }
+        // A native scroll/restore round trip can change subpixel coordinates.
+        // Compare the displayed position at the current device-pixel precision.
+        let transform = canvas.pageTransform
+        let dx = CGFloat((first.x ?? 0) - (second.x ?? 0))
+        let dy = CGFloat((first.y ?? 0) - (second.y ?? 0))
+        let pixel = 1 / (canvas.window?.backingScaleFactor ?? 1)
+        return abs(dx * transform.a + dy * transform.c) < pixel && abs(dx * transform.b + dy * transform.d) < pixel
+    }
+
     func toggleBookmark() {
         guard let path = document?.url.path, let position = filePosition else { return }
         let current = bookmarkLocation(position, path: path)
@@ -335,6 +357,7 @@ extension ReaderState {
             if Format.detect(path) == .markdown, let a = $0.position.markdownPassage, let b = position.markdownPassage {
                 return a.end == b.end && (a.end || a.path == b.path && a.offset == b.offset) && bookmarkHorizontal($0.position) == bookmarkHorizontal(position)
             }
+            if samePDFBookmarkPosition($0.position, position, path: path) { return true }
             let target = bookmarkLocation($0.position, path: path)
             if chapterLayout != nil { return target == current }
             return $0.position.page == position.page && $0.position.anchor == position.anchor && target == current
@@ -348,8 +371,10 @@ extension ReaderState {
         let items = bookmarks.filter { $0.path == path }.sorted {
             bookmarkPrecedes($0.position, $1.position, path: path, semantic: semantic)
         }
-        let next = direction > 0 ? items.first { bookmarkPrecedes(position, $0.position, path: path, semantic: semantic) } ?? items.first
-            : items.last { bookmarkPrecedes($0.position, position, path: path, semantic: semantic) } ?? items.last
+        let otherPositions = items.filter { !samePDFBookmarkPosition($0.position, position, path: path) }
+        let candidates = otherPositions.isEmpty ? items : otherPositions
+        let next = direction > 0 ? candidates.first { bookmarkPrecedes(position, $0.position, path: path, semantic: semantic) } ?? candidates.first
+            : candidates.last { bookmarkPrecedes($0.position, position, path: path, semantic: semantic) } ?? candidates.last
         if let next { openBookmark(next) }
     }
 

@@ -230,7 +230,7 @@ struct SumraCommands: Commands {
     }
 
     private func open(_ url: URL) {
-        ReaderWindows.open([url], in: state) { openWindow(id: "reader", value: $0) }
+        ReaderFiles.openRecent(url, in: state) { openWindow(id: "reader", value: $0) }
     }
 
     private func openFiles() {

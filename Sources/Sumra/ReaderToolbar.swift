@@ -626,10 +626,10 @@ struct ReaderToolbarAppearance: ViewModifier {
             guard let toolbarWindow, let toolbarContent, let originalToolbarChrome else { return }
             // Hiding only the content leaves the companion's opaque window
             // backing visible during fullscreen transitions.
-            let custom = state?.usesCustomChrome == true || state?.toolbarDisplayMode == .hidden
-            toolbarWindow.backgroundColor = custom ? .clear : originalToolbarChrome.background
-            toolbarWindow.isOpaque = custom ? false : originalToolbarChrome.opaque
-            toolbarWindow.hasShadow = custom ? false : originalToolbarChrome.shadow
+            let transparentBacking = state?.usesCustomChrome == true || state?.toolbarDisplayMode == .hidden || opacity == 0
+            toolbarWindow.backgroundColor = transparentBacking ? .clear : originalToolbarChrome.background
+            toolbarWindow.isOpaque = transparentBacking ? false : originalToolbarChrome.opaque
+            toolbarWindow.hasShadow = transparentBacking ? false : originalToolbarChrome.shadow
             let ignoresMouse = opacity == 0 || originalToolbarChrome.ignoresMouse
             if toolbarWindow.ignoresMouseEvents != ignoresMouse { toolbarWindow.ignoresMouseEvents = ignoresMouse }
             if toolbarOpacity != opacity {

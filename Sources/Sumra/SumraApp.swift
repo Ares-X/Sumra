@@ -35,6 +35,8 @@ struct WindowPayload: Codable, Hashable {
     var fileBookmark: Data?
     // A new bookmark window uses the same identity-aware opening as the sidebar.
     var bookmarkRequest: ReaderBookmark?
+    // A folder-browsing request is transient, not a document/session payload.
+    var browserFolder: URL?
     var selected: Bool?
     var active: Bool?
     // Startup metadata only; the native tab group owns order after restoration.
@@ -123,6 +125,12 @@ struct ReaderWindow: View {
             .onAppear {
                 documentOpenLog.notice("scene-appeared payload=\(payload.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
                 state.tabColor = payload.tabColor
+                if let folder = payload.browserFolder {
+                    state.fileBrowserFolder = folder
+                    state.fileBrowserRecordsHistory = payload.recordsHistory
+                    state.showFiles = true
+                    payload.browserFolder = nil
+                }
                 let opener = openWindow
                 state.createWindow = { [opener] in opener(id: "reader", value: $0) }
                 state.openAuxiliaryWindow = { [opener] in opener(id: $0) }
@@ -1002,6 +1010,7 @@ enum ReaderFiles {
         var count: Int
         var lastOpened: Date
         var fileBookmark: Data?
+        var browseFolder: Bool?
 
         func count(at date: Date) -> Int {
             let weeks = Int(date.timeIntervalSinceReferenceDate / 604_800) - Int(lastOpened.timeIntervalSinceReferenceDate / 604_800)
@@ -1059,17 +1068,59 @@ enum ReaderFiles {
             return left.offset < right.offset
         }.map { $0.element.url }
     }
+    static func opensInFolderBrowser(_ url: URL) -> Bool {
+        let key = identity(url.path)
+        return history.first { identity($0.key) == key }?.value.browseFolder == true
+    }
+    static func openRecent(_ url: URL, in state: ReaderState?, recordsHistory: Bool = true,
+                           behavior: DocumentOpenBehavior? = nil, browseFolder: Bool = false,
+                           createWindow: (WindowPayload) -> Void) {
+        guard browseFolder || opensInFolderBrowser(url) else {
+            if behavior == .newWindow {
+                var payload = WindowPayload(path: url.path, recordsHistory: recordsHistory ? nil : false)
+                payload.tabIdentifier = "Sumra-" + UUID().uuidString
+                createWindow(payload)
+                return
+            }
+            ReaderWindows.open([url], in: state, recordsHistory: recordsHistory,
+                               behavior: behavior ?? .current, createWindow: createWindow)
+            return
+        }
+        if let state, behavior == nil || behavior == .replaceCurrent {
+            state.fileBrowserFolder = url
+            state.fileBrowserRecordsHistory = recordsHistory ? nil : false
+            state.showFiles = true
+            state.window?.makeKeyAndOrderFront(nil)
+        } else {
+            var payload = WindowPayload(recordsHistory: recordsHistory ? nil : false)
+            payload.browserFolder = url
+            if behavior == .newTab, !UserDefaults.standard.bool(forKey: "disableTabs") {
+                payload.tabWith = state?.window?.windowNumber
+                if payload.tabWith == nil { payload.tabIdentifier = UUID().uuidString }
+            } else { payload.tabIdentifier = "Sumra-" + UUID().uuidString }
+            createWindow(payload)
+        }
+    }
+    static func recordBrowse(_ url: URL, recordsHistory: Bool, at date: Date = Date()) {
+        record(url, recordsHistory: recordsHistory, browsing: true, at: date)
+    }
     static func recordOpen(_ document: ReadingDocument, recordsHistory: Bool, at date: Date = Date()) {
-        guard recordsHistory, !UserDefaults.standard.bool(forKey: "disableHistory"), document.sourceTemporary == nil else { return }
+        guard document.sourceTemporary == nil else { return }
+        record(document.url, recordsHistory: recordsHistory, browsing: false, at: date)
+    }
+    private static func record(_ url: URL, recordsHistory: Bool, browsing: Bool, at date: Date) {
+        guard recordsHistory, !UserDefaults.standard.bool(forKey: "disableHistory") else { return }
         let started = DispatchTime.now().uptimeNanoseconds
         NativeReadingPerformance.mark("history-record-entry", persistent: true)
         defer { NativeReadingPerformance.mark("history-record-return", started: started, persistent: true) }
-        let url = document.url
         var records = history
         let key = identity(url.path), aliases = records.keys.filter { identity($0) == key }
-        let count = aliases.reduce(1) { $0 + records[$1]!.count(at: date) }
+        let count = aliases.reduce(browsing ? 0 : 1) { $0 + records[$1]!.count(at: date) }
+        // Browsing a previously read image folder must retain its reader destination.
+        let browseFolder = browsing && (aliases.isEmpty || aliases.allSatisfy { records[$0]!.browseFolder == true })
         for path in aliases { records.removeValue(forKey: path) }
-        records[url.path] = OpenRecord(count: count, lastOpened: date, fileBookmark: DocumentFileIdentity.bookmark(for: url))
+        records[url.path] = OpenRecord(count: count, lastOpened: date, fileBookmark: DocumentFileIdentity.bookmark(for: url),
+                                       browseFolder: browseFolder ? true : nil)
         let pinned = Set(Self.pinned.map(identity))
         let unpinned = records.keys.filter { !pinned.contains(identity($0)) }.sorted { records[$0]!.lastOpened > records[$1]!.lastOpened }
         for path in unpinned.dropFirst(1000) { records.removeValue(forKey: path) }
@@ -1078,6 +1129,7 @@ enum ReaderFiles {
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
         NativeReadingPerformance.mark("history-recent-return", started: recentStarted, persistent: true)
         saveHistory(records)
+        NotificationCenter.default.post(name: recentDocumentsChanged, object: nil)
     }
     static func clearHistory() {
         NSDocumentController.shared.clearRecentDocuments(nil)
@@ -1150,8 +1202,10 @@ enum ReaderFiles {
         let historyAliases = records.keys.filter { identity($0) == key }
         if let date = historyAliases.compactMap({ records[$0]?.lastOpened }).max() {
             let count = historyAliases.reduce(0) { $0 + records[$1]!.count(at: date) }
+            let browseFolder = historyAliases.allSatisfy { records[$0]!.browseFolder == true }
             for path in historyAliases { records.removeValue(forKey: path) }
-            records[destination.path] = OpenRecord(count: count, lastOpened: date, fileBookmark: DocumentFileIdentity.bookmark(for: destination))
+            records[destination.path] = OpenRecord(count: count, lastOpened: date, fileBookmark: DocumentFileIdentity.bookmark(for: destination),
+                                                   browseFolder: browseFolder ? true : nil)
             saveHistory(records)
         }
         UserDefaults.standard.set(pinned.map { identity($0) == key ? destination.path : $0 }, forKey: "pinnedDocuments")
@@ -1180,9 +1234,16 @@ struct ReaderCommandSheets: ViewModifier {
         content.sheet(isPresented: $state.showPalette) {
             CommandPalette(state: state, open: open, perform: { pendingAction = $0 })
         }
-        .sheet(isPresented: $state.showFiles) {
-            DocumentFileBrowser(state: state, folder: state.document?.url.deletingLastPathComponent(),
-                                dismissOnOpen: true, performOpen: { pendingAction = $0 })
+        .sheet(isPresented: $state.showFiles, onDismiss: {
+            // A deferred context action may already have requested the next sheet.
+            if !state.showFiles {
+                state.fileBrowserFolder = nil
+                state.fileBrowserRecordsHistory = nil
+            }
+        }) {
+            DocumentFileBrowser(state: state, folder: state.fileBrowserFolder ?? state.document?.url.deletingLastPathComponent(),
+                                dismissOnOpen: true, recordsHistory: state.fileBrowserRecordsHistory,
+                                performOpen: { pendingAction = $0 })
                 .frame(width: 620, height: 460)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification)) { notification in
@@ -1217,12 +1278,14 @@ struct DocumentFileBrowser: View {
     @AppStorage("homePageSortByFrequentlyRead") private var frequentlyRead = false
     @AppStorage("homePageViewMode") private var viewMode = "thumbnails"
     let dismissOnOpen: Bool
+    let recordsHistory: Bool?
     let performOpen: (@escaping () -> Void) -> Void
     @Environment(\.dismiss) private var dismiss
-    init(state: ReaderState, folder: URL? = nil, dismissOnOpen: Bool = false,
+    init(state: ReaderState, folder: URL? = nil, dismissOnOpen: Bool = false, recordsHistory: Bool? = nil,
          performOpen: @escaping (@escaping () -> Void) -> Void = { $0() }) {
         self.state = state
         self.dismissOnOpen = dismissOnOpen
+        self.recordsHistory = recordsHistory
         self.performOpen = performOpen
         _folder = State(initialValue: folder)
     }
@@ -1241,7 +1304,7 @@ struct DocumentFileBrowser: View {
         VStack(spacing: 16) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(folder?.lastPathComponent ?? L("Recent Documents"))
+                    Label(folder?.lastPathComponent ?? L("Recent Documents"), systemImage: folder == nil ? "clock" : "folder")
                         .font(.system(size: 15, weight: .semibold)).lineLimit(1)
                     if let folder {
                         Text(folder.path).font(.caption).foregroundStyle(.secondary)
@@ -1277,19 +1340,25 @@ struct DocumentFileBrowser: View {
                 }.labelsHidden().pickerStyle(.segmented).frame(width: 64)
             }
             HStack(spacing: 8) {
-                Button { folder = nil } label: { Label(L("Recent"), systemImage: "clock") }
+                if folder != nil {
+                    Button { folder = nil } label: { Label(L("Recent Documents"), systemImage: "clock") }
+                }
                 Button {
                     let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
                     panel.directoryURL = folder ?? state.document?.url.deletingLastPathComponent()
                     if panel.runModal() == .OK { folder = panel.url }
-                } label: { Label(L("Folder…"), systemImage: "folder") }
+                } label: { Label(L("Browse Folder…"), systemImage: "folder") }
                 if let folder {
                     Divider().frame(height: 16)
                     Button { self.folder = folder.deletingLastPathComponent() } label: { Image(systemName: "arrow.up") }
                         .help(L("Parent folder")).accessibilityLabel(L("Parent folder"))
-                    Button(L("Open Folder")) { openDocument(folder) }
                 }
                 Spacer()
+                if let folder {
+                    Button { openDocument(folder) } label: {
+                        Label(L("Read Images as Pages"), systemImage: "book")
+                    }
+                }
                 if folder == nil {
                     Menu {
                         Button(L("Remove Missing Files")) { ReaderFiles.removeMissing(); revision += 1 }
@@ -1371,7 +1440,11 @@ struct DocumentFileBrowser: View {
                         .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true || Format.detect($0.lastPathComponent) != .unknown }
                         .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
                 }.value
-                if !Task.isCancelled, self.folder == folder { entries = loaded; refreshPins() }
+                if !Task.isCancelled, self.folder == folder {
+                    entries = loaded
+                    ReaderFiles.recordBrowse(folder, recordsHistory: recordsHistory ?? state.recordsDocumentHistory)
+                    refreshPins()
+                }
             } catch { if !Task.isCancelled, self.folder == folder { state.error = error.localizedDescription } }
         }
     }
@@ -1423,17 +1496,26 @@ struct DocumentFileBrowser: View {
             Button(L("Open")) { open(url) }
             Button(L("Open in New Window")) {
                 openAfterClosing {
-                    var payload = WindowPayload(path: url.path)
-                    payload.tabIdentifier = "Sumra-" + UUID().uuidString
-                    state.createWindow?(payload)
+                    ReaderFiles.openRecent(url, in: state, recordsHistory: recordsHistory ?? state.recordsDocumentHistory,
+                                           behavior: .newWindow, browseFolder: isFolder && folder != nil) {
+                        state.createWindow?($0)
+                    }
                 }
             }
             Button(pinned ? L("Unpin") : L("Pin")) { ReaderFiles.pin(url); revision += 1 }
-            Button(L("Open without History")) { openAfterClosing { state.openWithoutHistory(url) } }
+            Button(L("Open without History")) {
+                openAfterClosing {
+                    ReaderFiles.openRecent(url, in: state, recordsHistory: false, behavior: .replaceCurrent,
+                                           browseFolder: isFolder && folder != nil) { state.createWindow?($0) }
+                }
+            }
             if state.hasDocument {
                 Button(L("Open in New Tab")) {
                     openAfterClosing {
-                        ReaderWindows.open([url], in: state, behavior: .newTab) { state.createWindow?($0) }
+                        ReaderFiles.openRecent(url, in: state, recordsHistory: recordsHistory ?? state.recordsDocumentHistory,
+                                           behavior: .newTab, browseFolder: isFolder && folder != nil) {
+                            state.createWindow?($0)
+                        }
                     }
                 }.disabled(!ReaderMenuCommand.newTab.enabled(state))
             }
@@ -1485,12 +1567,13 @@ struct DocumentFileBrowser: View {
         focus = .files
     }
     private func open(_ url: URL) {
-        if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { folder = url }
+        if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+           folder != nil || ReaderFiles.opensInFolderBrowser(url) { folder = url }
         else { openDocument(url) }
     }
     private func openDocument(_ url: URL) {
         openAfterClosing {
-            ReaderWindows.open([url], in: state) { state.createWindow?($0) }
+            ReaderWindows.open([url], in: state, recordsHistory: recordsHistory ?? state.recordsDocumentHistory) { state.createWindow?($0) }
         }
     }
     private func openAfterClosing(_ action: @escaping () -> Void) {

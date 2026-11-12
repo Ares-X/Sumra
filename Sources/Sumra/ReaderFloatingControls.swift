@@ -244,14 +244,14 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
                                     .contentShape(Rectangle())
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .buttonStyle(.plain)
                                 .help(tab.title).accessibilityLabel(tab.title)
                                 .accessibilityValue(tab.id == state.window?.windowNumber ? L("Selected") : "")
                                 closeButton(window(tab.id), title: tab.title)
-                                    .padding(.trailing, 4)
                             }
                             .frame(width: tabWidth, height: 28)
-                            .background(Color(nsColor: ReaderTheme.color(state.palette.text))
-                                .opacity(tab.id == state.window?.windowNumber ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 5))
+                            .modifier(ReaderFloatingTabSurface(selected: tab.id == state.window?.windowNumber,
+                                                               color: Color(nsColor: ReaderTheme.color(state.palette.text))))
                             .id(tab.id)
                             .contextMenu {
                                 Button(L("Close Tab")) { if let tabWindow = window(tab.id) { ReaderWindows.close(tabWindow) } }
@@ -272,6 +272,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
             Image(systemName: "xmark").font(.system(size: 9, weight: .medium))
                 .frame(width: 28, height: 28).contentShape(Rectangle())
         }
+        .buttonStyle(ReaderFloatingCloseButtonStyle())
         .help(L("Close Tab"))
         .accessibilityLabel(L("Close Tab") + ": " + (title ?? state.document?.url.lastPathComponent ?? ""))
     }
@@ -297,6 +298,40 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
     }
 }
 
+
+/// The tab owns its hover surface, including its overlapping close target.
+private struct ReaderFloatingTabSurface: ViewModifier {
+    let selected: Bool
+    let color: Color
+    @State private var hovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .background(color.opacity(hovered ? (selected ? 0.14 : 0.08) : selected ? 0.07 : 0),
+                        in: RoundedRectangle(cornerRadius: 5))
+            .onHover { hovered = $0 }
+    }
+}
+
+private struct ReaderFloatingCloseButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        CloseButton(configuration: configuration)
+    }
+    private struct CloseButton: View {
+        let configuration: ButtonStyleConfiguration
+        @State private var hovered = false
+        var body: some View {
+            configuration.label
+                .background {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.primary.opacity(configuration.isPressed ? 0.20 : hovered ? 0.14 : 0))
+                        .frame(width: 18, height: 18)
+                }
+                .onHover { hovered = $0 }
+        }
+    }
+}
 
 /// The floating surfaces use a visible, consistent pointer and press affordance.
 struct ReaderFloatingButtonStyle: ButtonStyle {

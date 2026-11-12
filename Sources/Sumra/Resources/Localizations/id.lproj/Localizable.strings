@@ -798,3 +798,9 @@
 "Turning this off keeps changes already applied." = "Menonaktifkan ini mempertahankan perubahan yang sudah diterapkan.";
 "Navigation applies to all reading windows." = "Navigasi berlaku untuk semua jendela baca.";
 "Incomplete reply" = "Balasan tidak lengkap";
+
+"Browse Folder…" = "Telusuri Folder…";
+
+"Read Images as Pages" = "Baca Gambar sebagai Halaman";
+
+"No supported images found in this folder. Supported image types: %@" = "Tidak ada gambar yang didukung dalam folder ini. Jenis gambar yang didukung: %@";

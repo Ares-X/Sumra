@@ -444,6 +444,8 @@ final class ReaderState: ObservableObject {
         return true
     }
     @Published var showFiles = false
+    @Published var fileBrowserFolder: URL?
+    var fileBrowserRecordsHistory: Bool?
     @Published var showAnnotations = false { didSet { if showAnnotations { selectSidebar("annotations") } } }
     @Published var annotationsVisible = true
     @Published var highlightFormFields = false
@@ -532,6 +534,7 @@ final class ReaderState: ObservableObject {
     weak var pageInputField: NSTextField?
     weak var findInputField: NSTextField?
     private var wheelTurnedPage = false
+    private var wheelPanning = false
     private var wheelPageTurnTime: TimeInterval?
     weak var window: NSWindow?
     private(set) var fileBookmark: Data?
@@ -1438,7 +1441,10 @@ extension ReaderState {
     func handleScrollWheel(_ event: NSEvent) -> Bool {
         guard event.type == .scrollWheel else { return false }
         if event.phase.contains(.began) || event.phase.contains(.mayBegin) ||
-            (event.phase.isEmpty && event.momentumPhase.isEmpty) { wheelTurnedPage = false }
+            (event.phase.isEmpty && event.momentumPhase.isEmpty) {
+            wheelTurnedPage = false
+            wheelPanning = false
+        }
         guard case .pages(let pages) = document?.content,
               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
               let scroll = readerScrollView, let window = scroll.window, event.window === window,
@@ -1459,14 +1465,19 @@ extension ReaderState {
         let delta = horizontal ? event.scrollingDeltaX : event.scrollingDeltaY
         guard delta != 0 else { return false }
         if wheelTurnedPage { return true }
+        if wheelPanning { return false }
         let direction: ReaderScrollDirection = horizontal ? (delta > 0 ? .left : .right) : (delta > 0 ? .up : .down)
         var probe = clip.bounds
-        if horizontal {
-            probe.origin.x += delta > 0 ? -1 : 1
-            if abs(clip.constrainBoundsRect(probe).minX - clip.bounds.minX) > 0.5 { return false }
-        } else {
-            probe.origin.y += (direction == .up ? -1 : 1) * (canvas.isFlipped ? 1 : -1)
-            if fit != "content", abs(clip.constrainBoundsRect(probe).minY - clip.bounds.minY) > 0.5 { return false }
+        if event.scrollingDeltaX != 0 { probe.origin.x += event.scrollingDeltaX > 0 ? -1 : 1 }
+        if event.scrollingDeltaY != 0, fit != "content" {
+            probe.origin.y += (event.scrollingDeltaY > 0 ? -1 : 1) * (canvas.isFlipped ? 1 : -1)
+        }
+        let constrained = clip.constrainBoundsRect(probe)
+        if abs(constrained.minX - clip.bounds.minX) > 0.5 || abs(constrained.minY - clip.bounds.minY) > 0.5 {
+            // A trackpad gesture that started panning remains a pan even if
+            // a later diagonal sample reaches an edge or changes dominant axis.
+            wheelPanning = !event.phase.isEmpty
+            return false
         }
         // CanvasOnMouseWheel turns only after page scrolling reaches its edge.
         // The existing page command also owns previous-page-at-bottom and form
@@ -2430,6 +2441,7 @@ private extension ReaderState {
         readerFocusView = nil
         pendingReflowPosition = nil
         wheelTurnedPage = false
+        wheelPanning = false
         wheelPageTurnTime = nil
         zoomLimit = configuredZoomMaximum
         pageFitZoom = nil; widthFitZoom = nil
@@ -2554,6 +2566,68 @@ private extension ReaderState {
                 NativeReadingPerformance.mark("load-saved-state-return", revision: currentGeneration, started: savedStateStarted, persistent: true,
                                               flags: restoredPosition?.nativePassage == nil ? 0 : 1)
 
+                // The old document stays readable while loading. A different
+                // Markdown renderer gets only its own coordinate system.
+                let changedMarkdownRenderer = reloading && document?.markdownRenderer != opened.markdownRenderer
+                    && (document?.markdownRenderer != nil || opened.markdownRenderer != nil)
+                let reloadedPosition: ReadingPosition?
+                if reloading, rememberMarkdownPreference, let renderer = opened.markdownRenderer {
+                    reloadedPosition = Self.markdownRendererDestination(renderer,
+                        saved: openingPosition ?? markdownPositions[renderer] ?? persistedMarkdownPosition(renderer, for: opened.url, recordsHistory: openingHistory) ?? ReadingPosition())
+                } else if changedMarkdownRenderer {
+                    if let renderer = opened.markdownRenderer {
+                        let explicit = openingPosition.flatMap { position -> ReadingPosition? in
+                            let mode = position.markdownRenderer ?? (position.markdownPassage == nil ? nil : .compatible)
+                            return mode == renderer ? position : nil
+                        }
+                        reloadedPosition = explicit ?? markdownPositions[renderer] ?? persistedMarkdownPosition(renderer, for: opened.url, recordsHistory: openingHistory) ?? ReadingPosition()
+                    } else { reloadedPosition = ReadingPosition() }
+                } else if reloading, let openingPosition {
+                    if case .pages(let pages) = opened.content, pages.isPDF {
+                        reloadedPosition = try await Self.restoreSavedPDFPosition(openingPosition, pages: pages)
+                        guard !Task.isCancelled, currentGeneration == generation else { return }
+                    } else { reloadedPosition = openingPosition }
+                } else if reloading, case .browser(let source) = document?.content, source is MarkupSource {
+                    reloadedPosition = filePosition
+                } else { reloadedPosition = nil }
+                if case .pages(let pages) = opened.content, pages.isPDF || opened.markdownRenderer == .paged {
+                    let legacyKey = "bookmark:" + opened.url.path
+                    let legacy = !bookmarks.contains(where: { $0.path == opened.url.path })
+                        ? UserDefaults.standard.data(forKey: legacyKey).flatMap { try? JSONDecoder().decode(ReadingPosition.self, from: $0) }
+                        : nil
+                    var originals = bookmarks.filter { $0.path == opened.url.path }
+                    let imported = legacy.map { ReaderBookmark(title: opened.url.lastPathComponent, path: opened.url.path, position: $0) }
+                    if let imported { originals.append(imported) }
+                    if !originals.isEmpty {
+                        let migrated: [ReadingPosition]
+                        if pages.isPDF {
+                            var positions: [ReadingPosition] = []
+                            for original in originals {
+                                positions.append(try await Self.restoreSavedPDFPosition(original.position, pages: pages))
+                            }
+                            migrated = positions
+                        } else {
+                            migrated = try await pages.migratedMarkdownBookmarks(originals.map(\.position),
+                                fontSize: fontSize, lineHeight: lineHeight, margin: margin, font: font, theme: resolvedTheme,
+                                userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageMargins: contentMargins, textZoom: zoom)
+                        }
+                        guard !Task.isCancelled, currentGeneration == generation else { return }
+                        var changed = false
+                        for (original, position) in zip(originals, migrated) {
+                            if original.id == imported?.id {
+                                if !bookmarks.contains(where: { $0.path == opened.url.path }) {
+                                    var bookmark = original; bookmark.position = position
+                                    bookmarks.append(bookmark); changed = true
+                                    UserDefaults.standard.removeObject(forKey: legacyKey)
+                                }
+                            } else if position != original.position,
+                                      let index = bookmarks.firstIndex(where: { $0.id == original.id && $0.path == original.path && $0.position == original.position }) {
+                                bookmarks[index].position = position; changed = true
+                            }
+                        }
+                        if changed { saveBookmarks() }
+                    }
+                }
                 // Editing remains available while the replacement loads. Commit a
                 // form field and protect only edits made after the initial decision.
                 try await commitPDFForm()
@@ -2582,59 +2656,6 @@ private extension ReaderState {
                     }
                 }
 
-                // The old document stays readable while loading. A different
-                // Markdown renderer gets only its own coordinate system.
-                let changedMarkdownRenderer = reloading && document?.markdownRenderer != opened.markdownRenderer
-                    && (document?.markdownRenderer != nil || opened.markdownRenderer != nil)
-                let reloadedPosition: ReadingPosition?
-                if reloading, rememberMarkdownPreference, let renderer = opened.markdownRenderer {
-                    reloadedPosition = Self.markdownRendererDestination(renderer,
-                        saved: openingPosition ?? markdownPositions[renderer] ?? persistedMarkdownPosition(renderer, for: opened.url, recordsHistory: openingHistory) ?? ReadingPosition())
-                } else if changedMarkdownRenderer {
-                    if let renderer = opened.markdownRenderer {
-                        let explicit = openingPosition.flatMap { position -> ReadingPosition? in
-                            let mode = position.markdownRenderer ?? (position.markdownPassage == nil ? nil : .compatible)
-                            return mode == renderer ? position : nil
-                        }
-                        reloadedPosition = explicit ?? markdownPositions[renderer] ?? persistedMarkdownPosition(renderer, for: opened.url, recordsHistory: openingHistory) ?? ReadingPosition()
-                    } else { reloadedPosition = ReadingPosition() }
-                } else if reloading, let openingPosition {
-                    if case .pages(let pages) = opened.content, pages.isPDF {
-                        reloadedPosition = try await Self.restoreSavedPDFPosition(openingPosition, pages: pages)
-                        guard !Task.isCancelled, currentGeneration == generation else { return }
-                    } else { reloadedPosition = openingPosition }
-                } else if reloading, case .browser(let source) = document?.content, source is MarkupSource {
-                    reloadedPosition = filePosition
-                } else { reloadedPosition = nil }
-                if opened.markdownRenderer == .paged, case .pages(let pages) = opened.content {
-                    let legacyKey = "bookmark:" + opened.url.path
-                    let legacy = !bookmarks.contains(where: { $0.path == opened.url.path })
-                        ? UserDefaults.standard.data(forKey: legacyKey).flatMap { try? JSONDecoder().decode(ReadingPosition.self, from: $0) }
-                        : nil
-                    var originals = bookmarks.filter { $0.path == opened.url.path }
-                    let imported = legacy.map { ReaderBookmark(title: opened.url.lastPathComponent, path: opened.url.path, position: $0) }
-                    if let imported { originals.append(imported) }
-                    if !originals.isEmpty {
-                        let migrated = try await pages.migratedMarkdownBookmarks(originals.map(\.position),
-                            fontSize: fontSize, lineHeight: lineHeight, margin: margin, font: font, theme: resolvedTheme,
-                            userCSS: userCSS, useDocumentCSS: useDocumentCSS, pageMargins: contentMargins, textZoom: zoom)
-                        guard !Task.isCancelled, currentGeneration == generation else { return }
-                        var changed = false
-                        for (original, position) in zip(originals, migrated) {
-                            if original.id == imported?.id {
-                                if !bookmarks.contains(where: { $0.path == opened.url.path }) {
-                                    var bookmark = original; bookmark.position = position
-                                    bookmarks.append(bookmark); changed = true
-                                    UserDefaults.standard.removeObject(forKey: legacyKey)
-                                }
-                            } else if position != original.position,
-                                      let index = bookmarks.firstIndex(where: { $0.id == original.id && $0.path == original.path && $0.position == original.position }) {
-                                bookmarks[index].position = position; changed = true
-                            }
-                        }
-                        if changed { saveBookmarks() }
-                    }
-                }
                 let publicationStarted = DispatchTime.now().uptimeNanoseconds
                 NativeReadingPerformance.mark("load-publication-entry", revision: currentGeneration, persistent: true)
                 persist()
