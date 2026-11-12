@@ -57,3 +57,38 @@ windowed/fullscreen difference using the same file and panel configuration.
 This is not established as a Sumra-specific defect and no workaround was added.
 The probe was quit after the comparison.
 No signed candidate has been accepted or published for this batch yet.
+
+
+## Local desktop follow-up
+
+The local 0.2.38 development bundle uses the installed 0.2.37 native engines.
+Home browsing, immediate Recents, reopening a browsed folder, and the explicit
+supported-image-types error were exercised through the UI. The CHM homepage
+anchor is visible on first open in paged/spread mode. With a fixed continuous
+viewport, same-topic bookmarks restore distinct scroll positions; toggling the
+current one removes it without removing the others.
+
+PDF same-page bookmarks restored distinct vertical positions, but this GUI
+check found a further failure: a saved X coordinate of `157.20000000000002`
+returned as `157.20000000000005`. Exact equality then opened Add Bookmark
+instead of removing the existing bookmark. The first private candidate run
+was cancelled before publication. The follow-up compares PDF positions through
+the current page transform at device-pixel precision and preserves exact sort
+order. Its native-host test explicitly models the observed one-ULP storage
+representation difference after a real viewport restore; it does not claim that
+the fixture naturally produces that difference.
+
+Small single-axis scrolling on the original `misalignedepubC.epub` at 200%
+moved within the page without changing its page number. A real mixed-axis
+trackpad gesture remains unexercised: the maintainer was unavailable to perform
+it, and CUA only exposes single-axis scrolling. The maintainer also reported
+that the earlier fullscreen auto-hide check did not hide automatically; the
+new backing fix is not sufficient evidence that this interaction is resolved.
+
+
+The follow-up local bundle passed the original PDF failure path: reopening the
+saved position and toggling removed its bookmark without an Add dialog, while
+the other same-page bookmark remained. Previous and Next moved between the two
+positions on page 1/8 (native vertical scrollbar values approximately 0.152 and
+0.760 after restoration). All three focused PDF bookmark tests passed, including
+legacy migration and pixel-precision toggle/previous/next coverage.
