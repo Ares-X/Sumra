@@ -122,7 +122,7 @@ Thanks to everyone improving Sumra through issue reports, code, and reviews. Thi
 
 | Contributor | Contributions |
 | --- | --- |
-| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Sumra/issues/31) [Issue #42](https://github.com/Ares-X/Sumra/issues/42) [Issue #68](https://github.com/Ares-X/Sumra/issues/68) [Issue #69](https://github.com/Ares-X/Sumra/issues/69) [Issue #82](https://github.com/Ares-X/Sumra/issues/82) [Issue #118](https://github.com/Ares-X/Sumra/issues/118) |
+| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Sumra/issues/31) [Issue #42](https://github.com/Ares-X/Sumra/issues/42) [Issue #68](https://github.com/Ares-X/Sumra/issues/68) [Issue #69](https://github.com/Ares-X/Sumra/issues/69) [Issue #82](https://github.com/Ares-X/Sumra/issues/82) [Issue #118](https://github.com/Ares-X/Sumra/issues/118) [Issue #137](https://github.com/Ares-X/Sumra/issues/137) |
 | <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [Issue #48](https://github.com/Ares-X/Sumra/issues/48) [Issue #74](https://github.com/Ares-X/Sumra/issues/74) |
 
 <!-- community-contributors:end -->
