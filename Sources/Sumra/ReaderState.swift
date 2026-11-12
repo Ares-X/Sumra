@@ -1467,13 +1467,16 @@ extension ReaderState {
         if wheelTurnedPage { return true }
         if wheelPanning { return false }
         let direction: ReaderScrollDirection = horizontal ? (delta > 0 ? .left : .right) : (delta > 0 ? .up : .down)
-        var probe = clip.bounds
+        // Elastic scrolling can leave the clip outside its legal range. Its
+        // return from that overscroll is not room to pan in the new direction.
+        let baseline = clip.constrainBoundsRect(clip.bounds)
+        var probe = baseline
         if event.scrollingDeltaX != 0 { probe.origin.x += event.scrollingDeltaX > 0 ? -1 : 1 }
         if event.scrollingDeltaY != 0, fit != "content" {
             probe.origin.y += (event.scrollingDeltaY > 0 ? -1 : 1) * (canvas.isFlipped ? 1 : -1)
         }
         let constrained = clip.constrainBoundsRect(probe)
-        if abs(constrained.minX - clip.bounds.minX) > 0.5 || abs(constrained.minY - clip.bounds.minY) > 0.5 {
+        if abs(constrained.minX - baseline.minX) > 0.5 || abs(constrained.minY - baseline.minY) > 0.5 {
             // A trackpad gesture that started panning remains a pan even if
             // a later diagonal sample reaches an edge or changes dominant axis.
             wheelPanning = !event.phase.isEmpty

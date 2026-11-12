@@ -544,10 +544,18 @@ struct ReaderView: View {
                     // UI direction must not mirror page coordinates or change
                     // the document's independently selected reading order.
                     .environment(\.layoutDirection, .leftToRight)
-            } else if state.busy || awaitingDocumentOpen {
+            } else if awaitingDocumentOpen {
                 ProgressView(L("Opening…"))
             } else {
                 WelcomeView(state: state, open: openFiles)
+                    // Loading can fail. Keep the browser's folder, query and
+                    // selection mounted until a document actually replaces Home.
+                    .opacity(state.busy ? 0 : 1)
+                    .disabled(state.busy)
+                    .accessibilityHidden(state.busy)
+                    .overlay {
+                        if state.busy { ProgressView(L("Opening…")) }
+                    }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

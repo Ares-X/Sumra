@@ -1506,6 +1506,7 @@ final class ReaderToolbarTests: XCTestCase {
         accessory.view = NSView(frame: CGRect(x: 0, y: 0, width: 700, height: 28))
         parent.addTitlebarAccessoryViewController(accessory)
         content.addSubview(accessory.view)
+        XCTAssertTrue(parent.titlebarAccessoryViewControllers.first?.view.window === companion)
         // A newly created fullscreen tab can mount after native controls have
         // already left its frame, while standard lookup already finds a factory.
         let observer = ReaderToolbarWindow.Host()
@@ -1518,7 +1519,10 @@ final class ReaderToolbarTests: XCTestCase {
             parent.contentView = nil; parent.close(); state.windowClosed()
         }
         XCTAssertTrue(parent.standardWindowButton(.closeButton)?.superview === controls)
-        XCTAssertTrue(parent.titlebarAccessoryViewControllers.first?.view.window === companion)
+        // Collapsing the public controller may return this fixture's manually
+        // migrated view to its parent. Its companion must already be owned.
+        XCTAssertTrue(parent.titlebarAccessoryViewControllers.first === accessory)
+        XCTAssertTrue(accessory.isHidden)
         let frame = parent.frame
         for menuVisible in [false, true, false] {
             observer.updateChrome(revealingNativeControls: menuVisible)

@@ -358,9 +358,14 @@ struct ReaderFloatingSurface: ViewModifier {
     var enabled = true
     @ViewBuilder func body(content: Content) -> some View {
         if enabled { content
-            .background(Color(nsColor: ReaderTheme.color(palette.background)), in: RoundedRectangle(cornerRadius: 9))
+            // Keep native window buttons outside the shadow's compositing
+            // surface so AppKit can present the green-button system menu.
+            .background {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color(nsColor: ReaderTheme.color(palette.background)))
+                    .shadow(color: .black.opacity(0.07), radius: 5, y: 2)
+            }
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(nsColor: ReaderTheme.color(palette.text)).opacity(0.10), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.07), radius: 5, y: 2)
         } else { content }
     }
 }
@@ -418,21 +423,26 @@ struct ReaderFloatingSurface: ViewModifier {
                 owner: self, userInfo: nil)
             addTrackingArea(tracking)
             pointerTracking = tracking
-            // A zoom can move the controls away from a stationary pointer
-            // without delivering an exit for the tracking area it replaced.
-            if let window {
-                setPointerInside(bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)))
-            }
+            synchronizePointer()
         }
         override func mouseEntered(with event: NSEvent) {
             modifierFlagsChanged(event.modifierFlags)
-            setPointerInside(true)
+            synchronizePointer()
         }
         override func mouseMoved(with event: NSEvent) {
             modifierFlagsChanged(event.modifierFlags)
-            setPointerInside(bounds.contains(convert(event.locationInWindow, from: nil)))
+            synchronizePointer()
         }
-        override func mouseExited(with event: NSEvent) { setPointerInside(false) }
+        override func mouseExited(with event: NSEvent) { synchronizePointer() }
+        private func synchronizePointer() {
+            // Tracking events can arrive after their area was replaced. Native
+            // window controls also change context with a stationary pointer.
+            guard let window, !isHiddenOrHasHiddenAncestor else {
+                setPointerInside(false)
+                return
+            }
+            setPointerInside(bounds.intersection(visibleRect).contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)))
+        }
         private func setPointerInside(_ inside: Bool) {
             guard pointerInside != inside else { return }
             pointerInside = inside
@@ -494,6 +504,7 @@ struct ReaderFloatingSurface: ViewModifier {
                 }
                 if button.isEnabled != enabled { button.isEnabled = enabled; glyphs.needsDisplay = true }
             }
+            synchronizePointer()
         }
         // Standard factory buttons keep native rendering, hit regions and
         // pressed states. AppKit's shared titlebar hover owner isn't public;

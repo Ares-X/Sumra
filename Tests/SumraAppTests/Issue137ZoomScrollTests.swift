@@ -5,6 +5,13 @@ import PDFKit
 @testable import Sumra
 
 final class Issue137ZoomScrollTests: XCTestCase {
+    private final class ReboundClipView: NSClipView {
+        var permitsOverscroll = false
+        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+            permitsOverscroll ? proposedBounds : super.constrainBoundsRect(proposedBounds)
+        }
+    }
+
     @MainActor
     func testZoomedPageKeepsMixedAxisGestureWithTheScrollView() async throws {
         _ = NSApplication.shared
@@ -34,7 +41,7 @@ final class Issue137ZoomScrollTests: XCTestCase {
                 await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
             } while Date() < deadline && state.error == nil
             _ = try XCTUnwrap(condition() ? true : nil,
-                state.error ?? "Reader did not settle; page \(state.page), clip \(String(describing: state.readerScrollView?.contentView.bounds)), canvas \(String(describing: state.readerFocusView?.bounds))", line: line)
+                state.error ?? "Reader did not settle; page \(state.page), command \(state.command.revision): \(state.command.action), clip \(String(describing: state.readerScrollView?.contentView.bounds)), canvas \(String(describing: state.readerFocusView?.bounds))", line: line)
         }
         try await waitFor {
             guard let scroll = state.readerScrollView, let view = scroll.documentView else { return false }
@@ -45,13 +52,17 @@ final class Issue137ZoomScrollTests: XCTestCase {
             guard state.page == 1, let canvas = state.readerFocusView, canvas.window === window else { return false }
             return abs(canvas.bounds.height - 1300) <= 1
         }
-        func settleCommands() async throws {
+        func settleCommands(line: UInt = #line) async throws {
             var completed = false
             state.send(.none) { completed = true }
-            try await waitFor { completed }
+            try await waitFor({ completed }, line: line)
         }
         try await settleCommands()
-        let scroll = try XCTUnwrap(state.readerScrollView), clip = scroll.contentView
+        let scroll = try XCTUnwrap(state.readerScrollView)
+        let canvas = try XCTUnwrap(scroll.documentView)
+        let clip = ReboundClipView(frame: scroll.contentView.frame)
+        scroll.contentView = clip
+        scroll.documentView = canvas
         func send(_ x: Int32, _ y: Int32, phase: CGScrollPhase?, momentum: Int64 = 0) throws -> Bool {
             let point = clip.convert(CGPoint(x: clip.bounds.midX, y: clip.bounds.midY), to: nil)
             let seed = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [],
@@ -100,6 +111,31 @@ final class Issue137ZoomScrollTests: XCTestCase {
         clip.scroll(to: origin); scroll.reflectScrolledClipView(clip)
         XCTAssertTrue(try send(30, 0, phase: .began))
         try await waitFor { state.page == 0 }
+        try await settleCommands()
+
+        state.restore(.init(page: 1))
+        try await waitFor {
+            state.page == 1 && abs((state.readerFocusView?.bounds.height ?? 0) - 1300) <= 1
+        }
+        try await settleCommands()
+
+        // A strong pan can leave the real clip outside its constrained bounds
+        // while AppKit springs it back. A new outward gesture at that edge must
+        // turn immediately instead of latching onto the rebound as a new pan.
+        origin = clip.bounds.origin; origin.x = -20; origin.y = 200
+        // AppKit's public setters constrain ordinary programmatic scrolling.
+        // Permit this one placement, then use native constraints for routing.
+        clip.permitsOverscroll = true
+        clip.setBoundsOrigin(origin)
+        clip.permitsOverscroll = false
+        XCTAssertEqual(clip.bounds.minX, -20, accuracy: 0.5)
+        XCTAssertEqual(clip.constrainBoundsRect(clip.bounds).minX, 0, accuracy: 0.5)
+        XCTAssertTrue(try send(30, 0, phase: .began))
+        XCTAssertTrue(try send(20, 0, phase: .changed))
+        XCTAssertFalse(try send(0, 0, phase: .ended))
+        XCTAssertTrue(try send(20, 0, phase: nil, momentum: 1))
+        try await settleCommands()
+        XCTAssertEqual(state.page, 0, "A fresh gesture during rebound must turn once without waiting")
     }
 }
 #endif
