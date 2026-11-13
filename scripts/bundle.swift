@@ -12,8 +12,8 @@ let environment = ProcessInfo.processInfo.environment
 let identity = environment["SUMRA_CODE_SIGN_IDENTITY"] ?? "-"
 let keychain = environment["SUMRA_CODE_SIGN_KEYCHAIN"] ?? ""
 let timestamp = environment["SUMRA_CODE_SIGN_TIMESTAMP"] ?? ""
-let version = environment["SUMRA_VERSION"] ?? "0.2.40"
-let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "42"
+let version = environment["SUMRA_VERSION"] ?? "0.2.41"
+let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "43"
 
 func fail(_ message: String) throws -> Never {
     throw NSError(domain: "Sumra.Bundle", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
