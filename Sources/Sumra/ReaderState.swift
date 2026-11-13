@@ -523,7 +523,16 @@ final class ReaderState: ObservableObject {
     @Published var speechFollow = true { didSet { if !speechFollow, hasDocument { send(.speechHighlight(location: 0, length: 0)) } } }
     weak var browserView: WKWebView?
     weak var readerScrollView: NSScrollView? {
-        didSet { readerScrollbarClearance?.updateScrollbars() }
+        didSet {
+            readerScrollbarClearance?.updateScrollbars()
+            if case .pages = document?.content, let scroll = readerScrollView {
+                // Paged readers turn on a fresh outward gesture at an edge.
+                // Rubber-banding keeps that edge moving during the next swipe.
+                let elasticity: NSScrollView.Elasticity = flow != "continuous" || presentation ? .none : .automatic
+                scroll.horizontalScrollElasticity = elasticity
+                scroll.verticalScrollElasticity = elasticity
+            }
+        }
     }
     weak var readerScrollbarClearance: ReaderScrollbarClearance.Host?
     weak var readerFocusView: NSView?

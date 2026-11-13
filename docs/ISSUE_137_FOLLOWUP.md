@@ -1,5 +1,61 @@
 # Issue 137 and related reader follow-up
 
+## November 13 reporter reply (0.2.40 candidate)
+
+The [latest reporter reply](https://github.com/Ares-X/Sumra/issues/137#issuecomment-6839217736)
+confirms responsive floating window controls, retained Home folders after errors,
+and the fullscreen toolbar-mode correction in 0.2.39. Four reports remain:
+zoom/scroll inertia, transient toolbar cutoff during fullscreen entry, ordinary
+native tab widths after closing, and black Spaces when adding/duplicating tabs.
+They have not all been resolved and #137 remains open.
+
+The new change disables horizontal and vertical rubber-banding on finite raster
+surfaces at their existing mounted-scroll owner. In-page native inertia and the
+existing gesture/page-turn policy remain; continuous readers retain automatic
+elastic scrolling. The previous wheel-handler correction could recognize an
+elastic position, but could not stop an already-running AppKit rebound.
+
+The mounted native-view regression covers mixed-axis pan ownership, a fresh
+outward edge gesture, one turn through momentum, and continuous/presentation
+remounts. It passes with the change and fails four assertions against the old
+owner. The affected raster, pinch and viewport suite passed 79 cases and skipped
+eight original-sample cases; no failures. Receipts retain preference/clipboard
+isolation and unchanged source/engine checks.
+
+On the existing macOS 26.6.2 Parallels guest, a local diagnostic candidate opened
+the original `misalignedepubC.epub` at 200%. CUA drove actual reading-area wheel
+input: page 2/4 panned vertically, stopped at the bottom, and the next downward
+input advanced to 3/4. Right-arrow input also panned horizontally while retaining
+page 2/4. Peekaboo's wheel dispatches initially produced no viewport changes;
+those attempts are not acceptance. This virtual-wheel result does not reproduce
+a physical trackpad's phased, mixed-axis strong inertia. Formal signed-candidate
+acceptance remains pending.
+
+Further investigation of the other three reports:
+
+- Released 0.2.39 on the guest opened a fullscreen CBZ, duplicated from the first
+  tab twice, and opened a CBR through the native new-tab file panel. All four
+  documents stayed visible in one fullscreen group. Mission Control showed
+  Desktop plus one Sumra Space. This does not establish reporter macOS 15.7.5.
+- Original 60 FPS recordings show that selecting the reused first CBR already
+  causes a black transition before Duplicate. The second clip uses the native
+  right-end plus and Show All Tabs overview plus; both use ordinary controls.
+  Those paths are recorded separately from the simpler loaded-document replay.
+- The standalone AppKit comparison closes five native tabs to four. Their
+  widths stayed 177/177/169/161 points through public accessory/frame-view layout
+  and `window.update()`. Pointer exit changed them to 219/219/204/203. No private
+  native-tab override was added, and the report remains open.
+- A behavior-neutral fullscreen trace found no companion at willEnter; AppKit
+  reparented controls afterwards. At didEnter the discovered companion was
+  transparent with content alpha zero. Adding an earlier notification therefore
+  has no demonstrated fix on this guest. Its capture tool did not produce an
+  authorized high-rate movie, so brief transition clipping remains unverified.
+
+Evidence and diagnostic overlays are under `build/issue137-latest`. Temporary
+trace overlays are excluded from product source and release builds. #96's
+separate Finder arrow-key limitation is unchanged; no reporter reply is sent.
+
+
 ## Remaining interaction pass after 0.2.38 (0.2.39 candidate)
 
 The maintainer rejected the first native-policy candidate on macOS 27.0.1:
