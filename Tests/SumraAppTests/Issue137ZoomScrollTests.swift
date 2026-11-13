@@ -13,7 +13,7 @@ final class Issue137ZoomScrollTests: XCTestCase {
     }
 
     @MainActor
-    func testZoomedPageKeepsMixedAxisGestureWithTheScrollView() async throws {
+    func testZoomedPageKeepsPanGestureAndTurnsAtHardScrollEdges() async throws {
         _ = NSApplication.shared
         let pdf = PDFDocument()
         for height in [1200, 1300, 1400] {
@@ -59,6 +59,10 @@ final class Issue137ZoomScrollTests: XCTestCase {
         }
         try await settleCommands()
         let scroll = try XCTUnwrap(state.readerScrollView)
+        // The mounted AppKit scroll view must stop at the document boundary;
+        // the page-turn monitor cannot stop an existing elastic animation.
+        XCTAssertEqual(scroll.horizontalScrollElasticity, .none)
+        XCTAssertEqual(scroll.verticalScrollElasticity, .none)
         let canvas = try XCTUnwrap(scroll.documentView)
         let clip = ReboundClipView(frame: scroll.contentView.frame)
         scroll.contentView = clip
@@ -136,6 +140,19 @@ final class Issue137ZoomScrollTests: XCTestCase {
         XCTAssertTrue(try send(20, 0, phase: nil, momentum: 1))
         try await settleCommands()
         XCTAssertEqual(state.page, 0, "A fresh gesture during rebound must turn once without waiting")
+
+        // Continuous reading has no edge-to-page-turn handoff and keeps the
+        // native scrolling policy. Returning to a finite surface restores it.
+        state.flow = "continuous"
+        try await waitFor { state.readerScrollView !== scroll && state.readerScrollView?.documentView != nil }
+        let continuous = try XCTUnwrap(state.readerScrollView)
+        XCTAssertEqual(continuous.horizontalScrollElasticity, .automatic)
+        XCTAssertEqual(continuous.verticalScrollElasticity, .automatic)
+        state.presentation = true
+        try await waitFor { state.readerScrollView !== continuous && state.readerScrollView?.documentView != nil }
+        let presenting = try XCTUnwrap(state.readerScrollView)
+        XCTAssertEqual(presenting.horizontalScrollElasticity, .none)
+        XCTAssertEqual(presenting.verticalScrollElasticity, .none)
     }
 }
 #endif
