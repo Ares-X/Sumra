@@ -317,7 +317,7 @@ struct ReaderToolbarAppearance: ViewModifier {
         }
         private var hidesNativeToolbar: Bool {
             guard let state else { return false }
-            return state.hasDocument && !state.usesCustomChrome && state.toolbarDisplayMode == .hidden
+            return state.hasDocument && (state.usesFloatingChrome || state.toolbarDisplayMode == .hidden)
         }
 
         func handleMouseMoved(_ event: NSEvent) {
@@ -419,6 +419,8 @@ struct ReaderToolbarAppearance: ViewModifier {
                                 self.visibilityFrame = nil
                                 if parent.frame != frame { parent.setFrame(frame, display: false) }
                             }
+                            // SwiftUI can hide toolbar pixels while NSToolbar remains visible.
+                            // Enforce the hidden request at the native visibility boundary too.
                             if !change.isPrior, self.hidesNativeToolbar, toolbar.isVisible { toolbar.isVisible = false }
                         }
                     }
@@ -431,12 +433,13 @@ struct ReaderToolbarAppearance: ViewModifier {
             let readerOpacity: CGFloat = readerHidden ? 0 : hidden ? state.toolbarHoverOpacity : 1
             let frame = parent.frame
             let permanentlyHidden = hidesNativeToolbar
-            if let saved = permanentlyHiddenToolbar, !permanentlyHidden || saved.toolbar !== parent.toolbar {
+            let leasesNativeVisibility = permanentlyHidden && !state.usesCustomChrome
+            if let saved = permanentlyHiddenToolbar, !leasesNativeVisibility || saved.toolbar !== parent.toolbar {
                 permanentlyHiddenToolbar = nil
                 saved.toolbar.isVisible = saved.visible
             }
             if permanentlyHidden, let toolbar = parent.toolbar {
-                if permanentlyHiddenToolbar == nil { permanentlyHiddenToolbar = (toolbar, toolbar.isVisible) }
+                if leasesNativeVisibility, permanentlyHiddenToolbar == nil { permanentlyHiddenToolbar = (toolbar, toolbar.isVisible) }
                 if toolbar.isVisible { toolbar.isVisible = false }
             }
             // Preserve the frame around native visibility and titlebar changes.

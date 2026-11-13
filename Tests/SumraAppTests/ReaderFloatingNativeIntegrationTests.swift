@@ -7,6 +7,60 @@ import XCTest
 
 @MainActor
 final class ReaderFloatingNativeIntegrationTests: XCTestCase {
+    func testMountedFloatingControlsEnforceHiddenNativeToolbarAndRestoreNativeModes() async throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/floating-native-visibility.txt"), content: .text("Book"))
+        state.immersiveControls = true; state.toolbarDisplayMode = .shown
+        state.showContents = false; state.showAI = false; state.showFind = false
+        let controller = NSHostingController(rootView: ReaderView(state: state))
+        let window = NSWindow(contentViewController: controller)
+        window.styleMask.formUnion([.titled, .closable, .resizable])
+        window.setContentSize(CGSize(width: 800, height: 600))
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        state.window = window; window.orderBack(nil)
+        defer { state.windowClosed(); window.orderOut(nil); window.contentViewController = nil; window.close() }
+
+        func settle() async throws {
+            for _ in 0..<20 {
+                controller.view.layoutSubtreeIfNeeded()
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        for mode in [ReaderToolbarDisplayMode.shown, .auto] {
+            state.toolbarDisplayMode = mode
+            try await settle()
+            let toolbar = try XCTUnwrap(window.toolbar)
+            XCTAssertFalse(toolbar.isVisible, "The mounted floating reader must hide its native toolbar")
+            let frame = window.frame
+            // Exercise the installed NSToolbar setter without waiting for a
+            // SwiftUI update; the native visibility boundary owns correction.
+            toolbar.isVisible = true
+            XCTAssertFalse(toolbar.isVisible, "Floating controls must synchronously reject native toolbar restoration")
+            XCTAssertEqual(window.frame, frame, "Correcting native visibility must preserve the reader window frame")
+        }
+
+        state.toolbarDisplayMode = .shown; state.immersiveControls = false
+        try await settle()
+        XCTAssertTrue(try XCTUnwrap(window.toolbar).isVisible,
+                      "Disabling floating controls must restore the normal Always Show toolbar")
+
+        state.toolbarDisplayMode = .hidden
+        try await settle()
+        XCTAssertFalse(try XCTUnwrap(window.toolbar).isVisible)
+        state.immersiveControls = true
+        try await settle()
+        XCTAssertFalse(try XCTUnwrap(window.toolbar).isVisible)
+        state.toolbarDisplayMode = .shown
+        try await settle()
+        XCTAssertFalse(try XCTUnwrap(window.toolbar).isVisible)
+        state.immersiveControls = false
+        try await settle()
+        XCTAssertTrue(try XCTUnwrap(window.toolbar).isVisible,
+                      "Native Always Hide → floating → native Always Show must release the original visibility lease")
+        XCTAssertEqual(window.alphaValue, 0); XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
     func testFullscreenPreservesConfiguredFloatingReadingClearanceAndZeroAllowsOverlap() async throws {
         final class FullscreenWindow: NSWindow {
             var fullscreen = false

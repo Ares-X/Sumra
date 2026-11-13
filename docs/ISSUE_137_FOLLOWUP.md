@@ -1,5 +1,81 @@
 # Issue 137 and related reader follow-up
 
+## Remaining interaction batch after 0.2.40 (0.2.41 candidate)
+
+The [new reporter reply](https://github.com/Ares-X/Sumra/issues/137#issuecomment-6850185850)
+confirms the released scrolling/zoom correction and supplies two useful
+comparisons: restored tab groups recover their focus after a black transition,
+and ordinary Always Hide avoids the floating toolbar's fullscreen clipping.
+
+Ordinary tab opening and Duplicate now finish through the same native selection
+sequence as restoration: select the native group's window, order it front, then
+update the active reader. A batch waits for all requested scenes and selects
+once. Saved restoration keeps its saved selection; a tab manually moved out of
+the requested parent's group is not reclaimed. Six mounted AppKit lifecycle
+tests cover these boundaries, including reverse scene readiness. They model
+late selection changes; they do not simulate macOS Spaces.
+
+The floating reader previously requested SwiftUI toolbar hiding while its
+`NSToolbar.isVisible` could remain true. The existing native visibility owner
+now enforces that hidden state at initial mount and subsequent setter changes.
+Only ordinary Always Hide leases and restores native visibility; floating mode
+does not retain a false visibility value when returning to the normal toolbar.
+The mounted integration regression passes with the change and fails six
+assertions against the previous toolbar owner. The related native tab, saved
+group, toolbar, layout and hover checks pass; isolated receipts are under
+`build/issue137-final/tests-coherent` and `tests-toolbar-corrected`.
+
+### Existing macOS 26.6.2 virtual machine
+
+The maintainer selected the existing guest; no macOS 15 VM was created. The
+latest supplied `sample_comic.cbz` has SHA-256
+`c71bcc7bbc4bcc8778c2a3c443ecb8d2d130e145c56e3301ed38a2fe98faaa9a`.
+The local reader contains the product changes; only its Quick Look extension
+has a behavior-neutral focus-log overlay, excluded from release source.
+
+- Host recording of the VM window runs at 52–55 FPS. Released 0.2.40 shows
+  the reported white strip clipping the floating controls with one and two
+  tabs. Candidate recordings retain complete controls. Consecutive transition
+  frames were inspected, not just settled screenshots. The recordings and
+  contact sheets are under `build/issue137-final`; `animation-recordings.json`
+  records their actual dimensions, duration and frame counts.
+- A normal-toolbar fullscreen Home opened six formats through its actual file
+  panel, with CBR first. Clicking that first native tab and Duplicate created
+  seven visible tabs. Native tab-bar plus and Show All Tabs overview plus then
+  opened CBZ and AZW3 into eight and nine tabs. Mission Control showed Desktop
+  plus one Sumra Space after duplication and after both additions. This is a
+  guest result, not proof of the reporter's macOS 15.7.5 behavior.
+- Seven-tab Always Hide → Auto Hide displayed the complete toolbar and native
+  tabs at the screen top, then hid them after pointer-only movement into the
+  page. `native-seven-auto-comparison.jpg` retains both states. Ordinary
+  floating Auto Hide also hid on pointer exit.
+- Native green-button popup dismissal remains an automation limitation: both
+  released 0.2.40 and the candidate kept the system popup after the same
+  synthesized mouse movement; Escape dismissed it. This is neither a passing
+  pointer-only popup check nor evidence of a candidate regression.
+- Ordinary native tab widths still wait for pointer exit. The standalone
+  AppKit comparison has the same result and public layout calls do not change
+  it. No private native selector, artificial cursor exit or replacement bar
+  with missing native drag behavior was added. This report remains open.
+
+### Related #96 preview recovery and arrow routing
+
+The diagnostic extension's mounted-controller log is a positive control. An
+actual click on the preview page reports successful first-responder assignment
+to `QuickLookPageView`. Pressing Left produces no arrow event in its page,
+root or controller logs; the actual Finder preview changes to the neighboring
+file instead. Therefore the remaining Finder arrow observation occurs before
+the extension's responder chain. Local AppKit key tests establish behavior
+only for keys delivered to that chain; they do not establish Finder page-key
+ownership. No global keyboard interception was added.
+
+In the same Finder preview, valid page 2 followed by a corrupt page 3 retained
+the page-2 bitmap and `2/3` counter with a separate decode error. The enabled
+Previous button returned to page 1 and cleared the error. The Quick Look
+forward/backward failure, first-page failure/replacement, book-render failure,
+delivered-key and layout regressions also pass. The local diagnostic findings
+do not replace acceptance of the final signed package.
+
 ## November 13 reporter reply (0.2.40 candidate)
 
 The [latest reporter reply](https://github.com/Ares-X/Sumra/issues/137#issuecomment-6839217736)

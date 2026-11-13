@@ -13,6 +13,9 @@ struct WindowPayload: Codable, Hashable {
     var position: ReadingPosition?
     var tabWith: Int?
     var tabIdentifier: String?
+    // Opening a batch selects once its native scenes have all attached.
+    // This request is transient; the native group remains the tab model.
+    var tabOpening: ReaderWindows.TabOpening?
     // SwiftUI can retain the original openWindow value after its binding changes.
     // Copies of one request share the pending lease; loaded documents own theirs.
     private final class TemporaryInput {
@@ -119,7 +122,7 @@ struct ReaderWindow: View {
             .background(WindowTabs(state: state, tabWith: payload.tabWith, identifier: payload.tabIdentifier, openingPath: payload.path, restorationID: payload.restoring ? payload.id : nil) {
                 documentOpenLog.notice("scene-ready payload=\(payload.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
                 application.connect(state, canReuse: payload.path == nil)
-                if payload.restoring, let window = state.window { ReaderWindows.restoredWindowReady(window, payload: payload) }
+                if let window = state.window { ReaderWindows.windowReady(window, payload: payload) }
             })
             .focusedSceneObject(state)
             .onAppear {
@@ -771,6 +774,28 @@ enum ReaderWindows {
     static var isTerminating = false
     static var states: [ReaderState] { NSApp.windows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state } }
 
+    @MainActor final class TabOpening {
+        private var pending: Set<UUID>
+        private let selectedID: UUID
+        private let parentNumber: Int?
+        private weak var selectedWindow: NSWindow?
+
+        init?(payloads: [WindowPayload], parent: NSWindow?) {
+            guard let selected = payloads.last else { return nil }
+            pending = Set(payloads.map(\.id))
+            selectedID = selected.id
+            parentNumber = parent?.windowNumber
+        }
+
+        func ready(_ window: NSWindow, id: UUID) {
+            guard pending.remove(id) != nil else { return }
+            if id == selectedID { selectedWindow = window }
+            guard pending.isEmpty, let window = selectedWindow, let group = window.tabGroup else { return }
+            if let parentNumber, !group.windows.contains(where: { $0.windowNumber == parentNumber }) { return }
+            ReaderWindows.selectTab(window)
+        }
+    }
+
     static var newTabState: ReaderState? {
         let readers = states
         for window in NSApp.orderedWindows where window.delegate is ReaderCloseGuard {
@@ -790,6 +815,7 @@ enum ReaderWindows {
         let opensInTabs = behavior == .newTab && !UserDefaults.standard.bool(forKey: "disableTabs")
         let tabWith = opensInTabs ? state?.window?.windowNumber : nil
         let tabIdentifier = opensInTabs && tabWith == nil ? UUID().uuidString : nil
+        var created: [WindowPayload] = []
         for (index, url) in urls.enumerated() {
             // Home always receives the first file. Replacing a loaded document
             // still goes through ReaderState's unsaved-changes confirmation.
@@ -804,8 +830,13 @@ enum ReaderWindows {
                 var payload = WindowPayload(path: url.path, tabWith: tabWith, recordsHistory: recordsHistory ? nil : false)
                 payload.tabIdentifier = tabIdentifier ?? (opensInTabs ? nil : "Sumra-" + UUID().uuidString)
                 documentOpenLog.notice("route-create payload=\(payload.id.uuidString, privacy: .public)")
-                createWindow(payload)
+                created.append(payload)
             }
+        }
+        let opening = opensInTabs ? TabOpening(payloads: created, parent: state?.window) : nil
+        for var payload in created {
+            payload.tabOpening = opening
+            createWindow(payload)
         }
     }
 
@@ -946,6 +977,17 @@ enum ReaderWindows {
         documentOpenLog.info("tab-placed window=\(window.windowNumber, privacy: .public) parent=\(parent.windowNumber, privacy: .public) group-count=\(parent.tabGroup?.windows.count ?? 0, privacy: .public)")
     }
 
+    static func windowReady(_ window: NSWindow, payload: WindowPayload) {
+        if payload.restoring { restoredWindowReady(window, payload: payload) }
+        else { payload.tabOpening?.ready(window, id: payload.id) }
+    }
+
+    private static func selectTab(_ window: NSWindow) {
+        window.tabGroup?.selectedWindow = window
+        window.makeKeyAndOrderFront(nil)
+        activated(window)
+    }
+
     static func restoredWindowReady(_ window: NSWindow, payload: WindowPayload) {
         guard restorationPayloads.contains(where: { $0.id == payload.id }) else { return }
         restorationWindows[payload.id] = window
@@ -963,9 +1005,7 @@ enum ReaderWindows {
         let active = saved.first(where: { $0.active == true })
             ?? saved.first(where: { $0.selected == true }) ?? saved.first
         if let window = selected ?? active.flatMap({ windows[$0.id] }) {
-            window.tabGroup?.selectedWindow = window
-            window.makeKeyAndOrderFront(nil)
-            activated(window)
+            selectTab(window)
         }
     }
     static func rememberClosed(_ state: ReaderState) {
@@ -1768,6 +1808,7 @@ extension ReaderState {
         payload.tabWith = inTab ? window?.windowNumber : nil
         // A different tabbing identifier forces a distinct native window.
         if !inTab { payload.tabIdentifier = "Sumra-" + UUID().uuidString }
+        else { payload.tabOpening = ReaderWindows.TabOpening(payloads: [payload], parent: window) }
         createWindow?(payload)
     }
     func reopenClosed() {
