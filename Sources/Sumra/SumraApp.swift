@@ -429,6 +429,10 @@ final class ReaderCloseGuard: NSResponder, NSWindowDelegate, NSUserInterfaceVali
         state.confirmClose { [self] allowed in
             let approved = allowed && (previous?.windowShouldClose?(sender) ?? true)
                 && state.document?.id == documentID && state.generation == generation
+            // Native fullscreen tab removal lays out accessories inside close().
+            // Retire this reader's hosting graph before starting that mutation;
+            // a cancelled close must keep the existing controls intact.
+            if approved { state.readerToolbarHost?.detach() }
             closePending = false
             completion(approved)
         }
@@ -2070,6 +2074,28 @@ extension ReaderState {
 }
 
 @main
+enum SumraMain {
+    @MainActor static func main() {
+        // AppKit's restoration funnel must exist before SwiftUI starts native
+        // restoration; installing a window delegate is already too late.
+        _ = ReaderAppKitApplication.shared
+        SumraApp.main()
+    }
+}
+
+@MainActor
+final class ReaderAppKitApplication: NSApplication {
+    override func restoreWindow(withIdentifier identifier: NSUserInterfaceItemIdentifier, state: NSCoder,
+                                completionHandler: @escaping (NSWindow?, Error?) -> Void) -> Bool {
+        guard UserDefaults.standard.bool(forKey: "restoreSession") else {
+            documentOpenLog.notice("native-restoration-skipped identifier=\(identifier.rawValue, privacy: .public)")
+            completionHandler(nil, nil)
+            return true
+        }
+        return super.restoreWindow(withIdentifier: identifier, state: state, completionHandler: completionHandler)
+    }
+}
+
 @MainActor
 struct SumraApp: App {
     static var restoring: [WindowPayload] = [] {

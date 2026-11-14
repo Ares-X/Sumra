@@ -1,5 +1,78 @@
 # Issue 137 and related reader follow-up
 
+## Approved native close and restoration boundaries: 0.2.44 follow-up
+
+Status: local checks and replacement signed-package acceptance passed. Public
+release and final in-app update installation remain pending. Workflow
+[43640098466](https://github.com/Ares-X/Sumra/actions/runs/43640098466)
+built source `9418f458477a4c3af404ed704c4f9b713fde4f59`. The accepted main
+executable SHA-256 is
+`39fb2276cef66f72af9d7b398146ede4926b151019a20ce31ca8343cf1825bd0`;
+the manifest SHA-256 is
+`d2539089d15a151275c0422c39a692141178d178f6b31899e8655d45c41bfc9a`.
+The earlier candidate from workflow 43631132729 was not accepted. Evidence is
+retained under `build/issue137-remaining44`, including
+`vm/signed-final-acceptance.json`. Signed GUI acceptance used the existing
+macOS 26.6.2 VM; it does not establish behavior on the reporter's macOS 15.
+
+The published 0.2.43 executable crashed when closing the middle EPUB of a
+normal Auto Hide fullscreen PDF / EPUB / PDF group. The crash enters
+AttributeGraph through `NSHostingView.layout` while AppKit removes a native
+tab's titlebar accessory, before `windowWillClose`. `ReaderCloseGuard` now
+retires that reader's toolbar host after save/document confirmation,
+previous-delegate approval and document-generation validation, before approving
+native close or entering app-owned close. Cancellation preserves the same host
+and accessory. Document invalidation and group removal keep their existing owners.
+Two mounted three-window regressions fail on the original source and pass on
+the correction. The affected close, toolbar, native-tab and lifecycle checks
+passed 95 tests with one platform skip; the retained first attempt failed to
+load MuPDF and is an infrastructure failure, not a regression result.
+
+Startup exposed a separate failure: with Restore Session disabled and the
+existing native restoration archive intact, AppKit still attempted two saved
+readers, raised an array-range exception and left the old-source process at
+100% CPU. `SumraMain` now creates `ReaderAppKitApplication.shared` before
+SwiftUI starts. Its public AppKit restoration override completes each request
+with no window or error when Restore Session is disabled, without decoding the
+saved state; enabled restoration delegates directly to AppKit. The fresh-host
+regression checks three requests, each handled and completed exactly once with
+no state reads. The additional focused run passed 17 tests with no skips.
+
+The signed app passed the original normal Auto Hide fullscreen PDF / EPUB /
+PDF sequence: closing the middle EPUB with Cmd+W left both PDF readers alive.
+Its first Duplicate, before any New Tab in that process, kept both PDFs at page
+180 in one fullscreen group. With Restore Session enabled through Settings and
+history/position recording permitted, actual fullscreen Quit exited with status
+zero; relaunch restored the PDF at page 180 and EPUB in the same fullscreen
+group. The restored process's first Duplicate also stayed in that group.
+Mission Control before launch showed only the Desktop; after both Duplicate
+checks it showed the Desktop and exactly one occupied reader Space. The first
+Restore Session attempt with history disabled correctly saved no session under
+the existing privacy rule; the restorable control temporarily permitted history
+and position recording.
+
+With Restore Session then disabled and all three saved native window records retained,
+`signed-off-native-funnel.log` records three skipped restoration requests and
+one external PDF opening in a healthy reader. The signed Quick Look extension
+was verified at its actual candidate path in process 87724, with SHA-256
+`8ba8c7dd3f54dd97411d829a39a37447c93fbf437db80a456cefb79463cd2e10`.
+Actual mouse buttons advanced from page 1 to 2; corrupt page 3 retained page 2
+and its 2/3 counter with an error, and Previous returned to page 1/3.
+
+The black-Space cause remains unknown. The first signed candidate showed a
+black Space with two readers on the Desktop after native restoration errors,
+but there was no prelaunch Mission Control baseline establishing when that
+Space was created. Controlled first Duplicate and New Tab comparisons on the
+same PDF at page 180 both grouped successfully during native first ordering and
+neither produced a black Space. No automatic-tabbing policy change is shipped,
+and this does not resolve #148.
+
+Real Quick Look public-host input accepted Left/Right, while Sumra's preview
+field and a minimal native extension's text field/text view received no tested
+text. Finder's returned file-selection input is not editable-field evidence.
+There is no Quick Look product change or established platform-defect claim.
+Issues #137, #148 and #96 remain open; no reporter reply is part of this delivery.
+
 ## Adaptive tabs and resumed image spreads: 0.2.43 follow-up
 
 Status: implementation, focused checks and formal signed-package acceptance

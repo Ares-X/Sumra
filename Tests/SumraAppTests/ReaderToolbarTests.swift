@@ -1002,6 +1002,129 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertEqual(survivor.contentLayoutRect, layout, "Revealing controls must preserve the surviving reading viewport")
     }
 
+    func testApprovedCloseRetiresAccessoryBeforeNativeCloseEntryInThreeTabGroup() throws {
+        let fixture = try ApprovedCloseFixture()
+        defer { fixture.close() }
+        let target = fixture.windows[1]
+        let group = try XCTUnwrap(target.tabGroup)
+        let documentIDs = fixture.states.map { $0.document?.id }
+        var enteredNativeClose = false
+        target.closeEntry = { [weak target] in
+            guard let target else { return }
+            enteredNativeClose = true
+            XCTAssertNil(fixture.states[1].readerToolbarHost,
+                "Approved close must retire the hosted graph before NSWindow.close enters native stack cleanup")
+            XCTAssertFalse(target.titlebarAccessoryViewControllers.contains { $0 is ReaderNormalTabsAccessory })
+            XCTAssertEqual(group.windows, fixture.windows, "This boundary precedes native tab removal")
+            XCTAssertEqual(fixture.states[1].document?.id, documentIDs[1], "Approval must not invalidate the document before native close")
+        }
+        ReaderWindows.close(target)
+        XCTAssertTrue(enteredNativeClose)
+        XCTAssertEqual(target.nativeCloseCalls, 1)
+        XCTAssertEqual(group.windows, [fixture.windows[0], fixture.windows[2]])
+        for index in [0, 2] {
+            XCTAssertEqual(fixture.states[index].document?.id, documentIDs[index])
+            XCTAssertTrue(fixture.states[index].readerToolbarHost === fixture.hosts[index])
+        }
+    }
+
+    func testNativeCloseApprovalRetiresAccessoryWhileCancellationPreservesExactControls() throws {
+        let fixture = try ApprovedCloseFixture()
+        defer { fixture.close() }
+        let target = fixture.windows[1], state = fixture.states[1]
+        let group = try XCTUnwrap(target.tabGroup)
+        let owned = try XCTUnwrap(target.titlebarAccessoryViewControllers.compactMap { $0 as? ReaderNormalTabsAccessory }.first)
+        state.modified = true
+        var cancelled = false
+        RunLoop.main.perform(inModes: [.modalPanel]) {
+            MainActor.assumeIsolated {
+                cancelled = true
+                NSApp.stopModal(withCode: .alertThirdButtonReturn)
+                let wake = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [],
+                    timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!
+                NSApp.postEvent(wake, atStart: true)
+            }
+        }
+        ReaderWindows.close(target)
+        XCTAssertTrue(cancelled)
+        XCTAssertEqual(target.nativeCloseCalls, 0)
+        XCTAssertTrue(state.readerToolbarHost === fixture.hosts[1])
+        XCTAssertTrue(target.titlebarAccessoryViewControllers.contains { $0 === owned })
+        XCTAssertEqual(group.windows, fixture.windows)
+        XCTAssertTrue(state.modified)
+        state.modified = false
+        XCTAssertTrue(fixture.delegates[1].windowShouldClose(target))
+        XCTAssertEqual(target.nativeCloseCalls, 0, "Delegate approval retires the accessory before AppKit starts native close")
+        XCTAssertNil(state.readerToolbarHost)
+        XCTAssertFalse(target.titlebarAccessoryViewControllers.contains { $0 is ReaderNormalTabsAccessory })
+        XCTAssertEqual(group.windows, fixture.windows)
+        XCTAssertFalse(state.isWindowClosed)
+        XCTAssertNotNil(state.document)
+    }
+
+    @MainActor private final class CloseEntryWindow: NSWindow {
+        var closeEntry: (() -> Void)?
+        var nativeCloseCalls = 0
+        override func close() {
+            nativeCloseCalls += 1
+            closeEntry?()
+            super.close()
+        }
+    }
+
+    @MainActor private final class ApprovedCloseFixture {
+        let directory: TemporaryDirectory
+        var states: [ReaderState] = []
+        var windows: [CloseEntryWindow] = []
+        var hosts: [ReaderToolbarWindow.Host] = []
+        var delegates: [ReaderCloseGuard] = []
+        init() throws {
+            _ = NSApplication.shared
+            directory = try TemporaryDirectory()
+            let pdf = PDFDocument(), page = PDFPage()
+            page.setBounds(CGRect(x: 0, y: 0, width: 300, height: 400), for: .mediaBox)
+            pdf.insert(page, at: 0)
+            let bytes = try XCTUnwrap(pdf.dataRepresentation())
+            let identifier = "Approved-Native-Close-" + UUID().uuidString
+            for index in 0..<3 {
+                let url = directory.url.appendingPathComponent("native-close-\(index).pdf")
+                try bytes.write(to: url)
+                let state = ReaderState(recordsHistory: false)
+                state.document = try ReadingDocument.open(url)
+                state.immersiveControls = false; state.toolbarDisplayMode = .auto; state.tabCount = 3
+                let window = CloseEntryWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+                    styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+                window.tabbingIdentifier = identifier; state.window = window
+                let delegate = ReaderCloseGuard(state: state, previous: nil)
+                window.delegate = delegate
+                states.append(state); windows.append(window); delegates.append(delegate)
+                if index > 0 { windows[index - 1].addTabbedWindow(window, ordered: .above) }
+            }
+            let group = try XCTUnwrap(windows[0].tabGroup)
+            for index in windows.indices {
+                let host = ReaderToolbarWindow.Host()
+                host.state = states[index]; host.reducedMotion = true
+                windows[index].contentView?.addSubview(host)
+                hosts.append(host)
+                group.selectedWindow = windows[index]
+                host.updateChrome()
+                XCTAssertTrue(windows[index].titlebarAccessoryViewControllers.contains { $0 is ReaderNormalTabsAccessory })
+            }
+            group.selectedWindow = windows[1]
+            hosts[1].updateChrome()
+            XCTAssertEqual(group.windows, windows)
+        }
+        func close() {
+            for host in hosts { host.detach() }
+            for (window, state) in zip(windows, states) {
+                window.closeEntry = nil; state.modified = false
+                window.delegate = nil; window.contentView = nil; window.close(); state.windowClosed()
+            }
+            withExtendedLifetime(directory) {}
+        }
+    }
+
     func testWindowCloseRetiresOwnedTabsBeforeClosedStatePublishes() throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
