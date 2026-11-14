@@ -1,5 +1,48 @@
 # Issue 137 and related reader follow-up
 
+## Approved native close boundary: 0.2.44 follow-up
+
+Status: the new close regression is fixed locally, with formal signed-package
+acceptance pending. Evidence is retained under `build/issue137-remaining44`.
+The existing macOS 26.6.2 VM is the only permitted acceptance environment;
+no additional macOS 15 VM is created.
+
+The exact published 0.2.43 executable crashed when closing the middle EPUB
+of a normal Auto Hide fullscreen group containing PDF / EPUB / PDF. Its
+`Sumra-2026-11-15-021201.ips` identifies the signed executable UUID and enters
+AttributeGraph through `NSHostingView.layout` while AppKit removes a native
+tab's titlebar accessory. The earlier `windowWillClose` retirement happened
+after this native layout had already begun.
+
+`ReaderCloseGuard` now retires that reader's toolbar host after save/document
+confirmation, previous-delegate approval and document-generation validation,
+before returning approval to AppKit or entering the app-owned native close.
+Cancellation preserves the same host and accessory. Document invalidation and
+native group removal retain their existing owners.
+
+Two new tests use three real native tabbed windows, real PDF documents and
+mounted normal caption accessories. They check the boundary before the real
+`NSWindow.close()`, the surviving documents/hosts, native delegate approval,
+and cancellation through the actual alert. Both fail with the original
+product source and pass with this correction. The affected local close,
+toolbar, native-tab and lifecycle checks passed 95 tests with one platform
+skip. The first baseline attempt failed to load MuPDF; it is retained as an
+infrastructure failure and is not the reported failing regression run.
+
+The local corrected app passed the same fullscreen three-tab middle-close
+sequence, duplicated page 180 with its position intact, closed that duplicate,
+and quit from fullscreen with an observed normal exit code of zero. This
+comparison uses a diagnostic local app identity and is not final signed-byte
+acceptance. No general claim about every fullscreen crash follows.
+
+The remaining black-Space report is still unconfirmed on this VM. Native
+policy controls show that explicit grouping works with automatic tabbing
+disabled, including a single occupied fullscreen Space; they do not establish
+the reporter's cause. No speculative automatic-tabbing change is shipped.
+Quick Look keyboard input and final in-app update installation remain separate
+acceptance boundaries. Issues #137, #148 and #96 stay open, without a reporter
+reply.
+
 ## Adaptive tabs and resumed image spreads: 0.2.43 follow-up
 
 Status: implementation, focused checks and formal signed-package acceptance

@@ -429,6 +429,10 @@ final class ReaderCloseGuard: NSResponder, NSWindowDelegate, NSUserInterfaceVali
         state.confirmClose { [self] allowed in
             let approved = allowed && (previous?.windowShouldClose?(sender) ?? true)
                 && state.document?.id == documentID && state.generation == generation
+            // Native fullscreen tab removal lays out accessories inside close().
+            // Retire this reader's hosting graph before starting that mutation;
+            // a cancelled close must keep the existing controls intact.
+            if approved { state.readerToolbarHost?.detach() }
             closePending = false
             completion(approved)
         }
