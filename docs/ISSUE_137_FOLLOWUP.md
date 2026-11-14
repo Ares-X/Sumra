@@ -1,5 +1,309 @@
 # Issue 137 and related reader follow-up
 
+
+## Native fullscreen restoration: reproduced failures and correction
+
+The next investigation found a current, reproducible restoration failure in the
+existing macOS 26.6.2 guest. This is a confirmed related defect, not proof that
+every black Space in the reporter's macOS 15 recordings has the same cause.
+Evidence is retained under `build/issue137-window-order`.
+
+Three boundaries were wrong:
+
+1. `saveSession` generated a fresh UUID instead of retaining the mounted SwiftUI
+   scene's UUID. The application restoration queue could never recognize a
+   window restored by macOS with its original identity.
+2. Reader scenes opened the remaining application session and manually regrouped
+   native windows from `onAppear`, before AppKit finished restoring its fullscreen
+   tab stack. A real two-CBR fullscreen quit/relaunch produced three windows and
+   `NSWindowStackController.m:1094`, followed by the AppKit restoration exception
+   `windowToTakeFrom should be in FS`. The original default request was assigned
+   to two native windows, while the application created the remaining request.
+3. SwiftUI first mounted default values and only later restored the real scene
+   bindings. With two copies of the same CBR, the IDs swapped while the path
+   stayed identical. A path-keyed opening task did not restart, the original
+   `StateObject` stayed with the wrong scene, and decoded `restoring=false`
+   values bypassed restoration completion. The first corrected candidate removed
+   the native exception but still displayed an empty reader; it was rejected.
+
+The correction retains each scene UUID when saving the current session. A small
+`ReaderScene` owns the identity of its `ReaderWindow` state. Pending session
+metadata supplies the latest position, group and selection even when macOS
+replaces a provisional binding with an older encoded value. Ready callbacks
+must still belong to the window's current delegate.
+
+The application observes the public
+[window-restoration completion notification](https://developer.apple.com/documentation/appkit/nsapplication/didfinishrestoringwindowsnotification).
+One owner clears the native-restoration phase, places the already mounted Hosts,
+then hands off missing scenes. Policy changes, grouping and restored-document
+loading wait for this boundary; Finder requests also wait. Default-value
+allocation gives each request a distinct identity while retaining the complete
+startup plan until actual scene receipts determine what still needs opening.
+There is no delay, retry, private AppKit hook or alternate tab model in the
+product fix. Diagnostic overlays add logging only and are not shipped.
+
+Old releases did not persist a common identity between their application session
+and native scene state. When actual old native readers have unrelated IDs, they
+take precedence over the stale application queue; the app does not match copies
+by path or open the saved session a second time. A normal exit saves their actual
+scene IDs for the next launch. This does not reconstruct an unambiguous mapping
+for partially decoded legacy windows or prove that their older cached positions
+match the latest application snapshot.
+
+### Tests and diagnostic GUI acceptance
+
+`NativeSceneRestorationTests` covers stable saved identity/current position,
+latest metadata after decoding, dormant background documents, the native
+completion boundary, unique default allocations, an allocated-but-unmounted
+request, old unrelated IDs, callback order, Finder handoff, late binding replacement through the product
+`ReaderScene`, late legacy identities, and later manual tab-group restoration. Its windows are real AppKit
+windows, kept offscreen; it does not synthesize fullscreen or claim Space
+acceptance.
+
+- Exact old product source failed the initial identity and completion regressions.
+- A controlled rollback of default allocation and native-placement timing failed
+  the corresponding new checks.
+- Removing only `ReaderScene`'s identity key failed the late-binding regression.
+- The final local source passed 79 focused scene, session, lifecycle, Finder/opening,
+  native Host, Home batch, opening-presentation and closed-scene tests with isolated preferences and
+  pasteboard handling. Earlier startup/Finder/opening checks also passed; their
+  receipts retain their separate source snapshots.
+
+The corrected diagnostic bundle restored the same two fullscreen CBR tabs, with
+page 1 in the first tab and page 4 selected in the second. The log records the
+late decoded IDs, current Host/delegate handoff and `session-complete count=2`.
+Selecting the first tab loaded page 1; the session's first Duplicate, before any
+New Tab command, produced three visible tabs in the same fullscreen group.
+Mission Control showed Desktop and one occupied Sumra Space. The native
+restoration exception was absent from this replay. The task-only saved session
+was restored from its retained pre-failure fixture before this comparison; native
+window state was kept, and the failed candidate's logs were retained.
+
+A further controlled upgrade replay kept the guest's three actual native windows
+and changed only the task application's saved UUIDs to the old release's random
+UUID pattern. The pre-fix log shows native completion, then decoded unrelated IDs,
+then three ready callbacks with `pending=true`; the new late-legacy regression
+fails on that source. The corrected log switches to the actual native session
+when the first decoded identity arrives, and all three ready callbacks report
+`pending=false`, without reopening the unrelated saved session. The first native
+Duplicate then produces four visible tabs and Mission Control still shows only
+Desktop plus one occupied Sumra Space. After setting the selected copy to page 4,
+a normal quit saves four actual scene IDs with no legacy UUID remaining; the next
+fullscreen launch completes all four scenes and displays page 4. Cached legacy
+positions are preserved rather than guessed from a different duplicate's saved
+UUID. This replay is not a claim that all old cached positions are current.
+
+The legacy handoff is limited to the initial startup session. A separate failing
+regression showed that an overly broad late-identity handoff could discard a
+later user-requested tab-group restoration; the final source preserves that
+independent queue and completes it normally. These two additional failure
+receipts are `tests-late-legacy-baseline` and `tests-later-manual-baseline`; the
+79-test passing receipt is `tests-restoration-complete`.
+
+This bundle is ad hoc signed and uses local SDK 27 compilation with a 15.5 main
+executable load-command stamp. The diagnostic result alone does not establish formal
+signed-package acceptance or publication. No issue closure or reporter reply
+follows from the diagnostic result. The reporter's macOS 15.7.5 and #96 Finder key routing remain
+unconfirmed, and #137 and #96 remain open.
+
+### Formal signed 0.2.42 acceptance
+
+The unchanged signed 0.2.42 (44) package from source
+`e4670ebc8673a95067b387a6fbf98527cbfd3bb9` passed the following checks on the
+existing macOS 26.6.2 guest. It was built by
+[run 43575197676](https://github.com/Ares-X/Sumra/actions/runs/43575197676)
+on macOS 15.8.2 with SDK 15.5. This is a real release build, without the local
+diagnostic overlay or SDK-stamp modification; it is not macOS 15.7.5 runtime
+acceptance.
+
+- Fullscreen Home → actual file panel with the six format samples → last MOBI
+  selected → click the first CBR → Duplicate before New Tab produced seven
+  visible tabs. The log records Home 9244 reused for CBR, all five children
+  attached to it, then Duplicate 9287 in the same seven-window group. Mission
+  Control showed Desktop and one occupied Sumra Space.
+- Pure pointer movement to the top revealed the normal toolbar and seven tabs;
+  movement into the page hid the toolbar and backing completely. This checks
+  reveal/hide in Auto Hide mode, not every mode-change or animation frame.
+- With history and session restoration enabled, a separate pair of identical
+  CBR paths at pages 1 and 4 saved two distinct mounted scene IDs on normal
+  quit. Normal relaunch restored exactly two fullscreen tabs, selected page 4,
+  and page 1 in the first tab. The first subsequent command was Duplicate,
+  before New Tab; it produced three visible tabs in the same group, with one
+  occupied Sumra Space in Mission Control.
+- A controlled legacy replay changed only those three saved application UUIDs,
+  retaining the native window state and exact signed binary. The three actual
+  native readers were kept; no second group was opened. After selecting page 4
+  and quitting normally, the session contained the three actual IDs and none
+  of the seeded legacy IDs. The next normal launch restored three fullscreen
+  tabs with page 4 selected. As above, legacy cached positions are not mapped
+  to another duplicate by path or claimed to match the latest old snapshot.
+
+The initial setup retained New Window and disabled-history preferences. Its
+standalone windows and empty saved session were expected for those settings,
+and are excluded from tab-group/session acceptance. Accepted replays explicitly
+selected New Tab; the restoration case also enabled history and reading-state
+recording. Modifier shortcuts that did not reach the guest were excluded;
+guest-native key delivery was observed before proceeding. No user document was
+used in these checks. Preference backups and the exact accepted package are
+retained with logs, screenshots and receipts under
+`build/issue137-window-order/release`.
+
+All release asset checksums, 140 bundle files, five symlinks, 638 tracked source
+files, the existing signing certificate, deep strict signature and Sparkle
+Ed25519 update signature passed. The accepted `SHA256SUMS` digest is
+`119f051ad54c5c2ed4d1be8e1dab065f4babd8544025de0d92fccdb322ad779f`;
+the application ZIP digest is
+`6fa9d123cdba098fe167ba7412c599ab6328f9e4ea43d81c64673ab065b697dc`.
+Publication must use these accepted bytes. The 79 focused tests correspond to
+the same product-source hash; this acceptance update changes documentation
+only. #137 and #96 remain open, and no reporter reply is part of this delivery.
+
+## Original trigger recheck: inspect grouping before Duplicate
+
+The original first movie is more specific than a generic fullscreen Duplicate
+test. It starts with a fullscreen Home and an Open Document panel selecting
+CBR, CBZ, AZW3, EPUB, FB2 and MOBI. After opening the batch, the last MOBI is
+selected; the user then selects the first CBR and invokes Tabs → Duplicate in
+New Tab. The second movie uses the native tab-bar plus and tab-overview plus.
+
+Three original frames are important: at 7.2 s all six tabs are visible; at
+8.95 s the CBR is visible with the Duplicate menu open but no native tab bar;
+at 12.7 s the bar contains only two CBR tabs, not seven. A black transition
+already occurs when selecting the first CBR, before Duplicate. This suggests
+the reused first window may already have separated from its original group;
+the frames alone do not prove native membership or the exact input gesture.
+These are 0.2.36 observations, not a demonstrated 0.2.41 root cause.
+
+The latest reporter's phrase about starting a session with Duplicate before
+New Tab does not establish a cold single-file launch or a saved-session
+restoration. The later cold replay below used an external file request and
+`route-create`, not the original fullscreen Home's `route-reuse`. Earlier
+release acceptance did cover the Home batch shape; those successful replays
+do not explain the original six → single-window → two-tab sequence.
+
+A further released-0.2.41 replay on the existing macOS 26.6.2 guest started a
+fresh process at Home, entered fullscreen before opening any document, then
+used the actual Open Document panel for the six files. The log confirms Home
+window 8389 was reused and remained the parent of the other five windows.
+CUA selected the first CBR with all six tabs still visible. Native menu action
+then created window 8459 beside 8389 with group count seven; the duplicate
+rendered page 1/11. Immediate Mission Control showed Desktop plus one Sumra
+Space. Coordinate attempts that did not change selection or create a scene
+are excluded; the successful Duplicate used the native accessibility menu
+action, not a verified physical menu-item click. Evidence is under
+`build/issue137-trigger-review`.
+
+### Native owner trace of Home reuse, first CBR and first Duplicate
+
+A subsequent diagnostic replay from `7727ee3` records the native group,
+membership, selection, window/style/Space state, mounted Host state and close
+guard state. It also logs the Home predicate and both sides of the actual
+`removeWindow` call in `ReaderCloseGuard.updateTabbingPolicy`. The logging is a
+local source overlay; no proposed product fix is present.
+
+The existing macOS 26.6.2 guest again starts at fullscreen Home, opens the six
+format-sampler files through the actual file panel and performs Duplicate before
+New Tab. The trace establishes:
+
+- Home window 8502 is reused for CBR. Its original `ReaderState` identity remains
+  `0x8191ba800`; the mounted Host and close guard refer to that same state.
+- Before the first child attaches, the parent's busy state makes Home false and
+  its native mode becomes preferred. All six windows subsequently share group
+  `0x817c56ee0`, ordered `[8502, 8566, 8564, 8562, 8560, 8558]`.
+- Native Previous Tab selects the original CBR 8502. Its loaded document,
+  opening path and state identity remain present, Home remains false, and the
+  group retains all six windows. No policy removal is recorded.
+- The first Duplicate command targets CBR 8502 and adds 8574 to that same group.
+  The duplicate renders page 1/11 and all seven tabs remain visible. Mission
+  Control shows Desktop and exactly one occupied Sumra Space.
+- A later actual CUA click on the original first CBR selects 8502 in the same
+  seven-window group, still with the original state and Home false. A physical
+  menu-item attempt produces no Duplicate event or additional scene; that
+  attempt is excluded from command acceptance. The successful first Duplicate
+  above uses the native accessibility menu action.
+
+The recorded successful path therefore does **not** support misclassification
+of the first loaded CBR as Home. It does not rule out a different failing path
+on the reporter's system. Long diagnostic `all` fields are truncated by unified
+logging; each event's target fields remain complete. Evidence under
+`build/issue137-group-trace` includes the overlay recipe, compact target log,
+unmodified raw logs, action receipts, guest screenshots and build identity.
+The diagnostic is ad hoc signed, compiled with the local SDK 27 headers, and
+has its main executable's SDK load-command stamp aligned to the release's
+15.5. This is neither SDK 15 compilation nor macOS 15 runtime acceptance. The
+separate signed 0.2.41 replay above remains the released-byte boundary.
+
+`NativeHomeDocumentTabLifecycleTests` mounts the real `ReaderWindow`, opens and
+parses all six fixture documents, checks the reused Home's scene binding,
+selects MOBI then CBR through native activation notifications, and duplicates
+CBR. It checks all original document/state identities, Host/delegate ownership
+and six-to-seven group membership. It passes under isolated preferences and
+pasteboard handling with unchanged fixture bytes. Its offscreen windows do not
+exercise fullscreen or Spaces. Removing only the already-released parent-policy
+refresh also passes this test; it is loading/lifecycle coverage, not a test
+that reproduces the outstanding failure. Receipts are in
+`tests-home-lifecycle-actor` and `tests-home-lifecycle-old-parent` under that
+evidence directory.
+
+Historical source comparison identifies two relevant changes since the 0.2.36
+movie: `c928c9a` refreshes the reused Home's policy before native child placement,
+and `11ced36` adds the ready-time selection shared by ordinary batch opening and
+Duplicate. The old movie exercises earlier placement/selection code. Neither
+change proves the cause of the movie's separation, nor resolves the latest
+report by inference. The Home predicate and its remove-group behavior are
+unchanged. No verified new correction, merge, release or issue closure follows
+from this trace. An actual current-version failing trace remains necessary.
+
+The task reader and its registrations/files were removed after verifying no
+consumers. The guest's original 23 preference keys and values were restored
+exactly, including deletion of five task-added keys; shared Peekaboo and the
+pre-existing thumbnail process were preserved. The existing VM was returned to
+its initial suspended state. Preference equality and cleanup receipts are kept
+with the evidence; preference values are not part of this document.
+
+## 0.2.41 reporter follow-up: cold Duplicate remains unresolved
+
+The [reporter's latest reply](https://github.com/Ares-X/Sumra/issues/137#issuecomment-6854819937)
+confirms that floating fullscreen clipping is fixed and New Tab returns to the
+occupied fullscreen Space. Duplicate in New Tab still often leaves a black
+Space on the reporter's macOS 15, especially when it is the session's first
+tab-creation operation. Ordinary native tab widths also still wait for pointer
+exit. Neither remaining report is resolved by the earlier acceptance below.
+
+The existing macOS 26.6.2 guest was used again; no additional VM was created.
+Released 0.2.41 and behavior-neutral diagnostic builds from `7727ee3` were
+checked with the latest supplied CBZ. The diagnostic adds lifecycle logging
+only; it does not contain a proposed product correction.
+
+- Cold normal-toolbar fullscreen, first operation Duplicate: the menu command
+  ran, the duplicate joined and selected in the existing group, and Mission
+  Control showed Desktop plus one Sumra Space.
+- Cold floating Auto Hide fullscreen, first operation Duplicate: the duplicate
+  remained visible in the existing fullscreen group. Its readiness log reports
+  the selected duplicate on the active Space. No separate Mission Control
+  observation was captured for this case.
+- A cold session restored with CBZ and EPUB, followed by fullscreen entry and
+  first operation Duplicate: all three windows remained in the original group,
+  with the duplicate selected and on the active Space. This fixture restored
+  documents, not a previously fullscreen macOS scene. Mission Control after
+  subsequently exiting fullscreen showed only Desktop; that observation is not
+  a screenshot of the immediate post-duplicate fullscreen state.
+
+The menu-boundary trace disproves one suspected ordering problem on this guest:
+`NSMenuDidEndTrackingNotification` precedes the Duplicate command and native
+placement; the queued ready callback follows `NSMenuDidSendActionNotification`.
+The last mouse event's type alone did not establish menu tracking. No speculative
+delay, focus retry, cursor movement or private AppKit call was added.
+
+Evidence is under `build/issue137-cold`: command-delivery receipts, lifecycle
+logs, the diagnostic source overlay and scoped Mission Control captures. A
+failed automation menu click that created no scene is excluded from acceptance.
+The black-Space failure was **not reproduced** on macOS 26.6.2, so there is no
+verified new fix, release or issue closure. First match the original window
+source, reuse and command order, then trace the entire group's changes before
+Duplicate. An affected macOS 15 trace can distinguish remaining system/settings
+differences; successful newer-system replays alone do not establish the cause.
+
 ## Remaining interaction batch after 0.2.40 (0.2.41 candidate)
 
 The [new reporter reply](https://github.com/Ares-X/Sumra/issues/137#issuecomment-6850185850)
