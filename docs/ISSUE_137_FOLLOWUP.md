@@ -1,5 +1,90 @@
 # Issue 137 and related reader follow-up
 
+
+## Native fullscreen restoration: reproduced failures and correction
+
+The next investigation found a current, reproducible restoration failure in the
+existing macOS 26.6.2 guest. This is a confirmed related defect, not proof that
+every black Space in the reporter's macOS 15 recordings has the same cause.
+Evidence is retained under `build/issue137-window-order`.
+
+Three boundaries were wrong:
+
+1. `saveSession` generated a fresh UUID instead of retaining the mounted SwiftUI
+   scene's UUID. The application restoration queue could never recognize a
+   window restored by macOS with its original identity.
+2. Reader scenes opened the remaining application session and manually regrouped
+   native windows from `onAppear`, before AppKit finished restoring its fullscreen
+   tab stack. A real two-CBR fullscreen quit/relaunch produced three windows and
+   `NSWindowStackController.m:1094`, followed by the AppKit restoration exception
+   `windowToTakeFrom should be in FS`. The original default request was assigned
+   to two native windows, while the application created the remaining request.
+3. SwiftUI first mounted default values and only later restored the real scene
+   bindings. With two copies of the same CBR, the IDs swapped while the path
+   stayed identical. A path-keyed opening task did not restart, the original
+   `StateObject` stayed with the wrong scene, and decoded `restoring=false`
+   values bypassed restoration completion. The first corrected candidate removed
+   the native exception but still displayed an empty reader; it was rejected.
+
+The correction retains each scene UUID when saving the current session. A small
+`ReaderScene` owns the identity of its `ReaderWindow` state. Pending session
+metadata supplies the latest position, group and selection even when macOS
+replaces a provisional binding with an older encoded value. Ready callbacks
+must still belong to the window's current delegate.
+
+The application observes the public
+[window-restoration completion notification](https://developer.apple.com/documentation/appkit/nsapplication/didfinishrestoringwindowsnotification).
+One owner clears the native-restoration phase, places the already mounted Hosts,
+then hands off missing scenes. Policy changes, grouping and restored-document
+loading wait for this boundary; Finder requests also wait. Default-value
+allocation gives each request a distinct identity while retaining the complete
+startup plan until actual scene receipts determine what still needs opening.
+There is no delay, retry, private AppKit hook or alternate tab model in the
+product fix. Diagnostic overlays add logging only and are not shipped.
+
+Old releases did not persist a common identity between their application session
+and native scene state. When actual old native readers have unrelated IDs, they
+take precedence over the stale application queue; the app does not match copies
+by path or open the saved session a second time. A normal exit saves their actual
+scene IDs for the next launch. This does not reconstruct an unambiguous mapping
+for partially decoded legacy windows or prove that their older cached positions
+match the latest application snapshot.
+
+### Tests and diagnostic GUI acceptance
+
+`NativeSceneRestorationTests` covers stable saved identity/current position,
+latest metadata after decoding, dormant background documents, the native
+completion boundary, unique default allocations, an allocated-but-unmounted
+request, old unrelated IDs, callback order, Finder handoff and the late binding
+replacement through the product `ReaderScene`. Its windows are real AppKit
+windows, kept offscreen; it does not synthesize fullscreen or claim Space
+acceptance.
+
+- Exact old product source failed the initial identity and completion regressions.
+- A controlled rollback of default allocation and native-placement timing failed
+  the corresponding new checks.
+- Removing only `ReaderScene`'s identity key failed the late-binding regression.
+- The final local source passed 22 focused scene, session, native Host, Home batch,
+  opening-presentation and closed-scene tests with isolated preferences and
+  pasteboard handling. Earlier startup/Finder/opening checks also passed; their
+  receipts retain their separate source snapshots.
+
+The corrected diagnostic bundle restored the same two fullscreen CBR tabs, with
+page 1 in the first tab and page 4 selected in the second. The log records the
+late decoded IDs, current Host/delegate handoff and `session-complete count=2`.
+Selecting the first tab loaded page 1; the session's first Duplicate, before any
+New Tab command, produced three visible tabs in the same fullscreen group.
+Mission Control showed Desktop and one occupied Sumra Space. The native
+restoration exception was absent from this replay. The task-only saved session
+was restored from its retained pre-failure fixture before this comparison; native
+window state was kept, and the failed candidate's logs were retained.
+
+This bundle is ad hoc signed and uses local SDK 27 compilation with a 15.5 main
+executable load-command stamp. Formal signed-package acceptance and publication
+are separate pending steps. No issue closure or reporter reply follows from the
+diagnostic result. The reporter's macOS 15.7.5 and #96 Finder key routing remain
+unconfirmed, and #137 and #96 remain open.
+
 ## Original trigger recheck: inspect grouping before Duplicate
 
 The original first movie is more specific than a generic fullscreen Duplicate

@@ -82,6 +82,19 @@ struct WindowPayload: Codable, Hashable {
 }
 
 @MainActor
+struct ReaderScene: View {
+    @Binding var payload: WindowPayload
+    let application: ReaderApplicationDelegate
+
+    var body: some View {
+        // Native restoration can replace the default value after mounting it.
+        // The document state belongs to the restored scene, even for one path.
+        ReaderWindow(payload: $payload, application: application)
+            .id(payload.id)
+    }
+}
+
+@MainActor
 struct ReaderWindow: View {
     @Binding var payload: WindowPayload
     let application: ReaderApplicationDelegate
@@ -92,7 +105,10 @@ struct ReaderWindow: View {
 
     init(payload: Binding<WindowPayload>, application: ReaderApplicationDelegate) {
         _payload = payload
-        _state = StateObject(wrappedValue: ReaderState(restoring: payload.wrappedValue.restoring ? payload.wrappedValue : nil))
+        let request = payload.wrappedValue
+        let restoration = request.restoring ? request : ReaderWindows.pendingRestoration(for: request.id)
+        application.recordStartupScene(request)
+        _state = StateObject(wrappedValue: ReaderState(restoring: restoration))
         self.application = application
     }
 
@@ -108,6 +124,9 @@ struct ReaderWindow: View {
     }
 
     var body: some View {
+        // macOS can decode an older scene value. Use the current session before
+        // the native host mounts, then update the scene binding on appearance.
+        let opening = ReaderWindows.pendingRestoration(for: payload.id) ?? payload
         // Keep the window delegate and native tab placement mounted as a dormant
         // scene changes from its placeholder to the loaded document.
         ZStack {
@@ -119,13 +138,14 @@ struct ReaderWindow: View {
             .frame(minWidth: 560, minHeight: state.hasDocument ? 400 : 500)
             .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
             .navigationTitle(windowTitle)
-            .background(WindowTabs(state: state, tabWith: payload.tabWith, identifier: payload.tabIdentifier, openingPath: payload.path, restorationID: payload.restoring ? payload.id : nil) {
-                documentOpenLog.notice("scene-ready payload=\(payload.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
-                application.connect(state, canReuse: payload.path == nil)
-                if let window = state.window { ReaderWindows.windowReady(window, payload: payload) }
+            .background(WindowTabs(state: state, tabWith: opening.tabWith, identifier: opening.tabIdentifier, openingPath: opening.path, restorationID: opening.id) {
+                documentOpenLog.notice("scene-ready payload=\(opening.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
+                application.connect(state, canReuse: opening.path == nil)
+                if let window = state.window { ReaderWindows.windowReady(window, payload: opening) }
             })
             .focusedSceneObject(state)
             .onAppear {
+                if opening.restoring { payload = opening }
                 documentOpenLog.notice("scene-appeared payload=\(payload.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
                 state.tabColor = payload.tabColor
                 if let folder = payload.browserFolder {
@@ -143,15 +163,10 @@ struct ReaderWindow: View {
                     receiver.createWindow = { [opener] in opener(id: "reader", value: $0) }
                     ReaderImages.capture(receiver)
                 }
-                if payload.id == SumraApp.restoring.first?.id {
-                    let remaining = Array(SumraApp.restoring.dropFirst())
-                    SumraApp.restoring = []
-                    for saved in remaining { openWindow(id: "reader", value: saved) }
-                }
             }
-            .task(id: payload.path) {
-                if payload.restoring {
-                    if payload.active == true { state.activateRestoredDocument() }
+            .task(id: opening.path) {
+                if opening.restoring {
+                    if opening.active == true, !ReaderWindows.isRestoringNativeWindows { state.activateRestoredDocument() }
                     return
                 }
                 if let bookmark = payload.bookmarkRequest {
@@ -264,6 +279,18 @@ struct WindowTabs: NSViewRepresentable {
             state?.window = window
             updateDocumentProperties()
             state?.applyTabColor()
+            NotificationCenter.default.addObserver(self, selector: #selector(activated), name: NSWindow.didBecomeKeyNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(deactivated), name: NSWindow.didResignKeyNotification, object: window)
+            if window.isKeyWindow { ReaderWindows.activated(window) }
+            NotificationCenter.default.addObserver(self, selector: #selector(closing), name: NSWindow.willCloseNotification, object: window)
+            ReaderWindows.afterNativeRestoration { [weak self] in self?.finishPlacement() }
+        }
+
+        private func finishPlacement() {
+            guard let window, let closeGuard else { return }
+            // AppKit restores its fullscreen tab stack before the app applies
+            // saved grouping or creates any missing reader scenes.
+            closeGuard.updateTabbingPolicy(window)
             if !placed {
                 placed = true
                 let readers = ReaderWindows.states.compactMap(\.window).filter {
@@ -273,21 +300,15 @@ struct WindowTabs: NSViewRepresentable {
                     ?? readers.first { $0.tabbingIdentifier == (groupIdentifier ?? "SumraReader") }
                 window.tabbingIdentifier = groupIdentifier ?? parent?.tabbingIdentifier ?? "SumraReader"
                 documentOpenLog.info("tab-place window=\(window.windowNumber, privacy: .public) requested-parent=\(self.tabWith ?? -1, privacy: .public) resolved-parent=\(parent?.windowNumber ?? -1, privacy: .public) enabled=\(window.tabbingMode != .disallowed, privacy: .public) existing-count=\(parent?.tabGroup?.windows.count ?? 0, privacy: .public)")
-                if !guardDelegate.isHome, window.tabbingMode != .disallowed, let parent {
-                    ReaderWindows.placeTab(window, beside: parent, restorationID: guardDelegate.restorationID)
+                if !closeGuard.isHome, window.tabbingMode != .disallowed, let parent {
+                    ReaderWindows.placeTab(window, beside: parent, restorationID: closeGuard.restorationID)
                 }
             }
-            NotificationCenter.default.addObserver(self, selector: #selector(activated), name: NSWindow.didBecomeKeyNotification, object: window)
-            NotificationCenter.default.addObserver(self, selector: #selector(deactivated), name: NSWindow.didResignKeyNotification, object: window)
-            if window.isKeyWindow { ReaderWindows.activated(window) }
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(closing),
-                name: NSWindow.willCloseNotification,
-                object: window
-            )
             // File opening publishes SwiftUI state after native view installation.
-            DispatchQueue.main.async { [weak self] in self?.onWindowReady?() }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window, window.delegate === self.closeGuard else { return }
+                self.onWindowReady?()
+            }
         }
 
         @objc private func closing(_ notification: Notification) {
@@ -324,6 +345,7 @@ final class ReaderCloseGuard: NSResponder, NSWindowDelegate, NSUserInterfaceVali
     }
     required init?(coder: NSCoder) { previous = nil; super.init(coder: coder) }
     func updateTabbingPolicy(_ window: NSWindow) {
+        guard !ReaderWindows.isRestoringNativeWindows else { return }
         let home = isHome
         let mode: NSWindow.TabbingMode = home || UserDefaults.standard.bool(forKey: "disableTabs") ? .disallowed : .preferred
         if window.tabbingMode != mode { window.tabbingMode = mode }
@@ -408,6 +430,9 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     private var syncTeXTasks: [String: Task<Void, Never>] = [:]
     private var createWindow: ((WindowPayload) -> Void)?
     private var hasFinishedLaunching = false
+    private var hasFinishedRestoringWindows = false
+    private var startupSceneIDs = Set<UUID>()
+    private var nativeSessionTakesPrecedence = false
     private weak var emptyReader: ReaderState?
 
     func installTabResponder() {
@@ -438,7 +463,43 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
         documentOpenLog.notice("opener-ready")
         // Registration happens while SwiftUI builds commands. Open scenes only
         // after that update, also allowing an existing Home to connect first.
-        Task { @MainActor [weak self] in self?.openPendingFiles() }
+        Task { @MainActor [weak self] in
+            self?.restorePendingSession()
+            self?.openPendingFiles()
+        }
+    }
+
+    func recordStartupScene(_ payload: WindowPayload) {
+        guard !hasFinishedRestoringWindows else { return }
+        startupSceneIDs.insert(payload.id)
+        // Older releases saved unrelated session UUIDs. Keep those actual
+        // native readers instead of guessing which duplicate file they represent.
+        if payload.path != nil, !payload.restoring, ReaderWindows.pendingRestoration(for: payload.id) == nil {
+            nativeSessionTakesPrecedence = true
+        }
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NotificationCenter.default.addObserver(self, selector: #selector(finishedRestoringWindows),
+            name: NSApplication.didFinishRestoringWindowsNotification, object: NSApp)
+    }
+
+    @objc private func finishedRestoringWindows() {
+        hasFinishedRestoringWindows = true
+        if nativeSessionTakesPrecedence {
+            ReaderWindows.keepRestorationScenes(startupSceneIDs)
+            SumraApp.restoring = []
+        }
+        ReaderWindows.finishNativeRestoration()
+        restorePendingSession()
+        openPendingFiles()
+    }
+
+    private func restorePendingSession() {
+        guard hasFinishedRestoringWindows, hasFinishedLaunching, let createWindow else { return }
+        let remaining = SumraApp.restoring.filter { !startupSceneIDs.contains($0.id) }
+        SumraApp.restoring = []
+        for payload in remaining { createWindow(payload) }
     }
 
     func applicationShouldHandleReopen(_ application: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -483,11 +544,12 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     func finishLaunching() {
         hasFinishedLaunching = true
         documentOpenLog.notice("launch-finished")
+        restorePendingSession()
         openPendingFiles()
     }
 
     private func openPendingFiles() {
-        guard hasFinishedLaunching, let createWindow,
+        guard hasFinishedLaunching, !ReaderWindows.isRestoringNativeWindows, let createWindow,
               !pendingFiles.isEmpty || !pendingSyncTeX.isEmpty else { return }
         // Finder and editor requests can arrive before SwiftUI installs a window.
         NSApp.activate(ignoringOtherApps: true)
@@ -771,6 +833,24 @@ enum ReaderWindows {
     private static var restorationWindows: [UUID: NSWindow] = [:]
     private static weak var restorationSelection: NSWindow?
     static var isRestoringWindows: Bool { !restorationPayloads.isEmpty }
+    static var isRestoringNativeWindows = false
+    private static var nativeRestorationPlacements: [() -> Void] = []
+    static func afterNativeRestoration(_ placement: @escaping () -> Void) {
+        if isRestoringNativeWindows { nativeRestorationPlacements.append(placement) }
+        else { placement() }
+    }
+    static func finishNativeRestoration() {
+        isRestoringNativeWindows = false
+        let placements = nativeRestorationPlacements
+        nativeRestorationPlacements = []
+        for placement in placements { placement() }
+    }
+    static func pendingRestoration(for id: UUID) -> WindowPayload? {
+        restorationPayloads.first { $0.id == id }
+    }
+    static func keepRestorationScenes(_ ids: Set<UUID>) {
+        restorationPayloads.removeAll { !ids.contains($0.id) }
+    }
     static var isTerminating = false
     static var states: [ReaderState] { NSApp.windows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state } }
 
@@ -874,7 +954,7 @@ enum ReaderWindows {
     }
 
     static func activated(_ window: NSWindow) {
-        if isRestoringWindows {
+        if isRestoringWindows || isRestoringNativeWindows {
             // Opening each scene can make it key. If the user explicitly
             // selects a tab while the last scenes attach, keep that choice.
             if let event = NSApp.currentEvent, event.type == .leftMouseDown,
@@ -940,7 +1020,7 @@ enum ReaderWindows {
     }
 
     static func prepareRestoration(_ payloads: [WindowPayload], selecting selected: NSWindow? = nil) -> [WindowPayload] {
-        restorationPayloads = payloads
+        restorationPayloads = []
         restorationWindows = [:]
         restorationSelection = selected
         guard !payloads.isEmpty else { return [] }
@@ -952,6 +1032,7 @@ enum ReaderWindows {
             payload.active = selected == nil && payload.id == activeID
             return payload
         }
+        restorationPayloads = windows
         // Parse the current document first while AppKit assembles its other tabs.
         return windows.filter { $0.id == activeID } + windows.filter { $0.id != activeID }
     }
@@ -978,7 +1059,7 @@ enum ReaderWindows {
     }
 
     static func windowReady(_ window: NSWindow, payload: WindowPayload) {
-        if payload.restoring { restoredWindowReady(window, payload: payload) }
+        if let restoration = pendingRestoration(for: payload.id) { restoredWindowReady(window, payload: restoration) }
         else { payload.tabOpening?.ready(window, id: payload.id) }
     }
 
@@ -1033,6 +1114,7 @@ enum ReaderWindows {
             for tab in window.tabGroup?.windows ?? [window] {
                 visited.insert(tab.windowNumber)
                 guard let reader = states.first(where: { $0.window === tab }), reader.recordsDocumentHistory, var payload = payload(reader) else { continue }
+                if let id = (tab.delegate as? ReaderCloseGuard)?.restorationID { payload.id = id }
                 payload.tabIdentifier = identifier
                 payload.selected = tab === (window.tabGroup?.selectedWindow ?? window)
                 payload.active = tab === activeWindow
@@ -1959,9 +2041,18 @@ extension ReaderState {
 @main
 @MainActor
 struct SumraApp: App {
-    static var restoring: [WindowPayload] = []
+    static var restoring: [WindowPayload] = [] {
+        didSet { issuedDefaultIDs = [] }
+    }
+    private static var issuedDefaultIDs = Set<UUID>()
+    static func defaultWindowPayload() -> WindowPayload {
+        guard let request = restoring.first(where: { !issuedDefaultIDs.contains($0.id) }) else { return WindowPayload() }
+        issuedDefaultIDs.insert(request.id)
+        return request
+    }
     @NSApplicationDelegateAdaptor(ReaderApplicationDelegate.self) private var delegate
     init() {
+        ReaderWindows.isRestoringNativeWindows = true
         ReaderPreferences.migrate()
         // AppKit installs View's tab overview and Window's tab commands only
         // when tabbing is enabled. Each scene still owns its requested placement.
@@ -1973,10 +2064,10 @@ struct SumraApp: App {
 
     var body: some Scene {
         WindowGroup("Sumra", id: "reader", for: WindowPayload.self) { $payload in
-            ReaderWindow(payload: $payload, application: delegate)
+            ReaderScene(payload: $payload, application: delegate)
                 .modifier(ReaderLanguage())
         } defaultValue: {
-            Self.restoring.first ?? WindowPayload()
+            Self.defaultWindowPayload()
         }
         .defaultSize(width: 900, height: 740)
         .windowResizability(.contentMinSize)
