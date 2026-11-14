@@ -3,7 +3,7 @@
 ## Adaptive tabs and resumed image spreads: 0.2.43 follow-up
 
 Status: implementation, focused checks and formal signed-package acceptance
-passed. Publication is pending. Evidence is retained under
+passed; 0.2.43 is published. Evidence is retained under
 `build/issue137-followup-42`.
 
 The reporter supplied a stripped 144-page CBZ in
@@ -164,6 +164,41 @@ and exit receipts are retained in `build/issue137-followup-42/vm`.
 This acceptance does not cover the reporter's macOS 15 black Space, Finder
 preview arrow-key routing, physical trackpad inertia or fullscreen tab tear-off.
 Those boundaries remain unknown; #137, #148 and #96 stay open.
+
+### Publication and installed update
+
+[PR #149](https://github.com/Ares-X/Sumra/pull/149) merged with the accepted product
+source retained as an ancestor. [Publish run 43603111729](https://github.com/Ares-X/Sumra/actions/runs/43603111729)
+released [0.2.43](https://github.com/Ares-X/Sumra/releases/tag/v0.2.43) by publishing
+the accepted draft assets without rebuilding. Anonymous downloads of the ZIP,
+manifest, provenance and appcast matched their accepted digests. All six public
+asset IDs, sizes and digests remained identical, including the corresponding
+source archive. The default public `main/appcast.xml` matched the accepted feed.
+
+The guest's real 0.2.42 Help → Check for Updates offered 0.2.43. Its direct raw
+feed connection initially timed out. A temporary relay to the host's existing
+proxy made the unchanged canonical feed reachable with normal TLS validation.
+The download progressed past 9.6 MB of 17.2 MB, then failed with
+`NSURLErrorDomain` / `-1005`. The installed baseline remained 0.2.42 with its
+original executable hash. This is a failed transport attempt, not an accepted
+installed upgrade; the final 0.2.43 runtime acceptance above used the separately
+installed exact signed package. No updater or feed changes were introduced to
+hide this limitation. The failure screenshot, underlying error log and unchanged
+baseline identity are retained in `vm/sparkle-update-result.json` and its evidence.
+
+The temporary network dictionary was restored exactly and its relay process and
+port were released. The original 23 preference keys and values were restored,
+including removal of 18 added keys. All task guest apps, fixtures and unique
+diagnostic domains were retired after their consumers closed. Their plugin
+registrations are absent and the canonical preview election is back to default;
+the shared Peekaboo and older thumbnail processes remain untouched. Launch
+Services retains three `launch-disabled` cache records for deleted task paths.
+They are left for system garbage collection rather than resetting the shared
+database. Host build intermediates and duplicate packages were retired; signed
+assets, acceptance/failure evidence and the unresolved Quick Look reproducer
+remain available. The existing VM was returned to its original suspended state.
+Cleanup receipts are `vm/cleanup-completion.json`,
+`vm/update-network-restoration.json` and `host-retirement-final.json`.
 
 ## Native fullscreen restoration: reproduced failures and correction
 
