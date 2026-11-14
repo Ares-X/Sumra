@@ -2,8 +2,8 @@
 
 ## Adaptive tabs and resumed image spreads: 0.2.43 follow-up
 
-Status: implementation and focused local checks passed; formal signed-package
-acceptance and publication are pending. Evidence is retained under
+Status: implementation, focused checks and formal signed-package acceptance
+passed. Publication is pending. Evidence is retained under
 `build/issue137-followup-42`.
 
 The reporter supplied a stripped 144-page CBZ in
@@ -115,6 +115,55 @@ that narrows the observation but does not prove a platform defect or a fix.
 
 The final focused checks contain 162 passing cases and one legacy-platform skip.
 Receipts preserve each source snapshot and the earlier rejected candidates.
+
+### Accepted signed package
+
+Candidate workflow [43597202746](https://github.com/Ares-X/Sumra/actions/runs/43597202746)
+built product source `ed72cf9853ee4910642e77288f126c502bae98aa` as
+0.2.43 (45). The accepted `SHA256SUMS` digest is
+`826b50bb438757051481bba9376977bab5ed9517fdfdbbc4880ca9998a78371d`;
+the signed main executable digest is
+`87f7208b7246d02e4aedad5646c78f586704c36e73492086adbdca9d5dca898c`.
+All six asset checksums, 140 application files, five symlinks, file modes,
+641 tracked source files, deep strict signature and Sparkle Ed25519 signature
+passed verification. The guest's installed files and loaded executable path
+matched this same package, including after the real quit/reopen.
+
+Actual mouse, wheel and keyboard input in the existing macOS 26.6.2 guest
+confirmed these behaviors in the signed application:
+
+- Fullscreen normal controls reveal and hide without a click. Switching from
+  CBZ to EPUB with the pointer left over its caption retains the complete controls.
+  Switching Hidden to Auto with the pointer already at the top reveals them;
+  moving into the page hides them, without an empty backing bar.
+- The supplied CBZ follows 117 → 115–116 → 113–114 → 112 alone, then forward
+  to 113–114. A normal fullscreen Quit, followed by reopening without reseeding
+  the reading position, restores 117 and returns to 115–116. The same first
+  backward turn passes for the identical images in stored RAR5 and an image folder.
+  A genuine compressed CBR also opens and turns from its cover to pages 2–3.
+- The corrupt-page fixture reports its unreadable sixth image, then permits
+  reading pages 7–8. A grouped opening scene displays sibling captions before
+  its document is ready; missing-file behavior is covered by mounted tests.
+- Closing a middle caption immediately fills the remaining normal strip while
+  the pointer stays still. Physical caption drags reorder and detach a window;
+  the native Merge All Windows action reunites the group. Eight captions support
+  wheel scrolling and ordered keyboard switching with selected-caption reveal.
+- Floating captions grow from a compact centered two-caption strip to the
+  available width for eight captions. Native window-frame changes from 900 to
+  1060 points reflow the actual controls; a physical edge-resize gesture was not
+  established by the input tool. Floating wheel scrolling and pointer-only
+  Auto reveal/hide pass at the wider size.
+
+Both the fullscreen process and the later eight-caption floating process exited
+normally with status 0 after actual Cmd+Q, observed through public process-exit
+notifications. This replaces the rejected local candidate's intermittent
+termination failure with positive acceptance of these exact signed bytes.
+Raw screenshots, contact sheets, input receipts, installed-bundle inventories
+and exit receipts are retained in `build/issue137-followup-42/vm`.
+
+This acceptance does not cover the reporter's macOS 15 black Space, Finder
+preview arrow-key routing, physical trackpad inertia or fullscreen tab tear-off.
+Those boundaries remain unknown; #137, #148 and #96 stay open.
 
 ## Native fullscreen restoration: reproduced failures and correction
 
