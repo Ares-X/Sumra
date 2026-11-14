@@ -106,6 +106,58 @@ signed-package acceptance or publication. No issue closure or reporter reply
 follows from the diagnostic result. The reporter's macOS 15.7.5 and #96 Finder key routing remain
 unconfirmed, and #137 and #96 remain open.
 
+### Formal signed 0.2.42 acceptance
+
+The unchanged signed 0.2.42 (44) package from source
+`e4670ebc8673a95067b387a6fbf98527cbfd3bb9` passed the following checks on the
+existing macOS 26.6.2 guest. It was built by
+[run 43575197676](https://github.com/Ares-X/Sumra/actions/runs/43575197676)
+on macOS 15.8.2 with SDK 15.5. This is a real release build, without the local
+diagnostic overlay or SDK-stamp modification; it is not macOS 15.7.5 runtime
+acceptance.
+
+- Fullscreen Home → actual file panel with the six format samples → last MOBI
+  selected → click the first CBR → Duplicate before New Tab produced seven
+  visible tabs. The log records Home 9244 reused for CBR, all five children
+  attached to it, then Duplicate 9287 in the same seven-window group. Mission
+  Control showed Desktop and one occupied Sumra Space.
+- Pure pointer movement to the top revealed the normal toolbar and seven tabs;
+  movement into the page hid the toolbar and backing completely. This checks
+  reveal/hide in Auto Hide mode, not every mode-change or animation frame.
+- With history and session restoration enabled, a separate pair of identical
+  CBR paths at pages 1 and 4 saved two distinct mounted scene IDs on normal
+  quit. Normal relaunch restored exactly two fullscreen tabs, selected page 4,
+  and page 1 in the first tab. The first subsequent command was Duplicate,
+  before New Tab; it produced three visible tabs in the same group, with one
+  occupied Sumra Space in Mission Control.
+- A controlled legacy replay changed only those three saved application UUIDs,
+  retaining the native window state and exact signed binary. The three actual
+  native readers were kept; no second group was opened. After selecting page 4
+  and quitting normally, the session contained the three actual IDs and none
+  of the seeded legacy IDs. The next normal launch restored three fullscreen
+  tabs with page 4 selected. As above, legacy cached positions are not mapped
+  to another duplicate by path or claimed to match the latest old snapshot.
+
+The initial setup retained New Window and disabled-history preferences. Its
+standalone windows and empty saved session were expected for those settings,
+and are excluded from tab-group/session acceptance. Accepted replays explicitly
+selected New Tab; the restoration case also enabled history and reading-state
+recording. Modifier shortcuts that did not reach the guest were excluded;
+guest-native key delivery was observed before proceeding. No user document was
+used in these checks. Preference backups and the exact accepted package are
+retained with logs, screenshots and receipts under
+`build/issue137-window-order/release`.
+
+All release asset checksums, 140 bundle files, five symlinks, 638 tracked source
+files, the existing signing certificate, deep strict signature and Sparkle
+Ed25519 update signature passed. The accepted `SHA256SUMS` digest is
+`119f051ad54c5c2ed4d1be8e1dab065f4babd8544025de0d92fccdb322ad779f`;
+the application ZIP digest is
+`6fa9d123cdba098fe167ba7412c599ab6328f9e4ea43d81c64673ab065b697dc`.
+Publication must use these accepted bytes. The 79 focused tests correspond to
+the same product-source hash; this acceptance update changes documentation
+only. #137 and #96 remain open, and no reporter reply is part of this delivery.
+
 ## Original trigger recheck: inspect grouping before Duplicate
 
 The original first movie is more specific than a generic fullscreen Duplicate
