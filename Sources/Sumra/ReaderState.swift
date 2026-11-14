@@ -487,6 +487,7 @@ final class ReaderState: ObservableObject {
     @Published var immersiveControls = UserDefaults.standard.bool(forKey: "immersiveControls")
     var usesFloatingChrome: Bool { hasDocument && immersiveControls && !presentation }
     var usesCustomChrome: Bool { !hasDocument || usesFloatingChrome }
+    var homeHeaderShown: Bool { !windowFullscreen || toolbarHoverVisible }
     var normalTabBarShown: Bool {
         hasDocument && !usesFloatingChrome && !presentation && (tabCount > 1 || tabBarShown)
     }

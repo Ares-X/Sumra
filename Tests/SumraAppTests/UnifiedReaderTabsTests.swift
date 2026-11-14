@@ -6,6 +6,78 @@ import XCTest
 @testable import Sumra
 
 @MainActor final class UnifiedReaderTabsTests: XCTestCase {
+    func testGroupedLoadingAndFailedOpeningKeepSiblingCaptionsInTheHomeHeader() async throws {
+        let fixture = Fixture(count: 2)
+        defer { fixture.close() }
+        let state = fixture.states[0], window = fixture.windows[0]
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let missingURL = directory.url.appendingPathComponent("missing.txt")
+        let path = missingURL.path
+        state.document = nil
+        state.busy = true
+        let closeGuard = ReaderCloseGuard(state: state, previous: nil)
+        closeGuard.openingPath = path
+        window.delegate = closeGuard
+        closeGuard.updateTabbingPolicy(window)
+        let controller = NSHostingController(rootView: ReaderView(state: state).frame(minWidth: 560, minHeight: 500))
+        window.contentViewController = controller
+        defer { window.contentViewController = nil }
+        for loading in [true, false] {
+            state.busy = loading
+            if !loading {
+                // The loaded sibling is selected while the real open fails,
+                // so the missing-file relocation prompt is not presented.
+                state.openWithoutHistory(missingURL)
+                for _ in 0..<100 where state.busy || state.missingFile == nil {
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+                XCTAssertFalse(state.busy)
+                XCTAssertEqual(state.missingFile, missingURL)
+                XCTAssertNotNil(state.error)
+            }
+            window.tabGroup?.selectedWindow = window
+            closeGuard.updateTabbingPolicy(window)
+            await settle(controller.view)
+            XCTAssertFalse(state.hasDocument)
+            XCTAssertFalse(closeGuard.isHome, "The pending file scene retains its native document-group identity")
+            XCTAssertEqual(window.tabGroup?.windows, fixture.windows)
+            XCTAssertTrue(window.titlebarAccessoryViewControllers.compactMap { $0 as? ReaderNormalTabsAccessory }.isEmpty,
+                          "The no-document header reuses captions without installing a normal toolbar accessory")
+            let captions = targets(in: controller.view)
+            XCTAssertEqual(captions.count, 2, "Both native group members remain reachable while loading or after failure")
+            XCTAssertTrue(captions.allSatisfy { !$0.isHiddenOrHasHiddenAncestor })
+            let sibling = captions.first { $0.tabWindow === fixture.windows[1] }
+            XCTAssertNotNil(sibling, "The grouped header must expose the loaded sibling")
+            if let sibling {
+                XCTAssertEqual(sibling.accessibilityRole(), .radioButton)
+                XCTAssertTrue(sibling.accessibilityPerformPress())
+                XCTAssertTrue(window.tabGroup?.selectedWindow === fixture.windows[1])
+            }
+        }
+    }
+
+    func testGroupedHomeHeaderCaptionsFollowFullscreenReveal() async throws {
+        let fixture = Fixture(count: 2)
+        defer { fixture.close() }
+        let state = fixture.states[0], window = fixture.windows[0]
+        state.document = nil
+        // Mount the actual header without ReaderToolbarWindow, which would
+        // derive windowFullscreen from this windowed fixture's native style.
+        let header = NSHostingView(rootView: ReaderHomeHeader(state: state).frame(width: 700))
+        window.contentView = header
+        state.windowFullscreen = true
+        for revealed in [false, true, false] {
+            state.toolbarHoverVisible = revealed
+            await settle(header)
+            XCTAssertEqual(state.homeHeaderShown, revealed)
+            let captions = targets(in: header)
+            XCTAssertEqual(captions.count, 2)
+            XCTAssertTrue(captions.allSatisfy { $0.isHidden == !revealed },
+                          "Native caption input must follow the same fullscreen visibility as its containing header")
+        }
+    }
+
     func testClosingATabReallocatesTheHostedCaptionsWithoutPointerMovement() async throws {
         let fixture = Fixture(count: 3)
         defer { fixture.close() }

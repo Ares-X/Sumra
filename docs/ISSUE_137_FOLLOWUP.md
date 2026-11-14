@@ -46,6 +46,36 @@ the pointer, drag reordering and separation into a second native window.
 These local bundles are main-reader comparisons; the final signed app requires
 its own acceptance.
 
+The next local interaction rejected the first candidate: fullscreen Auto Hide
+revealed correctly, but clicking the EPUB caption after the CBZ left an empty
+native toolbar backing. Candidate workflow 43589264100 was cancelled and its
+temporary signing cleanup completed. The diagnostic build reproduced the same
+failure. On activation, the selected reader had the correct key window and
+pointer at `(750, 648)`, but its caption was still at screen Y 664–692. Native
+layout later moved that row to Y 634–662, under the stationary pointer. The
+window's subsequent native notification applied the still-hidden state without sampling
+the pointer again. Both tabs had their own native companions; an earlier
+shared-parent event-route hypothesis was removed.
+
+The correction measures the allocated caption's actual screen bounds and samples
+the focused selected reader's pointer when native layout/fullscreen geometry
+finishes changing. It does not add document clearance or a timed retry. The
+regression moves a real owned caption row beneath a stationary pointer and
+exercises native update, resize and fullscreen completion notifications. It
+fails on the earlier source. The corrected local bundle retained the complete
+controls and captions after the same CBZ → EPUB click with no further pointer
+movement. Formal signed-package acceptance remains required.
+
+The shared caption migration also exposed an opening-state regression. A scene
+with a requested path is grouped before its first document finishes opening and
+can remain grouped after a missing-file failure. Neither the normal accessory
+nor floating document controls rendered while `document` was nil. The existing
+Home header now reuses the same captions for those multi-window groups, keeping
+their native selection and close actions available. Its native input targets
+follow the header's fullscreen reveal state. A solitary Home keeps its existing
+header. Mounted tests cover loading, an actual missing-file open, sibling
+selection, and fullscreen header reveal/hide.
+
 The #148 analysis supplies useful trace branches, not an established cause.
 Three fullscreen PDF Duplicate operations in the diagnostic guest selected the
 new tab in the same native group; later observations and Mission Control showed
@@ -56,6 +86,9 @@ also failed to receive the tested keys while its mouse focus was visible;
 that narrows the observation but does not prove a platform defect or a fix.
 #137, #148 and #96 remain open. No reporter reply is part of this delivery.
 
+
+The final focused checks contain 157 passing cases and one legacy-platform skip.
+Receipts preserve each source snapshot and the earlier rejected candidates.
 
 ## Native fullscreen restoration: reproduced failures and correction
 

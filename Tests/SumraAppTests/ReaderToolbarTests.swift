@@ -1001,6 +1001,99 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertEqual(survivor.contentLayoutRect, layout, "Revealing controls must preserve the surviving reading viewport")
     }
 
+    func testNativeGeometryCompletionRevealsMovedCaptionUnderStationaryPointer() throws {
+        final class DocumentWindow: NSWindow {
+            var receivesPointer = false
+            var pointer = NSPoint.zero
+            override var isKeyWindow: Bool { receivesPointer }
+            override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
+        }
+        _ = NSApplication.shared
+        for event in [NSWindow.didUpdateNotification, NSWindow.didResizeNotification,
+                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            let identifier = "Deferred-Caption-" + UUID().uuidString
+            let states = (0..<2).map { index in
+                let state = ReaderState(recordsHistory: false)
+                state.document = ReadingDocument(url: URL(fileURLWithPath: "/deferred-caption-\(index).txt"), content: .text("Book"))
+                state.immersiveControls = false; state.toolbarDisplayMode = .auto; state.tabCount = 2
+                return state
+            }
+            let windows = states.enumerated().map { index, state in
+                let window = DocumentWindow(contentRect: CGRect(x: 200, y: 100, width: 700, height: 500),
+                    styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+                window.tabbingIdentifier = identifier
+                window.toolbar = NSToolbar(identifier: "deferred-caption-toolbar-\(index)")
+                state.window = window
+                return window
+            }
+            let delegates = states.enumerated().map { index, state in
+                let delegate = ReaderCloseGuard(state: state, previous: nil)
+                windows[index].delegate = delegate
+                return delegate
+            }
+            windows[0].addTabbedWindow(windows[1], ordered: .above)
+            let group = try XCTUnwrap(windows[0].tabGroup)
+            let hosts = states.enumerated().map { index, state in
+                let host = ReaderToolbarWindow.Host()
+                host.state = state; host.reducedMotion = true
+                windows[index].contentView?.addSubview(host)
+                return host
+            }
+            var companions: [NSWindow] = []
+            defer {
+                for host in hosts { host.detach() }
+                for companion in companions { companion.parent?.removeChildWindow(companion); companion.close() }
+                for (window, state) in zip(windows, states) {
+                    window.delegate = nil; window.contentView = nil; window.close(); state.windowClosed()
+                }
+                withExtendedLifetime(delegates) {}
+            }
+            for index in windows.indices {
+                for window in windows { window.receivesPointer = false }
+                windows[index].receivesPointer = true
+                group.selectedWindow = windows[index]
+                hosts[index].updateChrome()
+                let accessory = try XCTUnwrap(windows[index].titlebarAccessoryViewControllers.compactMap { $0 as? ReaderNormalTabsAccessory }.first)
+                let companion = NSWindow(contentRect: CGRect(x: windows[index].frame.minX, y: windows[index].frame.maxY - 80, width: 700, height: 36),
+                    styleMask: .borderless, backing: .buffered, defer: false)
+                companion.isReleasedWhenClosed = false; companion.alphaValue = 0
+                windows[index].addChildWindow(companion, ordered: .above)
+                companions.append(companion)
+                let companionContent = try XCTUnwrap(companion.contentView)
+                accessory.tabsView.frame = CGRect(x: 0, y: 0, width: 700, height: 36)
+                companionContent.addSubview(accessory.tabsView)
+                companionContent.addSubview(try XCTUnwrap(windows[index].standardWindowButton(.closeButton)))
+                hosts[index].updateChrome(revealingNativeControls: false)
+                let layout = windows[index].contentLayoutRect
+                let stationary = CGPoint(x: 350, y: windows[index].frame.height - 150)
+                windows[index].pointer = stationary
+                NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: windows[index])
+                XCTAssertFalse(states[index].toolbarShown, "Activation samples the initial row before native layout moves it under the pointer")
+                XCTAssertTrue(accessory.tabsView.window === companion,
+                    "This notification case starts with its actual row installed in its own companion")
+                let initialScreenRect = companion.convertToScreen(accessory.tabsView.convert(accessory.tabsView.bounds, to: nil))
+                XCTAssertFalse(initialScreenRect.contains(windows[index].convertPoint(toScreen: stationary)))
+                let screenPoint = windows[index].convertPoint(toScreen: stationary)
+                companion.setFrameOrigin(CGPoint(x: windows[index].frame.minX, y: screenPoint.y - 18))
+                XCTAssertTrue(accessory.tabsView.window === companion)
+                let movedScreenRect = companion.convertToScreen(accessory.tabsView.convert(accessory.tabsView.bounds, to: nil))
+                XCTAssertTrue(movedScreenRect.contains(screenPoint), "The real installed row moved under the unchanged pointer")
+                NotificationCenter.default.post(name: event, object: windows[index])
+                XCTAssertTrue(states[index].toolbarShown, "Native geometry completion must resample a stationary pointer: \(event.rawValue)")
+                XCTAssertEqual(companionContent.alphaValue, 1, accuracy: 0.001)
+                XCTAssertTrue(accessory.tabsView.acceptsTabInput)
+                // ReaderNativeTitlebarInputTests covers committed caption hit tests.
+                // This synchronous boundary fixture checks the native host's
+                // input gate before SwiftUI commits the changed button graph.
+                XCTAssertEqual(windows[index].contentLayoutRect, layout, "Hit-area measurement must not add reading clearance")
+                windows[index].pointer = CGPoint(x: 350, y: 100)
+                NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: windows[index])
+                XCTAssertFalse(states[index].toolbarShown, "Moving into the reader dismisses the controls after geometry activation")
+            }
+        }
+    }
+
     func testSharedDetachedChromeKeepsSelectedTabOwnershipAcrossModeChanges() throws {
         _ = NSApplication.shared
         let states = (0..<2).map { index in

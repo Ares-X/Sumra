@@ -139,12 +139,17 @@ private struct ReaderFloatingLayout: Layout {
 /// Home is a separate launch surface, with a fixed header in its layout.
 @MainActor struct ReaderHomeHeader: View {
     @ObservedObject var state: ReaderState
-    private var visible: Bool { !state.windowFullscreen || state.toolbarHoverVisible }
+    private var visible: Bool { state.homeHeaderShown }
 
     var body: some View {
         HStack(spacing: 0) {
             ReaderFloatingWindowButtons().frame(width: 54, height: 20)
-            Spacer(minLength: 0)
+            if state.tabCount > 1 {
+                ReaderDocumentTabs(state: state)
+                    .padding(.leading, 12)
+            } else {
+                Spacer(minLength: 0)
+            }
         }
         .frame(height: 28).padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 8)
         .frame(maxWidth: .infinity)
@@ -266,7 +271,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
                                 .overlay {
                                     ReaderTabInteraction(tabWindow: window(tab.id), title: tab.title,
                                         selected: tab.id == state.window?.windowNumber,
-                                        interactive: state.toolbarShown,
+                                        interactive: state.hasDocument ? state.toolbarShown : state.homeHeaderShown,
                                         rightToLeft: layoutDirection == .rightToLeft)
                                         .padding(.trailing, 28)
                                 }

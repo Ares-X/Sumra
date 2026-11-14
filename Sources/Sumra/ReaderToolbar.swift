@@ -765,7 +765,18 @@ struct ReaderToolbarAppearance: ViewModifier {
                 // screen strip above the document window's visible frame.
                 upper = parent.convertPoint(fromScreen: NSPoint(x: parent.frame.midX, y: screen.frame.maxY)).y
             }
-            let overChrome = point.x >= 0 && point.x <= parent.frame.width && point.y >= bottom && point.y <= upper
+            let overDocumentTabs: Bool
+            if state.normalTabBarShown, let accessory = documentTabsAccessory, !accessory.isHidden,
+               let owner = accessory.tabsView.window {
+                // A newly selected tab starts with hover hidden. Its native
+                // fullscreen companion may place the custom row below the
+                // document's measured titlebar inset. Project the actual row
+                // through screen coordinates so that stationary click remains
+                // a reveal target even while this row's pixels are faded out.
+                let screenRect = owner.convertToScreen(accessory.tabsView.convert(accessory.tabsView.bounds, to: nil))
+                overDocumentTabs = parent.convertFromScreen(screenRect).contains(point)
+            } else { overDocumentTabs = false }
+            let overChrome = overDocumentTabs || (point.x >= 0 && point.x <= parent.frame.width && point.y >= bottom && point.y <= upper)
             let editing = state.toolbarHoverVisible && state.pageInputField?.currentEditor() != nil
             let shown = overChrome || editing || (menuTracking && state.toolbarHoverVisible)
             setHoverVisible(shown)
@@ -842,13 +853,21 @@ struct ReaderToolbarAppearance: ViewModifier {
                 }
                 return
             }
-            if notification.name == NSWindow.willCloseNotification { detach() }
-            // SwiftUI may install its NSToolbar after this background view attaches.
-            else if notification.name == NSWindow.didUpdateNotification || notification.name == NSWindow.didResizeNotification { updateChrome() }
-            else {
-                menuTracking = false
-                setHoverVisible(false, immediately: true); updateChrome()
+            if notification.name == NSWindow.willCloseNotification { detach(); return }
+            guard let parent else { return }
+            let layoutUpdate = notification.name == NSWindow.didUpdateNotification || notification.name == NSWindow.didResizeNotification
+            if !layoutUpdate { menuTracking = false }
+            // The fullscreen companion can finish moving a newly selected
+            // caption row after activation sampled the pointer. Native layout
+            // completion, including fullscreen transitions, must sample the
+            // actual row again even if the pointer has remained stationary.
+            if let selected = parent.tabGroup?.selectedWindow, selected !== parent {
+                updateChrome()
+                return
             }
+            if readerHasKeyFocus { pointerMoved(to: parent.mouseLocationOutsideOfEventStream) }
+            else if !layoutUpdate { setHoverVisible(false, immediately: true) }
+            updateChrome()
         }
 
         func detach() {

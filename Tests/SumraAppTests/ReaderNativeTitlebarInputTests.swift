@@ -12,7 +12,9 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
         var dispatchedEvents: [NSEvent] = []
         var key = true
         var activations = 0
+        var pointerLocation: NSPoint?
         override var isKeyWindow: Bool { key }
+        override var mouseLocationOutsideOfEventStream: NSPoint { pointerLocation ?? super.mouseLocationOutsideOfEventStream }
         override func makeKeyAndOrderFront(_ sender: Any?) { key = true; activations += 1 }
         override func performDrag(with event: NSEvent) { dragEvents.append(event) }
         // Stop at the native dispatch boundary without starting Window Server tracking.
@@ -419,6 +421,9 @@ final class ReaderNativeTitlebarInputTests: XCTestCase {
         var blankPoint = NSPoint.zero
         for mode in [ReaderToolbarDisplayMode.shown, .auto] {
             state.toolbarDisplayMode = mode
+            // Native layout completion now samples the stationary pointer.
+            // Keep this synthetic reveal independent of the physical desktop.
+            window.pointerLocation = NSPoint(x: 500, y: window.frame.height - 10)
             state.toolbarHoverVisible = true; state.toolbarHoverOpacity = 1
             observer.updateChrome()
             root.layoutSubtreeIfNeeded()
