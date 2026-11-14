@@ -799,3 +799,6 @@
 "Read Images as Pages" = "Читати зображення як сторінки";
 
 "No supported images found in this folder. Supported image types: %@" = "У цій папці немає підтримуваних зображень. Підтримувані типи зображень: %@";
+
+"Show Tab Bar" = "Показати панель вкладок";
+"Hide Tab Bar" = "Сховати панель вкладок";

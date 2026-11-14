@@ -806,3 +806,6 @@
 "Read Images as Pages" = "ছবিগুলি পৃষ্ঠা হিসেবে পড়ুন";
 
 "No supported images found in this folder. Supported image types: %@" = "এই ফোল্ডারে কোনো সমর্থিত ছবি পাওয়া যায়নি। সমর্থিত ছবির ধরন: %@";
+
+"Show Tab Bar" = "ট্যাব বার দেখান";
+"Hide Tab Bar" = "ট্যাব বার লুকান";

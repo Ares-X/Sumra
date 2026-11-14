@@ -228,7 +228,7 @@ final class SavedTabGroupBehaviorTests: XCTestCase {
         XCTAssertFalse(state.busy)
     }
 
-    func testNativeShowTabBarMenuIsDisabledForFloatingChromeAndEnabledForNormalChrome() throws {
+    func testRoutedTabBarMenuIsDisabledForFloatingChromeAndTogglesNormalCaptions() throws {
         let fixture = try Fixture()
         defer { fixture.close() }
         let menu = NSMenu()
@@ -239,9 +239,19 @@ final class SavedTabGroupBehaviorTests: XCTestCase {
         application.routeNativeTabMenu(menu, for: fixture.window)
         XCTAssertTrue(item.target === fixture.closeGuard)
         XCTAssertFalse(item.isEnabled)
+        XCTAssertEqual(item.title, L("Show Tab Bar"))
         fixture.state.immersiveControls = false
         menu.update()
         XCTAssertTrue(item.isEnabled)
+        fixture.closeGuard.toggleTabBar(nil)
+        application.routeNativeTabMenu(menu, for: fixture.window)
+        XCTAssertTrue(fixture.state.normalTabBarShown)
+        XCTAssertEqual(item.title, L("Hide Tab Bar"))
+        XCTAssertTrue(item.isEnabled)
+        fixture.closeGuard.toggleTabBar(nil)
+        application.routeNativeTabMenu(menu, for: fixture.window)
+        XCTAssertFalse(fixture.state.normalTabBarShown)
+        XCTAssertEqual(item.title, L("Show Tab Bar"))
     }
 
     func testNativeTabActionTargetsDocumentFirstResponderBeforeExistingWindowControllerAndRestoresChain() throws {

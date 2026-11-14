@@ -855,3 +855,6 @@
 "Read Images as Pages" = "將圖片作為頁面閱讀";
 
 "No supported images found in this folder. Supported image types: %@" = "此資料夾中沒有支援的圖片。支援的圖片類型：%@";
+
+"Show Tab Bar" = "顯示標籤列";
+"Hide Tab Bar" = "隱藏標籤列";

@@ -806,3 +806,6 @@
 "Read Images as Pages" = "קריאת תמונות כעמודים";
 
 "No supported images found in this folder. Supported image types: %@" = "לא נמצאו תמונות נתמכות בתיקייה זו. סוגי תמונות נתמכים: %@";
+
+"Show Tab Bar" = "הצגת סרגל הכרטיסיות";
+"Hide Tab Bar" = "הסתרת סרגל הכרטיסיות";

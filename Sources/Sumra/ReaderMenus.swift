@@ -748,6 +748,10 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
             else if self == .coverOnItsOwn { state.cover.toggle() }
             else { state.rtl.toggle() }
             if state.isText || state.isBrowser { state.send(.style) }
+            else if case .pages(let pages)? = state.document?.content, pages.isImageCollection,
+                    state.spread, state.landscapeAsSpread {
+                state.send(.preservePosition(state.currentPosition))
+            }
         case .bookmark: state.bookmark()
         case .rotateLeft: state.rotate(-90)
         case .rotateRight: state.rotate(90)

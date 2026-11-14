@@ -806,3 +806,6 @@
 "Read Images as Pages" = "อ่านรูปภาพเป็นหน้า";
 
 "No supported images found in this folder. Supported image types: %@" = "ไม่พบรูปภาพที่รองรับในโฟลเดอร์นี้ ประเภทรูปภาพที่รองรับ: %@";
+
+"Show Tab Bar" = "แสดงแถบแท็บ";
+"Hide Tab Bar" = "ซ่อนแถบแท็บ";

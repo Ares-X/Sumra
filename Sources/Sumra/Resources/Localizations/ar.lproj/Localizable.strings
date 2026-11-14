@@ -806,3 +806,6 @@
 "Read Images as Pages" = "قراءة الصور كصفحات";
 
 "No supported images found in this folder. Supported image types: %@" = "لم يتم العثور على صور مدعومة في هذا المجلد. أنواع الصور المدعومة: %@";
+
+"Show Tab Bar" = "إظهار شريط علامات التبويب";
+"Hide Tab Bar" = "إخفاء شريط علامات التبويب";

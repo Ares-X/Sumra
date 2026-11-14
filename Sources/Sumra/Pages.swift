@@ -230,6 +230,7 @@ fileprivate final class RasterDocument {
     private(set) var pageBounds = [PageLocation: CGRect]() {
         didSet { cachedEstimatedBounds = nil }
     }
+    private(set) var imageBoundsFailures = [PageLocation: ReadError]()
     private var contentBoxes = [PageLocation: CGRect]()
     private var cachedEstimatedBounds: CGRect?
 
@@ -561,10 +562,16 @@ fileprivate final class RasterDocument {
         cache.append((location, width, transparent, pdfStyle, image))
         while cache.count > 1 && cache.reduce(0, { $0 + $1.image.bytesPerRow * $1.image.height }) > 64*1024*1024 { cache.removeFirst() }
     }
-    func bounds(_ page: Int) throws -> CGRect {
+    func bounds(_ page: Int, completeImageData: Bool = false) throws -> CGRect {
         let location = try native?.location(page) ?? PageLocation(page: page)
         if let value = pageBounds[location] { return value }
+        if let error = imageBoundsFailures[location] { throw error }
         guard (0..<count).contains(page) else { throw ReadError("Page out of range") }
+        func retain(_ bounds: CGRect) throws -> CGRect {
+            guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { throw ReadError("Invalid page dimensions") }
+            pageBounds[location] = bounds
+            return bounds
+        }
         let bounds: CGRect
         if let native, let size = try native.bounds(page) { bounds = size }
         else if let source, let size = Self.imageBounds(source, index: page) { bounds = size }
@@ -572,23 +579,29 @@ fileprivate final class RasterDocument {
             // Sumatra EngineCbx::LoadMediabox reads 1 KiB before the whole image.
             // ImageIO owns header parsing; incomplete orientation metadata must
             // fall back to the full image instead of caching unrotated bounds.
-            let header = try data(page, prefixBytes: 1024)
-            let source = CGImageSourceCreateIncremental(nil), complete = header.count < 1024
+            let header = try data(page, prefixBytes: completeImageData ? nil : 1024)
+            let source = CGImageSourceCreateIncremental(nil), complete = completeImageData || header.count < 1024
             CGImageSourceUpdateData(source, header as CFData, complete)
             if let value = Self.imageBounds(source, index: 0, requireOrientation: !complete) {
-                pageBounds[location] = value
-                return value
+                return try retain(value)
             }
-            let data = try data(page)
-            if let engine = Format.imageEngine(names[page], prefix: data.prefix(32)).flatMap(NativeEngine.init(rawValue:)),
-               let value = try withComicNative(page, data: data, engine: engine, { try $0.bounds(0) }) { bounds = value }
-            else if let source = CGImageSourceCreateWithData(data as CFData, nil), let value = Self.imageBounds(source, index: 0) { bounds = value }
-            else if let value = try withComicNative(page, data: data, engine: .mupdf, { try $0.bounds(0) }) { bounds = value }
-            else { throw ReadError("Cannot read page dimensions") }
+            let data = complete ? header : try data(page)
+            // Reading an archive entry is outside this boundary. Only a
+            // successfully read image whose dimensions cannot be decoded is
+            // retained as an unreadable page, with its original error.
+            do {
+                if let engine = Format.imageEngine(names[page], prefix: data.prefix(32)).flatMap(NativeEngine.init(rawValue:)),
+                   let value = try withComicNative(page, data: data, engine: engine, { try $0.bounds(0) }) { bounds = value }
+                else if let source = CGImageSourceCreateWithData(data as CFData, nil), let value = Self.imageBounds(source, index: 0) { bounds = value }
+                else if let value = try withComicNative(page, data: data, engine: .mupdf, { try $0.bounds(0) }) { bounds = value }
+                else { throw ReadError("Cannot read page dimensions") }
+                return try retain(bounds)
+            } catch let error as ReadError {
+                imageBoundsFailures[location] = error
+                throw error
+            }
         } else { throw ReadError("Cannot read page dimensions") }
-        guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { throw ReadError("Invalid page dimensions") }
-        pageBounds[location] = bounds
-        return bounds
+        return try retain(bounds)
     }
     func contentBounds(_ page: Int, cancellation: NativeRenderCancellation? = nil) throws -> CGRect {
         try Task.checkCancellation()
@@ -1337,20 +1350,46 @@ actor Pages {
         let rtl = direction.map { $0 == "rtl" }
         return ReadingPosition(spread: rtl == true, rtl: rtl, cover: rtl == true)
     }
-    func landscapePages(rotation: Int) throws -> Set<Int> {
+    func wholeSpreadPages(rotation: Int, complete: Bool = false) throws -> Set<Int> {
         guard document.isImageCollection else { return [] }
-        var result = Set<Int>()
+        // Exact facing-page groups depend on every preceding landscape. Read
+        // their headers once, in archive order, before publishing that layout.
+        // A descending scan would repeatedly rewind a solid archive stream.
+        if complete, document.pageBounds.count + document.imageBoundsFailures.count < document.count {
+            var pages = Array(0..<document.count)
+            if let archive = document.archive {
+                let order = Dictionary(archive.entries.enumerated().map { ($0.element, $0.offset) },
+                    uniquingKeysWith: { first, _ in first })
+                pages.sort { order[document.names[$0]]! < order[document.names[$1]]! }
+            }
+            for page in pages {
+                try Task.checkCancellation()
+                // Full metadata indexing consumes each encoded entry once.
+                // A prefix lacking orientation would otherwise reopen the
+                // same archive entry for its complete metadata. No bitmap is
+                // created when ImageIO reads these dimensions/properties.
+                do { _ = try document.bounds(page, completeImageData: true) }
+                catch {
+                    guard document.imageBoundsFailures[PageLocation(page: page)] != nil else { throw error }
+                }
+            }
+        }
+        // An unreadable image has no orientation to classify. Its explicit
+        // error row also separates the valid facing pairs on either side.
+        var result = Set(document.imageBoundsFailures.keys.map(\.page))
         for (index, bounds) in document.pageBounds {
             try Task.checkCancellation()
             if rotation % 180 == 0 ? bounds.width > bounds.height : bounds.height > bounds.width { result.insert(index.page) }
         }
         return result
     }
-    func seedImageBounds(page: Int, uniform: Bool) throws {
+    func seedImageBounds(page: Int, uniform: Bool, rotation: Int? = nil) throws {
         guard document.isImageCollection else { return }
+        if let rotation {
+            _ = try wholeSpreadPages(rotation: rotation, complete: true)
+            return
+        }
         if uniform { _ = try document.bounds(0) }
-        // Include the preceding page so a restored facing row cannot pair a
-        // portrait with a newly discovered landscape page.
         for index in max(0, page - 1)..<min(document.count, page + 4) {
             try Task.checkCancellation()
             _ = try document.bounds(index)
@@ -1417,20 +1456,20 @@ actor Pages {
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
-                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false) async throws -> RenderedPage {
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false, landscapeAsSpread: Bool = false) async throws -> RenderedPage {
         try await renderQueue.perform(priority: .init(visible: !preheating)) {
             try await self.renderPage(location, viewport: viewport, scale: scale, columns: columns, rotation: rotation,
                 fit: fit, zoom: zoom, maximumZoom: maximumZoom, trim: trim, showContent: showContent,
                 uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto,
                 maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl,
-                viewportOnly: viewportOnly, preheating: preheating)
+                viewportOnly: viewportOnly, preheating: preheating, landscapeAsSpread: landscapeAsSpread)
         }
     }
     private func renderPage(_ location: PageLocation, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
-                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false) async throws -> RenderedPage {
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false, landscapeAsSpread: Bool = false) async throws -> RenderedPage {
         try Task.checkCancellation()
         // This location request belongs to a mounted reader surface. Native
         // reflow can finish before that surface is replaced, leaving its
@@ -1441,29 +1480,29 @@ actor Pages {
             throw CancellationError()
         }
         // The reference chapter must be prepared before projecting this request.
-        if uniform { _ = try document.bounds(0) }
+        if uniform, !document.isImageCollection { _ = try document.bounds(0) }
         return try await renderPage(index(location), viewport: viewport, scale: scale, columns: columns, rotation: rotation,
             fit: fit, zoom: zoom, maximumZoom: maximumZoom, trim: trim, showContent: showContent,
-            uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto, maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl, viewportOnly: viewportOnly, preheating: preheating)
+            uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto, maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl, viewportOnly: viewportOnly, preheating: preheating, landscapeAsSpread: landscapeAsSpread)
     }
     nonisolated func render(_ page: Int, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
-                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false) async throws -> RenderedPage {
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false, landscapeAsSpread: Bool = false) async throws -> RenderedPage {
         try await renderQueue.perform(priority: .init(visible: !preheating)) {
             try await self.renderPage(page, viewport: viewport, scale: scale, columns: columns, rotation: rotation,
                 fit: fit, zoom: zoom, maximumZoom: maximumZoom, trim: trim, showContent: showContent,
                 uniform: uniform, transparent: transparent, pdfStyle: pdfStyle, engineeringAuto: engineeringAuto,
                 maximumTileSize: maximumTileSize, facingPage: facingPage, displaySize: displaySize, rtl: rtl,
-                viewportOnly: viewportOnly, preheating: preheating)
+                viewportOnly: viewportOnly, preheating: preheating, landscapeAsSpread: landscapeAsSpread)
         }
     }
     private func renderPage(_ page: Int, viewport: CGSize, scale: CGFloat, columns: Int, rotation: Int,
                 fit: String, zoom: Double, maximumZoom: Double = ReadingZoom.maximum,
                 trim: Bool = false, showContent: Bool = false, uniform: Bool = false,
                 transparent: Bool = false, pdfStyle: PDFColors.Style? = nil, engineeringAuto: Bool = false,
-                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false) async throws -> RenderedPage {
+                maximumTileSize: CGSize? = nil, facingPage: Int? = nil, displaySize: CGSize? = nil, rtl: Bool = false, viewportOnly: Bool = false, preheating: Bool = false, landscapeAsSpread: Bool = false) async throws -> RenderedPage {
         let started = DispatchTime.now().uptimeNanoseconds
         NativeReadingPerformance.mark("render-actor-entry", pages: self, revision: layoutRevision, page: page,
                                       size: viewport, flags: viewportOnly ? 8 : 0)
@@ -1475,6 +1514,7 @@ actor Pages {
             ? try renderCancellation(page) : nil
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
+            if landscapeAsSpread, !preheating { _ = try wholeSpreadPages(rotation: rotation, complete: true) }
             // Keep a solid archive's current entry alive from header measurement
             // through decoding. No other page can interleave an actor call here.
             // Read the uniform-width reference first, before opening this entry.
@@ -1513,7 +1553,7 @@ actor Pages {
                 image = try await self.image(request, cancellation: cancellation, priority: .init(visible: !preheating))
             }
             return (measured, content, referenceWidth, facing, display, image, pixelWidth, tileResolution, preheating || isPDF ? [] : try links(page), document.isImageCollection,
-                    preheating ? [] : try landscapePages(rotation: rotation), limit,
+                    preheating ? [] : try wholeSpreadPages(rotation: rotation), limit,
                     document.isImageCollection && !preheating ? document.estimatedBounds : measured, style)
         } onCancel: { cancellation?.cancel() }
     }
@@ -2805,6 +2845,11 @@ private struct ReaderKeyboardFocus: ViewModifier {
             do {
                 let layout = try await pages.preferredLayout()
                 guard !Task.isCancelled, documentID == state.document?.id, state.automaticLayout else { return }
+                if pages.isImageCollection, layout.spread ?? state.spread, state.landscapeAsSpread {
+                    let landscape = try await pages.wholeSpreadPages(rotation: state.rotation, complete: true)
+                    guard !Task.isCancelled, documentID == state.document?.id, state.automaticLayout else { return }
+                    state.landscapePages = landscape
+                }
                 try await state.applyPreferredLayout(layout)
             } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
         }
@@ -3562,6 +3607,12 @@ private struct ReaderKeyboardFocus: ViewModifier {
                 do {
                     await selections.finish()
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
+                    if pages.isImageCollection {
+                        let landscape = try await pages.wholeSpreadPages(rotation: state.rotation,
+                            complete: state.spread && state.landscapeAsSpread && !state.presentation)
+                        guard !Task.isCancelled, documentID == state.document?.id else { return }
+                        state.landscapePages = landscape
+                    }
                     let selectedSource = preserveSelection ? selections.sourceRange : nil
                     if renderedLayoutRevision == nil { renderedLayoutRevision = await pages.layoutRevision }
                     let before = layoutPosition.nativePassage == nil ? await pages.layoutPosition : layoutPosition
@@ -3788,7 +3839,8 @@ private struct ReaderKeyboardFocus: ViewModifier {
                     }
                     let updatedRevision = await pages.layoutRevision
                     let zoomLimit = try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
-                    let landscape = try await pages.landscapePages(rotation: state.rotation)
+                    let landscape = try await pages.wholeSpreadPages(rotation: state.rotation,
+                        complete: state.spread && state.landscapeAsSpread && !state.presentation)
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
                     let table = await pages.chapterLayout
                     guard !Task.isCancelled, documentID == state.document?.id else { return }
@@ -3797,10 +3849,10 @@ private struct ReaderKeyboardFocus: ViewModifier {
                         state.clearChapterContentsPages()
                         state.renderRevision += 1
                     }
+                    state.landscapePages = landscape
                     if pages.isPDF { state.apply(restored); state.persist() }
                     else { state.updatePosition(restored) }
                     replaceScrollRequest(.init(state.currentPosition))
-                    state.landscapePages = landscape
                     state.zoomLimit = zoomLimit
                     if state.fit == "custom" { state.zoom = ReadingZoom.clamp(state.zoom, limit: zoomLimit) }
                 } catch { if !Task.isCancelled, documentID == state.document?.id { state.error = error.localizedDescription } }
@@ -4935,7 +4987,7 @@ private struct WindowScale: NSViewRepresentable {
     }
     private var renderViewport: CGSize { frozenRenderViewport ?? viewport }
     var renderID: String {
-        "\(renderViewport):\(scale):\(columns):\(String(describing: facingPage)):\(String(describing: displaySize)):\(String(describing: finiteGeometry)):\(state.rotation):\(state.rtl):\(state.fit):\(state.fit == "custom" ? state.rasterZoom : 1):\(state.configuredZoomMaximum):\(state.trimEmptyMargins):\(state.showFitContentArea):\(state.uniformPageWidth):\(state.showTransparencyGrid):\(String(describing: pdfStyle)):\(state.engineeringEnhance):\(state.renderRevision):\(continuousReflow)"
+        "\(renderViewport):\(scale):\(columns):\(String(describing: facingPage)):\(String(describing: displaySize)):\(String(describing: finiteGeometry)):\(state.rotation):\(state.rtl):\(state.landscapeAsSpread):\(state.fit):\(state.fit == "custom" ? state.rasterZoom : 1):\(state.configuredZoomMaximum):\(state.trimEmptyMargins):\(state.showFitContentArea):\(state.uniformPageWidth):\(state.showTransparencyGrid):\(String(describing: pdfStyle)):\(state.engineeringEnhance):\(state.renderRevision):\(continuousReflow)"
     }
     func renderResult(_ prediction: FinitePrediction? = nil, preheating: Bool = false) async throws -> Pages.RenderedPage {
         return try await pages.render(prediction?.target ?? location, viewport: renderViewport, scale: scale, columns: prediction?.columns ?? columns,
@@ -4943,7 +4995,7 @@ private struct WindowScale: NSViewRepresentable {
                         trim: state.trimEmptyMargins && !continuousReflow, showContent: state.showFitContentArea,
                         uniform: state.uniformPageWidth && !continuousReflow, transparent: state.showTransparencyGrid,
                         pdfStyle: pdfStyle, engineeringAuto: state.engineeringEnhance == "auto",
-                        maximumTileSize: NSScreen.main.map { CGSize(width: $0.frame.width * scale, height: $0.frame.height * scale) }, facingPage: prediction?.facingPage ?? facingPage, displaySize: prediction == nil ? displaySize ?? finiteDisplaySize : nil, rtl: state.rtl, viewportOnly: continuousReflow, preheating: preheating)
+                        maximumTileSize: NSScreen.main.map { CGSize(width: $0.frame.width * scale, height: $0.frame.height * scale) }, facingPage: prediction?.facingPage ?? facingPage, displaySize: prediction == nil ? displaySize ?? finiteDisplaySize : nil, rtl: state.rtl, viewportOnly: continuousReflow, preheating: preheating, landscapeAsSpread: state.spread && state.landscapeAsSpread && !state.presentation)
     }
     private func finishFailedNavigation() {
         guard failedRenderID == renderID, let pending = scrollRequest, pending.commandRevision != nil,
@@ -5001,10 +5053,13 @@ private struct WindowScale: NSViewRepresentable {
                     guard !Task.isCancelled, documentID == state.document?.id, request == renderID else { return }
                     NativeReadingPerformance.mark("render-publish", pages: pages, revision: state.renderRevision, page: index)
                     if result.imageCollection {
-                        // Concurrent visible-page measurements can finish in a
-                        // different order; an older snapshot must not remove a
-                        // landscape page already discovered at this rotation.
-                        if !result.landscape.isSubset(of: state.landscapePages) { state.landscapePages.formUnion(result.landscape) }
+                        if state.spread && state.landscapeAsSpread && !state.presentation {
+                            // This is the complete topology for this render's
+                            // rotation, including pages that stopped being wide.
+                            if state.landscapePages != result.landscape { state.landscapePages = result.landscape }
+                        } else if !result.landscape.isSubset(of: state.landscapePages) {
+                            state.landscapePages.formUnion(result.landscape)
+                        }
                         updateEstimate(result.estimate)
                     }
                     if state.zoomLimit != result.limit {

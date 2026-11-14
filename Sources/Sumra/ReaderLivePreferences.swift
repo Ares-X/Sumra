@@ -90,6 +90,11 @@ extension ReaderPreferences {
         if changed.contains("fit") { reader.setFit(reader.fit, notify: !style) }
         if changed.contains("contentsDepth") { reader.applyContentsDepth() }
         if style { reader.send(.style) }
+        else if !changed.isDisjoint(with: ["spread", "landscapeAsSpread"]),
+                case .pages(let pages)? = reader.document?.content, pages.isImageCollection,
+                reader.spread, reader.landscapeAsSpread {
+            reader.send(.preservePosition(reader.currentPosition))
+        }
         reader.persist()
     }
 

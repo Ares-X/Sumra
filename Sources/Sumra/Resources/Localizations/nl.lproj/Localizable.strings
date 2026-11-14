@@ -804,3 +804,6 @@
 "Read Images as Pages" = "Afbeeldingen als pagina’s lezen";
 
 "No supported images found in this folder. Supported image types: %@" = "Geen ondersteunde afbeeldingen gevonden in deze map. Ondersteunde afbeeldingstypen: %@";
+
+"Show Tab Bar" = "Toon tabbladbalk";
+"Hide Tab Bar" = "Verberg tabbladbalk";

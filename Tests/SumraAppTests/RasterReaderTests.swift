@@ -2186,7 +2186,7 @@ final class RasterReaderTests: XCTestCase {
         }
         let pages = try Pages(directory.url, format: .comic)
         try await pages.seedImageBounds(page: 0, uniform: false)
-        let normal = try await pages.landscapePages(rotation: 0), rotated = try await pages.landscapePages(rotation: 90)
+        let normal = try await pages.wholeSpreadPages(rotation: 0), rotated = try await pages.wholeSpreadPages(rotation: 90)
         XCTAssertEqual(normal, [1]); XCTAssertEqual(rotated, [0])
     }
     func testEPUBDirectionUsesTheExistingOPFMetadataOwner() async throws {

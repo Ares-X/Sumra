@@ -1054,3 +1054,6 @@
 "Read Images as Pages" = "将图片作为页面阅读";
 
 "No supported images found in this folder. Supported image types: %@" = "此文件夹中没有支持的图片。支持的图片类型：%@";
+
+"Show Tab Bar" = "显示标签栏";
+"Hide Tab Bar" = "隐藏标签栏";

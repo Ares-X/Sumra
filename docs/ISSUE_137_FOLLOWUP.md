@@ -1,5 +1,169 @@
 # Issue 137 and related reader follow-up
 
+## Adaptive tabs and resumed image spreads: 0.2.43 follow-up
+
+Status: implementation, focused checks and formal signed-package acceptance
+passed. Publication is pending. Evidence is retained under
+`build/issue137-followup-42`.
+
+The reporter supplied a stripped 144-page CBZ in
+[comment 6876142768](https://github.com/Ares-X/Sumra/issues/137#issuecomment-6876142768).
+Its SHA-256 is
+`e5ce9296ef316e9c850a2f73b24837377ebe31ed2bdc3dbb2ecdef9691008c06`.
+Landscape pages are 14, 21, 28, 89, 112 and 117. With Cover On Its Own,
+Two Page Spread and Landscape images occupy a whole spread, the correct
+backward sequence is 117, 115–116, 113–114, then 112 alone.
+
+The old resume path seeded dimensions only around the saved page. It missed
+preceding landscape boundaries, so backward pairing started from incomplete
+information. The existing macOS 26.6.2 guest reproduced 117 → 116 alone →
+114–115 using the reporter's actual file and actual Left-arrow input. That
+comparison used 0.2.42 source with duplicate-window diagnostic hooks and a
+15.5 SDK stamp; it is not the reporter's macOS 15 or original compiler.
+The local corrected bundle displayed 115–116 on the first backward turn,
+continued to 113–114 and 112 alone, and returned forward to 113–114. A RAR5
+stored repack with the same JPEG bytes and the extracted image folder both
+returned from restored 117 to 115–116. Closing and reopening CBR without reseeding
+retained 115–116. Stored RAR is not solid/compressed archive performance proof.
+
+The image owner now indexes dimensions once in physical archive order when
+this spread mode needs complete pairing. It reuses the same bounds for layout,
+turns, rotation and queued-position persistence. No full-page bitmaps are
+created by the dimension index. An image whose bytes cannot yield dimensions
+retains its original error and occupies a standalone error row; source-reading,
+password and cancellation failures still propagate. The tests use generated
+images with the reporter's exact topology, plus cold restoration, cover/RTL,
+queued turns, rotation and corrupt-page recovery. The attachment is not shipped.
+
+Normal and floating controls now share the app's adaptive caption view while
+`NSWindowTabGroup` remains the document-group owner. Normal captions live in an
+app-owned titlebar accessory. Interactive captions sit above overlapping
+full-size reading content; hiding or removal restores the original sibling
+order. Native caption accessories remain collapsed. The new tab-count observer
+waits for native restoration and completed manual placement before consulting
+the group. Failed drags consider the frontmost window before treating strip
+spacing as an accepted area.
+
+Local guest interaction confirmed three captions filling the normal bar,
+immediate two-caption reallocation after closing the middle tab without moving
+the pointer, drag reordering and separation into a second native window.
+These local bundles are main-reader comparisons; the final signed app requires
+its own acceptance.
+
+The next local interaction rejected the first candidate: fullscreen Auto Hide
+revealed correctly, but clicking the EPUB caption after the CBZ left an empty
+native toolbar backing. Candidate workflow 43589264100 was cancelled and its
+temporary signing cleanup completed. The diagnostic build reproduced the same
+failure. On activation, the selected reader had the correct key window and
+pointer at `(750, 648)`, but its caption was still at screen Y 664–692. Native
+layout later moved that row to Y 634–662, under the stationary pointer. The
+window's subsequent native notification applied the still-hidden state without sampling
+the pointer again. Both tabs had their own native companions; an earlier
+shared-parent event-route hypothesis was removed.
+
+The correction measures the allocated caption's actual screen bounds and samples
+the focused selected reader's pointer when native layout/fullscreen geometry
+finishes changing. It does not add document clearance or a timed retry. The
+regression moves a real owned caption row beneath a stationary pointer and
+exercises native update, resize and fullscreen completion notifications. It
+fails on the earlier source. The corrected local bundle retained the complete
+controls and captions after the same CBZ → EPUB click with no further pointer
+movement. Formal signed-package acceptance remains required.
+
+The shared caption migration also exposed an opening-state regression. A scene
+with a requested path is grouped before its first document finishes opening and
+can remain grouped after a missing-file failure. Neither the normal accessory
+nor floating document controls rendered while `document` was nil. The existing
+Home header now reuses the same captions for those multi-window groups, keeping
+their native selection and close actions available. Its native input targets
+follow the header's fullscreen reveal state. A solitary Home keeps its existing
+header. Mounted tests cover loading, an actual missing-file open, sibling
+selection, and fullscreen header reveal/hide.
+
+A further local check caught an application-termination failure after normal
+fullscreen Auto Hide mode changes and caption switches. The later crash dialog
+appeared over CBR, but the report identifies the previous fullscreen process
+81226. Its main-thread stack enters AttributeGraph from native fullscreen
+companion layout while AppKit removes a native tab during termination. Windowed
+two-tab Quit and a fresh Always Show fullscreen two-tab Quit completed cleanly.
+Workflow 43595213822 was cancelled, including successful signing-material cleanup;
+no draft release was created. The crash and rejected executable identity are
+retained. Later control replays did not reproduce every time, so this is not a
+deterministic GUI regression or a claim that all fullscreen crashes share a cause.
+
+The mounted toolbar owner is now retired before closed-state publication and,
+after all Quit approvals and session saving, before AppKit starts terminating.
+It removes its notifications, native observation and input monitor before native
+accessory removal can relayout the companion. A cancelled Quit preserves the
+same controllers. Closed Hosts stop observing/publishing tab counts. Two new
+close/termination tests pass on the correction and fail when those cleanup calls
+are rolled back. Existing native Host, input and session checks pass. The
+replacement local bundle (`66cdf1ec…`) completed fullscreen mode changes, caption
+switches, a page turn and actual Cmd+Q without a new crash report. Formal signed
+acceptance remains required.
+
+The #148 analysis supplies useful trace branches, not an established cause.
+Three fullscreen PDF Duplicate operations in the diagnostic guest selected the
+new tab in the same native group; later observations and Mission Control showed
+one reader Space and no extra black Space. No failed final ready guard was
+observed. Diagnostic tracing is not shipped and a non-reproduction on macOS 26
+does not resolve the macOS 15 report. Finder's editable diagnostic text field
+also failed to receive the tested keys while its mouse focus was visible;
+that narrows the observation but does not prove a platform defect or a fix.
+#137, #148 and #96 remain open. No reporter reply is part of this delivery.
+
+
+The final focused checks contain 162 passing cases and one legacy-platform skip.
+Receipts preserve each source snapshot and the earlier rejected candidates.
+
+### Accepted signed package
+
+Candidate workflow [43597202746](https://github.com/Ares-X/Sumra/actions/runs/43597202746)
+built product source `ed72cf9853ee4910642e77288f126c502bae98aa` as
+0.2.43 (45). The accepted `SHA256SUMS` digest is
+`826b50bb438757051481bba9376977bab5ed9517fdfdbbc4880ca9998a78371d`;
+the signed main executable digest is
+`87f7208b7246d02e4aedad5646c78f586704c36e73492086adbdca9d5dca898c`.
+All six asset checksums, 140 application files, five symlinks, file modes,
+641 tracked source files, deep strict signature and Sparkle Ed25519 signature
+passed verification. The guest's installed files and loaded executable path
+matched this same package, including after the real quit/reopen.
+
+Actual mouse, wheel and keyboard input in the existing macOS 26.6.2 guest
+confirmed these behaviors in the signed application:
+
+- Fullscreen normal controls reveal and hide without a click. Switching from
+  CBZ to EPUB with the pointer left over its caption retains the complete controls.
+  Switching Hidden to Auto with the pointer already at the top reveals them;
+  moving into the page hides them, without an empty backing bar.
+- The supplied CBZ follows 117 → 115–116 → 113–114 → 112 alone, then forward
+  to 113–114. A normal fullscreen Quit, followed by reopening without reseeding
+  the reading position, restores 117 and returns to 115–116. The same first
+  backward turn passes for the identical images in stored RAR5 and an image folder.
+  A genuine compressed CBR also opens and turns from its cover to pages 2–3.
+- The corrupt-page fixture reports its unreadable sixth image, then permits
+  reading pages 7–8. A grouped opening scene displays sibling captions before
+  its document is ready; missing-file behavior is covered by mounted tests.
+- Closing a middle caption immediately fills the remaining normal strip while
+  the pointer stays still. Physical caption drags reorder and detach a window;
+  the native Merge All Windows action reunites the group. Eight captions support
+  wheel scrolling and ordered keyboard switching with selected-caption reveal.
+- Floating captions grow from a compact centered two-caption strip to the
+  available width for eight captions. Native window-frame changes from 900 to
+  1060 points reflow the actual controls; a physical edge-resize gesture was not
+  established by the input tool. Floating wheel scrolling and pointer-only
+  Auto reveal/hide pass at the wider size.
+
+Both the fullscreen process and the later eight-caption floating process exited
+normally with status 0 after actual Cmd+Q, observed through public process-exit
+notifications. This replaces the rejected local candidate's intermittent
+termination failure with positive acceptance of these exact signed bytes.
+Raw screenshots, contact sheets, input receipts, installed-bundle inventories
+and exit receipts are retained in `build/issue137-followup-42/vm`.
+
+This acceptance does not cover the reporter's macOS 15 black Space, Finder
+preview arrow-key routing, physical trackpad inertia or fullscreen tab tear-off.
+Those boundaries remain unknown; #137, #148 and #96 stay open.
 
 ## Native fullscreen restoration: reproduced failures and correction
 

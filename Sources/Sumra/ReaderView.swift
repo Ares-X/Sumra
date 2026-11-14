@@ -652,9 +652,10 @@ struct ReaderView: View {
                         NativeReadingPerformance.mark("prepare-geometry-entry", pages: pages, persistent: true)
                         let count = await pages.count
                         let chapterLayout = await pages.chapterLayout
-                        try await pages.seedImageBounds(page: restored.page, uniform: state.uniformPageWidth)
+                        try await pages.seedImageBounds(page: restored.page, uniform: state.uniformPageWidth,
+                            rotation: state.spread && state.landscapeAsSpread && !state.presentation ? state.rotation : nil)
                         let zoomLimit = try await pages.zoomLimit(rotation: state.rotation, maximumZoom: state.configuredZoomMaximum, uniform: state.uniformPageWidth)
-                        let landscape = try await pages.landscapePages(rotation: state.rotation)
+                        let landscape = try await pages.wholeSpreadPages(rotation: state.rotation)
                         let pdfInfo = pages.isPDF ? try await pages.pdfInfo() : nil
                         NativeReadingPerformance.mark("prepare-geometry-return", pages: pages, started: geometryStarted, persistent: true)
                         let boundsStarted = DispatchTime.now().uptimeNanoseconds
