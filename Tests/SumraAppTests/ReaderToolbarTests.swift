@@ -3,6 +3,7 @@ import XCTest
 import AppKit
 import Combine
 import SwiftUI
+import PDFKit
 @testable import Sumra
 
 @MainActor
@@ -999,6 +1000,147 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertTrue(states[0].toolbarShown, "The entire shared tab row remains a reveal target after closing")
         XCTAssertEqual(survivor.contentView?.alphaValue, 1)
         XCTAssertEqual(survivor.contentLayoutRect, layout, "Revealing controls must preserve the surviving reading viewport")
+    }
+
+    func testWindowCloseRetiresOwnedTabsBeforeClosedStatePublishes() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/close-toolbar-order.txt"), content: .text("Book"))
+        state.immersiveControls = false; state.toolbarDisplayMode = .auto; state.tabBarShown = true
+        let window = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+        state.window = window
+        let host = ReaderToolbarWindow.Host()
+        host.state = state; host.reducedMotion = true
+        window.contentView?.addSubview(host)
+        host.updateChrome()
+        XCTAssertTrue(state.readerToolbarHost === host)
+        XCTAssertTrue(window.titlebarAccessoryViewControllers.contains { $0 is ReaderNormalTabsAccessory })
+        var sawClose = false
+        let subscription = state.$isWindowClosed.dropFirst().sink { closed in
+            guard closed else { return }
+            sawClose = true
+            XCTAssertNil(state.readerToolbarHost)
+            XCTAssertFalse(window.titlebarAccessoryViewControllers.contains { $0 is ReaderNormalTabsAccessory },
+                "The native hosting graph must be retired before closed-state invalidation reaches SwiftUI")
+            NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+            XCTAssertFalse(window.titlebarAccessoryViewControllers.contains { $0 is ReaderNormalTabsAccessory },
+                "Native teardown notifications cannot reinstall a detached owner's accessory")
+        }
+        defer { subscription.cancel(); host.detach(); window.contentView = nil; window.close(); state.windowClosed() }
+        state.windowClosed()
+        XCTAssertTrue(sawClose)
+        XCTAssertNil(state.document)
+    }
+
+    func testTerminationRetiresOwnedTabsOnlyAfterApprovalAndSessionSave() throws {
+        final class RetirementWindow: NSWindow {
+            var willRemoveAccessory: (() -> Void)?
+            override func removeTitlebarAccessoryViewController(at index: Int) {
+                willRemoveAccessory?()
+                super.removeTitlebarAccessoryViewController(at: index)
+            }
+        }
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        let previousSession = defaults.object(forKey: "session")
+        let previouslyTerminating = ReaderWindows.isTerminating
+        var isolated = arguments
+        isolated["restoreSession"] = true; isolated["disableHistory"] = false
+        defaults.setVolatileDomain(isolated, forName: UserDefaults.argumentDomain)
+        defer {
+            defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            if let previousSession { defaults.set(previousSession, forKey: "session") }
+            else { defaults.removeObject(forKey: "session") }
+            ReaderWindows.isTerminating = previouslyTerminating
+        }
+        let directory = try TemporaryDirectory()
+        let pdf = PDFDocument(), page = PDFPage()
+        page.setBounds(CGRect(x: 0, y: 0, width: 300, height: 400), for: .mediaBox)
+        pdf.insert(page, at: 0)
+        let bytes = try XCTUnwrap(pdf.dataRepresentation())
+        let states = try (0..<2).map { index in
+            let url = directory.url.appendingPathComponent("approved-quit-\(index).pdf")
+            try bytes.write(to: url)
+            let state = ReaderState(recordsHistory: true)
+            state.document = try ReadingDocument.open(url)
+            state.immersiveControls = false; state.toolbarDisplayMode = .auto; state.tabCount = 2
+            return state
+        }
+        let identifier = "Approved-Termination-" + UUID().uuidString
+        let windows = states.map { state in
+            let window = RetirementWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+            window.tabbingIdentifier = identifier; state.window = window
+            return window
+        }
+        let delegates = states.enumerated().map { index, state in
+            let delegate = ReaderCloseGuard(state: state, previous: nil)
+            windows[index].delegate = delegate
+            return delegate
+        }
+        windows[0].addTabbedWindow(windows[1], ordered: .above)
+        let group = try XCTUnwrap(windows[0].tabGroup)
+        let hosts = states.enumerated().map { index, state in
+            let host = ReaderToolbarWindow.Host()
+            host.state = state; host.reducedMotion = true
+            windows[index].contentView?.addSubview(host)
+            return host
+        }
+        defer {
+            for host in hosts { host.detach() }
+            for (window, state) in zip(windows, states) {
+                state.modified = false; window.willRemoveAccessory = nil; window.delegate = nil; window.contentView = nil; window.close(); state.windowClosed()
+            }
+            withExtendedLifetime(delegates) {}; withExtendedLifetime(directory) {}
+        }
+        var owned: [ReaderNormalTabsAccessory] = []
+        for index in windows.indices {
+            group.selectedWindow = windows[index]; hosts[index].updateChrome()
+            owned.append(try XCTUnwrap(windows[index].titlebarAccessoryViewControllers.compactMap { $0 as? ReaderNormalTabsAccessory }.first))
+        }
+        let application = ReaderApplicationDelegate()
+        states[0].modified = true
+        var answered = false
+        RunLoop.main.perform(inModes: [.modalPanel]) {
+            MainActor.assumeIsolated {
+                answered = true
+                NSApp.stopModal(withCode: .alertThirdButtonReturn)
+                let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [],
+                    timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!
+                NSApp.postEvent(event, atStart: true)
+            }
+        }
+        XCTAssertEqual(application.applicationShouldTerminate(NSApp), .terminateCancel)
+        XCTAssertTrue(answered)
+        for index in windows.indices {
+            XCTAssertTrue(states[index].readerToolbarHost === hosts[index])
+            XCTAssertTrue(windows[index].titlebarAccessoryViewControllers.contains { $0 === owned[index] },
+                "Cancelled Quit must preserve the mounted controls")
+        }
+        states[0].modified = false
+        let expectedPaths = states.compactMap { $0.document?.url.path }
+        var retiredAfterSave = 0
+        for window in windows {
+            window.willRemoveAccessory = {
+                let saved = ReaderWindows.saved("session").compactMap(\.path).filter { $0.hasPrefix(directory.url.path) }
+                XCTAssertEqual(saved, expectedPaths, "The session must already be saved when native accessory removal begins")
+                retiredAfterSave += 1
+            }
+        }
+        XCTAssertEqual(application.applicationShouldTerminate(NSApp), .terminateNow)
+        XCTAssertGreaterThanOrEqual(retiredAfterSave, windows.count)
+        let savedPaths = ReaderWindows.saved("session").compactMap(\.path).filter { $0.hasPrefix(directory.url.path) }
+        XCTAssertEqual(savedPaths, states.compactMap { $0.document?.url.path }, "Approval saves the original native tab order before accessory teardown")
+        for state in states { XCTAssertNil(state.readerToolbarHost); XCTAssertFalse(state.isWindowClosed); XCTAssertNotNil(state.document) }
+        for window in windows {
+            XCTAssertFalse(window.titlebarAccessoryViewControllers.contains { $0 is ReaderNormalTabsAccessory },
+                "Approved Quit retires hosted accessories before AppKit begins closing native windows")
+        }
+        XCTAssertEqual(group.windows, windows, "Preparing termination must not close or regroup document windows")
     }
 
     func testNativeGeometryCompletionRevealsMovedCaptionUnderStationaryPointer() throws {

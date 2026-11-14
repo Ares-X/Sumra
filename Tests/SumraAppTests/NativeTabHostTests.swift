@@ -137,6 +137,13 @@ final class NativeTabHostTests: XCTestCase {
 
         second.window.performClose(nil)
         XCTAssertTrue(second.state.isWindowClosed, "Exercise the mounted HostView's native close notification")
+        let closedReads = second.window.tabGroupReadCount
+        var closedCounts: [Int] = []
+        let closedSubscription = second.state.$tabCount.dropFirst().sink { closedCounts.append($0) }
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: second.window)
+        XCTAssertEqual(second.window.tabGroupReadCount, closedReads, "A retained closed host must not request a native group during stack teardown")
+        XCTAssertTrue(closedCounts.isEmpty, "Native close updates must not republish a closed reader's count")
+        closedSubscription.cancel()
         for _ in 0..<5 {
             second.window.contentView?.layoutSubtreeIfNeeded()
             try await Task.sleep(nanoseconds: 10_000_000)

@@ -113,7 +113,12 @@ struct ReaderToolbarAppearance: ViewModifier {
         private static let hoverEntryDepth: CGFloat = 48
         private static let hoverRetentionDepth: CGFloat = 96
         private static let chromeOwners = NSMapTable<NSView, Host>.weakToWeakObjects()
-        weak var state: ReaderState?
+        weak var state: ReaderState? {
+            didSet {
+                if oldValue !== state, oldValue?.readerToolbarHost === self { oldValue?.readerToolbarHost = nil }
+                if parent != nil { state?.readerToolbarHost = self }
+            }
+        }
         var reducedMotion = ReaderMotion.reducedMotion
         var fullscreenMenuInset: Binding<CGFloat>?
         var nativeTopClearance: Binding<CGFloat>?
@@ -286,6 +291,7 @@ struct ReaderToolbarAppearance: ViewModifier {
             super.viewDidMoveToWindow()
             guard let window else { return }
             parent = window
+            state?.readerToolbarHost = self
             original = (window.styleMask.contains(.fullSizeContentView), window.titlebarAppearsTransparent,
                         window.titleVisibility, window.titlebarSeparatorStyle, window.backgroundColor,
                         window.acceptsMouseMovedEvents)
@@ -871,17 +877,19 @@ struct ReaderToolbarAppearance: ViewModifier {
         }
 
         func detach() {
-            let originalFrame = parent?.frame
-            removeDocumentTabs()
-            nativeDragView?.removeFromSuperview(); nativeDragView = nil
-            // Dismantling runs inside SwiftUI's view update. Cancel work here;
-            // focus/window notifications own observable visibility changes.
-            hoverDismiss?.cancel(); hoverDismiss = nil
-            trackToolbarCursor(in: nil)
-            menuTracking = false
-            observedDocumentID = nil; observedDisplayMode = nil
+            // Removing a fullscreen accessory can synchronously relayout its
+            // companion. Disarm callbacks before changing that native tree.
             NotificationCenter.default.removeObserver(self)
             toolbarObservation?.invalidate(); toolbarObservation = nil
+            if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil
+            if state?.readerToolbarHost === self { state?.readerToolbarHost = nil }
+            hoverDismiss?.cancel(); hoverDismiss = nil
+            nativeDragView?.removeFromSuperview(); nativeDragView = nil
+            trackToolbarCursor(in: nil)
+            menuTracking = false
+            let originalFrame = parent?.frame
+            removeDocumentTabs()
+            observedDocumentID = nil; observedDisplayMode = nil
             observedToolbar = nil; visibilityFrame = nil
             restoreToolbarWindow()
             for entry in titlebarViews where Self.chromeOwners.object(forKey: entry.view) === self {
@@ -894,7 +902,6 @@ struct ReaderToolbarAppearance: ViewModifier {
             }
             titlebarViews.removeAll(); nativeControlsContainer = nil
             accessoryOpacity = nil; accessoryContentOwner = nil
-            if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil
             if let tracking { parent?.contentView?.removeTrackingArea(tracking) }; tracking = nil
             if let parent, let original, let frame = originalFrame {
                 if let saved = permanentlyHiddenToolbar {

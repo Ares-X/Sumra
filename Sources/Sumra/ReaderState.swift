@@ -541,6 +541,7 @@ final class ReaderState: ObservableObject {
         }
     }
     weak var readerScrollbarClearance: ReaderScrollbarClearance.Host?
+    weak var readerToolbarHost: ReaderToolbarWindow.Host?
     weak var readerFocusView: NSView?
     weak var contentsFocusView: NSOutlineView?
     weak var contentsSearchField: NSSearchField?
@@ -2420,6 +2421,7 @@ extension ReaderState {
     }
 
     func windowClosed() {
+        readerToolbarHost?.detach()
         // A retained SwiftUI scene must stop rendering before document teardown
         // publishes nil; returning Home is a separate, still-open-window action.
         isWindowClosed = true

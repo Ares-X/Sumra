@@ -317,6 +317,8 @@ struct WindowTabs: NSViewRepresentable {
         }
 
         @objc private func closing(_ notification: Notification) {
+            placementComplete = false
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didUpdateNotification, object: window)
             if let state { ReaderWindows.rememberClosed(state) }
             state?.windowClosed()
         }
@@ -329,10 +331,10 @@ struct WindowTabs: NSViewRepresentable {
         @objc private func deactivated(_ notification: Notification) { state?.persist() }
 
         @objc private func tabsUpdated() {
-            guard placementComplete, !ReaderWindows.isRestoringNativeWindows, let window else { return }
+            guard placementComplete, let state, !state.isWindowClosed, !ReaderWindows.isRestoringNativeWindows, let window else { return }
             let windows = window.tabGroup?.windows ?? [window]
             for sibling in windows {
-                guard let state = (sibling.delegate as? ReaderCloseGuard)?.state else { continue }
+                guard let state = (sibling.delegate as? ReaderCloseGuard)?.state, !state.isWindowClosed else { continue }
                 if state.tabCount != windows.count { state.tabCount = windows.count }
             }
         }
@@ -827,6 +829,10 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
                 }
             }) else { completion(false); return }
             ReaderWindows.saveSession(current)
+            // Retire the hosted accessory graphs before AppKit starts native
+            // fullscreen stack teardown. Cancelled confirmation never reaches
+            // this point and retains the existing controls and editor focus.
+            for state in current { state.readerToolbarHost?.detach() }
             ReaderWindows.isTerminating = true
             completion(true)
         }

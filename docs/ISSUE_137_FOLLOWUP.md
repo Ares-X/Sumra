@@ -20,7 +20,11 @@ information. The existing macOS 26.6.2 guest reproduced 117 → 116 alone →
 114–115 using the reporter's actual file and actual Left-arrow input. That
 comparison used 0.2.42 source with duplicate-window diagnostic hooks and a
 15.5 SDK stamp; it is not the reporter's macOS 15 or original compiler.
-The local corrected bundle displayed 115–116 on the first backward turn.
+The local corrected bundle displayed 115–116 on the first backward turn,
+continued to 113–114 and 112 alone, and returned forward to 113–114. A RAR5
+stored repack with the same JPEG bytes and the extracted image folder both
+returned from restored 117 to 115–116. Closing and reopening CBR without reseeding
+retained 115–116. Stored RAR is not solid/compressed archive performance proof.
 
 The image owner now indexes dimensions once in physical archive order when
 this spread mode needs complete pairing. It reuses the same bounds for layout,
@@ -76,6 +80,28 @@ follow the header's fullscreen reveal state. A solitary Home keeps its existing
 header. Mounted tests cover loading, an actual missing-file open, sibling
 selection, and fullscreen header reveal/hide.
 
+A further local check caught an application-termination failure after normal
+fullscreen Auto Hide mode changes and caption switches. The later crash dialog
+appeared over CBR, but the report identifies the previous fullscreen process
+81226. Its main-thread stack enters AttributeGraph from native fullscreen
+companion layout while AppKit removes a native tab during termination. Windowed
+two-tab Quit and a fresh Always Show fullscreen two-tab Quit completed cleanly.
+Workflow 43595213822 was cancelled, including successful signing-material cleanup;
+no draft release was created. The crash and rejected executable identity are
+retained. Later control replays did not reproduce every time, so this is not a
+deterministic GUI regression or a claim that all fullscreen crashes share a cause.
+
+The mounted toolbar owner is now retired before closed-state publication and,
+after all Quit approvals and session saving, before AppKit starts terminating.
+It removes its notifications, native observation and input monitor before native
+accessory removal can relayout the companion. A cancelled Quit preserves the
+same controllers. Closed Hosts stop observing/publishing tab counts. Two new
+close/termination tests pass on the correction and fail when those cleanup calls
+are rolled back. Existing native Host, input and session checks pass. The
+replacement local bundle (`66cdf1ec…`) completed fullscreen mode changes, caption
+switches, a page turn and actual Cmd+Q without a new crash report. Formal signed
+acceptance remains required.
+
 The #148 analysis supplies useful trace branches, not an established cause.
 Three fullscreen PDF Duplicate operations in the diagnostic guest selected the
 new tab in the same native group; later observations and Mission Control showed
@@ -87,7 +113,7 @@ that narrows the observation but does not prove a platform defect or a fix.
 #137, #148 and #96 remain open. No reporter reply is part of this delivery.
 
 
-The final focused checks contain 157 passing cases and one legacy-platform skip.
+The final focused checks contain 162 passing cases and one legacy-platform skip.
 Receipts preserve each source snapshot and the earlier rejected candidates.
 
 ## Native fullscreen restoration: reproduced failures and correction
