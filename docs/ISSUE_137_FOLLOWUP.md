@@ -2,14 +2,18 @@
 
 ## Approved native close and restoration boundaries: 0.2.44 follow-up
 
-Status: the close and startup-restoration corrections pass local checks;
-replacement signed-package acceptance and final in-app update installation are
-pending. The earlier signed candidate from workflow
-[43631132729](https://github.com/Ares-X/Sumra/actions/runs/43631132729)
-is not accepted or published. Evidence is retained under
-`build/issue137-remaining44`. GUI comparisons use only the existing macOS 26.6.2
-VM, with a separate local app identity and 15.5 SDK stamp; they do not establish
-behavior on the reporter's macOS 15 or acceptance of the final signed bytes.
+Status: local checks and replacement signed-package acceptance passed. Public
+release and final in-app update installation remain pending. Workflow
+[43640098466](https://github.com/Ares-X/Sumra/actions/runs/43640098466)
+built source `9418f458477a4c3af404ed704c4f9b713fde4f59`. The accepted main
+executable SHA-256 is
+`39fb2276cef66f72af9d7b398146ede4926b151019a20ce31ca8343cf1825bd0`;
+the manifest SHA-256 is
+`d2539089d15a151275c0422c39a692141178d178f6b31899e8655d45c41bfc9a`.
+The earlier candidate from workflow 43631132729 was not accepted. Evidence is
+retained under `build/issue137-remaining44`, including
+`vm/signed-final-acceptance.json`. Signed GUI acceptance used the existing
+macOS 26.6.2 VM; it does not establish behavior on the reporter's macOS 15.
 
 The published 0.2.43 executable crashed when closing the middle EPUB of a
 normal Auto Hide fullscreen PDF / EPUB / PDF group. The crash enters
@@ -34,16 +38,26 @@ saved state; enabled restoration delegates directly to AppKit. The fresh-host
 regression checks three requests, each handled and completed exactly once with
 no state reads. The additional focused run passed 17 tests with no skips.
 
-Using the same retained archive, the corrected local app skipped both unwanted
-native requests and opened the external PDF in one healthy reader. Actual
-Settings input enabled Restore Session; GUI Quit exited normally and saved two
-documents, and relaunch restored the PDF and EPUB in the same two-tab group.
-The combined local app also passed fullscreen three-tab hover reveal/hide,
-closing the middle EPUB with Cmd+W, duplicating the first PDF at page 180 and
-closing that copy while both original PDF readers survived. Actual fullscreen
-Quit exited normally (status 0); relaunch restored the same two PDF tabs,
-fullscreen placement and page 180. Mission Control showed the Desktop and one
-occupied reader Space. These local checks do not replace signed-package acceptance.
+The signed app passed the original normal Auto Hide fullscreen PDF / EPUB /
+PDF sequence: closing the middle EPUB with Cmd+W left both PDF readers alive.
+Its first Duplicate, before any New Tab in that process, kept both PDFs at page
+180 in one fullscreen group. With Restore Session enabled through Settings and
+history/position recording permitted, actual fullscreen Quit exited with status
+zero; relaunch restored the PDF at page 180 and EPUB in the same fullscreen
+group. The restored process's first Duplicate also stayed in that group.
+Mission Control before launch showed only the Desktop; after both Duplicate
+checks it showed the Desktop and exactly one occupied reader Space. The first
+Restore Session attempt with history disabled correctly saved no session under
+the existing privacy rule; the restorable control temporarily permitted history
+and position recording.
+
+With Restore Session then disabled and all three saved native window records retained,
+`signed-off-native-funnel.log` records three skipped restoration requests and
+one external PDF opening in a healthy reader. The signed Quick Look extension
+was verified at its actual candidate path in process 87724, with SHA-256
+`8ba8c7dd3f54dd97411d829a39a37447c93fbf437db80a456cefb79463cd2e10`.
+Actual mouse buttons advanced from page 1 to 2; corrupt page 3 retained page 2
+and its 2/3 counter with an error, and Previous returned to page 1/3.
 
 The black-Space cause remains unknown. The first signed candidate showed a
 black Space with two readers on the Desktop after native restoration errors,
