@@ -2,8 +2,8 @@
 
 ## Approved native close and restoration boundaries: 0.2.44 follow-up
 
-Status: local checks and replacement signed-package acceptance passed. Public
-release and final in-app update installation remain pending. Workflow
+Status: local checks, replacement signed-package acceptance, public release and
+the actual 0.2.43 → 0.2.44 in-app update passed. Workflow
 [43640098466](https://github.com/Ares-X/Sumra/actions/runs/43640098466)
 built source `9418f458477a4c3af404ed704c4f9b713fde4f59`. The accepted main
 executable SHA-256 is
@@ -59,6 +59,18 @@ was verified at its actual candidate path in process 87724, with SHA-256
 Actual mouse buttons advanced from page 1 to 2; corrupt page 3 retained page 2
 and its 2/3 counter with an error, and Previous returned to page 1/3.
 
+Publication workflow
+[43642787355](https://github.com/Ares-X/Sumra/actions/runs/43642787355)
+promoted the accepted files without rebuilding. All six asset IDs, digests and
+sizes stayed unchanged; anonymous public downloads matched the candidate. The
+ordinary canonical feed URL returned the accepted 0.2.44 (46) appcast bytes and
+its pinned-key Ed25519 signature passed. The existing VM's published 0.2.43 app
+used Help → Check for Updates, downloaded the update, installed and relaunched
+`/Users/aresx/Applications/Sumra-Remaining44.app` as 0.2.44 (46), process 87828.
+Its main hash matched the accepted executable; all 140 files, five links,
+directory inventory and deep strict signature passed. No feed, TLS, product
+transport or runtime proxy changes were used for this upgrade.
+
 The black-Space cause remains unknown. The first signed candidate showed a
 black Space with two readers on the Desktop after native restoration errors,
 but there was no prelaunch Mission Control baseline establishing when that
@@ -72,6 +84,17 @@ field and a minimal native extension's text field/text view received no tested
 text. Finder's returned file-selection input is not editable-field evidence.
 There is no Quick Look product change or established platform-defect claim.
 Issues #137, #148 and #96 remain open; no reporter reply is part of this delivery.
+
+Cleanup restored all 23 original preference keys and values and the original
+runtime proxy dictionary. The installed 0.2.44 app is retained for subsequent VM
+acceptance; task fixtures, candidate copies, unused local builds, helper processes
+and the rejected remote draft were retired. The rejected signed package and
+small reproduction/acceptance evidence are retained locally for the remaining
+#148 investigation. An inactive, OS-managed
+`dev.aresx.sumra.issue137.remaining44.nativecontrol.preview` container is retained;
+its plugin and process were released, and its metadata could not be inspected
+safely with the available tool. The VM is back in its original suspended state
+and the task's wake assertion has exited. No additional VM was created.
 
 ## Adaptive tabs and resumed image spreads: 0.2.43 follow-up
 
