@@ -806,3 +806,6 @@
 "Read Images as Pages" = "Görüntüleri Sayfa Olarak Oku";
 
 "No supported images found in this folder. Supported image types: %@" = "Bu klasörde desteklenen görüntü bulunamadı. Desteklenen görüntü türleri: %@";
+
+"Show Tab Bar" = "Sekme Çubuğunu Göster";
+"Hide Tab Bar" = "Sekme Çubuğunu Gizle";

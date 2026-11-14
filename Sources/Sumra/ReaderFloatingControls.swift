@@ -167,6 +167,45 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
     }
 }
 
+/// Normal chrome uses the same document captions as floating controls while
+/// leaving NSToolbar and the system window buttons in AppKit's ownership.
+@MainActor struct ReaderNormalDocumentTabs: View {
+    @ObservedObject var state: ReaderState
+    static let height: CGFloat = 32
+
+    var body: some View {
+        ReaderDocumentTabs(state: state)
+            .padding(.horizontal, 8)
+            .frame(height: Self.height)
+            .background(Color(nsColor: ReaderTheme.color(state.palette.background)))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("reader-document-tabs")
+            .modifier(ReaderLanguage())
+    }
+}
+
+/// The normal strip belongs to AppKit's titlebar layout and input hierarchy.
+@MainActor final class ReaderNormalTabsAccessory: NSTitlebarAccessoryViewController {
+    final class HostingView: NSHostingView<ReaderNormalDocumentTabs> {
+        var acceptsTabInput = true
+        override var safeAreaInsets: NSEdgeInsets { NSEdgeInsets() }
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            acceptsTabInput ? super.hitTest(point) : nil
+        }
+    }
+    let tabsView: HostingView
+    init(state: ReaderState) {
+        tabsView = HostingView(rootView: ReaderNormalDocumentTabs(state: state))
+        super.init(nibName: nil, bundle: nil)
+        tabsView.sizingOptions = []
+        tabsView.frame = CGRect(x: 0, y: 0, width: 560, height: ReaderNormalDocumentTabs.height)
+        view = tabsView
+        layoutAttribute = .bottom
+        fullScreenMinHeight = ReaderNormalDocumentTabs.height
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
 /// The native document window group is the only tab model.
 @MainActor struct ReaderDocumentTabs: View {
     @ObservedObject var state: ReaderState
@@ -181,22 +220,12 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
     }
 
     var body: some View {
-        Group {
-            if tabs.count <= 1 {
-                HStack(spacing: 6) {
-                    if let color = tabs.first?.color {
-                        Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
-                    }
-                    documentTitle
-                    closeButton(state.window)
-                    command(.newTab, "plus")
-                }
-            } else { tabStrip }
-        }
+        tabStrip
         .frame(idealWidth: preferredWidth)
         .font(.system(size: 12)).buttonStyle(ReaderFloatingButtonStyle())
         .foregroundStyle(Color(nsColor: ReaderTheme.color(state.palette.text)))
         .onAppear(perform: updateTabs)
+        .onChange(of: state.tabCount) { _ in updateTabs() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didUpdateNotification)) { _ in updateTabs() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
             if notification.object as? NSWindow === state.window { selectionRevision += 1 }
@@ -211,52 +240,43 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
         return CGFloat(titles.count) * tabWidth + CGFloat(titles.count - 1) * 4 + 28
     }
 
-    private var documentTitle: some View {
-        Text(state.document?.url.lastPathComponent ?? "Sumra")
-            .font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            .help(state.document?.url.lastPathComponent ?? "Sumra")
-    }
-
     private var tabStrip: some View {
         HStack(spacing: 4) {
             GeometryReader { geometry in
-                let tabWidth = max(120, (geometry.size.width - CGFloat(tabs.count - 1) * 4) / CGFloat(tabs.count))
+                let tabWidth = Self.tabWidth(available: geometry.size.width, count: tabs.count)
                 let selectedIndex = tabs.firstIndex { $0.id == state.window?.windowNumber } ?? 0
                 let visualIndex = layoutDirection == .rightToLeft ? tabs.count - 1 - selectedIndex : selectedIndex
-                ReaderTabScrollView(contentWidth: CGFloat(tabs.count) * (tabWidth + 4) - 4,
+                ReaderTabScrollView(contentWidth: CGFloat(tabs.count) * tabWidth + CGFloat(max(0, tabs.count - 1)) * 4,
                                     selectedRange: CGRect(x: CGFloat(visualIndex) * (tabWidth + 4), y: 0, width: tabWidth, height: 28),
                                     selectionRevision: selectionRevision) {
                     HStack(spacing: 4) {
                         ForEach(tabs) { tab in
                             ZStack(alignment: .trailing) {
-                                Button { selectTab(tab.id) } label: {
-                                    HStack(spacing: 6) {
-                                        if let color = tab.color {
-                                            Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
-                                        }
-                                        Text(tab.title).lineLimit(1).truncationMode(.middle)
-                                            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                                HStack(spacing: 6) {
+                                    if let color = tab.color {
+                                        Circle().fill(Color(nsColor: color)).frame(width: 7, height: 7)
                                     }
-                                    .padding(.leading, 8)
-                                    .padding(.trailing, 38) // Leave space for the separate close target.
-                                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                                    .contentShape(Rectangle())
+                                    Text(tab.title).lineLimit(1).truncationMode(.middle)
+                                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .buttonStyle(.plain)
-                                .help(tab.title).accessibilityLabel(tab.title)
-                                .accessibilityValue(tab.id == state.window?.windowNumber ? L("Selected") : "")
+                                .padding(.leading, 8)
+                                .padding(.trailing, 38)
+                                .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                                .accessibilityHidden(true)
+                                .overlay {
+                                    ReaderTabInteraction(tabWindow: window(tab.id), title: tab.title,
+                                        selected: tab.id == state.window?.windowNumber,
+                                        interactive: state.toolbarShown,
+                                        rightToLeft: layoutDirection == .rightToLeft)
+                                        .padding(.trailing, 28)
+                                }
                                 closeButton(window(tab.id), title: tab.title)
                             }
                             .frame(width: tabWidth, height: 28)
                             .modifier(ReaderFloatingTabSurface(selected: tab.id == state.window?.windowNumber,
                                                                color: Color(nsColor: ReaderTheme.color(state.palette.text))))
                             .id(tab.id)
-                            .contextMenu {
-                                Button(L("Close Tab")) { if let tabWindow = window(tab.id) { ReaderWindows.close(tabWindow) } }
-                                Button(L("Move Tab to New Window")) { window(tab.id)?.moveTabToNewWindow(nil) }
-                            }
+
                         }
                     }
                     .font(.system(size: 12)).buttonStyle(ReaderFloatingButtonStyle())
@@ -265,6 +285,10 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
             }.frame(height: 28)
             command(.newTab, "plus")
         }
+    }
+
+    static func tabWidth(available: CGFloat, count: Int) -> CGFloat {
+        max(120, (available - CGFloat(max(0, count - 1)) * 4) / CGFloat(max(1, count)))
     }
 
     private func closeButton(_ window: NSWindow?, title: String? = nil) -> some View {
@@ -281,11 +305,6 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
         Button { command.run(state) } label: { Image(systemName: symbol).frame(width: 24, height: 24).contentShape(Rectangle()) }
             .disabled(!command.enabled(state)).help(command.title).accessibilityLabel(command.title)
     }
-    private func selectTab(_ number: Int) {
-        guard let window = window(number) else { return }
-        window.tabGroup?.selectedWindow = window
-        window.makeKeyAndOrderFront(nil)
-    }
     private func window(_ number: Int) -> NSWindow? {
         (state.window?.tabGroup?.windows ?? [state.window].compactMap { $0 }).first { $0.windowNumber == number }
     }
@@ -295,6 +314,191 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
                 color: ($0.tab.accessoryView?.layer?.backgroundColor).flatMap { NSColor(cgColor: $0) })
         }
         if current != tabs { tabs = current }
+    }
+}
+
+
+/// Input stays attached to the window represented by the caption, including
+/// after another tab becomes selected during a drag.
+@MainActor struct ReaderTabInteraction: NSViewRepresentable {
+    let tabWindow: NSWindow?
+    let title: String
+    let selected: Bool
+    let interactive: Bool
+    let rightToLeft: Bool
+
+    func makeNSView(context: Context) -> Target { Target() }
+    func updateNSView(_ view: Target, context: Context) {
+        view.tabWindow = tabWindow
+        view.title = title
+        view.rightToLeft = rightToLeft
+        view.isHidden = !interactive
+        view.setAccessibilityLabel(title)
+        view.setAccessibilityValue(selected ? 1 : 0)
+        view.toolTip = title
+    }
+
+    final class Target: NSView, NSDraggingSource {
+        static let pasteboardType = NSPasteboard.PasteboardType("app.sumra.document-tab")
+        private static let targets = NSHashTable<Target>.weakObjects()
+        weak var tabWindow: NSWindow?
+        var title = ""
+        var rightToLeft = false
+        private var pressedEvent: NSEvent?
+        private var dragging = false
+        private var insertionBefore: Bool? { didSet { needsDisplay = true } }
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            setAccessibilityElement(true)
+            setAccessibilityRole(.radioButton)
+            registerForDraggedTypes([Self.pasteboardType])
+            Self.targets.add(self)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override var acceptsFirstResponder: Bool { true }
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        func select() {
+            guard let tabWindow else { return }
+            tabWindow.tabGroup?.selectedWindow = tabWindow
+            tabWindow.makeKeyAndOrderFront(nil)
+        }
+        override func accessibilityPerformPress() -> Bool { select(); return tabWindow != nil }
+        override func keyDown(with event: NSEvent) {
+            if event.keyCode == 49 || event.keyCode == 36 { select() }
+            else { super.keyDown(with: event) }
+        }
+        override func mouseDown(with event: NSEvent) {
+            pressedEvent = event
+            select()
+        }
+        override func mouseUp(with event: NSEvent) { pressedEvent = nil }
+        override func mouseDragged(with event: NSEvent) {
+            guard !dragging, pressedEvent != nil, let tabWindow else { return }
+            pressedEvent = nil
+            dragging = true
+            let item = NSPasteboardItem()
+            item.setString(String(tabWindow.windowNumber), forType: Self.pasteboardType)
+            let draggingItem = NSDraggingItem(pasteboardWriter: item)
+            let image = NSImage(size: bounds.size)
+            image.lockFocus()
+            NSColor.windowBackgroundColor.setFill(); bounds.fill()
+            (title as NSString).draw(in: bounds.insetBy(dx: 8, dy: 5), withAttributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor])
+            image.unlockFocus()
+            draggingItem.setDraggingFrame(bounds, contents: image)
+            let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
+            session.animatesToStartingPositionsOnCancelOrFail = false
+        }
+        func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .move }
+        func ignoreModifierKeys(for session: NSDraggingSession) -> Bool { true }
+        func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+            dragging = false
+            // Escape cancels a drag while the mouse button is still down. A
+            // tear-off is committed only after the user releases that button.
+            finishDrag(at: screenPoint, operation: operation, cancelled: NSEvent.pressedMouseButtons & 1 != 0)
+        }
+        func finishDrag(at screenPoint: NSPoint, operation: NSDragOperation, cancelled: Bool) {
+            // A cancelled session is never a detach. Drops on the strip's plus
+            // button or spacing also leave the document in its current group.
+            guard operation.isEmpty, !cancelled else { return }
+            let windowNumber = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
+            if !Self.isOverStrip(at: screenPoint, inWindowNumber: windowNumber) {
+                tabWindow?.moveTabToNewWindow(nil)
+            }
+        }
+        static func isOverStrip(at screenPoint: NSPoint, inWindowNumber windowNumber: Int) -> Bool {
+            targets.allObjects.contains { target in
+                // A background strip cannot accept a drop through the window
+                // actually under the pointer, including another app's window.
+                guard let window = target.window, window.windowNumber == windowNumber,
+                      window.isVisible, !window.isMiniaturized, !target.isHiddenOrHasHiddenAncestor,
+                      let strip = target.enclosingScrollView else { return false }
+                let point = strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+                var bounds = strip.bounds
+                // The plus button is 24 points wide after the 4-point HStack gap.
+                if target.rightToLeft { bounds.origin.x -= 28 }
+                bounds.size.width += 28
+                return bounds.contains(point)
+            }
+        }
+        private func source(_ sender: NSDraggingInfo) -> NSWindow? {
+            guard let number = sender.draggingPasteboard.string(forType: Self.pasteboardType).flatMap(Int.init),
+                  let source = sender.draggingSource as? Target,
+                  source.tabWindow?.windowNumber == number else { return nil }
+            return source.tabWindow
+        }
+        private func dropBefore(_ sender: NSDraggingInfo) -> Bool {
+            let point = convert(sender.draggingLocation, from: nil)
+            return rightToLeft ? point.x > bounds.midX : point.x < bounds.midX
+        }
+        override func draw(_ dirtyRect: NSRect) {
+            guard let insertionBefore else { return }
+            NSColor.controlAccentColor.setFill()
+            let leading = insertionBefore != rightToLeft
+            NSRect(x: leading ? bounds.minX : bounds.maxX - 2, y: bounds.minY,
+                   width: 2, height: bounds.height).fill()
+        }
+        override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+            guard source(sender) != nil else { return [] }
+            insertionBefore = dropBefore(sender)
+            return .move
+        }
+        override func draggingExited(_ sender: NSDraggingInfo?) { insertionBefore = nil }
+        override func draggingEnded(_ sender: NSDraggingInfo) { insertionBefore = nil }
+        override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+            guard source(sender) != nil else { return [] }
+            if let event = NSApp.currentEvent { autoscroll(with: event) }
+            insertionBefore = dropBefore(sender)
+            return .move
+        }
+        override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { source(sender) != nil }
+        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            guard let source = source(sender), let destination = tabWindow else { return false }
+            let before = dropBefore(sender)
+            insertionBefore = nil
+            Self.move(source, relativeTo: destination, before: before)
+            return true
+        }
+
+        /// Reattach siblings around the selected source rather than removing
+        /// that source from its fullscreen group and creating a second Space.
+        static func move(_ source: NSWindow, relativeTo destination: NSWindow, before: Bool) {
+            guard source !== destination else { return }
+            if let group = source.tabGroup, destination.tabGroup === group {
+                let old = group.windows
+                let others = old.filter { $0 !== source }
+                guard let target = others.firstIndex(of: destination), let origin = old.firstIndex(of: source) else { return }
+                let index = target + (before ? 0 : 1)
+                guard index != origin else { return }
+                group.selectedWindow = source
+                if index > origin {
+                    for neighbor in old[(origin + 1)...index] {
+                        group.removeWindow(neighbor)
+                        source.addTabbedWindow(neighbor, ordered: .below)
+                    }
+                } else {
+                    for neighbor in old[index..<origin].reversed() {
+                        group.removeWindow(neighbor)
+                        source.addTabbedWindow(neighbor, ordered: .above)
+                    }
+                }
+            } else {
+                destination.addTabbedWindow(source, ordered: before ? .below : .above)
+            }
+            source.tabGroup?.selectedWindow = source
+            source.makeKeyAndOrderFront(nil)
+        }
+        override func menu(for event: NSEvent) -> NSMenu? {
+            let menu = NSMenu()
+            let close = menu.addItem(withTitle: L("Close Tab"), action: #selector(closeTab), keyEquivalent: "")
+            close.target = self
+            let detach = menu.addItem(withTitle: L("Move Tab to New Window"), action: #selector(detachTab), keyEquivalent: "")
+            detach.target = self
+            return menu
+        }
+        @objc private func closeTab() { if let tabWindow { ReaderWindows.close(tabWindow) } }
+        @objc private func detachTab() { tabWindow?.moveTabToNewWindow(nil) }
     }
 }
 

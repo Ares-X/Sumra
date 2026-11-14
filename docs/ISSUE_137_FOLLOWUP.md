@@ -1,5 +1,61 @@
 # Issue 137 and related reader follow-up
 
+## Adaptive tabs and resumed image spreads: 0.2.43 follow-up
+
+Status: implementation and focused local checks passed; formal signed-package
+acceptance and publication are pending. Evidence is retained under
+`build/issue137-followup-42`.
+
+The reporter supplied a stripped 144-page CBZ in
+[comment 6876142768](https://github.com/Ares-X/Sumra/issues/137#issuecomment-6876142768).
+Its SHA-256 is
+`e5ce9296ef316e9c850a2f73b24837377ebe31ed2bdc3dbb2ecdef9691008c06`.
+Landscape pages are 14, 21, 28, 89, 112 and 117. With Cover On Its Own,
+Two Page Spread and Landscape images occupy a whole spread, the correct
+backward sequence is 117, 115–116, 113–114, then 112 alone.
+
+The old resume path seeded dimensions only around the saved page. It missed
+preceding landscape boundaries, so backward pairing started from incomplete
+information. The existing macOS 26.6.2 guest reproduced 117 → 116 alone →
+114–115 using the reporter's actual file and actual Left-arrow input. That
+comparison used 0.2.42 source with duplicate-window diagnostic hooks and a
+15.5 SDK stamp; it is not the reporter's macOS 15 or original compiler.
+The local corrected bundle displayed 115–116 on the first backward turn.
+
+The image owner now indexes dimensions once in physical archive order when
+this spread mode needs complete pairing. It reuses the same bounds for layout,
+turns, rotation and queued-position persistence. No full-page bitmaps are
+created by the dimension index. An image whose bytes cannot yield dimensions
+retains its original error and occupies a standalone error row; source-reading,
+password and cancellation failures still propagate. The tests use generated
+images with the reporter's exact topology, plus cold restoration, cover/RTL,
+queued turns, rotation and corrupt-page recovery. The attachment is not shipped.
+
+Normal and floating controls now share the app's adaptive caption view while
+`NSWindowTabGroup` remains the document-group owner. Normal captions live in an
+app-owned titlebar accessory. Interactive captions sit above overlapping
+full-size reading content; hiding or removal restores the original sibling
+order. Native caption accessories remain collapsed. The new tab-count observer
+waits for native restoration and completed manual placement before consulting
+the group. Failed drags consider the frontmost window before treating strip
+spacing as an accepted area.
+
+Local guest interaction confirmed three captions filling the normal bar,
+immediate two-caption reallocation after closing the middle tab without moving
+the pointer, drag reordering and separation into a second native window.
+These local bundles are main-reader comparisons; the final signed app requires
+its own acceptance.
+
+The #148 analysis supplies useful trace branches, not an established cause.
+Three fullscreen PDF Duplicate operations in the diagnostic guest selected the
+new tab in the same native group; later observations and Mission Control showed
+one reader Space and no extra black Space. No failed final ready guard was
+observed. Diagnostic tracing is not shipped and a non-reproduction on macOS 26
+does not resolve the macOS 15 report. Finder's editable diagnostic text field
+also failed to receive the tested keys while its mouse focus was visible;
+that narrows the observation but does not prove a platform defect or a fix.
+#137, #148 and #96 remain open. No reporter reply is part of this delivery.
+
 
 ## Native fullscreen restoration: reproduced failures and correction
 

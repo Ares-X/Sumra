@@ -799,3 +799,6 @@
 "Read Images as Pages" = "Baca Imej sebagai Halaman";
 
 "No supported images found in this folder. Supported image types: %@" = "Tiada imej yang disokong ditemui dalam folder ini. Jenis imej yang disokong: %@";
+
+"Show Tab Bar" = "Tunjukkan Bar Tab";
+"Hide Tab Bar" = "Sembunyikan Bar Tab";

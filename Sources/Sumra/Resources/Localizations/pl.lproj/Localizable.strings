@@ -806,3 +806,6 @@
 "Read Images as Pages" = "Czytaj obrazy jako strony";
 
 "No supported images found in this folder. Supported image types: %@" = "W tym folderze nie znaleziono obsługiwanych obrazów. Obsługiwane typy obrazów: %@";
+
+"Show Tab Bar" = "Pokaż pasek kart";
+"Hide Tab Bar" = "Ukryj pasek kart";

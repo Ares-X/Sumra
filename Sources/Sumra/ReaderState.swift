@@ -482,9 +482,14 @@ final class ReaderState: ObservableObject {
     }
     @Published var toolbarHoverOpacity = 0.0
     @Published var windowFullscreen = false
+    @Published var tabBarShown = false
+    @Published var tabCount = 1
     @Published var immersiveControls = UserDefaults.standard.bool(forKey: "immersiveControls")
     var usesFloatingChrome: Bool { hasDocument && immersiveControls && !presentation }
     var usesCustomChrome: Bool { !hasDocument || usesFloatingChrome }
+    var normalTabBarShown: Bool {
+        hasDocument && !usesFloatingChrome && !presentation && (tabCount > 1 || tabBarShown)
+    }
     var toolbarShown: Bool { hasDocument && !presentation && (toolbarDisplayMode == .shown || (toolbarDisplayMode == .auto && toolbarHoverVisible)) }
     var toolbarOverlaysContent: Bool { hasDocument && (presentation || toolbarDisplayMode != .shown) }
     @Published var presentationBlank: String?
@@ -1967,7 +1972,7 @@ extension ReaderState {
                     if UserDefaults.standard.bool(forKey: "preservePageTurnPosition"), !reflowable, flow != "continuous" {
                         offset = RasterReader.pageLocalOffset(in: readerFocusView)
                     }
-                case .scroll, .restore, .href, .progress, .location:
+                case .scroll, .restore, .preservePosition, .href, .progress, .location:
                     // These destinations depend on the reader/decoder. A later
                     // absolute page reestablishes a known persistence target.
                     knownPage = false

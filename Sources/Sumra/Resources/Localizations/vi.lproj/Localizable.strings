@@ -804,3 +804,6 @@
 "Read Images as Pages" = "Đọc ảnh dưới dạng trang";
 
 "No supported images found in this folder. Supported image types: %@" = "Không tìm thấy ảnh được hỗ trợ trong thư mục này. Các loại ảnh được hỗ trợ: %@";
+
+"Show Tab Bar" = "Hiện thanh tab";
+"Hide Tab Bar" = "Ẩn thanh tab";

@@ -56,3 +56,6 @@
 "Read Images as Pages" = "Read Images as Pages";
 
 "No supported images found in this folder. Supported image types: %@" = "No supported images found in this folder. Supported image types: %@";
+
+"Show Tab Bar" = "Show Tab Bar";
+"Hide Tab Bar" = "Hide Tab Bar";

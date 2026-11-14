@@ -804,3 +804,6 @@
 "Read Images as Pages" = "Leer imágenes como páginas";
 
 "No supported images found in this folder. Supported image types: %@" = "No se encontraron imágenes compatibles en esta carpeta. Tipos de imagen compatibles: %@";
+
+"Show Tab Bar" = "Mostrar barra de pestañas";
+"Hide Tab Bar" = "Ocultar barra de pestañas";

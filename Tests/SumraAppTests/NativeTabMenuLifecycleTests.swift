@@ -17,6 +17,7 @@ final class NativeTabMenuLifecycleTests: XCTestCase {
         let item = fixture.addTabBarItem()
         XCTAssertTrue(item.target === fixture.closeGuard)
         XCTAssertFalse(item.isEnabled)
+        XCTAssertEqual(item.title, L("Show Tab Bar"))
         XCTAssertEqual(fixture.unrelatedCommand.validations, 0,
                        "Inserting the native item must not revalidate other menu commands")
     }
@@ -32,6 +33,7 @@ final class NativeTabMenuLifecycleTests: XCTestCase {
         let replacement = fixture.addTabBarItem()
         XCTAssertTrue(replacement.target === fixture.closeGuard)
         XCTAssertFalse(replacement.isEnabled)
+        XCTAssertEqual(replacement.title, L("Show Tab Bar"))
 
         // Resetting target alone is not an NSMenu appearance notification.
         // The native menu's subsequent title/enabled update must reroute it.
@@ -40,13 +42,45 @@ final class NativeTabMenuLifecycleTests: XCTestCase {
         replacement.isEnabled = true
         XCTAssertTrue(replacement.target === fixture.closeGuard)
         XCTAssertFalse(replacement.isEnabled)
+        XCTAssertEqual(replacement.title, L("Show Tab Bar"), "A native title rewrite must not override shared-strip state")
 
         fixture.state.immersiveControls = false
         fixture.viewMenu.update()
-        XCTAssertTrue(replacement.isEnabled, "Normal chrome retains the native tab-bar command")
+        XCTAssertTrue(replacement.isEnabled, "Normal single-tab chrome retains the shared tab-bar command")
         fixture.state.immersiveControls = true
         fixture.viewMenu.update()
         XCTAssertFalse(replacement.isEnabled, "Validation reads current reader chrome after a mode change")
+    }
+
+    func testRoutedTabBarTitleFollowsStandaloneChoiceAndCannotHideMultipleTabs() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        fixture.state.immersiveControls = false
+        let item = fixture.addTabBarItem()
+        let nativeWindows = fixture.window.tabGroup?.windows ?? [fixture.window]
+        XCTAssertEqual(item.title, L("Show Tab Bar")); XCTAssertTrue(item.isEnabled)
+
+        fixture.closeGuard.toggleTabBar(nil)
+        fixture.application.routeNativeTabMenu(fixture.mainMenu, for: fixture.window)
+        XCTAssertTrue(fixture.state.normalTabBarShown)
+        XCTAssertEqual(item.title, L("Hide Tab Bar")); XCTAssertTrue(item.isEnabled)
+        fixture.closeGuard.toggleTabBar(nil)
+        fixture.application.routeNativeTabMenu(fixture.mainMenu, for: fixture.window)
+        XCTAssertFalse(fixture.state.normalTabBarShown)
+        XCTAssertEqual(item.title, L("Show Tab Bar")); XCTAssertTrue(item.isEnabled)
+
+        // NativeTabHostTests exercises publication from real native membership.
+        // Here the routed menu consumes that published count independently of
+        // AppKit's native tab accessory visibility or its proposed item title.
+        fixture.state.tabCount = 2
+        fixture.application.routeNativeTabMenu(fixture.mainMenu, for: fixture.window)
+        XCTAssertTrue(fixture.state.normalTabBarShown)
+        XCTAssertEqual(item.title, L("Hide Tab Bar")); XCTAssertFalse(item.isEnabled)
+        fixture.state.tabCount = 1
+        fixture.application.routeNativeTabMenu(fixture.mainMenu, for: fixture.window)
+        XCTAssertEqual(item.title, L("Show Tab Bar")); XCTAssertTrue(item.isEnabled)
+        XCTAssertEqual(fixture.window.tabGroup?.windows ?? [fixture.window], nativeWindows,
+            "Changing shared-caption visibility must not mutate native membership")
     }
 
     @MainActor private final class UnrelatedCommand: NSObject, NSUserInterfaceValidations {

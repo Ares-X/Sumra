@@ -810,3 +810,6 @@
 "Read Images as Pages" = "画像をページとして読む";
 
 "No supported images found in this folder. Supported image types: %@" = "このフォルダに対応する画像が見つかりませんでした。対応する画像形式：%@";
+
+"Show Tab Bar" = "タブバーを表示";
+"Hide Tab Bar" = "タブバーを非表示";

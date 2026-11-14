@@ -89,7 +89,7 @@ final class ReaderAdaptiveTabsTests: XCTestCase {
         XCTAssertEqual(scroll.documentVisibleRect.maxX, document.bounds.maxX, accuracy: 1,
                        "Reactivation must reveal selection after manual scrolling")
         let elements = try accessibilityElements(in: fixture.window)
-        let selection = try XCTUnwrap(elements.first { $0.role == .button && $0.label == fixture.window.title })
+        let selection = try XCTUnwrap(elements.first { $0.role == .radioButton && $0.label == fixture.window.title })
         let close = try XCTUnwrap(elements.first { $0.role == .button && $0.label == L("Close Tab") + ": " + fixture.window.title })
         XCTAssertGreaterThanOrEqual(selection.frame.height, 28)
         XCTAssertGreaterThanOrEqual(close.frame.height, 20)
@@ -109,7 +109,7 @@ final class ReaderAdaptiveTabsTests: XCTestCase {
             let scroll = try XCTUnwrap(descendants(fixture.host).compactMap { $0 as? NSScrollView }.first)
             func assertSelectedVisible() throws {
                 let elements = try accessibilityElements(in: fixture.window)
-                let selected = try XCTUnwrap(elements.first { $0.role == .button && $0.label == fixture.window.title })
+                let selected = try XCTUnwrap(elements.first { $0.role == .radioButton && $0.label == fixture.window.title })
                 let viewport = fixture.window.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil))
                 XCTAssertGreaterThan(selected.frame.width, 0)
                 XCTAssertGreaterThanOrEqual(selected.frame.minX, viewport.minX - 1)
@@ -172,7 +172,7 @@ final class ReaderAdaptiveTabsTests: XCTestCase {
                 let viewport = fixture.window.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil))
                 let elements = try accessibilityElements(in: fixture.window)
                 let surface = try XCTUnwrap(elements.first { $0.identifier == "floating-documents" }).frame
-                let selection = try XCTUnwrap(elements.first { $0.role == .button && $0.label == fixture.window.title })
+                let selection = try XCTUnwrap(elements.first { $0.role == .radioButton && $0.label == fixture.window.title })
                 let close = try XCTUnwrap(elements.first {
                     $0.role == .button && $0.label == L("Close Tab") + ": " + fixture.window.title
                 })

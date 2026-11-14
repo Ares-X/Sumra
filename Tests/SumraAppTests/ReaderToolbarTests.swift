@@ -284,7 +284,7 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertFalse(window.isVisible)
     }
 
-    func testMenuTrackingKeepsRevealedNativeTabsStableThroughPendingDismissal() async throws {
+    func testMenuTrackingKeepsReaderToolbarRevealedAndNativeTabsCollapsedThroughPendingDismissal() async throws {
         final class MenuWindow: NSWindow {
             override var isKeyWindow: Bool { true }
             override var mouseLocationOutsideOfEventStream: NSPoint { NSPoint(x: 350, y: 100) }
@@ -321,7 +321,8 @@ final class ReaderToolbarTests: XCTestCase {
             XCTAssertTrue(state.toolbarHoverVisible, "Opening View must cancel the pending toolbar dismissal")
             XCTAssertEqual(state.toolbarHoverOpacity, 1)
             XCTAssertEqual(window.titleVisibility, .visible)
-            for view in tabs { XCTAssertFalse(view.isHidden); XCTAssertEqual(view.alphaValue, 1, accuracy: 0.001) }
+            for view in tabs { XCTAssertTrue(view.isHidden); XCTAssertEqual(view.alphaValue, 1, accuracy: 0.001) }
+            XCTAssertTrue(window.titlebarAccessoryViewControllers.allSatisfy(\.isHidden))
             XCTAssertEqual(window.validateUserInterfaceItem(toggleTabs), originallyEnabled,
                            "AppKit's tab command availability must stay stable during native menu tracking")
             XCTAssertEqual(window.frame, frame); XCTAssertEqual(window.contentLayoutRect, layout)
@@ -425,7 +426,8 @@ final class ReaderToolbarTests: XCTestCase {
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
         XCTAssertTrue(state.toolbarHoverVisible,
                       "Selecting a native tab under the pointer must not require a subsequent mouse move")
-        XCTAssertFalse(tabs.view.isHidden)
+        XCTAssertTrue(tabs.isHidden, "The shared reader strip owns captions even while native tools reveal")
+        XCTAssertTrue(tabs.view.isHidden)
         XCTAssertEqual(tabs.view.alphaValue, 1, accuracy: 0.001)
 
         window.pointer = NSPoint(x: 350, y: 100)
@@ -900,9 +902,10 @@ final class ReaderToolbarTests: XCTestCase {
                 for host in observers { host.updateChrome() }
                 XCTAssertTrue(group.selectedWindow === window)
                 for view in window.titlebarAccessoryViewControllers.map(\.view) {
-                    XCTAssertEqual(view.isHidden, !shown)
+                    XCTAssertTrue(view.isHidden, "Selecting a sibling must not reinstall native captions")
                     XCTAssertEqual(view.alphaValue, shown ? 1 : 0, accuracy: 0.001)
                 }
+                XCTAssertEqual(states[index].toolbarShown, shown)
                 XCTAssertEqual(window.frame, frame)
                 XCTAssertEqual(window.contentLayoutRect, layout)
             }
@@ -937,6 +940,7 @@ final class ReaderToolbarTests: XCTestCase {
         windows[0].addTabbedWindow(windows[2], ordered: .above)
         let group = try XCTUnwrap(windows[0].tabGroup)
         group.selectedWindow = windows[2]
+        for state in states { state.tabCount = group.windows.count }
         let observers = states.enumerated().map { index, state in
             let observer = ReaderToolbarWindow.Host()
             observer.state = state; observer.reducedMotion = true
@@ -954,12 +958,13 @@ final class ReaderToolbarTests: XCTestCase {
         group.selectedWindow = survivor
         observers[0].updateChrome()
         survivor.contentView?.superview?.layoutSubtreeIfNeeded()
-        // The native tab row is below the toolbar, beyond the old 48 pt entry
-        // strip. Closing the selected sibling must reveal at that same point.
+        states[0].tabCount = group.windows.count
+        // The shared caption row is below the native toolbar. Closing the
+        // selected sibling must still reveal at that same stationary point.
         let content = try XCTUnwrap(survivor.contentView)
         let nativeHeight = max(content.safeAreaInsets.top,
             content.bounds.maxY - content.convert(survivor.contentLayoutRect, from: nil).maxY)
-        XCTAssertGreaterThan(nativeHeight, 48)
+        XCTAssertGreaterThan(nativeHeight, 0)
         survivor.pointer = NSPoint(x: 350, y: survivor.frame.height - nativeHeight + 5)
         group.selectedWindow = windows[2]
         let closed = expectation(description: "Selected tab closes through document approval")
@@ -970,17 +975,20 @@ final class ReaderToolbarTests: XCTestCase {
         await fulfillment(of: [closed], timeout: 2)
         XCTAssertFalse(group.windows.contains { $0 === windows[2] })
         XCTAssertEqual(group.windows.count, 2, "Closing the new tab keeps the existing tab row")
+        states[0].tabCount = group.windows.count
         group.selectedWindow = survivor
+        observers[0].updateChrome()
+        survivor.contentView?.superview?.layoutSubtreeIfNeeded()
         let layout = survivor.contentLayoutRect
         survivor.receivesPointer = true
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: survivor)
         await Task.yield()
         observers[0].updateChrome()
         XCTAssertTrue(states[0].toolbarShown, "The tab-row close position must reveal the surviving toolbar")
-        let accessories = survivor.titlebarAccessoryViewControllers.map(\.view)
+        let accessories = survivor.titlebarAccessoryViewControllers.filter { !($0 is ReaderNormalTabsAccessory) }.map(\.view)
         XCTAssertFalse(accessories.isEmpty)
         for view in accessories {
-            XCTAssertFalse(view.isHidden)
+            XCTAssertTrue(view.isHidden, "Only the shared captions reveal over the reading content")
             XCTAssertEqual(view.alphaValue, 1, accuracy: 0.001)
         }
         observers[0].pointerMoved(to: NSPoint(x: 350, y: 100))
@@ -988,7 +996,7 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertFalse(states[0].toolbarShown, "Moving into the document still dismisses Auto Hide")
         observers[0].pointerMoved(to: survivor.pointer)
         observers[0].updateChrome()
-        XCTAssertTrue(states[0].toolbarShown, "The entire native tab row remains a reveal target after closing")
+        XCTAssertTrue(states[0].toolbarShown, "The entire shared tab row remains a reveal target after closing")
         XCTAssertEqual(survivor.contentView?.alphaValue, 1)
         XCTAssertEqual(survivor.contentLayoutRect, layout, "Revealing controls must preserve the surviving reading viewport")
     }
@@ -1057,7 +1065,7 @@ final class ReaderToolbarTests: XCTestCase {
         XCTAssertFalse(companion.ignoresMouseEvents)
     }
 
-    func testNativeTabsFadeWithToolbarWithoutCollapsingTheirLayout() throws {
+    func testNativeTabsStayCollapsedAcrossToolbarModesAndRestoreOnDetach() throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
         state.document = ReadingDocument(url: URL(fileURLWithPath: "/tabbed-toolbar.txt"), content: .text("book"))
@@ -1088,7 +1096,6 @@ final class ReaderToolbarTests: XCTestCase {
         let frame = window.frame
         let viewport = try XCTUnwrap(window.contentView).frame
         let layout = window.contentLayoutRect
-        let accessoryFrames = accessories.map(\.frame)
         for shown in [false, true, false, true, false] {
             if shown { observer.pointerMoved(to: NSPoint(x: 350, y: window.frame.height - 1)) }
             else { observer.pointerMoved(to: NSPoint(x: 350, y: 100)) }
@@ -1096,26 +1103,27 @@ final class ReaderToolbarTests: XCTestCase {
             window.contentView?.layoutSubtreeIfNeeded()
             for view in accessories {
                 XCTAssertEqual(view.alphaValue, shown ? 0.75 : 0, accuracy: 0.001)
-                XCTAssertEqual(view.isHidden, !shown)
-                if !shown { XCTAssertNil(view.hitTest(NSPoint(x: view.bounds.midX, y: view.bounds.midY)),
-                    "Invisible native tabs must not intercept clicks on the book") }
+                XCTAssertTrue(view.isHidden)
+                XCTAssertNil(view.hitTest(NSPoint(x: view.bounds.midX, y: view.bounds.midY)),
+                    "Replaced native tabs must not intercept clicks on the shared strip or book")
             }
-            XCTAssertTrue(group.isTabBarVisible, "The native tab layout stays installed while its views fade")
+            XCTAssertTrue(window.titlebarAccessoryViewControllers.allSatisfy(\.isHidden),
+                "Native caption layout remains collapsed independently of toolbar reveal")
+            XCTAssertEqual(group.windows, [window, sibling], "Collapsing native presentation must preserve tab membership")
             XCTAssertEqual(window.frame, frame)
             XCTAssertEqual(window.contentView?.frame, viewport)
             XCTAssertEqual(window.contentLayoutRect, layout)
-            XCTAssertEqual(accessories.map(\.frame), accessoryFrames)
         }
         state.toolbarDisplayMode = .shown
         observer.updateChrome()
-        for view in accessories { XCTAssertFalse(view.isHidden); XCTAssertEqual(view.alphaValue, 0.75, accuracy: 0.001) }
+        for view in accessories { XCTAssertTrue(view.isHidden); XCTAssertEqual(view.alphaValue, 0.75, accuracy: 0.001) }
         let originalTheme = state.theme
         defer { state.theme = originalTheme }
         for theme in ["light", "dark"] {
             state.theme = theme; observer.updateChrome()
             for view in accessories {
                 let background = try XCTUnwrap(view.layer?.backgroundColor)
-                XCTAssertEqual(background.alpha, 1, "Revealed tabs need an opaque background over the book")
+                XCTAssertEqual(background.alpha, 1, "Native accessory backing must retain the reader palette during ownership")
                 XCTAssertEqual(NSColor(cgColor: background), ReaderTheme.color(state.palette.background))
             }
         }
@@ -1250,11 +1258,9 @@ final class ReaderToolbarTests: XCTestCase {
                 XCTAssertTrue(parent.standardWindowButton(.closeButton) === close)
                 XCTAssertTrue(close.window === companion, "The simulated companion must retain its real factory-button anchor")
                 XCTAssertTrue(tabs.view.window === parent, "The public native accessory keeps its legal parent ownership")
-                XCTAssertEqual(tabs.isHidden, mode == .hidden)
-                if mode == .hidden {
-                    XCTAssertGreaterThan(layout.maxY, shownLayout.maxY,
-                        "Permanently hiding the public accessory releases its native layout height")
-                }
+                XCTAssertTrue(tabs.isHidden, "The shared strip owns captions in every toolbar mode")
+                XCTAssertGreaterThanOrEqual(layout.maxY, shownLayout.maxY,
+                    "Collapsing native captions must not consume additional reading height")
                 // A stale hover or an actual top-edge hover must never reveal
                 // reader tools during Always Hide or presentation.
                 observer.pointerMoved(to: NSPoint(x: 350, y: parent.frame.height - 1))
@@ -1269,9 +1275,9 @@ final class ReaderToolbarTests: XCTestCase {
                                "Always Hide must not leave a rectangular native toolbar shadow")
                 XCTAssertFalse(close.isHidden)
                 for view in [tools, tabs.view] {
-                    XCTAssertEqual(view.isHidden, !readerVisible)
+                    XCTAssertEqual(view.isHidden, view === tabs.view || !readerVisible)
                     XCTAssertEqual(view.alphaValue, readerVisible ? 1 : 0, accuracy: 0.001)
-                    if !readerVisible {
+                    if view === tabs.view || !readerVisible {
                         XCTAssertNil(view.hitTest(NSPoint(x: view.bounds.midX, y: view.bounds.midY)),
                                      "Hidden reader tools and tabs must not intercept native controls or book input")
                     }

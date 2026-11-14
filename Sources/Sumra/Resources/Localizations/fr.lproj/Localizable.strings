@@ -804,3 +804,6 @@
 "Read Images as Pages" = "Lire les images comme des pages";
 
 "No supported images found in this folder. Supported image types: %@" = "Aucune image prise en charge dans ce dossier. Types d’images pris en charge : %@";
+
+"Show Tab Bar" = "Afficher la barre d’onglets";
+"Hide Tab Bar" = "Masquer la barre d’onglets";

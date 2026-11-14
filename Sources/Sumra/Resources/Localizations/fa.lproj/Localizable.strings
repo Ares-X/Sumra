@@ -799,3 +799,6 @@
 "Read Images as Pages" = "خواندن تصاویر به‌صورت صفحه";
 
 "No supported images found in this folder. Supported image types: %@" = "هیچ تصویر پشتیبانی‌شده‌ای در این پوشه یافت نشد. انواع تصویر پشتیبانی‌شده: %@";
+
+"Show Tab Bar" = "نمایش نوار زبانه‌ها";
+"Hide Tab Bar" = "پنهان کردن نوار زبانه‌ها";

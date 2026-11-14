@@ -138,6 +138,8 @@ struct ReaderToolbarAppearance: ViewModifier {
         private weak var nativeControlsContainer: NSView?
         private var titlebarViews: [(view: NSView, alpha: CGFloat, hidden: Bool, layered: Bool, background: CGColor?,
                                      accessory: (controller: NSTitlebarAccessoryViewController, originalHidden: Bool?)?)] = []
+        private var documentTabsAccessory: ReaderNormalTabsAccessory?
+        private var normalTabInputOrder: (branch: NSView, content: NSView, following: [NSView])?
         private var accessoryOpacity: CGFloat?
         private weak var accessoryContentOwner: NSView?
         private var original: (fullSize: Bool, transparent: Bool, title: NSWindow.TitleVisibility,
@@ -156,6 +158,8 @@ struct ReaderToolbarAppearance: ViewModifier {
         override func hitTest(_ point: NSPoint) -> NSView? {
             let point = convert(point, from: superview)
             guard titlebarDragRect.contains(point) else { return nil }
+            if let accessory = documentTabsAccessory, accessory.tabsView.acceptsTabInput,
+               accessory.tabsView.convert(accessory.tabsView.bounds, to: self).contains(point) { return nil }
             // The native titlebar owns its window buttons. Yield their frames
             // instead of returning an AppKit view outside this overlay's subtree.
             if originalButtonAppearance.values.contains(where: { appearance in
@@ -475,12 +479,20 @@ struct ReaderToolbarAppearance: ViewModifier {
                 let title: NSWindow.TitleVisibility = readerHidden ? .hidden : .visible
                 if parent.titleVisibility != title { parent.titleVisibility = title }
             }
+            updateDocumentTabs()
             // Native menu reveal restores traffic lights and their companion,
             // while the reader tools and tabs retain their own visibility.
             let revealWindowButtons = !state.usesCustomChrome && (systemChrome || (state.toolbarDisplayMode == .hidden && state.toolbarHoverVisible))
             updateToolbarWindow(opacity: revealWindowButtons ? 1 : readerOpacity)
             updateTitlebarViews(opacity: readerOpacity, hidden: readerHidden,
                                 opacityOwner: revealWindowButtons ? nil : toolbarContent)
+            if let accessory = documentTabsAccessory {
+                // Fullscreen can host the accessory inside the native companion
+                // whose content already receives the reader's fade.
+                let fadesWithCompanion = toolbarContent.map { accessory.tabsView.isDescendant(of: $0) } ?? false
+                accessory.tabsView.alphaValue = fadesWithCompanion && !revealWindowButtons ? 1 : readerOpacity
+            }
+            updateNormalTabInputOrder()
             updateNativeDragView()
             updateDragCursor()
             if parent.frame != frame { parent.setFrame(frame, display: false) }
@@ -501,9 +513,76 @@ struct ReaderToolbarAppearance: ViewModifier {
             }
         }
 
+        private func updateDocumentTabs() {
+            guard let parent, let state else { return }
+            let allocated = state.normalTabBarShown && state.toolbarDisplayMode != .hidden
+            guard allocated, parent.styleMask.contains(.titled) else {
+                removeDocumentTabs()
+                return
+            }
+            let accessory: ReaderNormalTabsAccessory
+            if let existing = documentTabsAccessory { accessory = existing }
+            else {
+                accessory = ReaderNormalTabsAccessory(state: state)
+                documentTabsAccessory = accessory
+                parent.addTitlebarAccessoryViewController(accessory)
+            }
+            if accessory.tabsView.rootView.state !== state {
+                accessory.tabsView.rootView = ReaderNormalDocumentTabs(state: state)
+            }
+            // Auto Hide retains native row geometry while the book extends
+            // beneath it. Collapse only when this presentation has no tabs.
+            accessory.tabsView.acceptsTabInput = state.toolbarShown
+            accessory.tabsView.setAccessibilityHidden(!accessory.tabsView.acceptsTabInput)
+        }
+
+        private func removeDocumentTabs() {
+            restoreNormalTabInputOrder()
+            guard let accessory = documentTabsAccessory else { return }
+            documentTabsAccessory = nil
+            if let parent, let index = parent.titlebarAccessoryViewControllers.firstIndex(where: { $0 === accessory }) {
+                parent.removeTitlebarAccessoryViewController(at: index)
+            }
+        }
+
+        private func updateNormalTabInputOrder() {
+            guard let accessory = documentTabsAccessory, accessory.tabsView.acceptsTabInput,
+                  let content = parent?.contentView, let frame = content.superview else {
+                restoreNormalTabInputOrder()
+                return
+            }
+            var branch: NSView = accessory.tabsView
+            while let ancestor = branch.superview, ancestor !== frame { branch = ancestor }
+            guard branch.superview === frame, branch !== content else { return }
+            if let saved = normalTabInputOrder, saved.branch !== branch || saved.content !== content {
+                restoreNormalTabInputOrder()
+            }
+            guard let tabIndex = frame.subviews.firstIndex(of: branch),
+                  let contentIndex = frame.subviews.firstIndex(of: content), tabIndex < contentIndex else { return }
+            // Full-size content overlaps the accessory and AppKit leaves that
+            // content later in the sibling order. The native branch already
+            // owns correct control hits; put it above the overlapping reader
+            // only while the toolbar is interactive, without changing layout.
+            if normalTabInputOrder == nil {
+                normalTabInputOrder = (branch, content, Array(frame.subviews.dropFirst(tabIndex + 1)))
+            }
+            frame.addSubview(branch, positioned: .above, relativeTo: content)
+        }
+
+        private func restoreNormalTabInputOrder() {
+            guard let saved = normalTabInputOrder else { return }
+            normalTabInputOrder = nil
+            // Native tab selection can migrate a titlebar to another frame.
+            // Restore only the sibling relationship this host actually owns.
+            guard let frame = saved.content.superview, saved.branch.superview === frame,
+                  let next = saved.following.first(where: { $0.superview === frame }) else { return }
+            frame.addSubview(saved.branch, positioned: .below, relativeTo: next)
+        }
+
         private func updateTitlebarViews(opacity: CGFloat, hidden readerHidden: Bool, opacityOwner: NSView?) {
             guard let parent, let state else { return }
-            let accessoryControllers = parent.styleMask.contains(.titled) ? parent.titlebarAccessoryViewControllers : []
+            let accessoryControllers = parent.styleMask.contains(.titled)
+                ? parent.titlebarAccessoryViewControllers.filter { !($0 is ReaderNormalTabsAccessory) } : []
             let accessories = accessoryControllers.map(\.view)
             var views = accessories
             let readerContent = parent.contentView
@@ -522,8 +601,9 @@ struct ReaderToolbarAppearance: ViewModifier {
                !views.contains(where: { $0 === nativeControlsContainer }) { views.append(nativeControlsContainer) }
             func nativeToolbar(in view: NSView) -> NSView? {
                 // Native window chrome lives outside the document's subtree.
-                if view === readerContent { return nil }
-                if view.accessibilityRole() == .toolbar { return view }
+                if view === readerContent || view is ReaderNormalTabsAccessory.HostingView { return nil }
+                let containsTabs = documentTabsAccessory.map { $0.view.isDescendant(of: view) } ?? false
+                if view.accessibilityRole() == .toolbar, !containsTabs { return view }
                 return view.subviews.lazy.compactMap { nativeToolbar(in: $0) }.first
             }
             // Fade the native toolbar owner, including AppKit's overflow
@@ -554,18 +634,13 @@ struct ReaderToolbarAppearance: ViewModifier {
             }
             let background = ReaderTheme.color(state.palette.background).cgColor
             for index in titlebarViews.indices {
-                // Own the controller while custom chrome or Always Hide collapses it. A
-                // native Show/Hide Tab Bar action otherwise owns its state.
+                // Both reader presentations use ReaderDocumentTabs. Collapse
+                // AppKit's tab accessory independently of NSToolbar visibility,
+                // including document windows that are still loading.
                 if var accessory = titlebarViews[index].accessory {
-                    if hidesNativeToolbar || state.usesCustomChrome {
-                        if accessory.originalHidden == nil { accessory.originalHidden = accessory.controller.isHidden }
-                        titlebarViews[index].accessory = accessory
-                        if !accessory.controller.isHidden { accessory.controller.isHidden = true }
-                    } else if let hidden = accessory.originalHidden {
-                        accessory.originalHidden = nil
-                        titlebarViews[index].accessory = accessory
-                        if accessory.controller.isHidden != hidden { accessory.controller.isHidden = hidden }
-                    }
+                    if accessory.originalHidden == nil { accessory.originalHidden = accessory.controller.isHidden }
+                    titlebarViews[index].accessory = accessory
+                    if !accessory.controller.isHidden { accessory.controller.isHidden = true }
                 }
                 let entry = titlebarViews[index]
                 // Native tab material must not expose text through the revealed
@@ -575,7 +650,7 @@ struct ReaderToolbarAppearance: ViewModifier {
                     if entry.view.layer?.backgroundColor != background { entry.view.layer?.backgroundColor = background }
                 }
                 let fadesHere = opacityOwner.map { !entry.view.isDescendant(of: $0) } ?? true
-                let hidden = entry.hidden || (fadesHere && readerHidden)
+                let hidden = entry.hidden || accessories.contains(where: { $0 === entry.view }) || (fadesHere && readerHidden)
                 if entry.view.isHidden != hidden { entry.view.isHidden = hidden }
             }
             if accessoryOpacity != opacity || accessoryContentOwner !== opacityOwner || added {
@@ -777,8 +852,9 @@ struct ReaderToolbarAppearance: ViewModifier {
         }
 
         func detach() {
-            nativeDragView?.removeFromSuperview(); nativeDragView = nil
             let originalFrame = parent?.frame
+            removeDocumentTabs()
+            nativeDragView?.removeFromSuperview(); nativeDragView = nil
             // Dismantling runs inside SwiftUI's view update. Cancel work here;
             // focus/window notifications own observable visibility changes.
             hoverDismiss?.cancel(); hoverDismiss = nil

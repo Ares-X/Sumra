@@ -237,6 +237,7 @@ struct WindowTabs: NSViewRepresentable {
         private var closeGuard: ReaderCloseGuard?
         private weak var guardedWindow: NSWindow?
         private var placed = false
+        private var placementComplete = false
         func updateDocumentProperties() {
             guard let window, state?.isWindowClosed != true else { return }
             let url = state?.document?.url
@@ -249,6 +250,7 @@ struct WindowTabs: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard guardedWindow !== window else { return }
+            placementComplete = false
             NotificationCenter.default.removeObserver(self)
             if let previousWindow = guardedWindow, previousWindow.delegate === closeGuard {
                 previousWindow.delegate = closeGuard?.previous
@@ -281,6 +283,7 @@ struct WindowTabs: NSViewRepresentable {
             state?.applyTabColor()
             NotificationCenter.default.addObserver(self, selector: #selector(activated), name: NSWindow.didBecomeKeyNotification, object: window)
             NotificationCenter.default.addObserver(self, selector: #selector(deactivated), name: NSWindow.didResignKeyNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(tabsUpdated), name: NSWindow.didUpdateNotification, object: window)
             if window.isKeyWindow { ReaderWindows.activated(window) }
             NotificationCenter.default.addObserver(self, selector: #selector(closing), name: NSWindow.willCloseNotification, object: window)
             ReaderWindows.afterNativeRestoration { [weak self] in self?.finishPlacement() }
@@ -304,9 +307,11 @@ struct WindowTabs: NSViewRepresentable {
                     ReaderWindows.placeTab(window, beside: parent, restorationID: closeGuard.restorationID)
                 }
             }
+            placementComplete = true
             // File opening publishes SwiftUI state after native view installation.
             DispatchQueue.main.async { [weak self] in
                 guard let self, let window = self.window, window.delegate === self.closeGuard else { return }
+                self.tabsUpdated()
                 self.onWindowReady?()
             }
         }
@@ -317,10 +322,20 @@ struct WindowTabs: NSViewRepresentable {
         }
 
         @objc private func activated(_ notification: Notification) {
+            tabsUpdated()
             if let window { ReaderWindows.activated(window) }
         }
 
         @objc private func deactivated(_ notification: Notification) { state?.persist() }
+
+        @objc private func tabsUpdated() {
+            guard placementComplete, !ReaderWindows.isRestoringNativeWindows, let window else { return }
+            let windows = window.tabGroup?.windows ?? [window]
+            for sibling in windows {
+                guard let state = (sibling.delegate as? ReaderCloseGuard)?.state else { continue }
+                if state.tabCount != windows.count { state.tabCount = windows.count }
+            }
+        }
 
         deinit {
             NotificationCenter.default.removeObserver(self)
@@ -359,7 +374,10 @@ final class ReaderCloseGuard: NSResponder, NSWindowDelegate, NSUserInterfaceVali
     }
     @objc func toggleTabBar(_ sender: Any?) {
         guard let state, !state.usesCustomChrome else { return }
-        state.window?.toggleTabBar(sender)
+        let shown = !state.normalTabBarShown
+        for window in state.window?.tabGroup?.windows ?? [state.window].compactMap({ $0 }) {
+            (window.delegate as? ReaderCloseGuard)?.state?.tabBarShown = shown
+        }
     }
     func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) { emailService = nil }
     func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
@@ -377,7 +395,9 @@ final class ReaderCloseGuard: NSResponder, NSWindowDelegate, NSUserInterfaceVali
     }
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(newWindowForTab(_:)) { return ReaderMenuCommand.newTab.enabled(state) }
-        if item.action == #selector(toggleTabBar(_:)) { return state?.window != nil && state?.usesCustomChrome == false }
+        if item.action == #selector(toggleTabBar(_:)) {
+            return state?.window != nil && state?.usesCustomChrome == false && state?.tabCount == 1
+        }
         if item.action == #selector(copy(_:)) { return ReaderMenuCommand.copy.enabled(state) }
         if item.action == #selector(selectAll(_:)) { return ReaderMenuCommand.selectAll.enabled(state) }
         return (previous as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item) ?? true
@@ -663,7 +683,10 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
         defer { routingNativeTabMenu = false }
         let closeGuard = window?.delegate as? ReaderCloseGuard
         item.target = closeGuard
-        if let closeGuard { item.isEnabled = closeGuard.validateUserInterfaceItem(item) }
+        if let closeGuard {
+            item.title = closeGuard.state?.normalTabBarShown == true ? L("Hide Tab Bar") : L("Show Tab Bar")
+            item.isEnabled = closeGuard.validateUserInterfaceItem(item)
+        }
     }
 
     func handleReaderEvent(_ event: NSEvent) -> NSEvent? {

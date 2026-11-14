@@ -93,7 +93,7 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         }
     }
 
-    func testAlwaysHiddenTabbedToolbarLeavesOnlyHoveredTrafficLightsAndRestoresNativeAccessories() async throws {
+    func testAlwaysHiddenTabbedToolbarLeavesOnlyHoveredTrafficLightsAndPreservesSharedCaptions() async throws {
         _ = NSApplication.shared
         let directory = try TemporaryDirectory()
         let states = try (0..<2).map { index in
@@ -120,10 +120,19 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         let state = states[0], window = windows[0]
         window.addTabbedWindow(windows[1], ordered: .above)
         var group = try XCTUnwrap(window.tabGroup)
+        for state in states { state.tabCount = group.windows.count }
+        let closeGuards = zip(windows, states).map { window, state in
+            let closeGuard = ReaderCloseGuard(state: state, previous: window.delegate)
+            window.delegate = closeGuard
+            return closeGuard
+        }
         group.selectedWindow = window; window.orderBack(nil)
         defer {
             for state in states { state.windowClosed() }
-            for window in windows { window.contentViewController = nil; window.orderOut(nil); window.close() }
+            for (window, closeGuard) in zip(windows, closeGuards) {
+                window.delegate = closeGuard.previous
+                window.contentViewController = nil; window.orderOut(nil); window.close()
+            }
             withExtendedLifetime(directory) {}
         }
         func settle() async throws {
@@ -139,10 +148,11 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         let content = try XCTUnwrap(window.contentView), root = try XCTUnwrap(content.superview)
         let observer = try XCTUnwrap(chromeHost(in: content))
         observer.reducedMotion = true
-        let accessories = window.titlebarAccessoryViewControllers
+        let accessories = window.titlebarAccessoryViewControllers.filter { !($0 is ReaderNormalTabsAccessory) }
         XCTAssertFalse(accessories.isEmpty, "The fixture must mount AppKit's real native tab accessory")
-        let originalAccessoryHidden = accessories.map(\.isHidden)
-        XCTAssertTrue(accessories.contains { !$0.isHidden && !$0.view.visibleRect.isEmpty })
+        XCTAssertTrue(accessories.allSatisfy { $0.isHidden && $0.view.visibleRect.isEmpty },
+            "Shared captions replace native accessory layout even with Always Show")
+        XCTAssertTrue(state.normalTabBarShown)
         let proxy = try XCTUnwrap(window.standardWindowButton(.documentIconButton), "The real represented document must mount its native proxy")
         let titlebar = try XCTUnwrap(window.standardWindowButton(.closeButton)?.superview)
         let headerPoint = NSPoint(x: window.frame.width * 0.8, y: window.frame.height - 20)
@@ -208,7 +218,8 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         for state in states { state.toolbarDisplayMode = .shown }
         try await settle()
         observer.updateChrome(revealingNativeControls: false)
-        for (accessory, hidden) in zip(accessories, originalAccessoryHidden) { XCTAssertEqual(accessory.isHidden, hidden) }
+        XCTAssertTrue(accessories.allSatisfy(\.isHidden), "Restoring tools must retain shared ownership of captions")
+        XCTAssertTrue(state.normalTabBarShown)
         XCTAssertEqual(proxy.isHidden, originalProxyHidden)
         XCTAssertEqual(proxy.alphaValue, originalProxyAlpha)
         XCTAssertEqual(proxy.action, proxyAction); XCTAssertTrue(proxy.target === proxyTarget)
@@ -216,26 +227,31 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         XCTAssertEqual(window.frame, frame)
         XCTAssertEqual(try XCTUnwrap(state.readerScrollView).convert(scroll.bounds, to: nil), shownViewport,
             "Restoring the shown toolbar restores its existing reading geometry")
-        // AppKit permits hiding the tab bar when only one tab remains.
+        // The shared strip's explicit single-tab choice survives toolbar mode
+        // switches without changing AppKit's underlying document membership.
         group.removeWindow(windows[1])
+        for state in states { state.tabCount = 1 }
         try await settle()
-        if !group.isTabBarVisible { window.toggleTabBar(nil); try await settle() }
-        XCTAssertTrue(group.isTabBarVisible, "The single-tab public action needs a shown native tab bar")
-        window.toggleTabBar(nil)
+        XCTAssertFalse(state.normalTabBarShown)
+        closeGuards[0].toggleTabBar(nil)
         try await settle()
-        XCTAssertFalse(group.isTabBarVisible, "The public native action must hide the single-tab bar")
+        XCTAssertTrue(state.normalTabBarShown)
+        closeGuards[0].toggleTabBar(nil)
+        try await settle()
+        XCTAssertFalse(state.normalTabBarShown, "The routed action hides the single shared caption")
         observer.updateChrome(revealingNativeControls: false)
-        XCTAssertFalse(group.isTabBarVisible, "Shown chrome must respect the user's native Hide Tab Bar action")
+        XCTAssertTrue(window.titlebarAccessoryViewControllers.allSatisfy(\.isHidden))
         state.toolbarDisplayMode = .hidden
         try await settle()
         state.toolbarDisplayMode = .shown
         try await settle()
-        XCTAssertFalse(group.isTabBarVisible, "Leaving Always Hide restores a user-hidden native tab bar")
-        window.toggleTabBar(nil)
+        XCTAssertFalse(state.normalTabBarShown, "Leaving Always Hide preserves the single-caption choice")
+        closeGuards[0].toggleTabBar(nil)
         try await settle()
-        XCTAssertTrue(group.isTabBarVisible)
+        XCTAssertTrue(state.normalTabBarShown)
         window.addTabbedWindow(windows[1], ordered: .above)
         group = try XCTUnwrap(window.tabGroup)
+        for state in states { state.tabCount = group.windows.count }
         group.selectedWindow = window
         try await settle()
         XCTAssertEqual(group.windows.map(\.windowNumber), tabOrder)
@@ -246,12 +262,12 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         let selectedContent = try XCTUnwrap(windows[1].contentView)
         let selectedObserver = try XCTUnwrap(chromeHost(in: selectedContent))
         selectedObserver.reducedMotion = true; selectedObserver.updateChrome(revealingNativeControls: false)
-        let selectedAccessories = windows[1].titlebarAccessoryViewControllers
+        let selectedAccessories = windows[1].titlebarAccessoryViewControllers.filter { !($0 is ReaderNormalTabsAccessory) }
         XCTAssertFalse(selectedAccessories.isEmpty)
-        XCTAssertTrue(selectedAccessories.allSatisfy { !$0.isHidden }, "The selected Shown reader restores native accessories")
+        XCTAssertTrue(states[1].normalTabBarShown)
+        XCTAssertTrue(selectedAccessories.allSatisfy(\.isHidden), "The selected reader keeps native captions collapsed")
         observer.detach()
-        XCTAssertTrue(selectedAccessories.allSatisfy { !$0.isHidden }, "Inactive-owner teardown must not hide the selected reader")
-        for (accessory, hidden) in zip(accessories, originalAccessoryHidden) { XCTAssertEqual(accessory.isHidden, hidden) }
+        XCTAssertTrue(selectedAccessories.allSatisfy(\.isHidden), "Inactive-owner teardown must not restore native captions over the selected reader")
         XCTAssertEqual(proxy.isHidden, originalProxyHidden)
         XCTAssertEqual(proxy.action, proxyAction); XCTAssertTrue(proxy.target === proxyTarget)
         XCTAssertEqual(group.windows.map(\.windowNumber), tabOrder)
