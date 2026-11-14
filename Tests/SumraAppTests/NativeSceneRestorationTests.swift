@@ -220,6 +220,116 @@ final class NativeSceneRestorationTests: XCTestCase {
         XCTAssertEqual(background.generation, 0)
     }
 
+    func testLegacyNativeIdentitiesArrivingAfterRestorationReplaceTheUnrelatedSavedSession() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let url = try fixture.document("late-legacy.txt")
+        let identifier = "Late-Legacy-Identity-" + UUID().uuidString
+        var saved = [WindowPayload(path: url.path, position: ReadingPosition(page: 0, zoom: 1.7)),
+                     WindowPayload(path: url.path, position: ReadingPosition(page: 0, zoom: 1.5))]
+        for index in saved.indices { saved[index].tabIdentifier = identifier }
+        saved[1].selected = true
+        saved[1].active = true
+        SumraApp.restoring = ReaderWindows.prepareRestoration(saved)
+        ReaderWindows.isRestoringNativeWindows = true
+        fixture.application.applicationWillFinishLaunching(
+            Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApp))
+        let first = fixture.mount(SumraApp.defaultWindowPayload())
+        let second = fixture.mount(SumraApp.defaultWindowPayload())
+        try await fixture.waitUntil("The provisional legacy scene delegates did not attach") {
+            first.state != nil && second.state != nil
+        }
+        await Task.yield()
+        for scene in [first, second] {
+            XCTAssertNil(scene.state?.document)
+            XCTAssertEqual(scene.state?.generation, 0)
+        }
+        first.window.addTabbedWindow(second.window, ordered: .above)
+        let group = try XCTUnwrap(first.window.tabGroup)
+        XCTAssertEqual(group.windows, [first.window, second.window])
+        var opened = [WindowPayload]()
+        fixture.application.installWindowOpener { opened.append($0) }
+        fixture.application.finishLaunching()
+        await Task.yield()
+        XCTAssertTrue(opened.isEmpty)
+
+        // Old releases saved UUIDs unrelated to either real native scene.
+        // Both native values arrive after the system's completion notification.
+        var native = [WindowPayload(path: url.path, position: ReadingPosition(page: 0, zoom: 1.1)),
+                      WindowPayload(path: url.path, position: ReadingPosition(page: 0, zoom: 1.2))]
+        for index in native.indices { native[index].tabIdentifier = identifier }
+        native = try JSONDecoder().decode([WindowPayload].self, from: JSONEncoder().encode(native))
+        XCTAssertTrue(native.allSatisfy { !$0.restoring })
+        XCTAssertTrue(Set(native.map(\.id)).isDisjoint(with: Set(saved.map(\.id))))
+        NotificationCenter.default.post(name: NSApplication.didFinishRestoringWindowsNotification, object: NSApp)
+        first.payload.value = native[0]
+        second.payload.value = native[1]
+        first.host.layoutSubtreeIfNeeded()
+        second.host.layoutSubtreeIfNeeded()
+        try await fixture.waitUntil("Late legacy scene identities left the unrelated application session pending") {
+            !ReaderWindows.isRestoringWindows &&
+                (first.window.delegate as? ReaderCloseGuard)?.restorationID == native[0].id &&
+                (second.window.delegate as? ReaderCloseGuard)?.restorationID == native[1].id &&
+                first.state?.document?.url == url && first.state?.busy == false &&
+                second.state?.document?.url == url && second.state?.busy == false
+        }
+        XCTAssertTrue(opened.isEmpty, "Late legacy scenes must not duplicate windows from the unrelated saved session")
+        XCTAssertTrue(SumraApp.restoring.isEmpty)
+        XCTAssertEqual(first.payload.value.id, native[0].id)
+        XCTAssertEqual(second.payload.value.id, native[1].id)
+        XCTAssertEqual(first.state?.zoom, 1.1)
+        XCTAssertEqual(second.state?.zoom, 1.2)
+        XCTAssertEqual(group.windows, [first.window, second.window])
+        XCTAssertTrue(first.state?.window === first.window)
+        XCTAssertTrue(second.state?.window === second.window)
+    }
+
+    func testOrdinaryWindowAfterStartupPreservesLaterManualTabRestoration() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        ReaderWindows.isRestoringNativeWindows = true
+        fixture.application.applicationWillFinishLaunching(
+            Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApp))
+        NotificationCenter.default.post(name: NSApplication.didFinishRestoringWindowsNotification, object: NSApp)
+        XCTAssertFalse(ReaderWindows.isRestoringNativeWindows)
+        XCTAssertFalse(ReaderWindows.isRestoringWindows)
+
+        let urls = try ["manual-background.txt", "manual-active.txt"].map(fixture.document)
+        let identifier = "Manual-Restore-" + UUID().uuidString
+        var saved = urls.map { WindowPayload(path: $0.path, position: ReadingPosition(page: 0, zoom: 1.6)) }
+        for index in saved.indices { saved[index].tabIdentifier = identifier }
+        saved[1].selected = true
+        saved[1].active = true
+        let requests = ReaderWindows.prepareRestoration(saved)
+        XCTAssertTrue(SumraApp.restoring.isEmpty, "Manual restoration is independent of the startup plan")
+
+        let ordinaryURL = try fixture.document("ordinary-after-startup.txt")
+        var ordinaryPayload = WindowPayload(path: ordinaryURL.path)
+        ordinaryPayload.tabIdentifier = "Ordinary-" + UUID().uuidString
+        let ordinary = fixture.mount(ordinaryPayload)
+        try await fixture.waitUntil("The ordinary post-startup document did not load") {
+            ordinary.state?.document?.url == ordinaryURL && ordinary.state?.busy == false
+        }
+        XCTAssertTrue(ReaderWindows.isRestoringWindows,
+                      "A later ordinary scene must not discard a manual tab-restoration queue")
+        for request in requests {
+            XCTAssertEqual(ReaderWindows.pendingRestoration(for: request.id)?.id, request.id)
+        }
+
+        let active = fixture.mount(requests[0])
+        let background = fixture.mount(requests[1])
+        try await fixture.waitUntil("The manual tab group did not finish restoring after an ordinary window opened") {
+            !ReaderWindows.isRestoringWindows && active.state?.document?.url == urls[1] && active.state?.busy == false &&
+                active.window.tabGroup?.windows == [background.window, active.window]
+        }
+        XCTAssertTrue(active.window.tabGroup?.selectedWindow === active.window)
+        XCTAssertEqual(active.state?.zoom, 1.6)
+        XCTAssertNil(background.state?.document)
+        XCTAssertEqual(background.state?.generation, 0)
+        XCTAssertEqual(ordinary.state?.document?.url, ordinaryURL)
+        XCTAssertEqual(ordinary.window.tabGroup?.windows ?? [ordinary.window], [ordinary.window])
+    }
+
     func testDefaultWindowRequestsIssueSavedIdentitiesOnceAndPreserveTheRestorationPlan() {
         let restoring = SumraApp.restoring
         defer { SumraApp.restoring = restoring }

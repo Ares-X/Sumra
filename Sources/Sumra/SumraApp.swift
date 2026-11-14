@@ -470,13 +470,21 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     }
 
     func recordStartupScene(_ payload: WindowPayload) {
-        guard !hasFinishedRestoringWindows else { return }
-        startupSceneIDs.insert(payload.id)
+        if !hasFinishedRestoringWindows { startupSceneIDs.insert(payload.id) }
         // Older releases saved unrelated session UUIDs. Keep those actual
         // native readers instead of guessing which duplicate file they represent.
-        if payload.path != nil, !payload.restoring, ReaderWindows.pendingRestoration(for: payload.id) == nil {
-            nativeSessionTakesPrecedence = true
-        }
+        // SwiftUI can deliver the decoded value after AppKit's completion event.
+        guard ReaderWindows.isRestoringWindows, payload.path != nil, !payload.restoring,
+              ReaderWindows.pendingRestoration(for: payload.id) == nil,
+              !hasFinishedRestoringWindows || startupSceneIDs.contains(where: { ReaderWindows.pendingRestoration(for: $0) != nil })
+        else { return }
+        nativeSessionTakesPrecedence = true
+        if hasFinishedRestoringWindows { keepNativeSession() }
+    }
+
+    private func keepNativeSession() {
+        _ = ReaderWindows.prepareRestoration([])
+        SumraApp.restoring = []
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -486,10 +494,7 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
 
     @objc private func finishedRestoringWindows() {
         hasFinishedRestoringWindows = true
-        if nativeSessionTakesPrecedence {
-            ReaderWindows.keepRestorationScenes(startupSceneIDs)
-            SumraApp.restoring = []
-        }
+        if nativeSessionTakesPrecedence { keepNativeSession() }
         ReaderWindows.finishNativeRestoration()
         restorePendingSession()
         openPendingFiles()
@@ -847,9 +852,6 @@ enum ReaderWindows {
     }
     static func pendingRestoration(for id: UUID) -> WindowPayload? {
         restorationPayloads.first { $0.id == id }
-    }
-    static func keepRestorationScenes(_ ids: Set<UUID>) {
-        restorationPayloads.removeAll { !ids.contains($0.id) }
     }
     static var isTerminating = false
     static var states: [ReaderState] { NSApp.windows.compactMap { ($0.delegate as? ReaderCloseGuard)?.state } }

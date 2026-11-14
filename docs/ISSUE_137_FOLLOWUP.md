@@ -55,8 +55,8 @@ match the latest application snapshot.
 `NativeSceneRestorationTests` covers stable saved identity/current position,
 latest metadata after decoding, dormant background documents, the native
 completion boundary, unique default allocations, an allocated-but-unmounted
-request, old unrelated IDs, callback order, Finder handoff and the late binding
-replacement through the product `ReaderScene`. Its windows are real AppKit
+request, old unrelated IDs, callback order, Finder handoff, late binding replacement through the product
+`ReaderScene`, late legacy identities, and later manual tab-group restoration. Its windows are real AppKit
 windows, kept offscreen; it does not synthesize fullscreen or claim Space
 acceptance.
 
@@ -64,8 +64,8 @@ acceptance.
 - A controlled rollback of default allocation and native-placement timing failed
   the corresponding new checks.
 - Removing only `ReaderScene`'s identity key failed the late-binding regression.
-- The final local source passed 22 focused scene, session, native Host, Home batch,
-  opening-presentation and closed-scene tests with isolated preferences and
+- The final local source passed 79 focused scene, session, lifecycle, Finder/opening,
+  native Host, Home batch, opening-presentation and closed-scene tests with isolated preferences and
   pasteboard handling. Earlier startup/Finder/opening checks also passed; their
   receipts retain their separate source snapshots.
 
@@ -79,10 +79,31 @@ restoration exception was absent from this replay. The task-only saved session
 was restored from its retained pre-failure fixture before this comparison; native
 window state was kept, and the failed candidate's logs were retained.
 
+A further controlled upgrade replay kept the guest's three actual native windows
+and changed only the task application's saved UUIDs to the old release's random
+UUID pattern. The pre-fix log shows native completion, then decoded unrelated IDs,
+then three ready callbacks with `pending=true`; the new late-legacy regression
+fails on that source. The corrected log switches to the actual native session
+when the first decoded identity arrives, and all three ready callbacks report
+`pending=false`, without reopening the unrelated saved session. The first native
+Duplicate then produces four visible tabs and Mission Control still shows only
+Desktop plus one occupied Sumra Space. After setting the selected copy to page 4,
+a normal quit saves four actual scene IDs with no legacy UUID remaining; the next
+fullscreen launch completes all four scenes and displays page 4. Cached legacy
+positions are preserved rather than guessed from a different duplicate's saved
+UUID. This replay is not a claim that all old cached positions are current.
+
+The legacy handoff is limited to the initial startup session. A separate failing
+regression showed that an overly broad late-identity handoff could discard a
+later user-requested tab-group restoration; the final source preserves that
+independent queue and completes it normally. These two additional failure
+receipts are `tests-late-legacy-baseline` and `tests-later-manual-baseline`; the
+79-test passing receipt is `tests-restoration-complete`.
+
 This bundle is ad hoc signed and uses local SDK 27 compilation with a 15.5 main
-executable load-command stamp. Formal signed-package acceptance and publication
-are separate pending steps. No issue closure or reporter reply follows from the
-diagnostic result. The reporter's macOS 15.7.5 and #96 Finder key routing remain
+executable load-command stamp. The diagnostic result alone does not establish formal
+signed-package acceptance or publication. No issue closure or reporter reply
+follows from the diagnostic result. The reporter's macOS 15.7.5 and #96 Finder key routing remain
 unconfirmed, and #137 and #96 remain open.
 
 ## Original trigger recheck: inspect grouping before Duplicate
