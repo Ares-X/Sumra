@@ -1,47 +1,63 @@
 # Issue 137 and related reader follow-up
 
-## Approved native close boundary: 0.2.44 follow-up
+## Approved native close and restoration boundaries: 0.2.44 follow-up
 
-Status: the new close regression is fixed locally, with formal signed-package
-acceptance pending. Evidence is retained under `build/issue137-remaining44`.
-The existing macOS 26.6.2 VM is the only permitted acceptance environment;
-no additional macOS 15 VM is created.
+Status: the close and startup-restoration corrections pass local checks;
+replacement signed-package acceptance and final in-app update installation are
+pending. The earlier signed candidate from workflow
+[43631132729](https://github.com/Ares-X/Sumra/actions/runs/43631132729)
+is not accepted or published. Evidence is retained under
+`build/issue137-remaining44`. GUI comparisons use only the existing macOS 26.6.2
+VM, with a separate local app identity and 15.5 SDK stamp; they do not establish
+behavior on the reporter's macOS 15 or acceptance of the final signed bytes.
 
-The exact published 0.2.43 executable crashed when closing the middle EPUB
-of a normal Auto Hide fullscreen group containing PDF / EPUB / PDF. Its
-`Sumra-2026-11-15-021201.ips` identifies the signed executable UUID and enters
+The published 0.2.43 executable crashed when closing the middle EPUB of a
+normal Auto Hide fullscreen PDF / EPUB / PDF group. The crash enters
 AttributeGraph through `NSHostingView.layout` while AppKit removes a native
-tab's titlebar accessory. The earlier `windowWillClose` retirement happened
-after this native layout had already begun.
+tab's titlebar accessory, before `windowWillClose`. `ReaderCloseGuard` now
+retires that reader's toolbar host after save/document confirmation,
+previous-delegate approval and document-generation validation, before approving
+native close or entering app-owned close. Cancellation preserves the same host
+and accessory. Document invalidation and group removal keep their existing owners.
+Two mounted three-window regressions fail on the original source and pass on
+the correction. The affected close, toolbar, native-tab and lifecycle checks
+passed 95 tests with one platform skip; the retained first attempt failed to
+load MuPDF and is an infrastructure failure, not a regression result.
 
-`ReaderCloseGuard` now retires that reader's toolbar host after save/document
-confirmation, previous-delegate approval and document-generation validation,
-before returning approval to AppKit or entering the app-owned native close.
-Cancellation preserves the same host and accessory. Document invalidation and
-native group removal retain their existing owners.
+Startup exposed a separate failure: with Restore Session disabled and the
+existing native restoration archive intact, AppKit still attempted two saved
+readers, raised an array-range exception and left the old-source process at
+100% CPU. `SumraMain` now creates `ReaderAppKitApplication.shared` before
+SwiftUI starts. Its public AppKit restoration override completes each request
+with no window or error when Restore Session is disabled, without decoding the
+saved state; enabled restoration delegates directly to AppKit. The fresh-host
+regression checks three requests, each handled and completed exactly once with
+no state reads. The additional focused run passed 17 tests with no skips.
 
-Two new tests use three real native tabbed windows, real PDF documents and
-mounted normal caption accessories. They check the boundary before the real
-`NSWindow.close()`, the surviving documents/hosts, native delegate approval,
-and cancellation through the actual alert. Both fail with the original
-product source and pass with this correction. The affected local close,
-toolbar, native-tab and lifecycle checks passed 95 tests with one platform
-skip. The first baseline attempt failed to load MuPDF; it is retained as an
-infrastructure failure and is not the reported failing regression run.
+Using the same retained archive, the corrected local app skipped both unwanted
+native requests and opened the external PDF in one healthy reader. Actual
+Settings input enabled Restore Session; GUI Quit exited normally and saved two
+documents, and relaunch restored the PDF and EPUB in the same two-tab group.
+The combined local app also passed fullscreen three-tab hover reveal/hide,
+closing the middle EPUB with Cmd+W, duplicating the first PDF at page 180 and
+closing that copy while both original PDF readers survived. Actual fullscreen
+Quit exited normally (status 0); relaunch restored the same two PDF tabs,
+fullscreen placement and page 180. Mission Control showed the Desktop and one
+occupied reader Space. These local checks do not replace signed-package acceptance.
 
-The local corrected app passed the same fullscreen three-tab middle-close
-sequence, duplicated page 180 with its position intact, closed that duplicate,
-and quit from fullscreen with an observed normal exit code of zero. This
-comparison uses a diagnostic local app identity and is not final signed-byte
-acceptance. No general claim about every fullscreen crash follows.
+The black-Space cause remains unknown. The first signed candidate showed a
+black Space with two readers on the Desktop after native restoration errors,
+but there was no prelaunch Mission Control baseline establishing when that
+Space was created. Controlled first Duplicate and New Tab comparisons on the
+same PDF at page 180 both grouped successfully during native first ordering and
+neither produced a black Space. No automatic-tabbing policy change is shipped,
+and this does not resolve #148.
 
-The remaining black-Space report is still unconfirmed on this VM. Native
-policy controls show that explicit grouping works with automatic tabbing
-disabled, including a single occupied fullscreen Space; they do not establish
-the reporter's cause. No speculative automatic-tabbing change is shipped.
-Quick Look keyboard input and final in-app update installation remain separate
-acceptance boundaries. Issues #137, #148 and #96 stay open, without a reporter
-reply.
+Real Quick Look public-host input accepted Left/Right, while Sumra's preview
+field and a minimal native extension's text field/text view received no tested
+text. Finder's returned file-selection input is not editable-field evidence.
+There is no Quick Look product change or established platform-defect claim.
+Issues #137, #148 and #96 remain open; no reporter reply is part of this delivery.
 
 ## Adaptive tabs and resumed image spreads: 0.2.43 follow-up
 
