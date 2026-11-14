@@ -1,5 +1,151 @@
 # Issue 137 and related reader follow-up
 
+## Original trigger recheck: inspect grouping before Duplicate
+
+The original first movie is more specific than a generic fullscreen Duplicate
+test. It starts with a fullscreen Home and an Open Document panel selecting
+CBR, CBZ, AZW3, EPUB, FB2 and MOBI. After opening the batch, the last MOBI is
+selected; the user then selects the first CBR and invokes Tabs → Duplicate in
+New Tab. The second movie uses the native tab-bar plus and tab-overview plus.
+
+Three original frames are important: at 7.2 s all six tabs are visible; at
+8.95 s the CBR is visible with the Duplicate menu open but no native tab bar;
+at 12.7 s the bar contains only two CBR tabs, not seven. A black transition
+already occurs when selecting the first CBR, before Duplicate. This suggests
+the reused first window may already have separated from its original group;
+the frames alone do not prove native membership or the exact input gesture.
+These are 0.2.36 observations, not a demonstrated 0.2.41 root cause.
+
+The latest reporter's phrase about starting a session with Duplicate before
+New Tab does not establish a cold single-file launch or a saved-session
+restoration. The later cold replay below used an external file request and
+`route-create`, not the original fullscreen Home's `route-reuse`. Earlier
+release acceptance did cover the Home batch shape; those successful replays
+do not explain the original six → single-window → two-tab sequence.
+
+A further released-0.2.41 replay on the existing macOS 26.6.2 guest started a
+fresh process at Home, entered fullscreen before opening any document, then
+used the actual Open Document panel for the six files. The log confirms Home
+window 8389 was reused and remained the parent of the other five windows.
+CUA selected the first CBR with all six tabs still visible. Native menu action
+then created window 8459 beside 8389 with group count seven; the duplicate
+rendered page 1/11. Immediate Mission Control showed Desktop plus one Sumra
+Space. Coordinate attempts that did not change selection or create a scene
+are excluded; the successful Duplicate used the native accessibility menu
+action, not a verified physical menu-item click. Evidence is under
+`build/issue137-trigger-review`.
+
+### Native owner trace of Home reuse, first CBR and first Duplicate
+
+A subsequent diagnostic replay from `7727ee3` records the native group,
+membership, selection, window/style/Space state, mounted Host state and close
+guard state. It also logs the Home predicate and both sides of the actual
+`removeWindow` call in `ReaderCloseGuard.updateTabbingPolicy`. The logging is a
+local source overlay; no proposed product fix is present.
+
+The existing macOS 26.6.2 guest again starts at fullscreen Home, opens the six
+format-sampler files through the actual file panel and performs Duplicate before
+New Tab. The trace establishes:
+
+- Home window 8502 is reused for CBR. Its original `ReaderState` identity remains
+  `0x8191ba800`; the mounted Host and close guard refer to that same state.
+- Before the first child attaches, the parent's busy state makes Home false and
+  its native mode becomes preferred. All six windows subsequently share group
+  `0x817c56ee0`, ordered `[8502, 8566, 8564, 8562, 8560, 8558]`.
+- Native Previous Tab selects the original CBR 8502. Its loaded document,
+  opening path and state identity remain present, Home remains false, and the
+  group retains all six windows. No policy removal is recorded.
+- The first Duplicate command targets CBR 8502 and adds 8574 to that same group.
+  The duplicate renders page 1/11 and all seven tabs remain visible. Mission
+  Control shows Desktop and exactly one occupied Sumra Space.
+- A later actual CUA click on the original first CBR selects 8502 in the same
+  seven-window group, still with the original state and Home false. A physical
+  menu-item attempt produces no Duplicate event or additional scene; that
+  attempt is excluded from command acceptance. The successful first Duplicate
+  above uses the native accessibility menu action.
+
+The recorded successful path therefore does **not** support misclassification
+of the first loaded CBR as Home. It does not rule out a different failing path
+on the reporter's system. Long diagnostic `all` fields are truncated by unified
+logging; each event's target fields remain complete. Evidence under
+`build/issue137-group-trace` includes the overlay recipe, compact target log,
+unmodified raw logs, action receipts, guest screenshots and build identity.
+The diagnostic is ad hoc signed, compiled with the local SDK 27 headers, and
+has its main executable's SDK load-command stamp aligned to the release's
+15.5. This is neither SDK 15 compilation nor macOS 15 runtime acceptance. The
+separate signed 0.2.41 replay above remains the released-byte boundary.
+
+`NativeHomeDocumentTabLifecycleTests` mounts the real `ReaderWindow`, opens and
+parses all six fixture documents, checks the reused Home's scene binding,
+selects MOBI then CBR through native activation notifications, and duplicates
+CBR. It checks all original document/state identities, Host/delegate ownership
+and six-to-seven group membership. It passes under isolated preferences and
+pasteboard handling with unchanged fixture bytes. Its offscreen windows do not
+exercise fullscreen or Spaces. Removing only the already-released parent-policy
+refresh also passes this test; it is loading/lifecycle coverage, not a test
+that reproduces the outstanding failure. Receipts are in
+`tests-home-lifecycle-actor` and `tests-home-lifecycle-old-parent` under that
+evidence directory.
+
+Historical source comparison identifies two relevant changes since the 0.2.36
+movie: `c928c9a` refreshes the reused Home's policy before native child placement,
+and `11ced36` adds the ready-time selection shared by ordinary batch opening and
+Duplicate. The old movie exercises earlier placement/selection code. Neither
+change proves the cause of the movie's separation, nor resolves the latest
+report by inference. The Home predicate and its remove-group behavior are
+unchanged. No verified new correction, merge, release or issue closure follows
+from this trace. An actual current-version failing trace remains necessary.
+
+The task reader and its registrations/files were removed after verifying no
+consumers. The guest's original 23 preference keys and values were restored
+exactly, including deletion of five task-added keys; shared Peekaboo and the
+pre-existing thumbnail process were preserved. The existing VM was returned to
+its initial suspended state. Preference equality and cleanup receipts are kept
+with the evidence; preference values are not part of this document.
+
+## 0.2.41 reporter follow-up: cold Duplicate remains unresolved
+
+The [reporter's latest reply](https://github.com/Ares-X/Sumra/issues/137#issuecomment-6854819937)
+confirms that floating fullscreen clipping is fixed and New Tab returns to the
+occupied fullscreen Space. Duplicate in New Tab still often leaves a black
+Space on the reporter's macOS 15, especially when it is the session's first
+tab-creation operation. Ordinary native tab widths also still wait for pointer
+exit. Neither remaining report is resolved by the earlier acceptance below.
+
+The existing macOS 26.6.2 guest was used again; no additional VM was created.
+Released 0.2.41 and behavior-neutral diagnostic builds from `7727ee3` were
+checked with the latest supplied CBZ. The diagnostic adds lifecycle logging
+only; it does not contain a proposed product correction.
+
+- Cold normal-toolbar fullscreen, first operation Duplicate: the menu command
+  ran, the duplicate joined and selected in the existing group, and Mission
+  Control showed Desktop plus one Sumra Space.
+- Cold floating Auto Hide fullscreen, first operation Duplicate: the duplicate
+  remained visible in the existing fullscreen group. Its readiness log reports
+  the selected duplicate on the active Space. No separate Mission Control
+  observation was captured for this case.
+- A cold session restored with CBZ and EPUB, followed by fullscreen entry and
+  first operation Duplicate: all three windows remained in the original group,
+  with the duplicate selected and on the active Space. This fixture restored
+  documents, not a previously fullscreen macOS scene. Mission Control after
+  subsequently exiting fullscreen showed only Desktop; that observation is not
+  a screenshot of the immediate post-duplicate fullscreen state.
+
+The menu-boundary trace disproves one suspected ordering problem on this guest:
+`NSMenuDidEndTrackingNotification` precedes the Duplicate command and native
+placement; the queued ready callback follows `NSMenuDidSendActionNotification`.
+The last mouse event's type alone did not establish menu tracking. No speculative
+delay, focus retry, cursor movement or private AppKit call was added.
+
+Evidence is under `build/issue137-cold`: command-delivery receipts, lifecycle
+logs, the diagnostic source overlay and scoped Mission Control captures. A
+failed automation menu click that created no scene is excluded from acceptance.
+The black-Space failure was **not reproduced** on macOS 26.6.2, so there is no
+verified new fix, release or issue closure. First match the original window
+source, reuse and command order, then trace the entire group's changes before
+Duplicate. An affected macOS 15 trace can distinguish remaining system/settings
+differences; successful newer-system replays alone do not establish the cause.
+
 ## Remaining interaction batch after 0.2.40 (0.2.41 candidate)
 
 The [new reporter reply](https://github.com/Ares-X/Sumra/issues/137#issuecomment-6850185850)
