@@ -138,11 +138,12 @@ struct ReaderToolbarAppearance: ViewModifier {
         private var originalButtonAppearance: [NSWindow.ButtonType: (button: NSButton, hidden: Bool)] = [:]
         private weak var toolbarWindow: NSWindow?
         private weak var toolbarContent: NSView?
-        private var originalToolbarChrome: (contentAlpha: CGFloat, ignoresMouse: Bool, background: NSColor, opaque: Bool, shadow: Bool)?
+        private var originalToolbarChrome: (contentAlpha: CGFloat, ignoresMouse: Bool, background: NSColor, opaque: Bool,
+                                            shadow: Bool, separator: NSTitlebarSeparatorStyle)?
         private var toolbarOpacity: CGFloat?
         private weak var nativeControlsContainer: NSView?
         private var titlebarViews: [(view: NSView, alpha: CGFloat, hidden: Bool, layered: Bool, background: CGColor?,
-                                     accessory: (controller: NSTitlebarAccessoryViewController, originalHidden: Bool?)?)] = []
+                                     accessory: (controller: NSTitlebarAccessoryViewController, originalHidden: Bool?, originalMinimum: CGFloat?)?)] = []
         private var documentTabsAccessory: ReaderNormalTabsAccessory?
         private var normalTabInputOrder: (branch: NSView, content: NSView, following: [NSView])?
         private var accessoryOpacity: CGFloat?
@@ -524,6 +525,14 @@ struct ReaderToolbarAppearance: ViewModifier {
                 "readerHidden": readerHidden,
                 "readerOpacity": Double(readerOpacity),
                 "companionPresent": toolbarWindow != nil,
+                "companionHasShadow": toolbarWindow?.hasShadow as Any? ?? NSNull(),
+                "companionSeparator": toolbarWindow?.titlebarSeparatorStyle.rawValue as Any? ?? NSNull(),
+                "companionFrame": toolbarWindow.map { NSStringFromRect($0.frame) } ?? "none",
+                "titlebarAccessories": parent.titlebarAccessoryViewControllers.map { accessory in
+                    ["customTabs": accessory is ReaderNormalTabsAccessory, "hidden": accessory.isHidden,
+                     "minimumFullscreenHeight": accessory.fullScreenMinHeight,
+                     "frame": NSStringFromRect(accessory.view.frame)] as [String: Any]
+                },
                 "nativeButtonCount": originalButtonAppearance.count,
                 "reservedNativeHeight": Double(reservedNativeHeight),
                 "reservedMenuHeight": Double(reservedMenuHeight)
@@ -634,13 +643,18 @@ struct ReaderToolbarAppearance: ViewModifier {
                 entry.view.isHidden = entry.hidden
                 entry.view.layer?.backgroundColor = entry.background
                 entry.view.wantsLayer = entry.layered
-                if let accessory = entry.accessory, let hidden = accessory.originalHidden { accessory.controller.isHidden = hidden }
+                if let accessory = entry.accessory, let hidden = accessory.originalHidden, let minimum = accessory.originalMinimum {
+                    accessory.controller.fullScreenMinHeight = minimum
+                    accessory.controller.isHidden = hidden
+                }
                 Self.chromeOwners.removeObject(forKey: entry.view)
             }
             titlebarViews.removeAll { entry in !views.contains { $0 === entry.view } }
             var added = false
             for view in views where Self.chromeOwners.object(forKey: view) !== self {
-                let accessory = accessoryControllers.first { $0.view === view }.map { (controller: $0, originalHidden: nil as Bool?) }
+                let accessory = accessoryControllers.first { $0.view === view }.map {
+                    (controller: $0, originalHidden: nil as Bool?, originalMinimum: nil as CGFloat?)
+                }
                 let previous = Self.chromeOwners.object(forKey: view)?.titlebarViews.first { $0.view === view }
                     ?? titlebarViews.first { $0.view === view }
                     ?? (view, view.alphaValue, view.isHidden, view.wantsLayer, view.layer?.backgroundColor, accessory)
@@ -655,14 +669,19 @@ struct ReaderToolbarAppearance: ViewModifier {
                 // AppKit's tab accessory independently of NSToolbar visibility,
                 // including document windows that are still loading.
                 if var accessory = titlebarViews[index].accessory {
-                    if accessory.originalHidden == nil { accessory.originalHidden = accessory.controller.isHidden }
+                    if accessory.originalHidden == nil {
+                        accessory.originalHidden = accessory.controller.isHidden
+                        accessory.originalMinimum = accessory.controller.fullScreenMinHeight
+                    }
                     titlebarViews[index].accessory = accessory
+                    if accessory.controller.fullScreenMinHeight != 0 { accessory.controller.fullScreenMinHeight = 0 }
                     if !accessory.controller.isHidden { accessory.controller.isHidden = true }
                 }
                 let entry = titlebarViews[index]
-                // Native tab material must not expose text through the revealed
-                // controls. Paint only the accessory's own public bounds.
-                if accessories.contains(where: { $0 === entry.view }) {
+                // Full-size document content extends behind normal Auto Hide
+                // chrome. Paint both native tools and captions in their own
+                // bounds, including after AppKit installs another tab.
+                if entry.view === toolbar || accessories.contains(where: { $0 === entry.view }) {
                     if !entry.view.wantsLayer { entry.view.wantsLayer = true }
                     if entry.view.layer?.backgroundColor != background { entry.view.layer?.backgroundColor = background }
                 }
@@ -716,19 +735,22 @@ struct ReaderToolbarAppearance: ViewModifier {
                 restoreToolbarWindow()
                 toolbarWindow = detached; toolbarContent = content
                 if let detached, let content {
-                    originalToolbarChrome = previous ?? (content.alphaValue, detached.ignoresMouseEvents, detached.backgroundColor, detached.isOpaque, detached.hasShadow)
+                    originalToolbarChrome = previous ?? (content.alphaValue, detached.ignoresMouseEvents, detached.backgroundColor,
+                                                         detached.isOpaque, detached.hasShadow, detached.titlebarSeparatorStyle)
                     Self.chromeOwners.setObject(self, forKey: content)
                     ReaderWindowDiagnostics.event("chrome.companion.acquired", window: parent,
                                                   fields: ["ownershipTransferred": ownershipChanged])
                 }
             }
             guard let toolbarWindow, let toolbarContent, let originalToolbarChrome else { return }
-            // Hiding only the content leaves the companion's opaque window
-            // backing visible during fullscreen transitions.
-            let transparentBacking = state?.usesCustomChrome == true || state?.toolbarDisplayMode == .hidden || opacity == 0
-            toolbarWindow.backgroundColor = transparentBacking ? .clear : originalToolbarChrome.background
-            toolbarWindow.isOpaque = transparentBacking ? false : originalToolbarChrome.opaque
-            toolbarWindow.hasShadow = transparentBacking ? false : originalToolbarChrome.shadow
+            // The companion's native frame can extend below its toolbar and
+            // accessory content. Its backing and shadow must not paint an
+            // extra band below the tabs as AppKit changes hover presentation.
+            // The actual toolbar and caption views own their opaque surfaces.
+            toolbarWindow.backgroundColor = .clear
+            toolbarWindow.isOpaque = false
+            toolbarWindow.hasShadow = false
+            toolbarWindow.titlebarSeparatorStyle = .none
             let ignoresMouse = opacity == 0 || originalToolbarChrome.ignoresMouse
             if toolbarWindow.ignoresMouseEvents != ignoresMouse { toolbarWindow.ignoresMouseEvents = ignoresMouse }
             if toolbarOpacity != opacity {
@@ -755,6 +777,7 @@ struct ReaderToolbarAppearance: ViewModifier {
                 toolbarWindow.backgroundColor = originalToolbarChrome.background
                 toolbarWindow.isOpaque = originalToolbarChrome.opaque
                 toolbarWindow.hasShadow = originalToolbarChrome.shadow
+                toolbarWindow.titlebarSeparatorStyle = originalToolbarChrome.separator
                 Self.chromeOwners.removeObject(forKey: toolbarContent)
                 ReaderWindowDiagnostics.event("chrome.companion.released", window: parent)
             }
@@ -912,7 +935,10 @@ struct ReaderToolbarAppearance: ViewModifier {
                 entry.view.isHidden = entry.hidden
                 entry.view.layer?.backgroundColor = entry.background
                 entry.view.wantsLayer = entry.layered
-                if let accessory = entry.accessory, let hidden = accessory.originalHidden { accessory.controller.isHidden = hidden }
+                if let accessory = entry.accessory, let hidden = accessory.originalHidden, let minimum = accessory.originalMinimum {
+                    accessory.controller.fullScreenMinHeight = minimum
+                    accessory.controller.isHidden = hidden
+                }
                 Self.chromeOwners.removeObject(forKey: entry.view)
             }
             titlebarViews.removeAll(); nativeControlsContainer = nil

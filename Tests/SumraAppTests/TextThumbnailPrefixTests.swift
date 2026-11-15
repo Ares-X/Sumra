@@ -90,6 +90,42 @@ final class TextThumbnailPrefixTests: XCTestCase {
         XCTAssertNil(UserDefaults.standard.object(forKey: positionKey))
     }
 
+    func testMultiMiBCombiningClustersHaveBoundedPreviewReads() throws {
+        let directory = try TemporaryDirectory()
+        defer { withExtendedLifetime(directory) {} }
+        let marks = Data(String(repeating: "\u{301}", count: 4_096).utf8)
+        // Exercise both a cluster at the start and the last requested Character.
+        for leadingCharacters in [0, 7_999] {
+            let url = directory.url.appendingPathComponent("Combining-\(leadingCharacters).txt")
+            let beginning = String(repeating: "a", count: leadingCharacters) + "e"
+            XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: Data(beginning.utf8)))
+            let output = try FileHandle(forWritingTo: url)
+            try output.seekToEnd()
+            for _ in 0..<640 { try output.write(contentsOf: marks) }
+            try output.write(contentsOf: Data("following".utf8))
+            try output.close()
+            let before = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let input = try FileHandle(forReadingFrom: url)
+            let preview: String
+            let consumed: UInt64
+            do {
+                defer { try? input.close() }
+                preview = try ReadingDocument.thumbnailText(input)
+                consumed = try input.offset()
+            }
+            // A huge first grapheme must not make a tiny Home card scan a book.
+            // This is an I/O boundary, not a machine-dependent timing assertion.
+            XCTAssertLessThanOrEqual(consumed, 256 * 1_024)
+            XCTAssertLessThan(consumed, UInt64(try XCTUnwrap(before.fileSize)))
+            XCTAssertTrue(preview.unicodeScalars.starts(with: beginning.unicodeScalars))
+            XCTAssertEqual(preview.count, leadingCharacters + 1)
+            XCTAssertFalse(preview.contains("\u{fffd}"))
+            let after = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            XCTAssertEqual(after.fileSize, before.fileSize)
+            XCTAssertEqual(after.contentModificationDate, before.contentModificationDate)
+        }
+    }
+
     // Real written files, rather than sparse files or repeated in-memory copies.
     // The descriptor position proves that preview source work is independent of
     // file size; the logged render time is useful evidence, not a timing gate.

@@ -1204,16 +1204,27 @@ extension ReaderState {
             return text
         case .browser:
             guard let view = browserView else { throw ReadError("Browser document is still opening") }
-            let text: String = try await withCheckedThrowingContinuation { continuation in
-                view.callAsyncJavaScript("return await window.leafText(entireDocument)", arguments: ["entireDocument": entireDocument], in: nil, in: (view.navigationDelegate as? BrowserReader.Coordinator)?.scriptWorld ?? .page) { result in
-                    switch result {
-                    case .success(let value): continuation.resume(returning: value as? String ?? "")
-                    case .failure(let error): continuation.resume(throwing: error)
+            let requestID = UUID().uuidString, url = view.url
+            let world = (view.navigationDelegate as? BrowserReader.Coordinator)?.scriptWorld ?? .page
+            do {
+                let text = try await withTaskCancellationHandler {
+                    try Task.checkCancellation()
+                    return try await view.callAsyncJavaScript("return await window.leafText(entireDocument, requestID)",
+                        arguments: ["entireDocument": entireDocument, "requestID": requestID], in: nil, contentWorld: world) as? String ?? ""
+                } onCancel: {
+                    Task { @MainActor in
+                        view.callAsyncJavaScript("window.leafCancelText(requestID)", arguments: ["requestID": requestID],
+                            in: nil, in: world) { _ in }
                     }
                 }
+                try Task.checkCancellation()
+                guard self.document?.id == document.id, browserView === view, view.url == url else { throw CancellationError() }
+                return text
+            } catch {
+                try Task.checkCancellation()
+                guard self.document?.id == document.id, browserView === view, view.url == url else { throw CancellationError() }
+                throw error
             }
-            guard self.document?.id == document.id else { throw CancellationError() }
-            return text
         }
     }
 

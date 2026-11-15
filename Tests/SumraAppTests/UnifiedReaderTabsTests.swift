@@ -6,6 +6,26 @@ import XCTest
 @testable import Sumra
 
 @MainActor final class UnifiedReaderTabsTests: XCTestCase {
+    func testNormalCaptionControlsKeepTheirHeightAsTheNativeWindowResizes() async throws {
+        let fixture = Fixture(count: 2)
+        defer { fixture.close() }
+        let window = fixture.windows[0], accessory = try fixture.mountTabs()
+        window.orderBack(nil)
+        for width in [560.0, 900.0, 700.0] {
+            window.setContentSize(CGSize(width: width, height: 500))
+            await settle(accessory.tabsView)
+            let height = accessory.tabsView.bounds.height
+            XCTAssertEqual(height, ReaderNormalDocumentTabs.height, accuracy: 0.1,
+                           "Installing the custom row must preserve its chosen height instead of the system standard size")
+            for caption in targets(in: accessory.tabsView) {
+                let rect = accessory.tabsView.convert(caption.bounds, from: caption)
+                XCTAssertGreaterThanOrEqual(rect.minY, 0)
+                XCTAssertLessThanOrEqual(rect.maxY, accessory.tabsView.bounds.height)
+            }
+            XCTAssertEqual(window.tabGroup?.windows, fixture.windows)
+        }
+    }
+
     func testGroupedLoadingAndFailedOpeningKeepSiblingCaptionsInTheHomeHeader() async throws {
         let fixture = Fixture(count: 2)
         defer { fixture.close() }
