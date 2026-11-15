@@ -292,6 +292,8 @@ struct ReaderToolbarAppearance: ViewModifier {
             guard let window else { return }
             parent = window
             state?.readerToolbarHost = self
+            ReaderWindowDiagnostics.event("chrome.host.attached", window: window)
+            if let state { ReaderWindowDiagnostics.state("chrome.host.state", state) }
             original = (window.styleMask.contains(.fullSizeContentView), window.titlebarAppearsTransparent,
                         window.titleVisibility, window.titlebarSeparatorStyle, window.backgroundColor,
                         window.acceptsMouseMovedEvents)
@@ -517,6 +519,15 @@ struct ReaderToolbarAppearance: ViewModifier {
                     }
                 }
             }
+            ReaderWindowDiagnostics.chrome(parent, state: state, fields: [
+                "systemChrome": systemChrome,
+                "readerHidden": readerHidden,
+                "readerOpacity": Double(readerOpacity),
+                "companionPresent": toolbarWindow != nil,
+                "nativeButtonCount": originalButtonAppearance.count,
+                "reservedNativeHeight": Double(reservedNativeHeight),
+                "reservedMenuHeight": Double(reservedMenuHeight)
+            ])
         }
 
         private func updateDocumentTabs() {
@@ -707,6 +718,8 @@ struct ReaderToolbarAppearance: ViewModifier {
                 if let detached, let content {
                     originalToolbarChrome = previous ?? (content.alphaValue, detached.ignoresMouseEvents, detached.backgroundColor, detached.isOpaque, detached.hasShadow)
                     Self.chromeOwners.setObject(self, forKey: content)
+                    ReaderWindowDiagnostics.event("chrome.companion.acquired", window: parent,
+                                                  fields: ["ownershipTransferred": ownershipChanged])
                 }
             }
             guard let toolbarWindow, let toolbarContent, let originalToolbarChrome else { return }
@@ -743,6 +756,7 @@ struct ReaderToolbarAppearance: ViewModifier {
                 toolbarWindow.isOpaque = originalToolbarChrome.opaque
                 toolbarWindow.hasShadow = originalToolbarChrome.shadow
                 Self.chromeOwners.removeObject(forKey: toolbarContent)
+                ReaderWindowDiagnostics.event("chrome.companion.released", window: parent)
             }
             toolbarWindow = nil; toolbarContent = nil; originalToolbarChrome = nil; toolbarOpacity = nil
         }
@@ -877,6 +891,7 @@ struct ReaderToolbarAppearance: ViewModifier {
         }
 
         func detach() {
+            if let parent { ReaderWindowDiagnostics.event("chrome.host.detaching", window: parent) }
             // Removing a fullscreen accessory can synchronously relayout its
             // companion. Disarm callbacks before changing that native tree.
             NotificationCenter.default.removeObserver(self)
@@ -921,6 +936,7 @@ struct ReaderToolbarAppearance: ViewModifier {
                 }
                 if parent.frame != frame { parent.setFrame(frame, display: false) }
             }
+            if let parent { ReaderWindowDiagnostics.event("chrome.host.detached", window: parent) }
             parent = nil; original = nil; originalButtonAppearance.removeAll()
         }
     }

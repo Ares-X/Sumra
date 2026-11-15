@@ -162,7 +162,8 @@ struct SettingsView:View{
         ExternalActionSettings().tabItem { Label(L("External"), systemImage: "arrow.up.forward.app") }
         ReaderToolbarSettings().tabItem { Label(L("Toolbar"), systemImage: "rectangle.topthird.inset.filled") }
         AdvancedSettings().tabItem { Label(L("Advanced"), systemImage: "gearshape") }
-    }.id(language).padding().frame(width: 500, height: 540)
+        ReaderDiagnosticsSettings().tabItem { Label(L("Diagnostics"), systemImage: "waveform.path.ecg") }
+    }.id(language).padding().frame(width: 640, height: 540)
         .onChange(of: zoomLevels) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: zoomIncrement) { _ in ReaderPreferences.applyZoomDefaults() }
         .onChange(of: updateChannel) { _ in ReaderHelp.updateChannelChanged() }
