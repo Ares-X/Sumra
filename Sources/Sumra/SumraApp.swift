@@ -138,7 +138,7 @@ struct ReaderWindow: View {
             .frame(minWidth: 560, minHeight: state.hasDocument ? 400 : 500)
             .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
             .navigationTitle(windowTitle)
-            .background(WindowTabs(state: state, tabWith: opening.tabWith, identifier: opening.tabIdentifier, openingPath: opening.path, restorationID: opening.id) {
+            .background(WindowTabs(state: state, tabWith: opening.tabWith, identifier: opening.tabIdentifier, openingPath: opening.path, restorationID: opening.id, openingRequest: opening.tabOpening) {
                 ReaderWindowDiagnostics.event("scene.ready", window: state.window, request: opening.id,
                                               fields: ["hasPath": opening.path != nil, "restoring": opening.restoring])
                 documentOpenLog.notice("scene-ready payload=\(opening.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
@@ -215,6 +215,7 @@ struct WindowTabs: NSViewRepresentable {
     let identifier: String?
     let openingPath: String?
     var restorationID: UUID? = nil
+    var openingRequest: ReaderWindows.TabOpening? = nil
     let onWindowReady: () -> Void
 
     func makeNSView(context: Context) -> HostView {
@@ -223,6 +224,7 @@ struct WindowTabs: NSViewRepresentable {
         view.tabWith = tabWith
         view.groupIdentifier = identifier
         view.restorationID = restorationID
+        view.openingRequest = openingRequest
         view.openingPath = openingPath
         view.onWindowReady = onWindowReady
         return view
@@ -241,6 +243,7 @@ struct WindowTabs: NSViewRepresentable {
         var tabWith: Int?
         var groupIdentifier: String?
         var restorationID: UUID?
+        var openingRequest: ReaderWindows.TabOpening?
         var openingPath: String?
         var onWindowReady: (() -> Void)?
         private var closeGuard: ReaderCloseGuard?
@@ -311,6 +314,7 @@ struct WindowTabs: NSViewRepresentable {
             // AppKit restores its fullscreen tab stack before the app applies
             // saved grouping or creates any missing reader scenes.
             closeGuard.updateTabbingPolicy(window)
+            let placementParent: NSWindow?
             if !placed {
                 placed = true
                 let readers = ReaderWindows.states.compactMap(\.window).filter {
@@ -323,15 +327,42 @@ struct WindowTabs: NSViewRepresentable {
                                               fields: ["requestedParentNumber": tabWith as Any? ?? NSNull(),
                                                        "resolvedParentNumber": parent?.windowNumber as Any? ?? NSNull(),
                                                        "isHome": closeGuard.isHome, "hasOpeningPath": openingPath != nil])
-                if !closeGuard.isHome, window.tabbingMode != .disallowed, let parent {
+                placementParent = !closeGuard.isHome && window.tabbingMode != .disallowed ? parent : nil
+            } else { placementParent = nil }
+            // SwiftUI finishes its own first ordering after this host mounts.
+            // The failing macOS 15 trace enters fullscreen twice while the
+            // explicit join nests inside that call. Keep policy/identity ready
+            // and join at the existing
+            // scene-ready boundary after the opener returns.
+            let deferred = openingRequest != nil && tabWith != nil && placementParent != nil
+            if deferred {
+                ReaderWindowDiagnostics.event("tab.placement.deferred", window: window, request: restorationID)
+            } else {
+                if let parent = placementParent {
                     ReaderWindows.placeTab(window, beside: parent, restorationID: closeGuard.restorationID)
                 }
+                placementComplete = true
+                ReaderWindowDiagnostics.event("host.placement.completed", window: window, request: restorationID)
             }
-            placementComplete = true
-            ReaderWindowDiagnostics.event("host.placement.completed", window: window, request: restorationID)
-            // File opening publishes SwiftUI state after native view installation.
-            DispatchQueue.main.async { [weak self] in
-                guard let self, let window = self.window, window.delegate === self.closeGuard else { return }
+            DispatchQueue.main.async { [weak self, weak window, weak closeGuard] in
+                guard let self, let window, let closeGuard,
+                      self.window === window, self.closeGuard === closeGuard,
+                      window.delegate === closeGuard,
+                      self.state?.isWindowClosed != true else { return }
+                if deferred, let parent = placementParent {
+                    let parentStillOpen = (parent.delegate as? ReaderCloseGuard)?.state?.window === parent
+                    let peers = window.tabbedWindows ?? [window]
+                    let movedToOtherGroup = peers.count > 1 && !peers.contains(parent)
+                    if parentStillOpen, !movedToOtherGroup {
+                        ReaderWindows.placeTab(window, beside: parent, restorationID: self.restorationID)
+                    } else {
+                        ReaderWindowDiagnostics.event("tab.placement.cancelled", window: window, request: self.restorationID,
+                                                      fields: ["parentStillOpen": parentStillOpen,
+                                                               "movedToOtherGroup": movedToOtherGroup])
+                    }
+                    self.placementComplete = true
+                    ReaderWindowDiagnostics.event("host.placement.completed", window: window, request: self.restorationID)
+                }
                 self.tabsUpdated()
                 self.onWindowReady?()
             }

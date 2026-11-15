@@ -16,10 +16,10 @@ final class NativeFullscreenTabLifecycleTests: XCTestCase {
                            in: parent.state, behavior: .newTab) { payloads.append($0) }
         XCTAssertEqual(payloads.count, 2)
         let requested = fixture.mount(payloads[1])
-        let group = try XCTUnwrap(parent.window.tabGroup)
-        group.selectedWindow = parent.window
         fixture.clearFocusRequests()
         await fixture.drainReadyCallbacks()
+        let group = try XCTUnwrap(parent.window.tabGroup)
+        group.selectedWindow = parent.window
 
         XCTAssertEqual(fixture.ready, [payloads[1].id])
         XCTAssertTrue(fixture.windows.allSatisfy { $0.focusSelections.isEmpty },
@@ -49,18 +49,90 @@ final class NativeFullscreenTabLifecycleTests: XCTestCase {
         parent.state.createWindow = { payloads.append($0) }
         parent.state.duplicate(inTab: true)
         let payload = try XCTUnwrap(payloads.first)
+        // Model a native selection change immediately after addTabbedWindow,
+        // before the pending opening request performs its ready selection.
+        parent.window.didAddTab = { _ in parent.window.tabGroup?.selectedWindow = parent.window }
         let duplicate = fixture.mount(payload)
-        let group = try XCTUnwrap(parent.window.tabGroup)
-        XCTAssertEqual(group.windows, [parent.window, duplicate.window])
-        // Model selection changing after addTabbedWindow and before the
-        // existing next-runloop scene-ready callback, without entering Spaces.
-        group.selectedWindow = parent.window
         fixture.clearFocusRequests()
         await fixture.drainReadyCallbacks()
+        let group = try XCTUnwrap(parent.window.tabGroup)
 
+        XCTAssertEqual(group.windows, [parent.window, duplicate.window])
         XCTAssertTrue(group.selectedWindow === duplicate.window)
         XCTAssertEqual(duplicate.window.focusSelections, [duplicate.window.windowNumber])
         XCTAssertTrue(duplicate.state.window === duplicate.window)
+    }
+
+    func testExplicitTabPlacementWaitsForSynchronousSceneOpenerToReturn() async throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        let parent = fixture.makeParent()
+        var openerRunning = false
+        var events = [String]()
+        var child: Fixture.Reader?
+        var requestedPayload: WindowPayload?
+        parent.window.didAddTab = { _ in
+            XCTAssertFalse(openerRunning, "Native placement must not reenter SwiftUI's scene opener")
+            events.append("add")
+        }
+        parent.state.createWindow = { payload in
+            openerRunning = true
+            events.append("opener.begin")
+            requestedPayload = payload
+            child = fixture.mount(payload)
+            XCTAssertTrue(parent.window.addedTabs.isEmpty, "A mounted host must wait until the opener returns")
+            XCTAssertTrue(fixture.windows.allSatisfy { $0.focusSelections.isEmpty })
+            openerRunning = false
+            events.append("opener.returned")
+        }
+
+        parent.state.duplicate(inTab: true)
+        let duplicate = try XCTUnwrap(child)
+        XCTAssertEqual(events, ["opener.begin", "opener.returned"])
+        await fixture.drainReadyCallbacks()
+
+        let group = try XCTUnwrap(parent.window.tabGroup)
+        XCTAssertEqual(events, ["opener.begin", "opener.returned", "add"])
+        XCTAssertEqual(parent.window.addedTabs, [duplicate.window.windowNumber])
+        XCTAssertEqual(group.windows, [parent.window, duplicate.window])
+        XCTAssertTrue(group.selectedWindow === duplicate.window)
+        XCTAssertEqual(duplicate.window.focusSelections, [duplicate.window.windowNumber],
+                       "Placement must precede the opening request's single selection")
+
+        ReaderWindows.windowReady(duplicate.window, payload: try XCTUnwrap(requestedPayload))
+        await fixture.drainReadyCallbacks()
+        XCTAssertEqual(parent.window.addedTabs, [duplicate.window.windowNumber])
+        XCTAssertEqual(duplicate.window.focusSelections.count, 1)
+    }
+
+    func testPendingTabPlacementDoesNotOutliveParentChildOrHost() async throws {
+        enum Interruption: CaseIterable { case parentClosed, childClosed, hostDetached, hostReattached }
+        for interruption in Interruption.allCases {
+            let fixture = Fixture()
+            defer { fixture.close() }
+            let parent = fixture.makeParent()
+            var payloads = [WindowPayload]()
+            parent.state.createWindow = { payloads.append($0) }
+            parent.state.duplicate(inTab: true)
+            let payload = try XCTUnwrap(payloads.first)
+            let child = fixture.mount(payload)
+            XCTAssertTrue(parent.window.addedTabs.isEmpty, "Placement is still pending: \(interruption)")
+
+            switch interruption {
+            case .parentClosed: parent.state.windowClosed()
+            case .childClosed: child.state.windowClosed()
+            case .hostDetached: child.host.removeFromSuperview()
+            case .hostReattached:
+                child.host.removeFromSuperview()
+                child.window.contentView?.addSubview(child.host)
+            }
+            await fixture.drainReadyCallbacks()
+
+            XCTAssertTrue(parent.window.addedTabs.isEmpty, "An invalidated opening must not rejoin its parent: \(interruption)")
+            XCTAssertEqual(child.window.tabbedWindows ?? [child.window], [child.window])
+            XCTAssertTrue(fixture.windows.allSatisfy { $0.focusSelections.isEmpty },
+                          "An invalidated opening must not steal selection: \(interruption)")
+        }
     }
 
     func testColdBatchWithoutAParentSelectsItsRequestedTabAfterNativeGroupAssembly() async throws {
@@ -155,6 +227,13 @@ final class NativeFullscreenTabLifecycleTests: XCTestCase {
 
     @MainActor private final class Window: NSWindow {
         var focusSelections = [Int]()
+        var addedTabs = [Int]()
+        var didAddTab: ((NSWindow) -> Void)?
+        override func addTabbedWindow(_ window: NSWindow, ordered: NSWindow.OrderingMode) {
+            super.addTabbedWindow(window, ordered: ordered)
+            addedTabs.append(window.windowNumber)
+            didAddTab?(window)
+        }
         override func makeKeyAndOrderFront(_ sender: Any?) {
             focusSelections.append(tabGroup?.selectedWindow?.windowNumber ?? -1)
             // Keep this lifecycle test's invisible windows off the desktop.
@@ -198,6 +277,7 @@ final class NativeFullscreenTabLifecycleTests: XCTestCase {
             host.state = state; host.tabWith = payload.tabWith
             host.groupIdentifier = payload.tabIdentifier; host.openingPath = payload.path
             host.restorationID = payload.restoring ? payload.id : nil
+            host.openingRequest = payload.tabOpening
             host.onWindowReady = { [weak self, weak window] in
                 guard reportsReady, let window else { return }
                 ReaderWindows.windowReady(window, payload: payload)
@@ -220,7 +300,11 @@ final class NativeFullscreenTabLifecycleTests: XCTestCase {
         }
 
         func close() {
-            for reader in readers { reader.host.removeFromSuperview() }
+            for reader in readers {
+                reader.window.didAddTab = nil
+                reader.state.createWindow = nil
+                reader.host.removeFromSuperview()
+            }
             for reader in readers {
                 reader.state.windowClosed()
                 reader.window.close()
