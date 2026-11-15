@@ -43,5 +43,45 @@ Show Diagnostics Folder opened the two recordings in Finder.
 The reporter's macOS 15.7.5, an actual black Space failure, crash-tail durability,
 and public Gatekeeper trust remain unexercised. Only the existing VM was used.
 
-Public release and real 0.2.44-to-0.2.45 Sparkle acceptance are pending.
+## Public delivery
+
+[Publish workflow 43684647158](https://github.com/Ares-X/Sumra/actions/runs/43684647158)
+published [v0.2.45](https://github.com/Ares-X/Sumra/releases/tag/v0.2.45) using the
+accepted candidate bytes. All six original asset IDs, digests and sizes remained
+unchanged. Anonymous downloads returned HTTP 200 and matched every accepted
+asset. The ordinary canonical update feed returned 0.2.45(47), with matching
+bytes and valid Ed25519 signature, without a cache-busting request. The actual
+tag points directly to the accepted source, which is a main-branch ancestor.
+
+The real 0.2.44-to-0.2.45 in-app download, install and relaunch completed.
+The installed app at the same baseline URL loaded a new process and matched all
+140 files, five symlinks, 91 directories, their modes and the deep strict
+signature, including exact inventory counts. The updater UI then confirmed
+**Sumra 0.2.45 is the latest version**.
+
+The asset download completed over the VM's original direct connection. At the
+user's request the VM was then configured to use the existing host Clash proxy.
+A native Foundation request reported `isProxyConnection = true`, HTTP 200,
+2,459 bytes and the exact accepted feed digest in 0.60 seconds; a real updater
+check also succeeded through that configuration. The temporary relay was stopped
+and its port released. The requested persistent HTTP/HTTPS proxy setting remains
+for future VM acceptance.
+
+## Issue state
+
+Issue #137 was automatically closed on the source merge because GitHub interpreted
+a negated closing-keyword phrase in the PR description as an instruction. It was
+reopened without a comment and the description changed to a neutral cross-reference.
+Issues #137, #148 and #96 remain open; no reporter reply was sent.
+
+## Cleanup
+
+The exact original 23-key Sumra preference dictionary and key set were restored.
+The extra candidate, guest task directory and exported test captures were removed
+after checking consumers and retaining both actual ZIP reports on the host. The
+updated VM baseline app remains as the installed deliverable; shared Peekaboo and
+thumbnail processes were preserved. The host daily Sumra executable remained
+unchanged. The temporary build, network probe, relay and wake assertion were
+retired; the VM returned to its original suspended state. Accepted release inputs,
+reports and test/failure receipts remain for maintenance and reproduction.
 Local receipts and actual exported ZIPs: `build/issue148-diagnostics45/`.
