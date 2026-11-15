@@ -295,22 +295,24 @@ struct ReadingDocument: Identifiable {
         }
     }
 
-    // Read until the preview has 8,000 complete Swift Characters and one
-    // following character: a combining mark in the next block can still extend
-    // the last character. The block size controls I/O, not a source-byte limit.
+    // Aim for 8,000 complete Swift Characters and one following character: a
+    // combining mark in the next block can still extend the last character.
+    // A Character can contain unbounded combining marks, so the preview also
+    // has a 128 KiB source budget. Only the preview may end within such a cluster.
     // Encoding detection uses the same UTF-8-first/Foundation policy as opening,
     // applied to the preview bytes rather than scanning the rest of the book.
     static func thumbnailText(_ handle: FileHandle) throws -> String {
+        let sourceBudget = 128 * 1_024
         var data = Data()
         while true {
             try Task.checkCancellation()
-            let block = try handle.read(upToCount: 16_384) ?? Data()
+            let block = try handle.read(upToCount: min(16_384, sourceBudget - data.count)) ?? Data()
             data.append(block)
             let text = block.isEmpty ? decode(data) : decodeThumbnailText(data)
             if let end = text.index(text.startIndex, offsetBy: 8_000, limitedBy: text.endIndex), end != text.endIndex {
                 return String(text[..<end])
             }
-            if block.isEmpty { return String(text.prefix(8_000)) }
+            if block.isEmpty || data.count == sourceBudget { return String(text.prefix(8_000)) }
         }
     }
 

@@ -1083,6 +1083,25 @@ final class BrowserReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testCHMEntireDocumentTextIncludesInlineFramesInsideListedTopicsOnce() async throws {
+        let (state, view) = try await loadedReaderFixture(
+            topic: ("/frame.html", Data("<frameset><frame src='parts/body.html'></frameset>".utf8)), home: "/frame.html",
+            additionalTopics: [("/parts/body.html", Data("<p>Listed frame chapter marker</p>".utf8))])
+        let inline = try await evaluate("""
+            const doc = document.querySelector('frame').contentDocument;
+            const frame = doc.createElement('iframe'); frame.srcdoc = '<p>CHM inline marker</p>';
+            await new Promise(resolve => { frame.onload = resolve; doc.body.append(frame); });
+            return frame.contentDocument.body.innerText;
+            """, in: view) as? String
+        XCTAssertEqual(inline?.trimmingCharacters(in: .whitespacesAndNewlines), "CHM inline marker")
+        let text = try await state.documentText(entireDocument: true)
+        for marker in ["Listed frame chapter marker", "CHM inline marker"] {
+            XCTAssertEqual(text.components(separatedBy: marker).count - 1, 1, marker)
+        }
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
     func testFramesKeepNativeTargetsRelativeResourcesFocusAndContainerIdentity() async throws {
         let html = "<frameset cols='*'><frame name='topic' src='parts/body.html'></frameset>"
         let (state, view) = try await loadedReaderFixture(topic: ("/frame.html", Data(html.utf8)), home: "/frame.html",

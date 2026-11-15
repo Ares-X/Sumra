@@ -202,10 +202,13 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
     init(state: ReaderState) {
         tabsView = HostingView(rootView: ReaderNormalDocumentTabs(state: state))
         super.init(nibName: nil, bundle: nil)
+        // Set the policy before installing the view: installing it with the
+        // default policy immediately replaces its height with the system size.
+        automaticallyAdjustsSize = false
+        layoutAttribute = .bottom
         tabsView.sizingOptions = []
         tabsView.frame = CGRect(x: 0, y: 0, width: 560, height: ReaderNormalDocumentTabs.height)
         view = tabsView
-        layoutAttribute = .bottom
         fullScreenMinHeight = ReaderNormalDocumentTabs.height
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

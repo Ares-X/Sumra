@@ -1448,6 +1448,7 @@ final class ReaderToolbarTests: XCTestCase {
         let group = try XCTUnwrap(window.tabGroup)
         XCTAssertTrue(group.isTabBarVisible)
         let accessories = window.titlebarAccessoryViewControllers.map(\.view)
+        let accessoryMinimums = window.titlebarAccessoryViewControllers.map(\.fullScreenMinHeight)
         XCTAssertFalse(accessories.isEmpty, "AppKit exposes the native tab bar as a titlebar accessory")
         for view in accessories {
             view.alphaValue = 0.75; view.wantsLayer = true
@@ -1477,6 +1478,8 @@ final class ReaderToolbarTests: XCTestCase {
             }
             XCTAssertTrue(window.titlebarAccessoryViewControllers.allSatisfy(\.isHidden),
                 "Native caption layout remains collapsed independently of toolbar reveal")
+            XCTAssertTrue(window.titlebarAccessoryViewControllers.allSatisfy { $0.fullScreenMinHeight == 0 },
+                "Replaced native captions must release their fullscreen minimum height as well as hiding pixels")
             XCTAssertEqual(group.windows, [window, sibling], "Collapsing native presentation must preserve tab membership")
             XCTAssertEqual(window.frame, frame)
             XCTAssertEqual(window.contentView?.frame, viewport)
@@ -1499,6 +1502,7 @@ final class ReaderToolbarTests: XCTestCase {
         observer.updateChrome()
         for view in accessories { XCTAssertTrue(view.isHidden) }
         observer.detach()
+        XCTAssertEqual(window.titlebarAccessoryViewControllers.map(\.fullScreenMinHeight), accessoryMinimums)
         for view in accessories {
             XCTAssertFalse(view.isHidden); XCTAssertEqual(view.alphaValue, 0.75, accuracy: 0.001)
             XCTAssertEqual(view.layer?.backgroundColor, NSColor.systemPink.cgColor)
@@ -1613,7 +1617,6 @@ final class ReaderToolbarTests: XCTestCase {
         }
         let frame = parent.frame, viewport = parent.contentView?.frame, shownLayout = parent.contentLayoutRect
         let companionFrame = companion.frame
-        let companionShadow = companion.hasShadow
         for mode in [ReaderToolbarDisplayMode.hidden, .auto, .shown] {
             state.toolbarDisplayMode = mode
             for presentation in [false, true] {
@@ -1639,8 +1642,12 @@ final class ReaderToolbarTests: XCTestCase {
                                "Presentation must suppress toolbar state even when an Auto Hide hover is still set")
                 XCTAssertEqual(content.alphaValue, 1, accuracy: 0.001)
                 XCTAssertFalse(companion.ignoresMouseEvents, "Native controls must remain interactive on menu reveal")
-                XCTAssertEqual(companion.hasShadow, mode == .hidden ? false : companionShadow,
-                               "Always Hide must not leave a rectangular native toolbar shadow")
+                XCTAssertFalse(companion.hasShadow,
+                               "Reader chrome must not cast a separate full-width shadow below the tabs")
+                XCTAssertEqual(companion.titlebarSeparatorStyle, .none)
+                XCTAssertFalse(companion.isOpaque)
+                XCTAssertEqual(companion.backgroundColor, .clear,
+                               "Only the toolbar and tab row paint their bounds; companion padding stays transparent")
                 XCTAssertFalse(close.isHidden)
                 for view in [tools, tabs.view] {
                     XCTAssertEqual(view.isHidden, view === tabs.view || !readerVisible)
@@ -1652,6 +1659,8 @@ final class ReaderToolbarTests: XCTestCase {
                 }
                 if readerVisible {
                     XCTAssertEqual(tabs.view.layer?.backgroundColor, ReaderTheme.color(state.palette.background).cgColor)
+                    XCTAssertEqual(tools.layer?.backgroundColor, ReaderTheme.color(state.palette.background).cgColor,
+                                   "Revealed native tools must cover document pixels beneath full-size content")
                 }
                 XCTAssertEqual(parent.frame, frame); XCTAssertEqual(parent.contentView?.frame, viewport)
                 XCTAssertEqual(parent.contentLayoutRect, layout); XCTAssertEqual(companion.frame, companionFrame)
@@ -1705,8 +1714,8 @@ final class ReaderToolbarTests: XCTestCase {
         observer.pointerMoved(to: NSPoint(x: 350, y: parent.frame.height - 1))
         observer.updateChrome(revealingNativeControls: false)
         XCTAssertEqual(content.alphaValue, 1, accuracy: 0.001)
-        XCTAssertTrue(companion.isOpaque)
-        XCTAssertEqual(companion.backgroundColor, .white)
+        XCTAssertFalse(companion.isOpaque)
+        XCTAssertEqual(companion.backgroundColor, .clear)
         XCTAssertFalse(companion.ignoresMouseEvents)
         XCTAssertFalse(tools.isHidden)
         XCTAssertEqual(tools.alphaValue, 1, accuracy: 0.001)

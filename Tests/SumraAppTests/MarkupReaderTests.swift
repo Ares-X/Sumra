@@ -772,6 +772,169 @@ final class MarkupReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testCancellingEntireDocumentTextAbortsItsFetchAndLeavesTheNextReadIndependent() async throws {
+        let (state, _, view) = try await reader([
+            "A.md": "# First\n\nCurrent document.", "B.md": "# Second\n\nReplacement text.",
+            "C.md": "# Last\n\nFinal chapter."
+        ], opened: "A.md")
+        _ = try await evaluate("""
+            const originalFetch = window.fetch;
+            window.textReadURLs = []; window.textReadAborted = false;
+            window.textReadStarted = new Promise(started => {
+                let intercepted = false;
+                window.fetch = (url, options) => {
+                    window.textReadURLs.push(new URL(url, location.href).pathname);
+                    if (!intercepted && new URL(url, location.href).pathname.endsWith('/B.md')) {
+                        intercepted = true;
+                        return new Promise((resolve, reject) => {
+                            window.releaseTextRead = async () => resolve(await originalFetch(url, options));
+                            options?.signal?.addEventListener('abort', () => {
+                                window.textReadAborted = true;
+                                reject(new DOMException('Text read cancelled', 'AbortError'));
+                            }, {once:true});
+                            started();
+                        });
+                    }
+                    return originalFetch(url, options);
+                };
+            });
+            window.restoreTextFetch = () => { window.fetch = originalFetch; };
+            """, view)
+        let extraction = Task { try await state.documentText(entireDocument: true) }
+        _ = try await evaluate("await window.textReadStarted", view)
+        extraction.cancel()
+        let aborted = try await evaluate("""
+            const end = Date.now() + 2000;
+            while (!window.textReadAborted && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 10));
+            return window.textReadAborted;
+            """, view) as? Bool
+        let oldURLs = try await evaluate("return window.textReadURLs", view) as? [String]
+        XCTAssertEqual(aborted, true, "Cancelling preparation must abort the pending WebKit fetch promptly")
+        XCTAssertFalse(oldURLs?.contains(where: { $0.hasSuffix("/C.md") }) == true)
+        _ = try await evaluate("window.restoreTextFetch(); if (!window.textReadAborted) await window.releaseTextRead()", view)
+        do {
+            _ = try await extraction.value
+            XCTFail("A cancelled preparation must not return document text")
+        } catch { XCTAssertTrue(error is CancellationError) }
+        let replacement = try await state.documentText(entireDocument: true)
+        XCTAssertTrue(replacement.contains("Replacement text."))
+        XCTAssertTrue(replacement.contains("Final chapter."))
+    }
+
+    @MainActor
+    func testCancelledDocumentTextIgnoresALateBodyWhileANewReadCompletes() async throws {
+        let (state, _, view) = try await reader([
+            "A.md": "# First\n\nCurrent text.", "B.md": "# Second\n\nFresh text."
+        ], opened: "A.md")
+        _ = try await evaluate("""
+            const originalFetch = window.fetch, originalParse = DOMParser.prototype.parseFromString;
+            window.obsoleteTextParses = 0;
+            DOMParser.prototype.parseFromString = function(text, type) {
+                if (text.includes('Obsolete body marker')) window.obsoleteTextParses++;
+                return originalParse.call(this, text, type);
+            };
+            window.textBodyStarted = new Promise(started => {
+                let intercepted = false;
+                window.fetch = (url, options) => {
+                    if (!intercepted && new URL(url, location.href).pathname.endsWith('/B.md')) {
+                        intercepted = true; window.oldTextSignal = options?.signal;
+                        return Promise.resolve({ok:true, headers:new Headers({'content-type':'text/html'}),
+                            text:() => new Promise(resolve => { window.releaseTextBody = () => resolve('<p>Obsolete body marker</p>'); started(); })});
+                    }
+                    return originalFetch(url, options);
+                };
+            });
+            window.restoreTextBodyFixture = () => { window.fetch = originalFetch; DOMParser.prototype.parseFromString = originalParse; };
+            """, view)
+        let old = Task { try await state.documentText(entireDocument: true) }
+        _ = try await evaluate("await window.textBodyStarted", view)
+        old.cancel()
+        let fresh = try await state.documentText(entireDocument: true)
+        XCTAssertTrue(fresh.contains("Fresh text."))
+        XCTAssertFalse(fresh.contains("Obsolete body marker"))
+        let aborted = try await evaluate("return window.oldTextSignal?.aborted === true", view) as? Bool
+        XCTAssertEqual(aborted, true)
+        _ = try await evaluate("window.releaseTextBody()", view)
+        do {
+            _ = try await old.value
+            XCTFail("A cancelled task must not return its delayed body")
+        } catch { XCTAssertTrue(error is CancellationError) }
+        let parses = try await evaluate("return window.obsoleteTextParses", view) as? Int
+        XCTAssertEqual(parses, 0, "A late cancelled body must be discarded before parsing")
+        _ = try await evaluate("window.restoreTextBodyFixture()", view)
+    }
+
+    @MainActor
+    func testEntireDocumentTextIncludesNestedInlineFramesAndSkipsOpaqueFrames() async throws {
+        let (state, _, view) = try await reader([
+            "A.html": "<p>Container marker</p>", "B.html": "<p>Listed chapter marker</p>"
+        ], opened: "A.html")
+        let frameState = try await evaluate("""
+            const appendFrame = (doc, attributes) => new Promise(resolve => {
+                const frame = doc.createElement('iframe');
+                for (const [name, value] of Object.entries(attributes)) frame.setAttribute(name, value);
+                frame.onload = () => resolve(frame); doc.body.append(frame);
+            });
+            const inline = await appendFrame(document, {srcdoc:'<p>Inline marker</p>'});
+            await appendFrame(inline.contentDocument, {srcdoc:'<p>Nested inline marker</p>'});
+            await appendFrame(document, {src:'B.html'});
+            const allowed = await appendFrame(document, {sandbox:'ALLOW-SAME-ORIGIN', srcdoc:'<p>Uppercase sandbox marker</p>'});
+            const opaque = await appendFrame(document, {sandbox:'', srcdoc:'<p>Opaque secret marker</p>'});
+            return {inline:inline.contentDocument.body.innerText, allowed:allowed.contentDocument?.body.innerText,
+                opaque:opaque.contentDocument === null};
+            """, view) as? [String: Any]
+        XCTAssertEqual((frameState?["inline"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), "Inline marker")
+        XCTAssertEqual(frameState?["opaque"] as? Bool, true)
+        XCTAssertEqual((frameState?["allowed"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), "Uppercase sandbox marker")
+        let text = try await state.documentText(entireDocument: true)
+        for marker in ["Container marker", "Inline marker", "Nested inline marker", "Listed chapter marker", "Uppercase sandbox marker"] {
+            XCTAssertEqual(text.components(separatedBy: marker).count - 1, 1, marker)
+        }
+        XCTAssertFalse(text.contains("Opaque secret marker"), "Full text must respect the frame origin boundary")
+    }
+
+    @MainActor
+    func testEntireDocumentTextIncludesSrcdocInAnUnvisitedChapterWithoutLoadingItsFrames() async throws {
+        let attribute = { (text: String) in text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;") }
+        let inline = "<p>Unvisited inline marker</p><iframe srcdoc=\"<p>Unvisited nested marker</p>\"></iframe>"
+        let opaque = "<p>Opaque chapter secret</p><iframe srcdoc=\"<p>Opaque nested secret</p>\"></iframe>"
+        let (state, _, view) = try await reader([
+            "A.html": "<p>Opened chapter marker</p>",
+            "B.html": """
+                <p>Unvisited chapter marker</p>
+                <iframe srcdoc="\(attribute(inline))"></iframe>
+                <iframe sandbox="ALLOW-SAME-ORIGIN" srcdoc="<p>Same origin sandbox marker</p>"></iframe>
+                <iframe sandbox srcdoc="\(attribute(opaque))"></iframe>
+                <iframe sandbox="allow-scripts" srcdoc="<p>Scripts only secret</p>"></iframe>
+                """
+        ], opened: "A.html")
+        _ = try await evaluate("""
+            const originalFetch = window.fetch; window.unvisitedChapterFetches = 0;
+            window.fetch = (url, options) => {
+                if (new URL(url, location.href).pathname.endsWith('/B.html')) window.unvisitedChapterFetches++;
+                return originalFetch(url, options);
+            };
+            window.restoreUnvisitedFetch = () => { window.fetch = originalFetch; };
+            """, view)
+        let text = try await state.documentText(entireDocument: true)
+        for marker in ["Opened chapter marker", "Unvisited chapter marker", "Unvisited inline marker",
+                       "Unvisited nested marker", "Same origin sandbox marker"] {
+            XCTAssertEqual(text.components(separatedBy: marker).count - 1, 1, marker)
+        }
+        for secret in ["Opaque chapter secret", "Opaque nested secret", "Scripts only secret"] {
+            XCTAssertFalse(text.contains(secret), "An inert parse must retain the srcdoc origin boundary")
+        }
+        let snapshot = try await evaluate("""
+            window.restoreUnvisitedFetch();
+            return {frames:document.querySelectorAll('frame,iframe').length, fetches:window.unvisitedChapterFetches};
+            """, view) as? [String: Int]
+        XCTAssertEqual(snapshot?["frames"], 0, "Whole-document extraction must not load sibling frames in the reader")
+        XCTAssertEqual(snapshot?["fetches"], 1)
+        XCTAssertEqual(view.url?.lastPathComponent, "A.html")
+    }
+
+    @MainActor
     func testBrowserSelectionJSONCommandWritesTheCurrentSelection() async throws {
         let selected = "A \"quoted\" & <literal>\n中文 ${userlang}"
         let (state, _, view) = try await reader(["Book.html": """

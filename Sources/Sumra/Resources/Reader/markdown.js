@@ -1125,16 +1125,53 @@
         const rect = selection().getRangeAt(0).getBoundingClientRect()
         return [rect.x, rect.y, rect.width, rect.height]
     }
-    window.leafText = async (entireDocument = false) => {
+    const textReads = new Map()
+    window.leafCancelText = requestID => textReads.get(requestID)?.abort()
+    window.leafText = async (entireDocument = false, requestID = {}) => {
         const selected = !entireDocument && selectionReader()
         if (selected) return await selected.leafText(false)
         if (!entireDocument) return selectedText() || finder.textFromRange(visibleRange())
-        const text = []
-        for (let page = 0; page < pages.length; page++) {
-            const doc = page === currentPage ? document : await fetchDocument(pages[page])
-            text.push(finder.textFromBody(doc.body).text)
+        const controller = new AbortController()
+        textReads.set(requestID, controller)
+        try {
+            const pageKey = url => withoutHash(localURL(url))
+            const pageURLs = new Set(pages.map(pageKey)), livePages = new Map([[pageKey(pageURL()), document]])
+            const frameDocuments = doc => [...doc.querySelectorAll('frame,iframe')].flatMap(frame => {
+                // contentDocument enforces the same-origin boundary, including sandboxed srcdoc.
+                try { if (frame.contentDocument) return [frame.contentDocument] } catch { return [] }
+                // Fetched chapters are inert documents with no browsing contexts. Their
+                // srcdoc inherits the chapter's origin unless sandbox makes it opaque.
+                if (doc.defaultView || frame.localName !== 'iframe' || !frame.hasAttribute('srcdoc')
+                    || frame.hasAttribute('sandbox') && ![...frame.sandbox].some(token => token.toLowerCase() === 'allow-same-origin')) return []
+                return [new DOMParser().parseFromString(frame.getAttribute('srcdoc'), 'text/html')]
+            })
+            const collectPages = doc => {
+                for (const child of frameDocuments(doc)) {
+                    const key = pageKey(child.URL)
+                    if (pageURLs.has(key) && !livePages.has(key)) livePages.set(key, child)
+                    collectPages(child)
+                }
+            }
+            collectPages(document)
+            const text = [], extracted = new Set()
+            const appendText = (doc, include = true) => {
+                if (include && !extracted.has(doc)) {
+                    extracted.add(doc)
+                    text.push(finder.textFromBody(doc.body).text)
+                }
+                // DOMParser inherits this window's URL; its inline documents are
+                // not entries in pages even when that inherited URL matches one.
+                for (const child of frameDocuments(doc)) appendText(child, !child.defaultView || !pageURLs.has(pageKey(child.URL)))
+            }
+            for (let page = 0; page < pages.length; page++) {
+                if (controller.signal.aborted) throw new DOMException('Text read cancelled', 'AbortError')
+                const doc = livePages.get(pageKey(pages[page])) || await fetchDocument(pages[page], controller.signal)
+                appendText(doc)
+            }
+            return text.join('\n\n')
+        } finally {
+            textReads.delete(requestID)
         }
-        return text.join('\n\n')
     }
     window.leafCapturePrintViewport = () => {
         readingViewport = null
@@ -1569,6 +1606,7 @@
     window.addEventListener('pagehide', () => {
         ++activationRevision; ++restoreRevision; restoring = false
         ready = false
+        textReads.forEach(controller => controller.abort())
         readingViewport = null
         outlineLoad = null; outlineDemand = false
         printViewport = null
