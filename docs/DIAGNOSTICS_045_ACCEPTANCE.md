@@ -67,6 +67,13 @@ check also succeeded through that configuration. The temporary relay was stopped
 and its port released. The requested persistent HTTP/HTTPS proxy setting remains
 for future VM acceptance.
 
+## Issue state
+
+Issue #137 was automatically closed on the source merge because GitHub interpreted
+a negated closing-keyword phrase in the PR description as an instruction. It was
+reopened without a comment and the description changed to a neutral cross-reference.
+Issues #137, #148 and #96 remain open; no reporter reply was sent.
+
 ## Cleanup
 
 The exact original 23-key Sumra preference dictionary and key set were restored.
