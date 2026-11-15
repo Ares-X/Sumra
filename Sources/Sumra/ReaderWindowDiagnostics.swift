@@ -171,8 +171,8 @@ final class ReaderWindowDiagnostics: ObservableObject {
     }
 
     func finishAtTermination() {
-        // Stopping recording can leave queued writes even though captureID is nil.
-        guard sequence > 0 else { return }
+        // A stopped capture or an export of earlier logs can still have queued IO.
+        guard sequence > 0 || isExporting else { return }
         record("process.endedNormally")
         removeObservers()
         log.closeAndWait()

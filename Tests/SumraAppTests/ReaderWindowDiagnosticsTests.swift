@@ -177,6 +177,45 @@ final class ReaderWindowDiagnosticsTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: fixture.directory), original)
     }
 
+    func testImmediateTerminationWaitsForHistoricalReportExportWhileRecordingIsOff() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let previousLog = ReaderDiagnosticLog(directory: fixture.directory) { error in
+            XCTFail("Unable to prepare the retained capture: \(error)")
+        }
+        defer { previousLog.closeAndWait() }
+        previousLog.start(fileID: UUID())
+        previousLog.append(["sequence": 1, "event": "test.retainedCapture"])
+        previousLog.closeAndWait()
+
+        let recorder = fixture.makeRecorder()
+        recorder.startAtLaunch()
+        XCTAssertFalse(recorder.enabled)
+        let archive = fixture.root.appendingPathComponent("historical-report.zip")
+        let exported = expectation(description: "Historical export completion reaches the caller")
+        var result: Result<Void, Error>?
+        recorder.export(to: archive) {
+            result = $0
+            exported.fulfill()
+        }
+        recorder.finishAtTermination()
+
+        // Check before yielding to the asynchronous completion. Quit must wait
+        // even though this process never started a capture or enqueued a record.
+        let delivered = FileManager.default.fileExists(atPath: archive.path)
+        XCTAssertTrue(delivered)
+        if delivered {
+            let archiveData = try Data(contentsOf: archive)
+            XCTAssertTrue(archiveData.starts(with: [0x50, 0x4b, 0x03, 0x04]))
+        }
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: fixture.root.path)
+            .contains { $0.hasPrefix(".sumra-report-") })
+        await fulfillment(of: [exported], timeout: 5)
+        try XCTUnwrap(result).get()
+        XCTAssertFalse(recorder.isExporting)
+        XCTAssertNil(recorder.lastError)
+    }
+
     private func export(_ recorder: ReaderWindowDiagnostics, fixture: Fixture) async throws -> URL {
         let archive = fixture.root.appendingPathComponent("report.zip")
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
