@@ -1057,3 +1057,28 @@
 
 "Show Tab Bar" = "显示标签栏";
 "Hide Tab Bar" = "隐藏标签栏";
+
+/* Window diagnostics */
+"Diagnostics" = "诊断";
+"Window Diagnostics" = "窗口诊断";
+"Record Window Diagnostics" = "记录窗口诊断";
+"Off by default. When enabled, recording stays on after restarting Sumra." = "默认关闭。开启后，重启 Sumra 仍会继续记录。";
+"Privacy and Retention" = "隐私与保留方式";
+"Records only Sumra window, tab and full-screen events. Does not record file names, paths, document contents or keystrokes. Nothing is uploaded automatically." = "仅记录 Sumra 的窗口、标签页和全屏事件。不记录文件名、路径、文档正文或按键，不会自动上传任何内容。";
+"Each recording is kept separately until you delete it from the diagnostics folder. Export a ZIP archive to attach to a GitHub issue." = "每次记录独立保留，直到你从诊断文件夹中手动删除。可导出 ZIP 压缩包，作为附件添加到 GitHub 问题。";
+"Mark Current Window State" = "标记当前窗口状态";
+"Export Window Diagnostics…" = "导出窗口诊断…";
+"Show Diagnostics Folder" = "打开诊断文件夹";
+"Recording" = "正在记录";
+"Not recording" = "未在记录";
+"%1$ld recording files · %2$@" = "%1$ld 个记录文件 · %2$@";
+"Window diagnostics could not be recorded. Earlier logs have been kept." = "无法记录窗口诊断。已有日志已保留。";
+"Export Window Diagnostics" = "导出窗口诊断";
+"Export Failed" = "导出失败";
+"Window diagnostics could not be exported. Earlier logs have been kept." = "无法导出窗口诊断。已有日志已保留。";
+"Unable to Open Diagnostics Folder" = "无法打开诊断文件夹";
+"The diagnostics folder could not be opened." = "无法打开诊断文件夹。";
+"No Window Diagnostics" = "暂无窗口诊断记录";
+"Enable window diagnostics, reproduce the problem, then export the report." = "请开启窗口诊断，复现问题后再导出报告。";
+
+"Window diagnostics could not be read. Earlier logs have been kept." = "无法读取窗口诊断记录，之前的日志已保留。";

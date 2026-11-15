@@ -59,3 +59,28 @@
 
 "Show Tab Bar" = "Show Tab Bar";
 "Hide Tab Bar" = "Hide Tab Bar";
+
+/* Window diagnostics */
+"Diagnostics" = "Diagnostics";
+"Window Diagnostics" = "Window Diagnostics";
+"Record Window Diagnostics" = "Record Window Diagnostics";
+"Off by default. When enabled, recording stays on after restarting Sumra." = "Off by default. When enabled, recording stays on after restarting Sumra.";
+"Privacy and Retention" = "Privacy and Retention";
+"Records only Sumra window, tab and full-screen events. Does not record file names, paths, document contents or keystrokes. Nothing is uploaded automatically." = "Records only Sumra window, tab and full-screen events. Does not record file names, paths, document contents or keystrokes. Nothing is uploaded automatically.";
+"Each recording is kept separately until you delete it from the diagnostics folder. Export a ZIP archive to attach to a GitHub issue." = "Each recording is kept separately until you delete it from the diagnostics folder. Export a ZIP archive to attach to a GitHub issue.";
+"Mark Current Window State" = "Mark Current Window State";
+"Export Window Diagnostics…" = "Export Window Diagnostics…";
+"Show Diagnostics Folder" = "Show Diagnostics Folder";
+"Recording" = "Recording";
+"Not recording" = "Not recording";
+"%1$ld recording files · %2$@" = "%1$ld recording files · %2$@";
+"Window diagnostics could not be recorded. Earlier logs have been kept." = "Window diagnostics could not be recorded. Earlier logs have been kept.";
+"Export Window Diagnostics" = "Export Window Diagnostics";
+"Export Failed" = "Export Failed";
+"Window diagnostics could not be exported. Earlier logs have been kept." = "Window diagnostics could not be exported. Earlier logs have been kept.";
+"Unable to Open Diagnostics Folder" = "Unable to Open Diagnostics Folder";
+"The diagnostics folder could not be opened." = "The diagnostics folder could not be opened.";
+"No Window Diagnostics" = "No Window Diagnostics";
+"Enable window diagnostics, reproduce the problem, then export the report." = "Enable window diagnostics, reproduce the problem, then export the report.";
+
+"Window diagnostics could not be read. Earlier logs have been kept." = "Window diagnostics could not be read. Earlier logs have been kept.";

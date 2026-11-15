@@ -1360,6 +1360,13 @@ final class ReaderToolbarTests: XCTestCase {
     }
 
     func testSharedDetachedChromeKeepsSelectedTabOwnershipAcrossModeChanges() throws {
+        final class CompanionWindow: NSWindow {
+            var companionClose: NSButton?
+            override func standardWindowButton(_ type: NSWindow.ButtonType) -> NSButton? {
+                if type == .closeButton, let companionClose { return companionClose }
+                return super.standardWindowButton(type)
+            }
+        }
         _ = NSApplication.shared
         let states = (0..<2).map { index in
             let state = ReaderState(recordsHistory: false)
@@ -1368,8 +1375,11 @@ final class ReaderToolbarTests: XCTestCase {
             return state
         }
         let windows = (0..<2).map { _ in
-            let window = NSWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
+            let window = CompanionWindow(contentRect: CGRect(x: 2000, y: 100, width: 700, height: 500),
                 styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+            // This fixture models companion ownership, not a native fullscreen Space.
+            // AppKit can replace an ordinary window's own close button on mode changes.
+            window.companionClose = NSWindow.standardWindowButton(.closeButton, for: .titled)
             window.isReleasedWhenClosed = false
             window.alphaValue = 0; window.ignoresMouseEvents = true
             return window

@@ -291,6 +291,11 @@ final class ReaderState: ObservableObject {
                 nativePDFFormEditor?.cancel(); nativePDFFormPage = nil; fitPresetRestore = nil
                 facingPageAnchor = nil
             }
+            ReaderWindowDiagnostics.event("document.changed", window: window, fields: [
+                "previousDocumentPresent": oldValue != nil,
+                "identityChanged": document?.id != oldValue?.id
+            ])
+            ReaderWindowDiagnostics.state("document.published", self)
         }
     }
     @Published private(set) var pdfEditingEnabled = false
@@ -304,7 +309,9 @@ final class ReaderState: ObservableObject {
     }
     weak var nativePDFFormEditor: NativePDFFormEditor?
     var nativePDFFormPage: Int?
-    @Published var busy = false
+    @Published var busy = false {
+        didSet { if busy != oldValue { ReaderWindowDiagnostics.state("document.busy.changed", self) } }
+    }
     @Published var error: String? { didSet { if let error, error != oldValue { ReaderHelp.recordError(error) } } }
     @Published var status = ""
     @Published private(set) var linkDestinationHint: ReadingPosition?
@@ -2509,6 +2516,9 @@ private extension ReaderState {
         persist()
         generation &+= 1
         let currentGeneration = generation
+        let loadRequest = UUID()
+        ReaderWindowDiagnostics.event("document.load.begin", window: window, request: loadRequest,
+                                      fields: ["generation": currentGeneration, "reloading": reloading])
         let openingPosition = requestedPosition
         let openingRenderer = requestedRenderer ?? openingPosition?.markdownRenderer
             ?? (openingPosition?.markdownPassage == nil ? nil : .compatible)
@@ -2528,6 +2538,13 @@ private extension ReaderState {
             reason: "Open document")
         loading = Task {
             defer { ProcessInfo.processInfo.endActivity(activity) }
+            var loadFinished = false
+            defer {
+                if !loadFinished {
+                    ReaderWindowDiagnostics.event("document.load.cancelled", window: window, request: loadRequest,
+                                                  fields: ["generation": currentGeneration])
+                }
+            }
             NativeReadingPerformance.mark("load-task-entry", revision: currentGeneration, started: loadStarted, persistent: true)
             defer { NativeReadingPerformance.mark("load-task-return", revision: currentGeneration, started: loadStarted, persistent: true) }
             let worker = Task.detached(priority: .userInitiated) {
@@ -2733,8 +2750,21 @@ private extension ReaderState {
                 if restorePDFEditing { setPDFEditingEnabled(true) }
                 NativeReadingPerformance.mark("load-publication-return", revision: currentGeneration, started: publicationStarted, persistent: true)
                 if !reloading { ReaderFiles.recordOpen(opened, recordsHistory: recordsHistory) }
+                loadFinished = true
+                ReaderWindowDiagnostics.event("document.load.completed", window: window, request: loadRequest,
+                                              fields: ["generation": currentGeneration])
             } catch {
-                guard !Task.isCancelled, currentGeneration == generation else { return }
+                guard !Task.isCancelled, currentGeneration == generation else {
+                    loadFinished = true
+                    ReaderWindowDiagnostics.event("document.load.cancelled", window: window, request: loadRequest,
+                                                  fields: ["generation": currentGeneration,
+                                                           "error": ReaderWindowDiagnostics.safeError(error)])
+                    return
+                }
+                loadFinished = true
+                ReaderWindowDiagnostics.event("document.load.failed", window: window, request: loadRequest,
+                                              fields: ["generation": currentGeneration,
+                                                       "error": ReaderWindowDiagnostics.safeError(error)])
                 busy = false
                 status = ""
                 loading = nil

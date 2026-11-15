@@ -7,7 +7,13 @@ func chooseDocuments(allowDirectories: Bool = true, in window: NSWindow? = nil,
     let panel = NSOpenPanel()
     panel.canChooseDirectories = allowDirectories
     panel.allowsMultipleSelection = true
-    let completion: (NSApplication.ModalResponse) -> Void = { if $0 == .OK { receive(panel.urls) } }
+    let completion: (NSApplication.ModalResponse) -> Void = { response in
+        ReaderWindowDiagnostics.event("filePanel.completed", window: window,
+                                      fields: ["accepted": response == .OK, "count": response == .OK ? panel.urls.count : 0])
+        if response == .OK { receive(panel.urls) }
+    }
+    ReaderWindowDiagnostics.event("filePanel.begin", window: window,
+                                  fields: ["allowsDirectories": allowDirectories])
     if let window = window ?? NSApp.keyWindow { panel.beginSheetModal(for: window, completionHandler: completion) }
     else { panel.begin(completionHandler: completion) }
 }
@@ -656,6 +662,7 @@ enum ReaderMenuCommand: String, Codable, CaseIterable, Identifiable {
         case .copyPath: state.copyPath()
         case .close: if let window = state.window { ReaderWindows.close(window) }
         case .newTab:
+            ReaderWindowDiagnostics.event("command.newTab", window: state.window)
             let choose = choose ?? { receive in chooseDocuments(allowDirectories: false, in: state.window, receive) }
             ReaderWindows.leaveOverview(of: state.window) {
                 choose { urls in

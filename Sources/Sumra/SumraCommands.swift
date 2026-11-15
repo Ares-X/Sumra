@@ -71,6 +71,7 @@ struct SumraCommands: Commands {
             Button(L("Keyboard Shortcuts")) { ReaderHelp.showShortcuts() }
             Button(L("Application Log")) { ReaderHelp.showLog() }
             Button(L("Errors in This Session")) { ReaderHelp.showErrors() }
+            Menu(L("Window Diagnostics")) { ReaderDiagnosticsActions() }
             Divider()
             Button(L("Visit Website")) { NSWorkspace.shared.open(ReaderHelp.website) }
             Button(L("Contribute Translation")) { ReaderHelp.contributeTranslation() }
