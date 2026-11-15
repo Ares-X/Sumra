@@ -137,6 +137,41 @@ copy loaded page 143 with its toolbar. Mission Control showed Desktop and one
 populated Sumra Space. This is local-source acceptance; the replacement signed
 candidate still requires its own acceptance before publication.
 
+## Signed replacement acceptance
+
+Candidate workflow `43708725854` built source
+`44d51497487a14663d571405118f4ea1a8cf0bc7` once as 0.2.46(48).
+All six asset digests, frozen source/application inventories, the existing
+certificate, bundle signatures, versions and Sparkle signature passed. The
+accepted executable SHA-256 is
+`605f9ca916c358488cdfc0e96da09b076766822473ac8acad6efd3f17d8a7938`;
+the accepted SHA256SUMS digest is
+`c64f92bd021ffea3f7c19e75739e80a04a421deaeaf016c9f979a726481167d6`.
+
+The same signed bytes passed the existing macOS 26.6.2 VM workflow:
+
+- Fullscreen Home, three-file batch, first CBR at page 143 and four Duplicates
+  before New Tab. Capture `9D5737F1-52CC-4424-A71F-86562D1CB1A9` records one
+  native join and one fullscreen-entry pair for each copy, with no later
+  active-Space loss before its checkpoint. Sampled frames retain the brief
+  document-loading interval; they do not show a Space slide or persistent black.
+- Normal Quit and seven-tab restart. Capture
+  `7A130CC2-2F58-45C5-B69B-DDF167EA80E4` matches all seven saved UUIDs, including
+  the selected CBR copy at page 143. Mission Control shows Desktop and one
+  populated Sumra Space. Always Hide → Auto Hide reveals complete controls/tabs
+  and hides them when the pointer returns to the document.
+- Fresh AppKit-owned EPUB/PDF copies close correctly: moving the EPUB into the
+  middle and closing reflows tabs; cancelling the PDF save prompt preserves its
+  rectangle, while Discard closes the copy. The source PDF hash is unchanged.
+- A real Settings → Diagnostics mark and native save panel export produced a
+  ZIP with 18 continuous captures, equal enqueued/successful sequence counts,
+  `loggingIncomplete=false`, and none of the fixture names or paths. Both signed
+  reader runs ended normally without a recorded application exception.
+
+The acceptance receipt and native screenshots are retained under
+`build/issue148-reporter45/vm/signed-mapped-uat/` and its parent. Publication and
+the public in-app update are separate checks after this candidate acceptance.
+
 The reporter's macOS 15 behavior remains
 unverified for the replacement. Issues 137, 148 and 96 remain open; none of these
 observations is a confirmed resolution of the reporter's black-Space outcome.
