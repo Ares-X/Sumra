@@ -349,6 +349,151 @@ final class NativeSceneRestorationTests: XCTestCase {
                        "Every default scene request must receive a unique identity after issuing the saved windows")
     }
 
+    func testNativeDefaultMatchesItsWindowRatherThanTheActiveDocumentAcrossNestedEvaluations() {
+        let restoring = SumraApp.restoring
+        defer { SumraApp.restoring = restoring }
+        let first = WindowPayload(path: "/ordinary-unused.txt")
+        var native = WindowPayload(path: "/same-document.txt")
+        native.nativeWindowIdentifier = "reader-AppWindow-" + UUID().uuidString
+        var active = WindowPayload(path: native.path)
+        active.selected = true; active.active = true
+        SumraApp.restoring = [active, native, first]
+
+        SumraApp.withNativeRestorationIdentity(NSUserInterfaceItemIdentifier(native.nativeWindowIdentifier!)) {
+            XCTAssertEqual(SumraApp.defaultWindowPayload().id, native.id,
+                           "A native B window must not provisionally become active C, even when their paths match")
+            XCTAssertEqual(SumraApp.defaultWindowPayload().id, native.id,
+                           "SwiftUI may evaluate one native scene's default repeatedly")
+            SumraApp.withNativeRestorationIdentity(NSUserInterfaceItemIdentifier("unknown-" + UUID().uuidString)) {
+                XCTAssertEqual(SumraApp.defaultWindowPayload().id, active.id,
+                               "An unmatched nested native request must not inherit the outer window's identity")
+            }
+            XCTAssertEqual(SumraApp.defaultWindowPayload().id, native.id,
+                           "Returning from a nested request must restore the enclosing native identity")
+        }
+
+        XCTAssertEqual(SumraApp.defaultWindowPayload().id, first.id,
+                       "Outside native restoration, ordinary defaults still consume the remaining unused request")
+        XCTAssertNil(SumraApp.defaultWindowPayload().path)
+        XCTAssertEqual(SumraApp.restoring.map(\.id), [active.id, native.id, first.id])
+    }
+
+    func testCanonicalNativeSceneAndSixMissingRowsRestoreSevenDistinctReadersDespiteLateBinding() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let shared = try fixture.document("same-path-native-and-active.txt")
+        let urls = try [fixture.document("first.txt"), shared, shared,
+                        fixture.document("fourth.txt"), fixture.document("fifth.txt"),
+                        fixture.document("sixth.txt"), fixture.document("seventh.txt")]
+        let groupIdentifier = "Canonical-Native-Seven-" + UUID().uuidString
+        var saved = urls.enumerated().map {
+            WindowPayload(path: $0.element.path, position: ReadingPosition(page: 0, zoom: 1.1 + Double($0.offset) / 10))
+        }
+        for index in saved.indices { saved[index].tabIdentifier = groupIdentifier }
+        saved[1].nativeWindowIdentifier = "reader-AppWindow-" + UUID().uuidString
+        saved[2].selected = true; saved[2].active = true
+        SumraApp.restoring = ReaderWindows.prepareRestoration(saved)
+        XCTAssertEqual(SumraApp.restoring.first?.id, saved[2].id)
+        ReaderWindows.isRestoringNativeWindows = true
+        fixture.application.applicationWillFinishLaunching(
+            Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApp))
+
+        let native = SumraApp.withNativeRestorationIdentity(NSUserInterfaceItemIdentifier(saved[1].nativeWindowIdentifier!)) {
+            XCTAssertEqual(SumraApp.defaultWindowPayload().id, saved[1].id)
+            return fixture.mount(SumraApp.defaultWindowPayload())
+        }
+        native.window.identifier = NSUserInterfaceItemIdentifier(saved[1].nativeWindowIdentifier!)
+        try await fixture.waitUntil("The canonical native reader did not attach before startup delivery") { native.state != nil }
+        XCTAssertEqual(native.payload.value.id, saved[1].id)
+        XCTAssertNil(native.state?.document)
+        XCTAssertEqual(native.state?.generation, 0)
+        var delivered = [WindowPayload]()
+        var missingScenes = [Scene]()
+        fixture.application.installWindowOpener { [weak fixture] payload in
+            delivered.append(payload)
+            if let fixture { missingScenes.append(fixture.mount(payload)) }
+        }
+        fixture.application.finishLaunching()
+        await Task.yield()
+        XCTAssertTrue(delivered.isEmpty)
+
+        NotificationCenter.default.post(name: NSApplication.didFinishRestoringWindowsNotification, object: NSApp)
+        XCTAssertEqual(delivered.count, 6, "Only the six absent native rows need application-created scenes")
+        // AppKit supplies its archived value after the completion notification.
+        // It keeps B's canonical UUID while carrying an older reading position.
+        var archivedNative = saved[1]
+        archivedNative.position = ReadingPosition(page: 0, zoom: 0.75)
+        native.payload.value = try JSONDecoder().decode(WindowPayload.self, from: JSONEncoder().encode(archivedNative))
+        native.host.layoutSubtreeIfNeeded()
+
+        try await fixture.waitUntil("Canonical native restoration lost an identity or left a reader blank") {
+            let scenes = [native] + missingScenes
+            let active = scenes.first { $0.payload.value.id == saved[2].id }
+            return !ReaderWindows.isRestoringWindows && scenes.count == 7 &&
+                Set(scenes.compactMap { ($0.window.delegate as? ReaderCloseGuard)?.restorationID }).count == 7 &&
+                active?.state?.document?.url == shared && active?.state?.busy == false
+        }
+        let scenes = [native] + missingScenes
+        let active = try XCTUnwrap(scenes.first { $0.payload.value.id == saved[2].id })
+        let group = try XCTUnwrap(native.window.tabGroup)
+        XCTAssertEqual(group.windows.compactMap { ($0.delegate as? ReaderCloseGuard)?.restorationID }, saved.map(\.id))
+        XCTAssertTrue(group.selectedWindow === active.window)
+        XCTAssertEqual(active.state?.zoom, saved[2].position?.zoom)
+        XCTAssertEqual(native.state?.restoredPayload?.position, saved[1].position)
+        XCTAssertNil(native.state?.document, "The same-path background copy must stay independent and dormant")
+        XCTAssertEqual(Set(scenes.map { $0.payload.value.id }), Set(saved.map(\.id)))
+        XCTAssertEqual(scenes.filter { $0.payload.value.path == shared.path }.count, 2)
+        XCTAssertEqual(Set(delivered.map(\.id)), Set(saved.filter { $0.id != saved[1].id }.map(\.id)))
+        XCTAssertTrue(SumraApp.restoring.isEmpty)
+    }
+
+    func testNativeWindowIdentityMetadataRoundTripsAndLegacyPayloadsRemainReadable() throws {
+        var payload = WindowPayload(path: "/native-metadata.txt", position: ReadingPosition(page: 12, zoom: 1.5))
+        payload.nativeWindowIdentifier = "reader-AppWindow-" + UUID().uuidString
+        let data = try JSONEncoder().encode(payload)
+        let decoded = try JSONDecoder().decode(WindowPayload.self, from: data)
+        XCTAssertEqual(decoded.nativeWindowIdentifier, payload.nativeWindowIdentifier)
+        XCTAssertEqual(decoded.id, payload.id)
+        XCTAssertEqual(decoded.position, payload.position)
+
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        legacy.removeValue(forKey: "nativeWindowIdentifier")
+        let old = try JSONDecoder().decode(WindowPayload.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertNil(old.nativeWindowIdentifier)
+        XCTAssertEqual(old.id, payload.id)
+        XCTAssertEqual(old.path, payload.path)
+        XCTAssertEqual(old.position, payload.position)
+    }
+
+    func testSessionSavesNativeIdentityOnlyForARestorableWindow() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let url = try fixture.document("native-identity-session.txt")
+        var payload = WindowPayload(path: url.path)
+        payload.tabIdentifier = "Native-Identity-Session-" + UUID().uuidString
+        let scene = fixture.mount(payload)
+        try await fixture.waitUntil("The native identity session reader did not load") {
+            scene.state?.document?.url == url && scene.state?.busy == false
+        }
+        let state = try XCTUnwrap(scene.state)
+        let identifier = NSUserInterfaceItemIdentifier("reader-AppWindow-" + UUID().uuidString)
+        scene.window.identifier = identifier
+        scene.window.isRestorable = true
+        ReaderWindows.saveSession([state])
+        let restorable = try XCTUnwrap(ReaderWindows.saved("session").first)
+        XCTAssertEqual(restorable.nativeWindowIdentifier, identifier.rawValue)
+
+        // AppKit-owned tab children do not have native-restorable archives even
+        // if a native identifier exists. Their application-session row survives.
+        scene.window.isRestorable = false
+        ReaderWindows.saveSession([state])
+        let ownedChild = try XCTUnwrap(ReaderWindows.saved("session").first)
+        XCTAssertNil(ownedChild.nativeWindowIdentifier)
+        XCTAssertEqual(ownedChild.id, restorable.id)
+        XCTAssertEqual(ownedChild.path, url.path)
+        XCTAssertEqual(scene.window.identifier, identifier, "Session capture must not rewrite AppKit's native identity")
+    }
+
     func testEvaluatedDefaultWithoutMountedSceneRemainsPendingForStartupDelivery() async throws {
         let fixture = try Fixture()
         defer { fixture.close() }

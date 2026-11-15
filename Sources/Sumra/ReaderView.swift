@@ -18,7 +18,6 @@ struct ReaderView: View {
     @State private var fullscreenMenuInset: CGFloat = 0
     @State private var nativeTopClearance: CGFloat = 0
     @State private var bottomStatusHeight: CGFloat = 0
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
@@ -137,7 +136,7 @@ struct ReaderView: View {
         .contextMenu { contextMenu }
         .dropDestination(for: URL.self) { urls, _ in
             guard !urls.isEmpty else { return false }
-            ReaderWindows.open(urls, in: state) { openWindow(id: "reader", value: $0) }
+            ReaderWindows.open(urls, in: state) { state.createWindow?($0) }
             return true
         }
         .alert(
@@ -532,7 +531,7 @@ struct ReaderView: View {
 
     private func openFiles() {
         chooseDocuments { urls in
-            ReaderWindows.open(urls, in: state) { openWindow(id: "reader", value: $0) }
+            ReaderWindows.open(urls, in: state) { state.createWindow?($0) }
         }
     }
 
