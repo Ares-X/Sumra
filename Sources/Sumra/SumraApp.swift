@@ -13,6 +13,8 @@ struct WindowPayload: Codable, Hashable {
     var position: ReadingPosition?
     var tabWith: Int?
     var tabIdentifier: String?
+    // Associates a native-restorable window with its canonical session UUID.
+    var nativeWindowIdentifier: String?
     // Opening a batch selects once its native scenes have all attached.
     // This request is transient; the native group remains the tab model.
     var tabOpening: ReaderWindows.TabOpening?
@@ -44,7 +46,7 @@ struct WindowPayload: Codable, Hashable {
     var active: Bool?
     // Startup metadata only; the native tab group owns order after restoration.
     var restoring = false
-    enum CodingKeys: String, CodingKey { case id, path, position, tabWith, tabIdentifier, recordsHistory, tabColor, fileBookmark, selected, active }
+    enum CodingKeys: String, CodingKey { case id, path, position, tabWith, tabIdentifier, nativeWindowIdentifier, recordsHistory, tabColor, fileBookmark, selected, active }
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -59,6 +61,7 @@ struct WindowPayload: Codable, Hashable {
         try values.encodeIfPresent(active, forKey: .active)
         // Scene restoration must not persist a private or temporary file path.
         if temporary == nil, recordsHistory != false {
+            try values.encodeIfPresent(nativeWindowIdentifier, forKey: .nativeWindowIdentifier)
             try values.encodeIfPresent(fileBookmark, forKey: .fileBookmark)
             try values.encodeIfPresent(path, forKey: .path)
             try values.encodeIfPresent(position, forKey: .position)
@@ -98,18 +101,19 @@ struct ReaderScene: View {
 struct ReaderWindow: View {
     @Binding var payload: WindowPayload
     let application: ReaderApplicationDelegate
+    let placementOwnedByController: Bool
     @StateObject private var state = ReaderState()
-    @Environment(\.openWindow) private var openWindow
     @AppStorage("fullPathTitle") private var fullPathTitle = false
     @AppStorage("pageInTitle") private var pageInTitle = false
 
-    init(payload: Binding<WindowPayload>, application: ReaderApplicationDelegate) {
+    init(payload: Binding<WindowPayload>, application: ReaderApplicationDelegate, placementOwnedByController: Bool = false) {
         _payload = payload
         let request = payload.wrappedValue
         let restoration = request.restoring ? request : ReaderWindows.pendingRestoration(for: request.id)
         application.recordStartupScene(request)
         _state = StateObject(wrappedValue: ReaderState(restoring: restoration))
         self.application = application
+        self.placementOwnedByController = placementOwnedByController
     }
 
     private var windowTitle: String {
@@ -138,7 +142,7 @@ struct ReaderWindow: View {
             .frame(minWidth: 560, minHeight: state.hasDocument ? 400 : 500)
             .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
             .navigationTitle(windowTitle)
-            .background(WindowTabs(state: state, tabWith: opening.tabWith, identifier: opening.tabIdentifier, openingPath: opening.path, restorationID: opening.id, openingRequest: opening.tabOpening) {
+            .background(WindowTabs(state: state, tabWith: opening.tabWith, identifier: opening.tabIdentifier, openingPath: opening.path, restorationID: opening.id, placementOwnedByController: placementOwnedByController) {
                 ReaderWindowDiagnostics.event("scene.ready", window: state.window, request: opening.id,
                                               fields: ["hasPath": opening.path != nil, "restoring": opening.restoring])
                 documentOpenLog.notice("scene-ready payload=\(opening.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
@@ -158,18 +162,13 @@ struct ReaderWindow: View {
                     state.showFiles = true
                     payload.browserFolder = nil
                 }
-                let opener = openWindow
-                state.createWindow = { [opener] request in
-                    ReaderWindowDiagnostics.event("scene.openWindow.begin", request: request.id,
-                                                  fields: ["hasPath": request.path != nil, "parentNumber": request.tabWith as Any? ?? NSNull()])
-                    opener(id: "reader", value: request)
-                    ReaderWindowDiagnostics.event("scene.openWindow.returned", request: request.id)
-                }
-                state.openAuxiliaryWindow = { [opener] in opener(id: $0) }
+                state.createWindow = { [weak application] in application?.openReaderWindow($0) }
+                state.openAuxiliaryWindow = { [weak application] in application?.openAuxiliaryWindow($0) }
                 application.connect(state, canReuse: payload.path == nil)
-                ScreenshotHotkey.capture = { [opener] in
+                ScreenshotHotkey.capture = { [weak application] in
+                    guard let application else { return }
                     let receiver = ReaderWindows.states.first(where: { $0.window === NSApp.keyWindow }) ?? ReaderWindows.states.first ?? ReaderState()
-                    receiver.createWindow = { [opener] in opener(id: "reader", value: $0) }
+                    receiver.createWindow = { [weak application] in application?.openReaderWindow($0) }
                     ReaderImages.capture(receiver)
                 }
             }
@@ -209,13 +208,66 @@ struct ReaderWindow: View {
     }
 }
 
+@MainActor
+private struct NativeReaderWindowRoot: View {
+    @State var payload: WindowPayload
+    let application: ReaderApplicationDelegate
+
+    var body: some View {
+        ReaderWindow(payload: $payload, application: application, placementOwnedByController: true)
+            .modifier(ReaderLanguage())
+    }
+}
+
+@MainActor
+private final class ReaderTabWindowController: NSWindowController, NSWindowDelegate {
+    private let requestID: UUID
+    private weak var application: ReaderApplicationDelegate?
+
+    init(payload: WindowPayload, beside parent: NSWindow, application: ReaderApplicationDelegate) {
+        requestID = payload.id
+        self.application = application
+        let window = NSWindow(contentRect: parent.convertToScreen(parent.contentLayoutRect),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        // The app session recreates this reader; this controller cannot decode
+        // its SwiftUI content from a native window archive.
+        window.isRestorable = false
+        window.toolbarStyle = .unifiedCompact
+        window.tabbingIdentifier = parent.tabbingIdentifier
+        window.tabbingMode = .preferred
+        window.title = payload.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Sumra"
+        super.init(window: window)
+        window.delegate = self
+        window.contentViewController = NSHostingController(rootView: NativeReaderWindowRoot(payload: payload, application: application))
+        window.contentMinSize = NSSize(width: 560, height: 400)
+    }
+
+    required init?(coder: NSCoder) { return nil }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        if let state = (window.delegate as? ReaderCloseGuard)?.state, !state.isWindowClosed {
+            ReaderWindows.rememberClosed(state)
+            state.windowClosed()
+        }
+        // The host's close guard retains its previous delegate. Release that
+        // hosting graph as the native window closes, then retire its owner.
+        window.contentViewController = nil
+        window.delegate = nil
+        self.window = nil
+        application?.readerWindowClosed(self, request: requestID)
+    }
+}
+
 struct WindowTabs: NSViewRepresentable {
     @ObservedObject var state: ReaderState
     let tabWith: Int?
     let identifier: String?
     let openingPath: String?
     var restorationID: UUID? = nil
-    var openingRequest: ReaderWindows.TabOpening? = nil
+    var placementOwnedByController = false
     let onWindowReady: () -> Void
 
     func makeNSView(context: Context) -> HostView {
@@ -224,7 +276,7 @@ struct WindowTabs: NSViewRepresentable {
         view.tabWith = tabWith
         view.groupIdentifier = identifier
         view.restorationID = restorationID
-        view.openingRequest = openingRequest
+        view.placementOwnedByController = placementOwnedByController
         view.openingPath = openingPath
         view.onWindowReady = onWindowReady
         return view
@@ -243,7 +295,7 @@ struct WindowTabs: NSViewRepresentable {
         var tabWith: Int?
         var groupIdentifier: String?
         var restorationID: UUID?
-        var openingRequest: ReaderWindows.TabOpening?
+        var placementOwnedByController = false
         var openingPath: String?
         var onWindowReady: (() -> Void)?
         private var closeGuard: ReaderCloseGuard?
@@ -314,7 +366,6 @@ struct WindowTabs: NSViewRepresentable {
             // AppKit restores its fullscreen tab stack before the app applies
             // saved grouping or creates any missing reader scenes.
             closeGuard.updateTabbingPolicy(window)
-            let placementParent: NSWindow?
             if !placed {
                 placed = true
                 let readers = ReaderWindows.states.compactMap(\.window).filter {
@@ -326,43 +377,21 @@ struct WindowTabs: NSViewRepresentable {
                 ReaderWindowDiagnostics.event("tab.parent.resolved", window: window, request: restorationID,
                                               fields: ["requestedParentNumber": tabWith as Any? ?? NSNull(),
                                                        "resolvedParentNumber": parent?.windowNumber as Any? ?? NSNull(),
-                                                       "isHome": closeGuard.isHome, "hasOpeningPath": openingPath != nil])
-                placementParent = !closeGuard.isHome && window.tabbingMode != .disallowed ? parent : nil
-            } else { placementParent = nil }
-            // SwiftUI finishes its own first ordering after this host mounts.
-            // The failing macOS 15 trace enters fullscreen twice while the
-            // explicit join nests inside that call. Keep policy/identity ready
-            // and join at the existing
-            // scene-ready boundary after the opener returns.
-            let deferred = openingRequest != nil && tabWith != nil && placementParent != nil
-            if deferred {
-                ReaderWindowDiagnostics.event("tab.placement.deferred", window: window, request: restorationID)
-            } else {
-                if let parent = placementParent {
+                                                       "isHome": closeGuard.isHome, "hasOpeningPath": openingPath != nil,
+                                                       "placementOwnedByController": placementOwnedByController])
+                if !placementOwnedByController, !closeGuard.isHome, window.tabbingMode != .disallowed, let parent {
                     ReaderWindows.placeTab(window, beside: parent, restorationID: closeGuard.restorationID)
                 }
-                placementComplete = true
-                ReaderWindowDiagnostics.event("host.placement.completed", window: window, request: restorationID)
             }
+            placementComplete = true
+            ReaderWindowDiagnostics.event("host.placement.completed", window: window, request: restorationID)
+            // Opening the document and completing a tab request follow native
+            // host installation, preserving the window/delegate identity.
             DispatchQueue.main.async { [weak self, weak window, weak closeGuard] in
                 guard let self, let window, let closeGuard,
                       self.window === window, self.closeGuard === closeGuard,
                       window.delegate === closeGuard,
                       self.state?.isWindowClosed != true else { return }
-                if deferred, let parent = placementParent {
-                    let parentStillOpen = (parent.delegate as? ReaderCloseGuard)?.state?.window === parent
-                    let peers = window.tabbedWindows ?? [window]
-                    let movedToOtherGroup = peers.count > 1 && !peers.contains(parent)
-                    if parentStillOpen, !movedToOtherGroup {
-                        ReaderWindows.placeTab(window, beside: parent, restorationID: self.restorationID)
-                    } else {
-                        ReaderWindowDiagnostics.event("tab.placement.cancelled", window: window, request: self.restorationID,
-                                                      fields: ["parentStillOpen": parentStillOpen,
-                                                               "movedToOtherGroup": movedToOtherGroup])
-                    }
-                    self.placementComplete = true
-                    ReaderWindowDiagnostics.event("host.placement.completed", window: window, request: self.restorationID)
-                }
                 self.tabsUpdated()
                 self.onWindowReady?()
             }
@@ -523,7 +552,9 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     private var pendingFiles: [URL] = []
     private var pendingSyncTeX: [SyncTeXForwardRequest] = []
     private var syncTeXTasks: [String: Task<Void, Never>] = [:]
-    private var createWindow: ((WindowPayload) -> Void)?
+    private var sceneOpener: ((WindowPayload) -> Void)?
+    private var auxiliaryOpener: ((String) -> Void)?
+    private(set) var readerWindowControllers: [UUID: NSWindowController] = [:]
     private var hasFinishedLaunching = false
     private var hasFinishedRestoringWindows = false
     private var startupSceneIDs = Set<UUID>()
@@ -552,9 +583,10 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
 
     // Finder can launch the app without creating an initial reader scene.
     // Commands installs the app-wide action without requiring a window first.
-    func installWindowOpener(_ opener: @escaping (WindowPayload) -> Void) {
-        guard createWindow == nil else { return }
-        createWindow = { request in
+    func installWindowOpener(_ opener: @escaping (WindowPayload) -> Void, auxiliary: ((String) -> Void)? = nil) {
+        if let auxiliary { auxiliaryOpener = auxiliary }
+        guard sceneOpener == nil else { return }
+        sceneOpener = { request in
             ReaderWindowDiagnostics.event("scene.openWindow.begin", request: request.id,
                                           fields: ["hasPath": request.path != nil, "parentNumber": request.tabWith as Any? ?? NSNull()])
             opener(request)
@@ -567,6 +599,31 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
             self?.restorePendingSession()
             self?.openPendingFiles()
         }
+    }
+
+    func openReaderWindow(_ payload: WindowPayload) {
+        if payload.tabOpening != nil, !payload.restoring,
+           ReaderWindows.pendingRestoration(for: payload.id) == nil,
+           !UserDefaults.standard.bool(forKey: "disableTabs"),
+           let parentNumber = payload.tabWith,
+           let parent = ReaderWindows.states.first(where: {
+               !$0.isWindowClosed && $0.window?.windowNumber == parentNumber
+           })?.window,
+           (parent.delegate as? ReaderCloseGuard)?.isHome == false {
+            ReaderWindowDiagnostics.event("tab.nativeWindow.begin", window: parent, request: payload.id)
+            let controller = ReaderTabWindowController(payload: payload, beside: parent, application: self)
+            readerWindowControllers[payload.id] = controller
+            if let window = controller.window {
+                ReaderWindows.placeTab(window, beside: parent, restorationID: payload.id)
+                ReaderWindowDiagnostics.event("tab.nativeWindow.joined", window: window, request: payload.id)
+            }
+        } else { sceneOpener?(payload) }
+    }
+
+    func openAuxiliaryWindow(_ identifier: String) { auxiliaryOpener?(identifier) }
+
+    fileprivate func readerWindowClosed(_ controller: NSWindowController, request: UUID) {
+        if readerWindowControllers[request] === controller { readerWindowControllers.removeValue(forKey: request) }
     }
 
     func recordStartupScene(_ payload: WindowPayload) {
@@ -605,11 +662,11 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     }
 
     private func restorePendingSession() {
-        guard hasFinishedRestoringWindows, hasFinishedLaunching, let createWindow else { return }
+        guard hasFinishedRestoringWindows, hasFinishedLaunching, sceneOpener != nil else { return }
         let remaining = SumraApp.restoring.filter { !startupSceneIDs.contains($0.id) }
         ReaderWindowDiagnostics.event("restoration.missingScenes", fields: ["count": remaining.count])
         SumraApp.restoring = []
-        for payload in remaining { createWindow(payload) }
+        for payload in remaining { openReaderWindow(payload) }
     }
 
     func applicationShouldHandleReopen(_ application: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -626,8 +683,8 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
         }
         // Shared system and auxiliary windows can keep hasVisibleWindows true
         // after the last reader closes. Only reader ownership counts here.
-        guard let createWindow else { return true }
-        createWindow(WindowPayload())
+        guard sceneOpener != nil else { return true }
+        openReaderWindow(WindowPayload())
         return false
     }
 
@@ -635,7 +692,7 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
         ReaderWindowDiagnostics.event("application.openFiles.received", fields: ["count": urls.count])
         let files = urls.filter(\.isFileURL)
         pendingFiles.append(contentsOf: files)
-        documentOpenLog.notice("request-received count=\(urls.count, privacy: .public) files=\(files.count, privacy: .public) pending=\(self.pendingFiles.count, privacy: .public) launch-ready=\(self.hasFinishedLaunching, privacy: .public) opener-ready=\(self.createWindow != nil, privacy: .public)")
+        documentOpenLog.notice("request-received count=\(urls.count, privacy: .public) files=\(files.count, privacy: .public) pending=\(self.pendingFiles.count, privacy: .public) launch-ready=\(self.hasFinishedLaunching, privacy: .public) opener-ready=\(self.sceneOpener != nil, privacy: .public)")
         for url in urls where url.scheme?.lowercased() == "sumra" {
             do { pendingSyncTeX.append(try SyncTeXForwardRequest(url: url)) }
             catch { presentSyncTeXError(error) }
@@ -660,7 +717,7 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     }
 
     private func openPendingFiles() {
-        guard hasFinishedLaunching, !ReaderWindows.isRestoringNativeWindows, let createWindow,
+        guard hasFinishedLaunching, !ReaderWindows.isRestoringNativeWindows, sceneOpener != nil,
               !pendingFiles.isEmpty || !pendingSyncTeX.isEmpty else { return }
         // Finder and editor requests can arrive before SwiftUI installs a window.
         NSApp.activate(ignoringOtherApps: true)
@@ -668,15 +725,15 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
         pendingFiles.removeAll()
         if !urls.isEmpty {
             documentOpenLog.notice("pending-handoff count=\(urls.count, privacy: .public)")
-            ReaderWindows.open(urls, in: emptyReader, createWindow: createWindow)
+            ReaderWindows.open(urls, in: emptyReader, createWindow: openReaderWindow)
             emptyReader = nil
         }
         let requests = pendingSyncTeX
         pendingSyncTeX.removeAll()
-        for request in requests { openSyncTeX(request, createWindow: createWindow) }
+        for request in requests { openSyncTeX(request) }
     }
 
-    private func openSyncTeX(_ request: SyncTeXForwardRequest, createWindow: @escaping (WindowPayload) -> Void) {
+    private func openSyncTeX(_ request: SyncTeXForwardRequest) {
         let identity = request.identity
         syncTeXTasks[identity]?.cancel()
         let initialReader = SyncTeXForward.reader(for: request, among: ReaderWindows.states, preferred: NSApp.keyWindow)
@@ -695,7 +752,7 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
                     self.emptyReader = nil
                     state.open(request.pdf, at: position)
                     state.window?.makeKeyAndOrderFront(nil)
-                } else { createWindow(WindowPayload(path: request.pdf.path, position: position)) }
+                } else { self.openReaderWindow(WindowPayload(path: request.pdf.path, position: position)) }
                 self.syncTeXTasks.removeValue(forKey: identity)
                 NSApp.activate(ignoringOtherApps: true)
             } catch {
@@ -1010,7 +1067,9 @@ enum ReaderWindows {
             if let parentNumber {
                 let members = group.windows
                 ReaderWindowDiagnostics.groupObserved(window, group: group, members: members)
-                if !members.contains(where: { $0.windowNumber == parentNumber }) {
+                guard let parent = members.first(where: { $0.windowNumber == parentNumber }),
+                      let state = (parent.delegate as? ReaderCloseGuard)?.state,
+                      !state.isWindowClosed, state.window === parent else {
                     ReaderWindowDiagnostics.event("tab.ready.exit.parentMissing", window: window, request: selectedID,
                                                   fields: ["parentNumber": parentNumber])
                     return
@@ -1151,6 +1210,7 @@ enum ReaderWindows {
         var payloads = saved.map { saved -> WindowPayload in
             var payload = saved
             payload.id = UUID(); payload.tabWith = parent?.windowNumber
+            payload.nativeWindowIdentifier = nil
             payload.tabIdentifier = tabsEnabled ? identifier : "Sumra-" + UUID().uuidString
             return payload
         }
@@ -1276,6 +1336,7 @@ enum ReaderWindows {
                 visited.insert(tab.windowNumber)
                 guard let reader = states.first(where: { $0.window === tab }), reader.recordsDocumentHistory, var payload = payload(reader) else { continue }
                 if let id = (tab.delegate as? ReaderCloseGuard)?.restorationID { payload.id = id }
+                payload.nativeWindowIdentifier = tab.isRestorable ? tab.identifier?.rawValue : nil
                 payload.tabIdentifier = identifier
                 payload.selected = tab === (window.tabGroup?.selectedWindow ?? window)
                 payload.active = tab === activeWindow
@@ -2249,15 +2310,17 @@ final class ReaderAppKitApplication: NSApplication {
             "restoreSession": UserDefaults.standard.bool(forKey: "restoreSession")
         ])
         guard UserDefaults.standard.bool(forKey: "restoreSession") else {
-            documentOpenLog.notice("native-restoration-skipped identifier=\(identifier.rawValue, privacy: .public)")
+            documentOpenLog.notice("native-restoration-skipped")
             ReaderWindowDiagnostics.event("restoration.native.skipped", request: request)
             completionHandler(nil, nil)
             return true
         }
-        return super.restoreWindow(withIdentifier: identifier, state: state) { window, error in
-            ReaderWindowDiagnostics.event("restoration.native.completed", window: window, request: request,
-                                          fields: ["error": error.map(ReaderWindowDiagnostics.safeError) as Any? ?? NSNull()])
-            completionHandler(window, error)
+        return SumraApp.withNativeRestorationIdentity(identifier) {
+            super.restoreWindow(withIdentifier: identifier, state: state) { window, error in
+                ReaderWindowDiagnostics.event("restoration.native.completed", window: window, request: request,
+                                              fields: ["error": error.map(ReaderWindowDiagnostics.safeError) as Any? ?? NSNull()])
+                completionHandler(window, error)
+            }
         }
     }
 }
@@ -2268,9 +2331,40 @@ struct SumraApp: App {
         didSet { issuedDefaultIDs = [] }
     }
     private static var issuedDefaultIDs = Set<UUID>()
+    private static var nativeRestorationPayload: WindowPayload?
+
+    static func withNativeRestorationIdentity<Result>(_ identifier: NSUserInterfaceItemIdentifier,
+                                                      perform: () throws -> Result) rethrows -> Result {
+        let previous = nativeRestorationPayload
+        // An unmatched nested request must shadow an outer matched identity.
+        nativeRestorationPayload = restoring.first { $0.nativeWindowIdentifier == identifier.rawValue }
+        ReaderWindowDiagnostics.event("restoration.native.identity.enter", request: nativeRestorationPayload?.id,
+                                      fields: ["matched": nativeRestorationPayload != nil])
+        defer {
+            ReaderWindowDiagnostics.event("restoration.native.identity.exit", request: nativeRestorationPayload?.id,
+                                          fields: ["matched": nativeRestorationPayload != nil])
+            nativeRestorationPayload = previous
+        }
+        return try perform()
+    }
+
     static func defaultWindowPayload() -> WindowPayload {
-        guard let request = restoring.first(where: { !issuedDefaultIDs.contains($0.id) }) else { return WindowPayload() }
+        if let request = nativeRestorationPayload {
+            // SwiftUI may evaluate one native window's default value repeatedly.
+            issuedDefaultIDs.insert(request.id)
+            ReaderWindowDiagnostics.event("restoration.defaultPayload", request: request.id,
+                                          fields: ["source": "nativeIdentity"])
+            return request
+        }
+        guard let request = restoring.first(where: { !issuedDefaultIDs.contains($0.id) }) else {
+            let payload = WindowPayload()
+            ReaderWindowDiagnostics.event("restoration.defaultPayload", request: payload.id,
+                                          fields: ["source": "newWindow"])
+            return payload
+        }
         issuedDefaultIDs.insert(request.id)
+        ReaderWindowDiagnostics.event("restoration.defaultPayload", request: request.id,
+                                      fields: ["source": "restorationQueue"])
         return request
     }
     @NSApplicationDelegateAdaptor(ReaderApplicationDelegate.self) private var delegate

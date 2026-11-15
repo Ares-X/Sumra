@@ -18,6 +18,8 @@ cross-system comparison, not another attempt on the reporter's system.
 
 Times below are relative to `command.duplicate`, request `005A3478-4D50-4022-8578-4FEA0F5EAC13`.
 The original reader is w5 / native window 5679; the new reader is w11 / 5723.
+The recorded reader uses normal controls, `toolbarMode=shown`, and internal page
+142 of a 144-page CBR visible in the video.
 
 | Sequence | Time | Observation |
 | --- | ---: | --- |
@@ -47,25 +49,96 @@ scene opener, but the duplicated window received only one fullscreen entry pair
 and no later active-Space loss was observed. That difference motivates removing
 the nested insertion; it does not by itself identify every internal AppKit action.
 
-## Targeted change and validation
+## Rejected first candidate
 
-Explicit tab requests now prepare native policy and identity while mounting, and
-perform their one manual insertion at the existing scene-ready main-queue boundary.
-This separates the application insertion from SwiftUI's synchronous first ordering.
-The callback belongs to its original window and close guard. Closing the parent or
-child, detaching/rebinding the host, or moving the child to another group prevents
-that old request from attaching or taking selection. Native restoration and cold
-batch paths retain their existing ownership.
+The first attempted change deferred the explicit insertion to scene readiness.
+Its mounted native ordering/interruption checks passed 68 cases with one platform
+skip, using isolated preferences and clipboard. Those tests did not exercise
+SwiftUI's first display or WindowServer/Spaces.
 
-The new opener-order and interrupted-placement tests fail on 0.2.45. A follow-up
-host reattachment case also rejected the initial deferred callback until its window
-and delegate identities were fixed. These mounted native tests protect the creation
-boundary; they do not reproduce or prove WindowServer/Space behavior.
+A fresh 0.2.45 VM control matched Always Show normal controls, a 144-page stored
+RAR5 CBR, two-page layout and page 143, with Duplicate before New Tab. It showed
+one fullscreen-entry pair, stayed visible, and Mission Control showed only a
+Desktop and one populated Sumra Space. The filename/content differ from the
+reporter's book, and macOS remains 26.6.2; this is still a non-reproduction.
 
-Final affected checks passed 68 cases with one expected platform skip, using isolated
-preferences and clipboard; source and installed native engines remained unchanged.
-Signed existing-VM acceptance is pending. The reporter's
-macOS 15 behavior remains unverified after this change. Issues 137, 148 and 96 remain
-open; this change must not be described as a confirmed black-Space resolution.
+The signed 0.2.46 candidate at `0dd59ff7063e5e11df278e91948d2289290fdd5c`
+failed this real-VM acceptance. SwiftUI entered fullscreen before its opener
+returned; the later native insertion caused another fullscreen entry and the
+selected child temporarily left the active Space. Continuous native captures
+showed a Space slide and an empty loading view before the reader returned.
+The candidate was withheld from merge/publication and PR 156 returned to draft.
+This falsifies deferral alone as the repair; passing native unit tests did not
+make that presentation boundary safe.
+
+## Creation-owner experiments
+
+All experiments below used ignored source overlays, the existing macOS 26.6.2
+VM, the same stored-RAR5 CBR and normal Always Show controls. They are not
+additional attempts on macOS 15.7.5 and were not published.
+
+- Calling the existing SwiftUI window controller's public `newWindowForTab`
+  consumed the intended payload once, synchronously, but created an independent
+  fullscreen reader. With application insertion disabled, readiness correctly
+  exited with `parentMissing`. Direct `NSWindow` did not respond to that action.
+- Temporarily using `[.primary, .fullScreenAuxiliary]` for the synchronous join
+  produced one fullscreen-entry pair, as the 0.2.45 control already did. SwiftUI
+  restored the primary mask during native entry. This did not establish a repair
+  and was not adopted.
+- A narrow AppKit-created child hosting the existing `ReaderWindow` joined the
+  parent before its first order. The scene opener was not involved in that
+  creation. Capture `A5F3ADBC-96BA-4F5E-991B-A6341921C33F` records one entry pair;
+  the visible duplicate retained page 143, native toolbar and menu navigation to
+  page 144. Mission Control showed Desktop and one populated Sumra Space.
+  Its first automated Duplicate attempt was not dispatched (zero commands in
+  the trace); those initial continuous frames are not acceptance evidence. The
+  later confirmed command, trace and settled pixels establish the observations
+  above, not an absence of every transient frame.
+
+## AppKit owner and session restoration
+
+The replacement creates explicit document tabs with AppKit, hosts the same
+SwiftUI reader, and inserts the native window before its first display. Other
+reader and auxiliary requests retain their scene owners. Native window numbers
+exist before insertion, including unselected batch tabs; closing releases the
+controller and its hosting graph. The original close-command implementation is
+unchanged: a suspected routing failure was not reproduced when the trace
+confirmed that the command had actually been dispatched.
+
+Local VM playback of Duplicate before New Tab retained page 143, showed one
+fullscreen-entry pair and one populated Sumra Space. A separate seven-tab
+session exposed a restoration regression before release: a native CBR scene
+temporarily received the active copy's UUID, then its late decoded value
+replaced that UUID with the original CBR's identity. A second original-CBR scene
+had already been created, leaving only six unique ready identities for seven
+saved rows. The recovery barrier therefore kept the readers blank. Raw capture
+`9206F221-6F22-411D-A4A9-50EB058D087B` preserves this failure.
+
+The application session now saves a restorable native window's public identifier
+alongside its canonical payload UUID. During the synchronous native-restoration
+call, a matching default payload keeps that UUID, including repeated default
+evaluation; a nested unmatched request does not inherit the outer identity.
+Application-owned child controllers have no native decoding contract and use
+`isRestorable=false`; the application session still saves their document rows.
+Older session payloads remain readable. Native restoration's asynchronous
+completion does not extend the synchronous identity scope; actual restart
+playback must verify the framework uses it before publication.
+
+The replacement source passed 101 focused tests with two host-platform skips,
+using isolated preferences and clipboard. Those skips do not establish GUI
+acceptance. In the existing macOS 26.6.2 VM, a fresh private application identity
+replayed fullscreen Home → three-file batch → first CBR → page 143 → four
+Duplicates → normal Quit → restart. Capture
+`4020F494-07E5-4CC0-8D46-560BB19DE6ED` preserves the four confirmed commands;
+`54699B11-24D2-466B-A9C8-9B39DEB4AB0E` records one native restoration request,
+the original CBR identity matched inside the synchronous scope, six missing
+scenes, and seven unique ready UUIDs matching all seven saved rows. The selected
+copy loaded page 143 with its toolbar. Mission Control showed Desktop and one
+populated Sumra Space. This is local-source acceptance; the replacement signed
+candidate still requires its own acceptance before publication.
+
+The reporter's macOS 15 behavior remains
+unverified for the replacement. Issues 137, 148 and 96 remain open; none of these
+observations is a confirmed resolution of the reporter's black-Space outcome.
 Local original attachments, frame observations, focused failure receipts and
 independent analyses are retained under `build/issue148-reporter45/`.

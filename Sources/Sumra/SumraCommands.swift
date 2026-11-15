@@ -58,7 +58,8 @@ struct SumraCommands: Commands {
 
     var body: some Commands {
         let _ = language
-        let _ = application.installWindowOpener { [openWindow] in openWindow(id: "reader", value: $0) }
+        let _ = application.installWindowOpener({ [openWindow] in openWindow(id: "reader", value: $0) },
+                                               auxiliary: { [openWindow] in openWindow(id: $0) })
         applicationCommands
         readingCommands
         documentTools
@@ -80,7 +81,7 @@ struct SumraCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button(L("New Sumra Window")) {
                 ReaderWindows.leaveOverview(of: ReaderWindows.newTabState?.window) {
-                    openWindow(id: "reader", value: WindowPayload())
+                    application.openReaderWindow(WindowPayload())
                 }
             }.keyboardShortcut("n")
 
@@ -231,12 +232,12 @@ struct SumraCommands: Commands {
     }
 
     private func open(_ url: URL) {
-        ReaderFiles.openRecent(url, in: state) { openWindow(id: "reader", value: $0) }
+        ReaderFiles.openRecent(url, in: state, createWindow: application.openReaderWindow)
     }
 
     private func openFiles() {
         chooseDocuments { urls in
-            ReaderWindows.open(urls, in: state) { openWindow(id: "reader", value: $0) }
+            ReaderWindows.open(urls, in: state, createWindow: application.openReaderWindow)
         }
     }
 }
