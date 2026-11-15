@@ -172,6 +172,26 @@ The acceptance receipt and native screenshots are retained under
 `build/issue148-reporter45/vm/signed-mapped-uat/` and its parent. Publication and
 the public in-app update are separate checks after this candidate acceptance.
 
+## Publication and remaining update boundary
+
+[PR 156](https://github.com/Ares-X/Sumra/pull/156) is merged.
+[Publication workflow 43711582923](https://github.com/Ares-X/Sumra/actions/runs/43711582923)
+promoted the accepted bytes as [0.2.46](https://github.com/Ares-X/Sumra/releases/tag/v0.2.46),
+without rebuilding. All six public asset IDs, sizes and digests match the
+candidate; complete anonymous downloads also match its bytes. The source archive
+needed a resumed download; the final full-file hash was independently verified,
+while that resume's HTTP status was not retained by the recorder. The normal
+canonical feed returned HTTP 200 at 2026-11-15 12:08 UTC, matched the accepted
+0.2.46(48) feed, and verified the public ZIP's Sparkle signature.
+
+The real 0.2.45 in-app update in the VM did **not** pass: two feed requests returned
+HTTP 503 (`SUSparkleErrorDomain` 2001), before installation began. The configured
+host Clash proxy was retained; no alternate feed or local replacement was used.
+A successful host feed download does not establish VM update success. The VM's
+existing 0.2.45 installation therefore remains unchanged. Public-byte checks and
+the signed replacement's window acceptance remain separate from this unresolved
+online-update observation.
+
 The reporter's macOS 15 behavior remains
 unverified for the replacement. Issues 137, 148 and 96 remain open; none of these
 observations is a confirmed resolution of the reporter's black-Space outcome.
