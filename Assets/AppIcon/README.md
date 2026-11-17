@@ -1,0 +1,15 @@
+# Vira Reader icon
+
+The maintainer's reference is a monochrome open-book V formed by two black tapered curves and two lighter page curves. The final artwork retains that structure and removes the reference's caption. The light tile is the default; the dark version preserves the same silhouette.
+
+Sources: `ViraReader-Light.png` and `ViraReader-Dark.png`. Both contain alpha outside the tile. The existing `scripts/rasterize-icon.swift` renders the ten macOS icon sizes, and `iconutil` packages the ICNS resources. The original generated files remain in the maintainer's image-generation output; these committed copies are the application inputs.
+
+Generated with the built-in image tool, using the supplied image as the edit target. The superseded blue concept is not an application asset.
+
+## Light reconstruction prompt
+
+Reconstruct ONLY the application icon shown in the attached reference at high resolution for Vira Reader. The reference is an edit target, not a loose style suggestion. Precisely preserve its distinctive symmetrical black and grey double-page V mark: two extremely slender black curved tapered page silhouettes sweep from widely spaced upper tips down to one sharp central point; directly beneath each black curve a second soft grey/silver tapered page curve gives a layered open-book shape. Match the reference's curvature, thinness, spacing, proportions and quiet monochrome appearance; no new folds, colors, symbols, letters or embellishments. Center this exact mark on the same softly rounded, very pale grey/white square tile with subtle soft edge shading. Produce one square 1024-by-1024 final macOS app icon, tile around 824-by-824 centered with transparent space outside its rounded corners and slight shadow. Remove all screenshot background and all caption text below the icon, including '04 Pages' and the Chinese description. Crisp vector-like edges, very smooth clean surfaces, no grain, no dramatic 3D bevel, no paper texture, no watermark. Keep the whole tile within the canvas with generous transparent outer margins. True alpha transparency outside the tile.
+
+## Dark appearance prompt
+
+Create the dark appearance version of this exact Vira Reader app icon. This image is the edit target. Preserve EXACTLY the black/grey dual-page V shape geometry, all four tapered curves, their spacing and their sharp shared center point, the tile proportions and its positioning. Change only colors for dark appearance: tile becomes a smooth near-black charcoal with restrained soft edge lighting, the primary black curves become warm white, secondary grey curves become medium silver-grey. Keep the same delicate thin shape and quiet flat sophisticated finish; do not thicken, add folds, texture, ornament, text, bevels or a new design. Make outer margins genuinely transparent, with clean smooth rounded tile edges and no stray pixels beyond the subtle soft shadow. One square high-resolution application icon matching the light variant.

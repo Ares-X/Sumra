@@ -231,7 +231,7 @@ final class ReaderWindowDiagnosticsTests: XCTestCase {
         try process.run()
         process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0)
-        return destination.appendingPathComponent("Sumra-Window-Diagnostics", isDirectory: true)
+        return destination.appendingPathComponent("Vira Reader-Window-Diagnostics", isDirectory: true)
     }
 
     private func readRecords(in directory: URL) throws -> [[String: Any]] {

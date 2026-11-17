@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/images/sumra-brand.png" alt="Sumra — 轻量、免费开源的 macOS 阅读器" width="720">
+  <img src="docs/images/vira-reader-brand.png" alt="Vira Reader — 轻量、免费开源的 macOS 阅读器" width="720">
 </p>
 
-# Sumra — 轻量、纯粹的 macOS 阅读器
+# Vira Reader — 轻量、纯粹的 macOS 阅读器
 
 **电子书、漫画、PDF、图片与 Markdown，一个原生 Mac 应用，专注阅读。**
 
@@ -10,7 +10,9 @@
 
 **macOS 13+ · Apple Silicon · 免费开源**
 
-[**下载 Mac 版**](https://github.com/Ares-X/Sumra/releases/latest) · [版本说明](https://github.com/Ares-X/Sumra/releases) · [支持格式](#支持的格式) · [从源码构建](#从源码构建) · [问题反馈](https://github.com/Ares-X/Sumra/issues)
+[**下载 Sumra 0.2.47**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [版本说明](https://github.com/Ares-X/Vira-Reader/releases) · [支持格式](#支持的格式) · [从源码构建](#从源码构建) · [问题反馈](https://github.com/Ares-X/Vira-Reader/issues)
+
+**更名预览：**Vira Reader 是 Sumra 的新名称。目前尚未公开发布 Vira Reader，最新公开下载仍为 **Sumra 0.2.47**。可从源码构建体验更名后的应用。下方截图展示更名前的 Sumra 界面。
 
 从 Finder 打开 EPUB 小说、漫画压缩包、图片文件夹、Markdown 笔记或 PDF。在原生 Mac 窗口和标签页中阅读，选择合适的布局，用目录、搜索和书签找到想读的内容。
 
@@ -31,8 +33,8 @@
 
 ## 安装与开始阅读
 
-1. 从[最新版下载页](https://github.com/Ares-X/Sumra/releases/latest)下载应用 ZIP 并解压。
-2. 将 **Sumra.app** 移入 **应用程序** 文件夹，然后打开。
+1. 从[最新版下载页](https://github.com/Ares-X/Vira-Reader/releases/latest)下载 Sumra 0.2.47 应用 ZIP 并解压。
+2. 将 **Sumra.app** 移入 **应用程序** 文件夹，然后打开。从源码构建的应用名为 **Vira Reader.app**。
 3. 按 **⌘O** 打开文件，或将文件拖入窗口；按 **⌘F** 搜索正文。
 
 公开构建使用维护者的 **Ares-X Code Signing** 自签名证书，不是 Apple Developer ID 证书，也未经 Apple 公证。若 macOS 阻止首次启动，且你确认下载来源可信，可按 [Apple 的说明](https://support.apple.com/zh-cn/102445)，前往 **系统设置 → 隐私与安全性 → 仍要打开**，再确认打开。
@@ -42,7 +44,7 @@
 <details>
 <summary>兼容性与旧版安装说明</summary>
 
-发行版面向 **Apple Silicon（arm64）**，最低系统目标为 **macOS 13**。打包时检查可执行文件与库的 arm64 支持、最低系统和运行时依赖。GUI 已在 macOS 27.0.1 验收，macOS 13 的实机兼容性尚未验证。
+发行版面向 **Apple Silicon（arm64）**，最低系统目标为 **macOS 13**。打包时检查可执行文件与库的 arm64 支持、最低系统和运行时依赖。阅读器 GUI 已在 macOS 26.6.2 虚拟机完成验收，macOS 13 的实机兼容性尚未验证。
 
 0.2.0 没有更新源，需要手动安装一次新版；0.2.1 及更新版本支持应用内更新。PostScript 与 EPS 需另行安装 Ghostscript。
 
@@ -76,7 +78,7 @@
 | 其他兼容格式 | PDF 兼容的 AI、P7M 封装、LIT |
 | 需额外软件 | PostScript / EPS：另行安装 Ghostscript |
 
-支持范围取决于具体文件变体。Sumra 不提供 OCR 或 DRM 移除；扫描件需要自带文本层才能搜索文字。
+支持范围取决于具体文件变体。Vira Reader 不提供 OCR 或 DRM 移除；扫描件需要自带文本层才能搜索文字。
 
 <details>
 <summary>渲染说明与格式限制</summary>
@@ -95,38 +97,38 @@
 需要 macOS、Apple Swift 工具链与 macOS SDK，以及 CMake。首次构建需联网获取固定版本的原生依赖与 Sparkle。项目构建和打包脚本使用 Swift 与系统工具，不需要 Python。
 
 ```sh
-git clone https://github.com/Ares-X/Sumra.git
-cd Sumra
+git clone https://github.com/Ares-X/Vira-Reader.git
+cd Vira-Reader
 ./scripts/build-app.sh --release
-open dist/Sumra.app
+open "dist/Vira Reader.app"
 ```
 
 如未安装 CMake，可使用现有包管理器，例如 `brew install cmake`。开发构建与启动可用 `./scripts/run-dev.sh`。本地构建默认使用临时签名。
 
-Sumra 是图形应用，文件打开、文档工具与打印均通过界面操作。开发相关信息见[实现说明](docs/IMPLEMENTATION_STATUS.md)、[本地检查](scripts/check-source.sh)和[发布流程](docs/RELEASE_ACTIONS.md)。
+Vira Reader 是图形应用，文件打开、文档工具与打印均通过界面操作。开发相关信息见[实现说明](docs/IMPLEMENTATION_STATUS.md)、[本地检查](scripts/check-source.sh)和[发布流程](docs/RELEASE_ACTIONS.md)。
 
 ## 参与贡献与翻译
 
 设置提供 25 个常用界面语言／地区选项，受管理的界面文案已补齐，欢迎母语使用者继续校订。正文的字体覆盖取决于内嵌、随附和已安装字体。完整名单、已测文字与排版限制见[语言支持与验证](docs/LANGUAGE_SUPPORT.md)。
 
-欢迎[报告问题、提出功能建议](https://github.com/Ares-X/Sumra/issues)或提交 Pull Request。反馈时请尽量提供 macOS 与 Sumra 版本、文件格式、复现步骤，以及可公开分享的样本。
+欢迎[报告问题、提出功能建议](https://github.com/Ares-X/Vira-Reader/issues)或提交 Pull Request。反馈时请尽量提供 macOS 与 Vira Reader 版本、文件格式、复现步骤，以及可公开分享的样本。
 
 README 提供英文、简体中文、繁体中文和日语版本。以 [README.md](README.md) 为内容参考，保持章节顺序一致；公共信息变化时同步更新其他版本。各语言共用截图，并链接到技术文档。
 
 <!-- community-contributors:start -->
 ## 社区贡献者
 
-感谢通过问题反馈、代码和评审帮助改进 Sumra 的每一位贡献者。此名单根据符合条件的 GitHub Issue 和已合并的 Pull Request 自动更新。详见[计入规则](docs/COMMUNITY_CONTRIBUTORS.md)。
+感谢通过问题反馈、代码和评审帮助改进 Vira Reader 的每一位贡献者。此名单根据符合条件的 GitHub Issue 和已合并的 Pull Request 自动更新。详见[计入规则](docs/COMMUNITY_CONTRIBUTORS.md)。
 
 | 贡献者 | 贡献记录 |
 | --- | --- |
-| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [问题 #31](https://github.com/Ares-X/Sumra/issues/31) [问题 #42](https://github.com/Ares-X/Sumra/issues/42) [问题 #68](https://github.com/Ares-X/Sumra/issues/68) [问题 #69](https://github.com/Ares-X/Sumra/issues/69) [问题 #82](https://github.com/Ares-X/Sumra/issues/82) [问题 #118](https://github.com/Ares-X/Sumra/issues/118) [问题 #137](https://github.com/Ares-X/Sumra/issues/137) [问题 #158](https://github.com/Ares-X/Sumra/issues/158) |
-| <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [问题 #48](https://github.com/Ares-X/Sumra/issues/48) [问题 #74](https://github.com/Ares-X/Sumra/issues/74) |
+| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [问题 #31](https://github.com/Ares-X/Vira-Reader/issues/31) [问题 #42](https://github.com/Ares-X/Vira-Reader/issues/42) [问题 #68](https://github.com/Ares-X/Vira-Reader/issues/68) [问题 #69](https://github.com/Ares-X/Vira-Reader/issues/69) [问题 #82](https://github.com/Ares-X/Vira-Reader/issues/82) [问题 #118](https://github.com/Ares-X/Vira-Reader/issues/118) [问题 #137](https://github.com/Ares-X/Vira-Reader/issues/137) [问题 #158](https://github.com/Ares-X/Vira-Reader/issues/158) |
+| <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [问题 #48](https://github.com/Ares-X/Vira-Reader/issues/48) [问题 #74](https://github.com/Ares-X/Vira-Reader/issues/74) |
 
 <!-- community-contributors:end -->
 
 ## 许可与致谢
 
-新编写的 Sumra 代码采用 **[AGPL-3.0-or-later](LICENSE)**。上游与移植组件保留各自的许可及版权声明；来源、版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+新编写的 Vira Reader 代码采用 **[AGPL-3.0-or-later](LICENSE)**。上游与移植组件保留各自的许可及版权声明；来源、版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-Sumra 借鉴 [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf)，复用 MuPDF 和 SumatraPDF 的部分文档处理实现，并以 SwiftUI 和 AppKit 构建界面。感谢 [MuPDF](https://mupdf.com/) 及其他上游项目。Sumra 是独立开发的项目，功能覆盖与现有差异见[对标说明](docs/SUMATRA_PARITY.md)。
+Vira Reader 借鉴 [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf)，复用 MuPDF 和 SumatraPDF 的部分文档处理实现，并以 SwiftUI 和 AppKit 构建界面。感谢 [MuPDF](https://mupdf.com/) 及其他上游项目。Vira Reader 是独立开发的项目，功能覆盖与现有差异见[对标说明](docs/SUMATRA_PARITY.md)。

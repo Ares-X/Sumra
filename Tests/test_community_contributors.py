@@ -23,14 +23,14 @@ def user(login, kind="User"):
 
 def issue(number, login, labels, **extra):
     return {
-        "number": number, "html_url": f"https://github.com/Ares-X/Sumra/issues/{number}",
+        "number": number, "html_url": f"https://github.com/Ares-X/Vira-Reader/issues/{number}",
         "user": user(login), "labels": [{"name": label} for label in labels], **extra,
     }
 
 
 def pr(number, login, merged=True):
     return {
-        "number": number, "html_url": f"https://github.com/Ares-X/Sumra/pull/{number}",
+        "number": number, "html_url": f"https://github.com/Ares-X/Vira-Reader/pull/{number}",
         "user": user(login), "labels": [], "merged_at": "2026-10-27T00:00:00Z" if merged else None,
     }
 
@@ -76,9 +76,9 @@ class CommunityContributorsTests(unittest.TestCase):
         people = contributors.collect([], pulls, reviews)
         self.assertEqual({p["login"] for p in people}, {"NewCoder", "Reviewer"})
         self.assertEqual(next(p for p in people if p["login"] == "Reviewer")["review"],
-                         {"https://github.com/Ares-X/Sumra/pull/10"})
+                         {"https://github.com/Ares-X/Vira-Reader/pull/10"})
         self.assertEqual(next(p for p in people if p["login"] == "NewCoder")["pr"],
-                         {"https://github.com/Ares-X/Sumra/pull/11"})
+                         {"https://github.com/Ares-X/Vira-Reader/pull/11"})
 
     def test_exclusions_apply_to_issues_pr_authors_and_reviewers(self):
         for label in contributors.EXCLUDED_LABELS:
@@ -104,7 +104,7 @@ class CommunityContributorsTests(unittest.TestCase):
         people = contributors.collect([issue(42, "HomeStarRunnerTron", ["enhancement"])], [], {})
         for lang in contributors.LANGUAGES.values():
             heading = f"## {lang[-1]}"
-            original = f"# Sumra\n\n{heading}\n\nLicense stuff.\n"
+            original = f"# Vira Reader\n\n{heading}\n\nLicense stuff.\n"
             section = contributors.render(people, lang)
             updated = contributors.update_readme(original, section, lang[-1])
             self.assertIn("https://github.com/HomeStarRunnerTron.png?size=80", updated)

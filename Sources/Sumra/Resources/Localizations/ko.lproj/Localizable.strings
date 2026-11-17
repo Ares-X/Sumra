@@ -596,7 +596,7 @@
 "Parent folder" = "상위 폴더";
 "Pixels" = "픽셀";
 "Preserve PDF Image Colors" = "PDF 이미지 색상 유지";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Command, Control 또는 Option이 포함된 단축키나 기능 키를 누르세요. Sumra가 실행 중이어야 합니다.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Command, Control 또는 Option이 포함된 단축키나 기능 키를 누르세요. Vira Reader가 실행 중이어야 합니다.";
 "Press shortcut keys…" = "단축키를 누르세요…";
 "Press shortcut…" = "단축키 누르기…";
 "Provider default" = "제공자 기본값";
@@ -664,8 +664,8 @@
 "Stable releases" = "안정 릴리스";
 "Strike Out Selection" = "선택 영역에 취소선";
 "Style" = "스타일";
-"Sumra Help" = "Sumra 도움말";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra는 문서 오류를 macOS 콘솔의 com.leaf.reader 하위 시스템에 보고합니다.";
+"Vira Reader Help" = "Vira Reader 도움말";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader는 문서 오류를 macOS 콘솔의 com.leaf.reader 하위 시스템에 보고합니다.";
 "System Theme" = "시스템 테마";
 "Tab Color" = "탭 색상";
 "Target language code" = "대상 언어 코드";
@@ -675,7 +675,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "현재 명령의 키 할당입니다. 설정 → 단축키에서 편집하세요.";
 "This PDF does not allow text extraction." = "이 PDF는 텍스트 추출을 허용하지 않습니다.";
 "This PDF has no embedded files" = "이 PDF에 포함된 파일이 없습니다";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "이 Sumra 개발 빌드에는 업데이트 피드와 서명 키가 구성되어 있지 않습니다. 릴리스 열기에서 공개된 빌드를 확인하세요.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "이 Vira Reader 개발 빌드에는 업데이트 피드와 서명 키가 구성되어 있지 않습니다. 릴리스 열기에서 공개된 빌드를 확인하세요.";
 "This document has no page thumbnails" = "이 문서에는 페이지 축소판이 없습니다";
 "This document has unsaved annotations or form changes." = "이 문서에 저장하지 않은 주석 또는 양식 변경 사항이 있습니다.";
 "Timestamp Certificate" = "타임스탬프 인증서";
@@ -685,7 +685,7 @@
 "Toggle Bookmark at Position" = "현재 위치의 책갈피 전환";
 "Tool" = "도구";
 "Tools" = "도구";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "번역은 Sources/Sumra/Resources/Localizations에 있습니다. 해당 언어의 Localizable.strings에서 값을 편집하되 영어 키와 서식 자리표시자는 그대로 유지하세요. 변경 사항을 Sumra 저장소에 풀 리퀘스트로 보내세요.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "번역은 Sources/Sumra/Resources/Localizations에 있습니다. 해당 언어의 Localizable.strings에서 값을 편집하되 영어 키와 서식 자리표시자는 그대로 유지하세요. 변경 사항을 Vira Reader 저장소에 풀 리퀘스트로 보내세요.";
 "Trash File and Open Next…" = "파일을 휴지통으로 이동하고 다음 열기…";
 "Two Pages" = "두 페이지";
 "Type" = "유형";
@@ -745,7 +745,7 @@
 
 "Replace Current Document" = "현재 문서 바꾸기";
 
-"New Sumra Window" = "새 Sumra 윈도우";
+"New Vira Reader Window" = "새 Vira Reader 윈도우";
 "New Tab" = "새 탭";
 
 "Close Tab" = "탭 닫기";

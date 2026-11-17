@@ -324,14 +324,14 @@ final class NativeFile {
                 // Check the complete captured version, including ctime, on both
                 // sides of the scan; original-file metadata is checked separately.
                 guard FileVersion(descriptor: file.fileDescriptor) == version else {
-                    throw ReadError("The PDF source was modified outside Sumra. Reload it before saving, exporting or printing.")
+                    throw ReadError("The PDF source was modified outside Vira Reader. Reload it before saving, exporting or printing.")
                 }
                 try file.seek(toOffset: 0)
                 let started = DispatchTime.now().uptimeNanoseconds
                 let value = try FileCheckpoint.digest(file)
                 NativeReadingPerformance.mark("pdf-source-digest", started: started, persistent: true)
                 guard FileVersion(descriptor: file.fileDescriptor) == version else {
-                    throw ReadError("The PDF source was modified outside Sumra. Reload it before saving, exporting or printing.")
+                    throw ReadError("The PDF source was modified outside Vira Reader. Reload it before saving, exporting or printing.")
                 }
                 cached = value
                 return value
@@ -614,7 +614,7 @@ final class NativeFile {
         let sourceCheckpoint = pdfSource.checkpoint, original = sourceCheckpoint.version
         if let current = FileVersion(pdfSource.url), original.device == current.device, original.inode == current.inode {
             guard original.matchesContentMetadata(current), try sourceCheckpoint.matches(pdfSource.url) else {
-                throw ReadError("The PDF source was modified outside Sumra. Reload it before saving, exporting or printing.")
+                throw ReadError("The PDF source was modified outside Vira Reader. Reload it before saving, exporting or printing.")
             }
             return
         }
@@ -630,7 +630,7 @@ final class NativeFile {
         guard result > 0 else { throw Self.failure(error, "Cannot verify the retained PDF source") }
         try Task.checkCancellation()
         guard try bytes.elementsEqual(sourceCheckpoint.digest) else {
-            throw ReadError("The retained PDF source was modified outside Sumra. Reload it before saving, exporting or printing.")
+            throw ReadError("The retained PDF source was modified outside Vira Reader. Reload it before saving, exporting or printing.")
         }
     }
 

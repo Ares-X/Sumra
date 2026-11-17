@@ -58,14 +58,14 @@ func packagingTests() throws {
     func verify(_ values: [FixtureEntry], _ format: String, directories: [FixtureEntry]? = nil) throws {
         let path = temporary.appendingPathComponent("fixture." + format)
         if format == "tar" {
-            try fixtureTar(values.map { var e = $0; e.name = "Sumra-source/" + e.name; return e }, path)
+            try fixtureTar(values.map { var e = $0; e.name = "Vira-Reader-source/" + e.name; return e }, path)
             let compressed = try run(["gzip", "-c", path.path]).0; try compressed.write(to: path)
             try verifySourceArchive(path, files, links)
         }
         else {
-            let directory = FixtureEntry(name: "Sumra.app/", kind: UInt32(S_IFDIR), data: Data(), mode: 0o755)
-            try fixtureZip((directories ?? [directory]) + values.map { var e = $0; e.name = "Sumra.app/" + e.name; return e }, path)
-            try verifyAppArchive(path, "Sumra.app", inventory)
+            let directory = FixtureEntry(name: "Vira Reader.app/", kind: UInt32(S_IFDIR), data: Data(), mode: 0o755)
+            try fixtureZip((directories ?? [directory]) + values.map { var e = $0; e.name = "Vira Reader.app/" + e.name; return e }, path)
+            try verifyAppArchive(path, "Vira Reader.app", inventory)
         }
     }
     for format in ["tar", "zip"] {
@@ -82,15 +82,15 @@ func packagingTests() throws {
         var changed = entries; changed[0].mode = 0o644
         try rejected("lost executable bit \(format)") { try verify(changed, format) }
     }
-    let directory = FixtureEntry(name: "Sumra.app/", kind: UInt32(S_IFDIR), data: Data(), mode: 0o755)
-    for name in ["outside/", "Sumra.app/", "Sumra.app/run.sh/"] {
+    let directory = FixtureEntry(name: "Vira Reader.app/", kind: UInt32(S_IFDIR), data: Data(), mode: 0o755)
+    for name in ["outside/", "Vira Reader.app/", "Vira Reader.app/run.sh/"] {
         try rejected("extra/duplicate directory") { try verify(entries, "zip", directories: [directory, FixtureEntry(name: name, kind: UInt32(S_IFDIR), data: Data(), mode: 0o755)]) }
     }
     try rejected("missing directory") { try verify(entries, "zip", directories: []) }
     for (kind, mode) in [(UInt32(S_IFLNK), 0o755), (UInt32(S_IFDIR), 0o700)] {
-        try rejected("mistyped/changed directory") { try verify(entries, "zip", directories: [FixtureEntry(name: "Sumra.app/", kind: kind, data: Data("run.sh".utf8), mode: mode)]) }
+        try rejected("mistyped/changed directory") { try verify(entries, "zip", directories: [FixtureEntry(name: "Vira Reader.app/", kind: kind, data: Data("run.sh".utf8), mode: mode)]) }
     }
-    let app = temporary.appendingPathComponent("Sumra.app"), executable = app.appendingPathComponent("Contents/MacOS/Sumra")
+    let app = temporary.appendingPathComponent("Vira Reader.app"), executable = app.appendingPathComponent("Contents/MacOS/Sumra")
     try fm.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
     try entries[0].data.write(to: executable); try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
     try fm.createSymbolicLink(atPath: app.appendingPathComponent("Contents/Current").path, withDestinationPath: "MacOS")
@@ -114,15 +114,15 @@ func packagingTests() throws {
     provenance.merge(snapshot) { _, new in new }
     let output = temporary.appendingPathComponent("candidate")
     try packageArtifacts(app, output, inputs, links, provenance)
-    try verifySourceArchive(output.appendingPathComponent("Sumra-corresponding-source.tar.gz"), files, links)
-    try verifyAppArchive(output.appendingPathComponent("Sumra-0.2.0-macOS-arm64.zip"), app.lastPathComponent, snapshot); checks += 1
+    try verifySourceArchive(output.appendingPathComponent("Vira-Reader-corresponding-source.tar.gz"), files, links)
+    try verifyAppArchive(output.appendingPathComponent("Vira-Reader-0.2.0-macOS-arm64.zip"), app.lastPathComponent, snapshot); checks += 1
     for line in try String(contentsOf: output.appendingPathComponent("SHA256SUMS"), encoding: .utf8).split(separator: "\n") {
         let parts = line.components(separatedBy: "  "); try expect(try digest(output.appendingPathComponent(parts[1])) == parts[0], "artifact SHA256 matches")
     }
     try rejected("existing output") { try packageArtifacts(app, output, inputs, links, provenance) }
     let reuse = temporary.appendingPathComponent("reuse")
     try packageArtifacts(app, reuse, inputs, links, provenance, appArchive: archive)
-    try expect(try digest(reuse.appendingPathComponent("Sumra-0.2.0-macOS-arm64.zip")) == digest(archive), "reuse preserves archive bytes")
+    try expect(try digest(reuse.appendingPathComponent("Vira-Reader-0.2.0-macOS-arm64.zip")) == digest(archive), "reuse preserves archive bytes")
     let sourcePath = temporary.appendingPathComponent("source.json"), buildPath = temporary.appendingPathComponent("build.json")
     var source: [String: Any] = ["status": "nonnotarized-local-candidate", "redistribution_audit": "pending", "source_build_match": "not_attested", "origins": [["path": "project", "revision": "abc123"]], "project_revision": "abc123", "files": files, "symlinks": links]
     try writeJSON(source, to: sourcePath)

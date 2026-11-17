@@ -1,6 +1,6 @@
 # Remaining reader issues after 0.2.47
 
-Baseline: `3dbf1bda50ab15bac5e954618a30c6f8dd06768a`. Only the existing macOS 26.6.2 VM is authorized. This is an in-progress acceptance record: no new release or issue closure is claimed.
+Baseline: `3dbf1bda50ab15bac5e954618a30c6f8dd06768a`. Only the existing macOS 26.6.2 VM is authorized. The signed 0.2.48 (50) draft candidate passed the scoped existing-VM workflows below. The maintainer then requested Vira Reader branding before publication; no new public release or issue closure is claimed.
 
 ## #160: frame speech source
 
@@ -45,3 +45,13 @@ The original broken-page recovery has existing signed Finder acceptance. Ordinar
 The locked-host run initially had an empty accessibility tree in the existing annotation filter interaction. After unlocking, that unchanged test passed in `tests-filter-unlocked`. `tests-accepted` then ran 88 cases with 87 passed, one expected legacy-platform skip and no failures. It includes the native chrome, input, tab lifecycle, annotation and speech cases. Source/engine hashes remained frozen and private test hosts/preferences/clipboard were cleaned. The later srcdoc-to-native speech relay needs its own focused regression run.
 
 The existing VM is now running with a backed-up 23-key preference domain and task-owned app/fixtures. Local GUI acceptance of the 1,000-page PDF covers native annotation editing, immediate sidebar update and Undo/Redo. Earlier release-mode product compilation passed (87.98 s), excluding the private test-isolation library; the final signed build remains a separate gate. Signed-package GUI acceptance, merge, publication, restoration/cleanup and confirmed issue closure await the remaining work above.
+
+## Signed draft acceptance before the rename
+
+Source `2014282527f4d5d654ba5a92c824573315f92dd0`, main SHA-256 `52583c075a5dcd8db46a8f0765050d07a141249dd92b8a98740a9445b654a934`, manifest `444e67b918a5eb653c2e50d4eb91f88c4421e58efcc8889e0c596b8222b7d0ae`. All six assets, 140 application files, signatures, pinned Sparkle verification and corresponding-source inventory passed. The installed VM application matched all 140 files.
+
+The signed package passed Duplicate and New Tab proxy hover, residual-line hiding, Always Hide traffic-light hover, fullscreen Auto Hide and Always Show, title-blank dragging and right-edge resizing. Actual system speech in srcdoc followed its original source after parent/sibling button clicks and cleared all word paint on Stop. The 1,000-page native PDF sidebar updated after editing a note, reverted on Undo, restored on Redo and saved. Exact upper-corner cursor transitions and reporter macOS 15.7.5 were not independently accepted.
+
+The final focused speech run passed all 13 cases, including actual native-message delivery and rendered heading/body/Stop/replacement snapshots. Earlier snapshot experiments retained their failures; suspended hidden-view animation waits were removed in favor of a bounded initial snapshot followed by the actual paint assertions. No failed run is counted as green.
+
+Receipts and original images: `build/issues-remaining48/release/signed-verification.json`, `vm/signed48-installed.json`, `vm/signed48-acceptance.json` and `tests-speech-release/`. This Sumra-named candidate remains a draft. Rebranded installation/update acceptance is separate, and #96/#158/#160/#161 remain open pending the next public delivery.

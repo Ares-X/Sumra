@@ -178,7 +178,7 @@ func package() throws {
     let updateFeed = environment["SUMRA_UPDATE_FEED_URL"] ?? updates["feed_url"]!
     let updateKey = environment["SUMRA_UPDATE_PUBLIC_KEY"] ?? updates["public_key"]!
     if updateFeed.isEmpty != updateKey.isEmpty { try fail("Set SUMRA_UPDATE_FEED_URL and SUMRA_UPDATE_PUBLIC_KEY together.") }
-    try files.copyItem(at: root.appendingPathComponent("LICENSE"), to: licenses.appendingPathComponent("Sumra-AGPL-3.0.txt"))
+    try files.copyItem(at: root.appendingPathComponent("LICENSE"), to: licenses.appendingPathComponent("Vira-Reader-AGPL-3.0.txt"))
     try files.copyItem(at: root.appendingPathComponent("THIRD_PARTY.md"), to: licenses.appendingPathComponent("THIRD_PARTY.md"))
     for notice in try files.contentsOfDirectory(at: root.appendingPathComponent("Licenses"), includingPropertiesForKeys: nil) where notice.pathExtension == "txt" {
         try files.copyItem(at: notice, to: licenses.appendingPathComponent(notice.lastPathComponent))
@@ -255,10 +255,10 @@ func package() throws {
     // Keep the installed identity so preferences, recent documents and macOS
     // restoration survive the product rename.
     var info: [String: Any] = [
-        "CFBundleName": "Sumra", "CFBundleDisplayName": "Sumra", "CFBundleExecutable": "Sumra",
+        "CFBundleName": "Vira Reader", "CFBundleDisplayName": "Vira Reader", "CFBundleExecutable": "Sumra",
         "CFBundleIdentifier": "dev.aresx.leaf", "CFBundlePackageType": "APPL",
         "CFBundleShortVersionString": version, "CFBundleVersion": buildVersion,
-        "CFBundleGetInfoString": "Sumra " + version, "NSHumanReadableCopyright": "© 2026 Sumra contributors",
+        "CFBundleGetInfoString": "Vira Reader " + version, "NSHumanReadableCopyright": "© 2026 Vira Reader contributors",
         "LSApplicationCategoryType": "public.app-category.productivity",
         "LSMinimumSystemVersion": "13.0", "NSHighResolutionCapable": true,
         "CFBundleDocumentTypes": [[
@@ -270,7 +270,7 @@ func package() throws {
             "CFBundleURLSchemes": ["sumra"]
         ]],
         "LSSupportsOpeningDocumentsInPlace": true, "LSMultipleInstancesProhibited": true,
-        "CFBundleIconFile": "Sumra-Light.icns"
+        "CFBundleIconFile": "ViraReader-Light.icns"
     ]
     // Catalogs live below Localizations rather than the bundle root. Declare them
     // so AppKit can negotiate the system language for its menus and panels too.
@@ -297,7 +297,7 @@ func package() throws {
     for (kind, point, principal) in [("Thumbnail", "thumbnail", "ThumbnailProvider"), ("Preview", "preview", "PreviewViewController")] {
         let bundle = contents.appendingPathComponent("PlugIns/Sumra\(kind).appex")
         let extensionInfo: [String: Any] = [
-            "CFBundleName": "Sumra \(kind)", "CFBundleExecutable": "SumraQuickLook",
+            "CFBundleName": "Vira Reader \(kind)", "CFBundleExecutable": "SumraQuickLook",
             "CFBundleIdentifier": "dev.aresx.leaf.\(point)", "CFBundlePackageType": "XPC!",
             "CFBundleShortVersionString": version, "CFBundleVersion": buildVersion,
             "LSMinimumSystemVersion": "13.0",

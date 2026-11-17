@@ -596,7 +596,7 @@
 "Parent folder" = "Bovenliggende map";
 "Pixels" = "Pixels";
 "Preserve PDF Image Colors" = "Kleuren van PDF-afbeeldingen behouden";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Druk op een sneltoets met Command, Control of Option, of op een functietoets. Sumra moet actief zijn.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Druk op een sneltoets met Command, Control of Option, of op een functietoets. Vira Reader moet actief zijn.";
 "Press shortcut keys…" = "Druk op de sneltoetsen…";
 "Press shortcut…" = "Druk op een sneltoets…";
 "Provider default" = "Providerstandaard";
@@ -664,8 +664,8 @@
 "Stable releases" = "Stabiele versies";
 "Strike Out Selection" = "Selectie doorhalen";
 "Style" = "Stijl";
-"Sumra Help" = "Sumra-help";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra meldt documentfouten in macOS Console onder subsysteem com.leaf.reader.";
+"Vira Reader Help" = "Vira Reader-help";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader meldt documentfouten in macOS Console onder subsysteem com.leaf.reader.";
 "System Theme" = "Systeemthema";
 "Target language code" = "Doeltaalcode";
 "TeX source editor" = "TeX-broneditor";
@@ -674,7 +674,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "Dit zijn uw huidige opdrachttoewijzingen. Bewerk ze via Instellingen → Sneltoetsen.";
 "This PDF does not allow text extraction." = "Deze PDF staat tekstextractie niet toe.";
 "This PDF has no embedded files" = "Deze PDF bevat geen ingesloten bestanden";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "Voor deze ontwikkelversie van Sumra zijn geen updatefeed en ondertekeningssleutel ingesteld. Open de uitgaven om naar gepubliceerde versies te zoeken.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "Voor deze ontwikkelversie van Vira Reader zijn geen updatefeed en ondertekeningssleutel ingesteld. Open de uitgaven om naar gepubliceerde versies te zoeken.";
 "This document has no page thumbnails" = "Dit document bevat geen paginaminiaturen";
 "This document has unsaved annotations or form changes." = "Dit document heeft niet-opgeslagen aantekeningen of formulierwijzigingen.";
 "Timestamp Certificate" = "Tijdstempelcertificaat";
@@ -684,7 +684,7 @@
 "Toggle Bookmark at Position" = "Bladwijzer op deze positie in- of uitschakelen";
 "Tool" = "Gereedschap";
 "Tools" = "Gereedschappen";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "Vertalingen staan in Sources/Sumra/Resources/Localizations. Bewerk de waarden in het bestand Localizable.strings van uw taal en laat de Engelse sleutels en opmaakplaatsaanduidingen ongewijzigd. Stuur uw wijzigingen als pull request naar de Sumra-repository.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "Vertalingen staan in Sources/Sumra/Resources/Localizations. Bewerk de waarden in het bestand Localizable.strings van uw taal en laat de Engelse sleutels en opmaakplaatsaanduidingen ongewijzigd. Stuur uw wijzigingen als pull request naar de Vira Reader-repository.";
 "Trash File and Open Next…" = "Bestand naar prullenmand verplaatsen en volgende openen…";
 "Two Pages" = "Twee pagina’s";
 "Type" = "Type";
@@ -743,7 +743,7 @@
 
 "Replace Current Document" = "Huidig document vervangen";
 
-"New Sumra Window" = "Nieuw Sumra-venster";
+"New Vira Reader Window" = "Nieuw Vira Reader-venster";
 "New Tab" = "Nieuw tabblad";
 
 "Close Tab" = "Tabblad sluiten";

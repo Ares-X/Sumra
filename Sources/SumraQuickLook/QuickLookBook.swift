@@ -59,7 +59,7 @@ actor QuickLookBook {
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceThumbnailMaxPixelSize: max(maximum.width, maximum.height)
               ] as CFDictionary) else {
-            throw ReadError("Quick Look cannot decode \(images[page]). Open this comic in Sumra.")
+            throw ReadError("Quick Look cannot decode \(images[page]). Open this comic in Vira Reader.")
         }
         try Task.checkCancellation()
         self.page = page

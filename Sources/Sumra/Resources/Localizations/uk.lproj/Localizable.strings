@@ -581,7 +581,7 @@
 "Partial translation" = "Частковий переклад";
 "Pixels" = "Пікселі";
 "Preserve PDF Image Colors" = "Зберігати кольори зображень PDF";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Натисніть сполучення з Command, Control чи Option або функціональну клавішу. Sumra має працювати.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Натисніть сполучення з Command, Control чи Option або функціональну клавішу. Vira Reader має працювати.";
 "Press shortcut keys…" = "Натисніть сполучення клавіш…";
 "Press shortcut…" = "Натисніть сполучення…";
 "Provider default" = "Типова для постачальника";
@@ -654,8 +654,8 @@
 "Stable releases" = "Стабільні випуски";
 "Strike Out Selection" = "Закреслити виділене";
 "Style" = "Стиль";
-"Sumra Help" = "Довідка Sumra";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra повідомляє про помилки документів у Консоль macOS у підсистемі com.leaf.reader.";
+"Vira Reader Help" = "Довідка Vira Reader";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader повідомляє про помилки документів у Консоль macOS у підсистемі com.leaf.reader.";
 "System" = "Системна";
 "System Theme" = "Системна тема";
 "Tab Color" = "Колір вкладки";
@@ -667,7 +667,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "Це поточні сполучення команд. Змініть їх у Параметри → Сполучення клавіш.";
 "This PDF does not allow text extraction." = "Цей PDF не дозволяє видобування тексту.";
 "This PDF has no embedded files" = "У цьому PDF немає вбудованих файлів";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "У цій збірці Sumra для розробки не налаштовано стрічку оновлень і ключ підпису. Відкрийте випуски, щоб перевірити опубліковані збірки.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "У цій збірці Vira Reader для розробки не налаштовано стрічку оновлень і ключ підпису. Відкрийте випуски, щоб перевірити опубліковані збірки.";
 "This document has no page thumbnails" = "У цього документа немає мініатюр сторінок";
 "This document has unsaved annotations or form changes." = "У документі є незбережені зміни анотацій або форм.";
 "Timestamp Certificate" = "Сертифікат позначки часу";
@@ -678,7 +678,7 @@
 "Tool" = "Інструмент";
 "Toolbar" = "Панель інструментів";
 "Tools" = "Інструменти";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "Переклади містяться в Sources/Sumra/Resources/Localizations. Змініть значення в Localizable.strings своєї мови, залишивши англійські ключі та специфікатори формату незмінними. Надішліть зміни запитом на включення до репозиторію Sumra.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "Переклади містяться в Sources/Sumra/Resources/Localizations. Змініть значення в Localizable.strings своєї мови, залишивши англійські ключі та специфікатори формату незмінними. Надішліть зміни запитом на включення до репозиторію Vira Reader.";
 "Trash File and Open Next…" = "Перемістити файл у Смітник і відкрити наступний…";
 "Two Pages" = "Дві сторінки";
 "Type" = "Тип";
@@ -738,7 +738,7 @@
 
 "Replace Current Document" = "Замінити поточний документ";
 
-"New Sumra Window" = "Нове вікно Sumra";
+"New Vira Reader Window" = "Нове вікно Vira Reader";
 "New Tab" = "Нова вкладка";
 
 "Close Tab" = "Закрити вкладку";

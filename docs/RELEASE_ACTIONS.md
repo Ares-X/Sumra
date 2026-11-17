@@ -1,6 +1,6 @@
 # Release through GitHub Actions
 
-Sumra follows Linnet's candidate-and-publication flow. Local checks establish
+Vira Reader follows Linnet's candidate-and-publication flow. Local checks establish
 behavior, then the release Action builds and signs one candidate from an exact
 commit. The maintainer downloads those draft Release files and validates that
 app with the original books. A second Action invocation publishes the same
@@ -18,7 +18,7 @@ MuPDF, through Google's official mirror. The revision and source file contents
 remain unchanged. Corresponding-source exports retain its revision marker.
 
 Clean builds also use `Native/mupdf-submodules.txt` for both fetching and source
-packaging. It contains the modules actually compiled into Sumra's MuPDF library;
+packaging. It contains the modules actually compiled into Vira Reader's MuPDF library;
 unused OCR, office-export, barcode and upstream viewer modules are omitted.
 
 The October 13 candidate stopped at an HTTP 502 from the Nanjing Gentoo mirror.
@@ -26,11 +26,28 @@ DjVuLibre and ConvertLIT now use Gentoo's direct distribution endpoint. Both
 downloaded archives match the existing SHA-256 pins; versions, contents and
 the source-archive verification owner are unchanged.
 
+## Rename preview and release identity
+
+The repository is now **Ares-X/Vira-Reader** and the app is **Vira Reader**.
+No public Vira Reader release has been published. The latest public release remains
+**Sumra 0.2.47**; the accepted 0.2.48 candidate and historical public releases retain
+their original artifacts. Rebranding alone does not authorize publication.
+
+New packages use `Vira Reader.app`, `Vira-Reader-VERSION-macOS-arm64.zip` and
+`Vira-Reader-corresponding-source.tar.gz` (with root `Vira-Reader-source`).
+The SwiftPM product and source modules remain `Sumra`.
+
+The bundle identifier `dev.aresx.leaf`, stored preferences, Sparkle public key and
+**Ares-X Code Signing** certificate remain unchanged. Sparkle is expected to
+update an existing Sumra installation at its existing `Sumra.app` path; verify
+that exact old-app → renamed-app update before claiming migration acceptance.
+The external `sumra://synctex` protocol also remains unchanged.
+
 ## Signing setup
 
-Configure these encrypted Secrets in **Ares-X/Sumra** once:
+Configure these encrypted Secrets in **Ares-X/Vira-Reader** once:
 
-- `SUMRA_CODE_SIGNING_P12_BASE64`: the existing Sumra certificate and private
+- `SUMRA_CODE_SIGNING_P12_BASE64`: the existing Ares-X Code Signing certificate and private
   key, exported as a password-protected P12 and encoded as base64.
 - `SUMRA_CODE_SIGNING_P12_PASSWORD`: that export's password.
 - `SUMRA_SPARKLE_PRIVATE_KEY`: the existing Ares-X Sparkle key exported by
@@ -53,8 +70,8 @@ the signed extensions through Finder before promoting a candidate.
 
 1. Set the next default version/build in `scripts/bundle.swift`. Complete the
    affected local checks and commit the source, workflow and release notes.
-2. Dispatch **Sumra release** with `mode=candidate`, the full `source_revision`
-   and `version`. It stages `sumra-candidate/vVERSION-SHA` as a draft Release.
+2. Dispatch **Vira Reader release** with `mode=candidate`, the full `source_revision`
+   and `version`. It stages `vira-reader-candidate/vVERSION-SHA` as a draft Release.
    The build freezes prepared source inputs and records the verified signed
    bundle before packaging the app, source, provenance, checksums and appcast.
 3. Download the draft's files. Verify `SHA256SUMS`, the existing certificate,

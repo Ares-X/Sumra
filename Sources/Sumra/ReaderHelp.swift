@@ -5,9 +5,9 @@ import Sparkle
 
 @MainActor
 enum ReaderHelp {
-    // Verified against this checkout's origin, not Sumatra's release service.
-    static let website = URL(string: "https://github.com/Ares-X/Sumra")!
-    static let releases = URL(string: "https://github.com/Ares-X/Sumra/releases")!
+    // Vira Reader's project and release pages, separate from Sumatra's release service.
+    static let website = URL(string: "https://github.com/Ares-X/Vira-Reader")!
+    static let releases = URL(string: "https://github.com/Ares-X/Vira-Reader/releases")!
     private static var panel: NSPanel?
     private static var errors: [String] = []
     private static let logger = Logger(subsystem: "com.leaf.reader", category: "document")
@@ -26,12 +26,12 @@ enum ReaderHelp {
         if let console = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Console") {
             NSWorkspace.shared.openApplication(at: console, configuration: .init())
         }
-        show(title: L("Application Log"), text: L("Sumra reports document errors to macOS Console under subsystem com.leaf.reader.") + "\n\n" + errors.joined(separator: "\n\n"))
+        show(title: L("Application Log"), text: L("Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader.") + "\n\n" + errors.joined(separator: "\n\n"))
     }
 
     static func showManual() {
         let sections = [
-            ("Open and navigate", "Use File → Open to choose documents or folders, or drag files into Sumra. Browse Files and Open Recent find nearby and previously opened documents. Contents, thumbnails and bookmarks navigate the current document."),
+            ("Open and navigate", "Use File → Open to choose documents or folders, or drag files into Vira Reader. Browse Files and Open Recent find nearby and previously opened documents. Contents, thumbnails and bookmarks navigate the current document."),
             ("Read and search", "Use Navigation for page navigation, View for zoom, rotation and layout, and Edit → Find to search readable text. Match Case and Match Whole Word refine results. Scanned pages without a text layer need OCR before text search."),
             ("Bookmarks and reading position", "Bookmark This Position saves your place. Settings controls recent documents, saved reading positions, tabs and window restoration. Typography and CSS can apply to this document or become your defaults."),
             ("PDF editing", "PDFs open with editing locked. Choose Enable Editing before filling forms or changing annotations. Lock Editing keeps unsaved changes and returns to reading. Tools → Annotations adds notes, text, shapes, highlights and attachments. Select an annotation to edit it. Tools → PDF Tools extracts, merges and exports pages, manages encryption and inspects signatures. Save preserves edits; Save a Copy writes a separate file. Applying redactions permanently removes marked content from the saved result."),
@@ -40,7 +40,7 @@ enum ReaderHelp {
             ("Customize", "Settings provides appearance, reading, shortcuts, external commands and advanced JSON preferences. Keyboard Shortcuts lists current bindings, including your overrides. Blank shortcut fields disable a command's binding."),
             ("Document support", "Available actions depend on the document format and its permissions. Password-protected documents require their password. Image-only documents do not provide searchable text. Windows-only shell integrations are replaced by macOS file, print and sharing controls.")
         ]
-        show(title: L("Sumra Help"), text: sections.map { L($0.0) + "\n" + L($0.1) }.joined(separator: "\n\n"))
+        show(title: L("Vira Reader Help"), text: sections.map { L($0.0) + "\n" + L($0.1) }.joined(separator: "\n\n"))
     }
 
     static func showShortcuts() {
@@ -60,7 +60,7 @@ enum ReaderHelp {
     static func contributeTranslation() {
         let alert = NSAlert()
         alert.messageText = L("Contribute Translation")
-        alert.informativeText = L("Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository.")
+        alert.informativeText = L("Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository.")
         alert.addButton(withTitle: L("Visit Website"))
         alert.addButton(withTitle: L("Close"))
         if alert.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(website) }
@@ -163,7 +163,7 @@ enum ReaderHelp {
         case .failure(let error)?:
             message = error.localizedDescription
         case nil:
-            message = L("This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds.")
+            message = L("This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds.")
         }
         let alert = NSAlert()
         alert.messageText = L("Updates Are Not Configured")

@@ -596,7 +596,7 @@
 "Parent folder" = "Pasta superior";
 "Pixels" = "Pixels";
 "Preserve PDF Image Colors" = "Preservar cores de imagens do PDF";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Pressione um atalho com Command, Control ou Option, ou uma tecla de função. O Sumra deve estar em execução.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Pressione um atalho com Command, Control ou Option, ou uma tecla de função. O Vira Reader deve estar em execução.";
 "Press shortcut keys…" = "Pressione as teclas do atalho…";
 "Press shortcut…" = "Pressione um atalho…";
 "Provider default" = "Padrão do provedor";
@@ -664,8 +664,8 @@
 "Stable releases" = "Versões estáveis";
 "Strike Out Selection" = "Tachar seleção";
 "Style" = "Estilo";
-"Sumra Help" = "Ajuda do Sumra";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "O Sumra informa erros de documentos no Console do macOS, no subsistema com.leaf.reader.";
+"Vira Reader Help" = "Ajuda do Vira Reader";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "O Vira Reader informa erros de documentos no Console do macOS, no subsistema com.leaf.reader.";
 "System Theme" = "Tema do sistema";
 "Target language code" = "Código do idioma de destino";
 "TeX source editor" = "Editor de código-fonte TeX";
@@ -674,7 +674,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "Estas são as atribuições atuais dos comandos. Edite-as em Ajustes → Atalhos.";
 "This PDF does not allow text extraction." = "Este PDF não permite extração de texto.";
 "This PDF has no embedded files" = "Este PDF não contém arquivos incorporados";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "Esta versão de desenvolvimento do Sumra não tem um feed de atualizações nem uma chave de assinatura configurados. Abra as versões publicadas para procurar as disponíveis.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "Esta versão de desenvolvimento do Vira Reader não tem um feed de atualizações nem uma chave de assinatura configurados. Abra as versões publicadas para procurar as disponíveis.";
 "This document has no page thumbnails" = "Este documento não tem miniaturas de páginas";
 "This document has unsaved annotations or form changes." = "Este documento tem anotações ou alterações de formulário não salvas.";
 "Timestamp Certificate" = "Certificado de carimbo de tempo";
@@ -684,7 +684,7 @@
 "Toggle Bookmark at Position" = "Alternar favorito nesta posição";
 "Tool" = "Ferramenta";
 "Tools" = "Ferramentas";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "As traduções estão em Sources/Sumra/Resources/Localizations. Edite os valores do arquivo Localizable.strings do seu idioma, mantendo as chaves em inglês e os marcadores de formato inalterados. Envie suas alterações como uma pull request ao repositório do Sumra.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "As traduções estão em Sources/Sumra/Resources/Localizations. Edite os valores do arquivo Localizable.strings do seu idioma, mantendo as chaves em inglês e os marcadores de formato inalterados. Envie suas alterações como uma pull request ao repositório do Vira Reader.";
 "Trash File and Open Next…" = "Mover arquivo para o Lixo e abrir o próximo…";
 "Two Pages" = "Duas páginas";
 "Type" = "Tipo";
@@ -743,7 +743,7 @@
 
 "Replace Current Document" = "Substituir documento atual";
 
-"New Sumra Window" = "Nova janela do Sumra";
+"New Vira Reader Window" = "Nova janela do Vira Reader";
 "New Tab" = "Nova aba";
 
 "Close Tab" = "Fechar aba";

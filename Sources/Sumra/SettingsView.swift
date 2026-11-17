@@ -422,7 +422,7 @@ private struct AdvancedSettings: View {
                     }
                 }
                 Button(L("Export…")) {
-                    let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "Sumra-settings.json"
+                    let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "Vira Reader-settings.json"
                     panel.begin { response in
                         guard response == .OK, let url = panel.url else { return }
                         perform { try ReaderPreferences.data().write(to: url, options: .atomic); message = L("Exported") }

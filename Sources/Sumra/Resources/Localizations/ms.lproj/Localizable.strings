@@ -572,7 +572,7 @@
 "Parent folder" = "Folder induk";
 "Pixels" = "Piksel";
 "Preserve PDF Image Colors" = "Kekalkan Warna Imej PDF";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Tekan pintasan dengan Command, Control atau Option, atau kekunci fungsi. Sumra mesti sedang berjalan.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Tekan pintasan dengan Command, Control atau Option, atau kekunci fungsi. Vira Reader mesti sedang berjalan.";
 "Press shortcut keys…" = "Tekan kekunci pintasan…";
 "Press shortcut…" = "Tekan pintasan…";
 "Provider default" = "Lalai penyedia";
@@ -640,8 +640,8 @@
 "Stable releases" = "Keluaran stabil";
 "Strike Out Selection" = "Garis Potong pada Pilihan";
 "Style" = "Gaya";
-"Sumra Help" = "Bantuan Sumra";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra melaporkan ralat dokumen kepada Console macOS di bawah subsistem com.leaf.reader.";
+"Vira Reader Help" = "Bantuan Vira Reader";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader melaporkan ralat dokumen kepada Console macOS di bawah subsistem com.leaf.reader.";
 "System Theme" = "Tema Sistem";
 "Tab Color" = "Warna Tab";
 "Target language code" = "Kod bahasa sasaran";
@@ -651,7 +651,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "Ini ialah ikatan arahan semasa anda. Sunting dalam Tetapan → Pintasan.";
 "This PDF does not allow text extraction." = "PDF ini tidak membenarkan pengekstrakan teks.";
 "This PDF has no embedded files" = "PDF ini tiada fail terbenam";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "Binaan pembangunan Sumra ini tiada suapan kemas kini dan kunci tandatangan dikonfigurasi. Buka Keluaran untuk menyemak binaan yang diterbitkan.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "Binaan pembangunan Vira Reader ini tiada suapan kemas kini dan kunci tandatangan dikonfigurasi. Buka Keluaran untuk menyemak binaan yang diterbitkan.";
 "This document has no page thumbnails" = "Dokumen ini tiada imej kecil halaman";
 "This document has unsaved annotations or form changes." = "Dokumen ini mempunyai anotasi atau perubahan borang yang belum disimpan.";
 "Timestamp Certificate" = "Sijil Cap Masa";
@@ -661,7 +661,7 @@
 "Toggle Bookmark at Position" = "Togol Penanda Buku pada Kedudukan";
 "Tool" = "Alat";
 "Tools" = "Alat";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "Terjemahan berada di Sources/Sumra/Resources/Localizations. Sunting nilai dalam Localizable.strings bahasa anda, tanpa mengubah kunci bahasa Inggeris dan ruang letak format. Hantar perubahan sebagai permintaan tarik ke repositori Sumra.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "Terjemahan berada di Sources/Sumra/Resources/Localizations. Sunting nilai dalam Localizable.strings bahasa anda, tanpa mengubah kunci bahasa Inggeris dan ruang letak format. Hantar perubahan sebagai permintaan tarik ke repositori Vira Reader.";
 "Trash File and Open Next…" = "Alih Fail ke Sampah dan Buka Seterusnya…";
 "Two Pages" = "Dua Halaman";
 "Type" = "Jenis";
@@ -738,7 +738,7 @@
 
 "Replace Current Document" = "Gantikan dokumen semasa";
 
-"New Sumra Window" = "Tetingkap Sumra baharu";
+"New Vira Reader Window" = "Tetingkap Vira Reader baharu";
 "New Tab" = "Tab baharu";
 
 "Close Tab" = "Tutup tab";

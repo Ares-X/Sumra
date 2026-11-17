@@ -1,6 +1,6 @@
 # A little room for reading
 
-*Field notes · A Sumra demo document*
+*Field notes · A Vira Reader demo document*
 
 A document, a quiet window, and the next page. Reading should feel that simple.
 
@@ -39,7 +39,7 @@ let reading = Document.open("a-good-page.pdf")
 reading.bookmark("Come back here")
 ```
 
-*This code is illustrative demo text, not a Sumra API.*
+*This code is illustrative demo text, not a Vira Reader API.*
 
 ## 4. Leave a little space
 
@@ -51,4 +51,4 @@ Put a bookmark here. Close the window when you are done. The words will wait.
 
 ---
 
-**About this demo** · Original fictional text created for Sumra product screenshots. No personal books, documents, or reading history are included.
+**About this demo** · Original fictional text created for Vira Reader product screenshots. No personal books, documents, or reading history are included.

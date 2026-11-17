@@ -658,7 +658,7 @@
 "Parent folder" = "上層檔案夾";
 "Pixels" = "像素";
 "Preserve PDF Image Colors" = "保留 PDF 影像顏色";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "請按含有 Command、Control 或 Option 的快速鍵，或功能鍵。Sumra 必須正在執行。";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "請按含有 Command、Control 或 Option 的快速鍵，或功能鍵。Vira Reader 必須正在執行。";
 "Press shortcut keys…" = "請按快速鍵…";
 "Provider default" = "供應商預設值";
 "Question about the document" = "關於文件的問題";
@@ -714,15 +714,15 @@
 "Stable releases" = "穩定版本";
 "Strike Out Selection" = "為選取文字加上刪除線";
 "Style" = "樣式";
-"Sumra Help" = "Sumra 輔助說明";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra 會透過 com.leaf.reader 子系統，將文件錯誤回報至 macOS「主控台」。";
+"Vira Reader Help" = "Vira Reader 輔助說明";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader 會透過 com.leaf.reader 子系統，將文件錯誤回報至 macOS「主控台」。";
 "System Theme" = "系統主題";
 "Target language code" = "目標語言代碼";
 "TeX source editor" = "TeX 原始碼編輯器";
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "這些是目前的命令按鍵設定。可在「設定」→「快速鍵」中編輯。";
 "This PDF does not allow text extraction." = "此 PDF 不允許擷取文字。";
 "This PDF has no embedded files" = "此 PDF 沒有內嵌檔案";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "此 Sumra 開發版本尚未設定更新來源與簽署金鑰。請開啟版本發佈頁面查看已發佈的版本。";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "此 Vira Reader 開發版本尚未設定更新來源與簽署金鑰。請開啟版本發佈頁面查看已發佈的版本。";
 "This document has no page thumbnails" = "此文件沒有頁面縮圖";
 "This document has unsaved annotations or form changes." = "此文件有尚未儲存的註解或表單變更。";
 "Timestamp Certificate" = "時間戳記憑證";
@@ -732,7 +732,7 @@
 "Toggle Bookmark at Position" = "切換此位置的書籤";
 "Tool" = "工具";
 "Tools" = "工具";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "翻譯位於 Sources/Sumra/Resources/Localizations。請編輯所用語言的 Localizable.strings 中的值，並保持英文鍵名與格式預留位置不變。請以提取要求將變更提交至 Sumra 儲存庫。";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "翻譯位於 Sources/Sumra/Resources/Localizations。請編輯所用語言的 Localizable.strings 中的值，並保持英文鍵名與格式預留位置不變。請以提取要求將變更提交至 Vira Reader 儲存庫。";
 "Trash File and Open Next…" = "將檔案移到垃圾桶並開啟下一個…";
 "Two Pages" = "雙頁";
 "Type" = "類型";
@@ -789,7 +789,7 @@
 
 "Replace Current Document" = "取代目前文件";
 
-"New Sumra Window" = "新增 Sumra 視窗";
+"New Vira Reader Window" = "新增 Vira Reader 視窗";
 "New Tab" = "新增分頁";
 
 "Close Tab" = "關閉分頁";
@@ -863,9 +863,9 @@
 "Diagnostics" = "診斷";
 "Window Diagnostics" = "視窗診斷";
 "Record Window Diagnostics" = "記錄視窗診斷";
-"Off by default. When enabled, recording stays on after restarting Sumra." = "預設關閉。開啟後，重新啟動 Sumra 仍會繼續記錄。";
+"Off by default. When enabled, recording stays on after restarting Vira Reader." = "預設關閉。開啟後，重新啟動 Vira Reader 仍會繼續記錄。";
 "Privacy and Retention" = "隱私與保留方式";
-"Records only Sumra window, tab and full-screen events. Does not record file names, paths, document contents or keystrokes. Nothing is uploaded automatically." = "僅記錄 Sumra 的視窗、分頁和全螢幕事件。不記錄檔案名稱、路徑、文件內容或按鍵，不會自動上傳任何內容。";
+"Records only Vira Reader window, tab and full-screen events. Does not record file names, paths, document contents or keystrokes. Nothing is uploaded automatically." = "僅記錄 Vira Reader 的視窗、分頁和全螢幕事件。不記錄檔案名稱、路徑、文件內容或按鍵，不會自動上傳任何內容。";
 "Each recording is kept separately until you delete it from the diagnostics folder. Export a ZIP archive to attach to a GitHub issue." = "每次記錄獨立保留，直到你從診斷檔案夾中手動刪除。可匯出 ZIP 壓縮檔，作為附件加入 GitHub 問題。";
 "Mark Current Window State" = "標記目前視窗狀態";
 "Export Window Diagnostics…" = "匯出視窗診斷…";

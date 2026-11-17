@@ -344,7 +344,7 @@ final class ReaderWindowDiagnostics: ObservableObject {
         let panel = NSSavePanel()
         panel.title = L("Export Window Diagnostics")
         panel.allowedContentTypes = [.zip]
-        panel.nameFieldStringValue = "Sumra-Window-Diagnostics.zip"
+        panel.nameFieldStringValue = "Vira Reader-Window-Diagnostics.zip"
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         export(to: destination) { result in
             if case .failure(let error) = result {

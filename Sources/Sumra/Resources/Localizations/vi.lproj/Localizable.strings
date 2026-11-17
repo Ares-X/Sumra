@@ -595,7 +595,7 @@
 "Parent folder" = "Thư mục cha";
 "Pixels" = "Pixel";
 "Preserve PDF Image Colors" = "Giữ màu hình ảnh PDF";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Nhấn phím tắt với Command, Control hoặc Option, hoặc một phím chức năng. Sumra phải đang chạy.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Nhấn phím tắt với Command, Control hoặc Option, hoặc một phím chức năng. Vira Reader phải đang chạy.";
 "Press shortcut keys…" = "Nhấn các phím tắt…";
 "Press shortcut…" = "Nhấn phím tắt…";
 "Provider default" = "Mặc định của nhà cung cấp";
@@ -663,8 +663,8 @@
 "Stable releases" = "Bản phát hành ổn định";
 "Strike Out Selection" = "Gạch ngang phần đã chọn";
 "Style" = "Kiểu";
-"Sumra Help" = "Trợ giúp Sumra";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra báo lỗi tài liệu trong Bảng điều khiển macOS dưới hệ thống con com.leaf.reader.";
+"Vira Reader Help" = "Trợ giúp Vira Reader";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader báo lỗi tài liệu trong Bảng điều khiển macOS dưới hệ thống con com.leaf.reader.";
 "System Theme" = "Giao diện hệ thống";
 "Tab Color" = "Màu thẻ";
 "Target language code" = "Mã ngôn ngữ đích";
@@ -674,7 +674,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "Đây là các phím hiện được gán cho lệnh. Sửa chúng trong Cài đặt → Phím tắt.";
 "This PDF does not allow text extraction." = "PDF này không cho phép trích xuất văn bản.";
 "This PDF has no embedded files" = "PDF này không có tệp nhúng";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "Bản phát triển Sumra này chưa được cấu hình nguồn cập nhật và khóa ký. Mở các bản phát hành để kiểm tra bản đã công bố.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "Bản phát triển Vira Reader này chưa được cấu hình nguồn cập nhật và khóa ký. Mở các bản phát hành để kiểm tra bản đã công bố.";
 "This document has no page thumbnails" = "Tài liệu này không có hình thu nhỏ của trang";
 "This document has unsaved annotations or form changes." = "Tài liệu này có ghi chú hoặc thay đổi biểu mẫu chưa lưu.";
 "Timestamp Certificate" = "Chứng chỉ dấu thời gian";
@@ -684,7 +684,7 @@
 "Toggle Bookmark at Position" = "Bật/tắt dấu trang tại vị trí";
 "Tool" = "Công cụ";
 "Tools" = "Công cụ";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "Bản dịch nằm trong Sources/Sumra/Resources/Localizations. Sửa các giá trị trong Localizable.strings của ngôn ngữ của bạn, giữ nguyên khóa tiếng Anh và ký hiệu định dạng. Gửi thay đổi bằng pull request đến kho mã Sumra.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "Bản dịch nằm trong Sources/Sumra/Resources/Localizations. Sửa các giá trị trong Localizable.strings của ngôn ngữ của bạn, giữ nguyên khóa tiếng Anh và ký hiệu định dạng. Gửi thay đổi bằng pull request đến kho mã Vira Reader.";
 "Trash File and Open Next…" = "Chuyển tệp vào Thùng rác và mở tệp tiếp theo…";
 "Two Pages" = "Hai trang";
 "Type" = "Loại";
@@ -743,7 +743,7 @@
 
 "Replace Current Document" = "Thay thế tài liệu hiện tại";
 
-"New Sumra Window" = "Cửa sổ Sumra mới";
+"New Vira Reader Window" = "Cửa sổ Vira Reader mới";
 "New Tab" = "Tab mới";
 
 "Close Tab" = "Đóng tab";

@@ -58,7 +58,7 @@ def run_logged(command, path, timeout, env=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--app", type=Path, default=ROOT / "dist/Sumra.app")
+    parser.add_argument("--app", type=Path, default=ROOT / "dist/Vira Reader.app")
     parser.add_argument("--fixture", type=Path, default=ROOT / "docs/demos/Reading-Notes.md")
     parser.add_argument("--test", default="testOpenCancelAddCloseAndContentsHover", help="One NativeReaderJourneyTests method per bounded run")
     parser.add_argument("--reuse-build", type=Path, help="Use an existing build-for-testing; not deleted")
@@ -74,7 +74,7 @@ def main():
     if len(pids) != 1:
         parser.error("Start exactly one instance of the selected candidate before testing")
     # Packaging moves the preceding bundle aside while its process can remain
-    # alive. Its command name still says dist/Sumra.app; check mapped files.
+    # alive. Its command name still says dist/Vira Reader.app; check mapped files.
     mapped = subprocess.check_output(["lsof", "-p", str(pids[0]), "-Fn"], text=True, timeout=10)
     loaded_paths = {line[1:] for line in mapped.splitlines() if line.startswith("n")}
     engine = app / "Contents/Frameworks/MuPDF.dylib"

@@ -601,7 +601,7 @@
 "Parent folder" = "親フォルダ";
 "Pixels" = "ピクセル";
 "Preserve PDF Image Colors" = "PDF画像の色を保持";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Command、Control、Optionを含むショートカット、またはファンクションキーを押してください。Sumraが起動している必要があります。";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Command、Control、Optionを含むショートカット、またはファンクションキーを押してください。Vira Readerが起動している必要があります。";
 "Press shortcut keys…" = "ショートカットキーを押してください…";
 "Press shortcut…" = "ショートカットを押してください…";
 "Provider default" = "プロバイダのデフォルト";
@@ -669,8 +669,8 @@
 "Stable releases" = "安定版リリース";
 "Strike Out Selection" = "選択範囲に取り消し線";
 "Style" = "スタイル";
-"Sumra Help" = "Sumraヘルプ";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumraは文書のエラーをmacOSコンソールのサブシステムcom.leaf.readerに報告します。";
+"Vira Reader Help" = "Vira Readerヘルプ";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Readerは文書のエラーをmacOSコンソールのサブシステムcom.leaf.readerに報告します。";
 "System Theme" = "システムのテーマ";
 "Target language code" = "翻訳先の言語コード";
 "TeX source editor" = "TeXソースエディタ";
@@ -679,7 +679,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "現在のコマンドの割り当てです。設定 → ショートカットで編集できます。";
 "This PDF does not allow text extraction." = "このPDFはテキストの抽出を許可していません。";
 "This PDF has no embedded files" = "このPDFには埋め込みファイルがありません";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "このSumra開発ビルドには更新フィードと署名鍵が設定されていません。「リリースを開く」で公開ビルドを確認してください。";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "このVira Reader開発ビルドには更新フィードと署名鍵が設定されていません。「リリースを開く」で公開ビルドを確認してください。";
 "This document has no page thumbnails" = "この文書にはページのサムネールがありません";
 "This document has unsaved annotations or form changes." = "この文書には未保存の注釈またはフォームの変更があります。";
 "Timestamp Certificate" = "タイムスタンプ証明書";
@@ -689,7 +689,7 @@
 "Toggle Bookmark at Position" = "この位置のブックマークを切り替え";
 "Tool" = "ツール";
 "Tools" = "ツール";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "翻訳はSources/Sumra/Resources/Localizationsにあります。各言語のLocalizable.stringsの値を編集し、英語のキーと書式プレースホルダは変更しないでください。変更はSumraリポジトリへのプルリクエストで送ってください。";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "翻訳はSources/Sumra/Resources/Localizationsにあります。各言語のLocalizable.stringsの値を編集し、英語のキーと書式プレースホルダは変更しないでください。変更はVira Readerリポジトリへのプルリクエストで送ってください。";
 "Trash File and Open Next…" = "ファイルをゴミ箱に入れて次を開く…";
 "Two Pages" = "2ページ";
 "Type" = "種類";
@@ -749,7 +749,7 @@
 
 "Replace Current Document" = "現在の書類を置き換える";
 
-"New Sumra Window" = "新しいSumraウインドウ";
+"New Vira Reader Window" = "新しいVira Readerウインドウ";
 "New Tab" = "新規タブ";
 
 "Close Tab" = "タブを閉じる";

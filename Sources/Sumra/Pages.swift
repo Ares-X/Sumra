@@ -1340,7 +1340,7 @@ actor Pages {
         // Ordinary Save may replace only the last disk version that we own.
         if markSaved {
             guard let expected = pdfSavedSourceCheckpoint, try expected.matches(destination), written != nil else {
-                throw ReadError("The PDF file changed outside Sumra. Reload it or save a copy to preserve your edits.")
+                throw ReadError("The PDF file changed outside Vira Reader. Reload it or save a copy to preserve your edits.")
             }
         }
         try Task.checkCancellation()

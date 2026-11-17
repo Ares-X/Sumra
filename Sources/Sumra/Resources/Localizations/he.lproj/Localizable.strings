@@ -596,7 +596,7 @@
 "Parent folder" = "תיקיית אב";
 "Pixels" = "פיקסלים";
 "Preserve PDF Image Colors" = "שמירת צבעי תמונות PDF";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "יש להקיש קיצור הכולל Command, Control או Option, או מקש פונקציה. Sumra חייב לפעול.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "יש להקיש קיצור הכולל Command, Control או Option, או מקש פונקציה. Vira Reader חייב לפעול.";
 "Press shortcut keys…" = "יש להקיש את מקשי הקיצור…";
 "Press shortcut…" = "יש להקיש קיצור…";
 "Provider default" = "ברירת המחדל של הספק";
@@ -664,8 +664,8 @@
 "Stable releases" = "גרסאות יציבות";
 "Strike Out Selection" = "קו חוצה לבחירה";
 "Style" = "סגנון";
-"Sumra Help" = "עזרה של Sumra";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra מדווח על שגיאות מסמך למסוף של macOS תחת תת־המערכת com.leaf.reader.";
+"Vira Reader Help" = "עזרה של Vira Reader";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader מדווח על שגיאות מסמך למסוף של macOS תחת תת־המערכת com.leaf.reader.";
 "System Theme" = "ערכת הנושא של המערכת";
 "Tab Color" = "צבע כרטיסייה";
 "Target language code" = "קוד שפת היעד";
@@ -675,7 +675,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "אלה שיוכי הפקודות הנוכחיים. ניתן לערוך אותם בהגדרות ← קיצורים.";
 "This PDF does not allow text extraction." = "PDF זה אינו מאפשר חילוץ טקסט.";
 "This PDF has no embedded files" = "אין בקובץ PDF זה קבצים מוטמעים";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "בגרסת פיתוח זו של Sumra לא הוגדרו ערוץ עדכונים ומפתח חתימה. יש לפתוח גרסאות כדי לבדוק גרסאות שפורסמו.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "בגרסת פיתוח זו של Vira Reader לא הוגדרו ערוץ עדכונים ומפתח חתימה. יש לפתוח גרסאות כדי לבדוק גרסאות שפורסמו.";
 "This document has no page thumbnails" = "למסמך זה אין תמונות עמוד ממוזערות";
 "This document has unsaved annotations or form changes." = "למסמך זה יש הערות או שינויים בטפסים שלא נשמרו.";
 "Timestamp Certificate" = "אישור חותמת זמן";
@@ -685,7 +685,7 @@
 "Toggle Bookmark at Position" = "החלפת מצב סימנייה במיקום";
 "Tool" = "כלי";
 "Tools" = "כלים";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "התרגומים נמצאים ב־Sources/Sumra/Resources/Localizations. יש לערוך את הערכים ב־Localizable.strings של השפה שלכם, בלי לשנות את המפתחות באנגלית ואת מצייני המיקום של העיצוב. יש לשלוח את השינויים כבקשת משיכה למאגר Sumra.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "התרגומים נמצאים ב־Sources/Sumra/Resources/Localizations. יש לערוך את הערכים ב־Localizable.strings של השפה שלכם, בלי לשנות את המפתחות באנגלית ואת מצייני המיקום של העיצוב. יש לשלוח את השינויים כבקשת משיכה למאגר Vira Reader.";
 "Trash File and Open Next…" = "העברת הקובץ לאשפה ופתיחת הבא…";
 "Two Pages" = "שני עמודים";
 "Type" = "סוג";
@@ -745,7 +745,7 @@
 
 "Replace Current Document" = "החלפת המסמך הנוכחי";
 
-"New Sumra Window" = "חלון Sumra חדש";
+"New Vira Reader Window" = "חלון Vira Reader חדש";
 "New Tab" = "כרטיסייה חדשה";
 
 "Close Tab" = "סגירת כרטיסייה";

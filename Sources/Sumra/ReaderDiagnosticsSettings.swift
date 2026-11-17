@@ -8,7 +8,7 @@ struct ReaderDiagnosticsSettings: View {
         Form {
             Section(L("Window Diagnostics")) {
                 ReaderDiagnosticsToggle()
-                Text(L("Off by default. When enabled, recording stays on after restarting Sumra."))
+                Text(L("Off by default. When enabled, recording stays on after restarting Vira Reader."))
                     .font(.caption).foregroundStyle(.secondary)
                 Text(diagnostics.reportSummary)
                     .textSelection(.enabled)
@@ -18,7 +18,7 @@ struct ReaderDiagnosticsSettings: View {
                 }
             }
             Section(L("Privacy and Retention")) {
-                Text(L("Records only Sumra window, tab and full-screen events. Does not record file names, paths, document contents or keystrokes. Nothing is uploaded automatically."))
+                Text(L("Records only Vira Reader window, tab and full-screen events. Does not record file names, paths, document contents or keystrokes. Nothing is uploaded automatically."))
                 Text(L("Each recording is kept separately until you delete it from the diagnostics folder. Export a ZIP archive to attach to a GitHub issue."))
             }.font(.caption).foregroundStyle(.secondary)
         }

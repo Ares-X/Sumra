@@ -38,7 +38,7 @@ final class ReaderDiagnosticLogTests: XCTestCase {
         try process.run()
         process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0)
-        return directory.appendingPathComponent("Sumra-Window-Diagnostics")
+        return directory.appendingPathComponent("Vira Reader-Window-Diagnostics")
     }
 
     func testConstructionAndEmptyInventoryDoNotCreateFiles() async throws {

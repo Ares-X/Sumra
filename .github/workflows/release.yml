@@ -1,4 +1,4 @@
-name: Sumra release
+name: Vira Reader release
 
 on:
   workflow_dispatch:
@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sumra-release
+  group: vira-reader-release
   cancel-in-progress: false
 
 jobs:
@@ -94,10 +94,10 @@ jobs:
           set -euo pipefail
           ./scripts/build-app.sh --release
           swift scripts/package-release.swift --record-build "$RUNNER_TEMP/build-receipt.json" \
-            --source-receipt "$SUMRA_BUILD_SOURCE_RECEIPT" --app dist/Sumra.app
-          swift scripts/package-release.swift --app dist/Sumra.app --output "$RUNNER_TEMP/sumra-release" \
+            --source-receipt "$SUMRA_BUILD_SOURCE_RECEIPT" --app "dist/Vira Reader.app"
+          swift scripts/package-release.swift --app "dist/Vira Reader.app" --output "$RUNNER_TEMP/sumra-release" \
             --source-receipt "$SUMRA_BUILD_SOURCE_RECEIPT" --build-receipt "$RUNNER_TEMP/build-receipt.json"
-          swift scripts/generate-appcast.swift "$RUNNER_TEMP/sumra-release/Sumra-$VERSION-macOS-arm64.zip" \
+          swift scripts/generate-appcast.swift "$RUNNER_TEMP/sumra-release/Vira-Reader-$VERSION-macOS-arm64.zip" \
             --output "$RUNNER_TEMP/sumra-release/appcast.xml"
           cd "$RUNNER_TEMP/sumra-release"
           shasum -a 256 appcast.xml >> SHA256SUMS
@@ -108,9 +108,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          candidate_tag="sumra-candidate/v$VERSION-$SOURCE_REVISION"
+          candidate_tag="vira-reader-candidate/v$VERSION-$SOURCE_REVISION"
           gh release create "$candidate_tag" "$RUNNER_TEMP/sumra-release/"* \
-            --draft --target "$SOURCE_REVISION" --title "Sumra $VERSION candidate" \
+            --draft --target "$SOURCE_REVISION" --title "Vira Reader $VERSION candidate" \
             --notes-file "docs/releases/$VERSION.md"
           {
             echo "Candidate: $candidate_tag"
@@ -153,7 +153,7 @@ jobs:
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$ACCEPTED_MANIFEST" =~ ^[0-9a-f]{64}$ ]]
           test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
-          candidate_tag="sumra-candidate/v$VERSION-$SOURCE_REVISION"
+          candidate_tag="vira-reader-candidate/v$VERSION-$SOURCE_REVISION"
           gh release view "$candidate_tag" --json isDraft,targetCommitish | \
             jq -e --arg revision "$SOURCE_REVISION" '.isDraft == true and .targetCommitish == $revision'
           mkdir "$RUNNER_TEMP/sumra-release"
@@ -163,14 +163,14 @@ jobs:
           sha256sum -c SHA256SUMS
           jq -e '.project_revision == env.SOURCE_REVISION and .app_metadata.info_plist.CFBundleShortVersionString == env.VERSION' provenance.json
           gh release edit "$candidate_tag" --tag "v$VERSION" --target "$SOURCE_REVISION" \
-            --title "Sumra $VERSION" --draft=false --latest
+            --title "Vira Reader $VERSION" --draft=false --latest
 
       - name: Update the feed after the Release is public
         run: |
           set -euo pipefail
           feed_sha="$(gh api "repos/$GH_REPO/contents/appcast.xml?ref=main" --jq .sha)"
           base64 -w 0 "$RUNNER_TEMP/sumra-release/appcast.xml" > "$RUNNER_TEMP/feed-base64"
-          jq -n --arg message "Publish Sumra $VERSION update feed" --arg sha "$feed_sha" \
+          jq -n --arg message "Publish Vira Reader $VERSION update feed" --arg sha "$feed_sha" \
             --rawfile content "$RUNNER_TEMP/feed-base64" \
             '{message:$message,sha:$sha,branch:"main",content:$content}' > "$RUNNER_TEMP/feed-request.json"
           gh api --method PUT "repos/$GH_REPO/contents/appcast.xml" \

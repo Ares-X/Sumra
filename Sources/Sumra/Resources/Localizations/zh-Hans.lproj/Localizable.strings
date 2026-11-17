@@ -237,7 +237,7 @@
 "Right to Left" = "从右向左";
 "PDF Tools" = "PDF 工具";
 "Annotations" = "注释";
-"Sumra Help" = "Sumra 帮助";
+"Vira Reader Help" = "Vira Reader 帮助";
 "Keyboard Shortcuts" = "键盘快捷键";
 "Visit Website" = "访问项目网站";
 "Open Releases" = "打开发行页面";
@@ -253,7 +253,7 @@
 "Read aloud and presentation" = "朗读与演示";
 "Customize" = "自定义";
 "Document support" = "文档支持";
-"Use File → Open to choose documents or folders, or drag files into Sumra. Browse Files and Open Recent find nearby and previously opened documents. Contents, thumbnails and bookmarks navigate the current document." = "使用“文件 → 打开”选择文档或文件夹，也可以将文件拖入 Sumra。“浏览文件”和“打开最近使用的文档”可查找同目录与曾经打开的文件。使用目录、缩略图和书签在当前文档内导航。";
+"Use File → Open to choose documents or folders, or drag files into Vira Reader. Browse Files and Open Recent find nearby and previously opened documents. Contents, thumbnails and bookmarks navigate the current document." = "使用“文件 → 打开”选择文档或文件夹，也可以将文件拖入 Vira Reader。“浏览文件”和“打开最近使用的文档”可查找同目录与曾经打开的文件。使用目录、缩略图和书签在当前文档内导航。";
 "Use Navigation for page navigation, View for zoom, rotation and layout, and Edit → Find to search readable text. Match Case and Match Whole Word refine results. Scanned pages without a text layer need OCR before text search." = "“导航”菜单用于翻页，“视图”菜单用于缩放、旋转和布局，“编辑 → 查找”可搜索可读文本。使用“区分大小写”和“全词匹配”可缩小范围。没有文本层的扫描页需要先完成 OCR，才能进行文本搜索。";
 "Bookmark This Position saves your place. Settings controls recent documents, saved reading positions, tabs and window restoration. Typography and CSS can apply to this document or become your defaults." = "“为当前位置添加书签”可保存阅读位置。“设置”管理最近文档、阅读位置记录、标签页与窗口恢复。排版和 CSS 可只应用于当前文档，也可设为默认值。";
 "PDFs open with editing locked. Choose Enable Editing before filling forms or changing annotations. Lock Editing keeps unsaved changes and returns to reading. Tools → Annotations adds notes, text, shapes, highlights and attachments. Select an annotation to edit it. Tools → PDF Tools extracts, merges and exports pages, manages encryption and inspects signatures. Save preserves edits; Save a Copy writes a separate file. Applying redactions permanently removes marked content from the saved result." = "PDF 默认锁定编辑。填写表单或修改注释前，请点击“启用编辑”；“锁定编辑”会保留未保存的修改并返回阅读。“工具 → 注释”可添加便笺、文本、形状、高亮和附件，选择注释可进行编辑。“工具 → PDF 工具”提供页面提取、合并、导出、加密管理与签名检查。“保存”保留更改，“存储副本”写入另一个文件。应用删密会从保存的结果中永久移除标记内容。";
@@ -395,7 +395,7 @@
 
 "Global Screenshot Shortcut" = "全局截图快捷键";
 
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "请按包含 Command、Control 或 Option 的组合键，或功能键。Sumra 运行时快捷键生效。";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "请按包含 Command、Control 或 Option 的组合键，或功能键。Vira Reader 运行时快捷键生效。";
 
 "Press shortcut keys…" = "请按快捷键…";
 
@@ -450,7 +450,7 @@
 "Custom Commands" = "自定义命令";
 "Commands" = "命令";
 "On" = "开启";
-"Untranslated Sumra-specific text uses English." = "Sumra 特有界面中尚无译文的文字使用英文。";
+"Untranslated Vira Reader-specific text uses English." = "Vira Reader 特有界面中尚无译文的文字使用英文。";
 "Named commands reuse existing actions. Optional arguments set page/scroll counts, zoom, theme, toggle state, file/page, palette mode or annotation defaults." = "命名命令复用现有操作。可用参数设置翻页或滚动次数、缩放、主题、开关状态、文件及页码、命令面板模式和注释预设。";
 "Save Embedded Image as PDF…" = "将嵌入图像另存为 PDF…";
 "Crop Embedded Image…" = "裁剪嵌入图像…";
@@ -464,7 +464,7 @@
 "Zoom" = "缩放";
 
 /* Shared reading controls and dialogs. */
-"Sumra" = "Sumra";
+"Vira Reader" = "Vira Reader";
 "Toolbar" = "工具栏";
 "Digital Signatures" = "数字签名";
 "Unknown" = "未知";
@@ -703,7 +703,7 @@
 "Incorrect password. Try again." = "密码错误，请重试。";
 "Italic" = "斜体";
 "Labels" = "字段标签";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra 将文档错误记录到 macOS“控制台”，子系统为 com.leaf.reader。";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader 将文档错误记录到 macOS“控制台”，子系统为 com.leaf.reader。";
 "Leave empty to allow opening without a password." = "留空则打开文件时无需密码。";
 "Left" = "左对齐";
 "Line end" = "线条终点";
@@ -773,8 +773,8 @@
 "Updates Are Not Configured" = "尚未配置更新";
 "Contribute Translation" = "贡献翻译";
 "Show Fit Content Area" = "显示适应内容区域";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "翻译资源位于 Sources/Sumra/Resources/Localizations。请编辑对应语言 Localizable.strings 中的译文，保持英文键名和格式占位符不变，然后向 Sumra 仓库提交拉取请求。";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "此 Sumra 开发构建尚未配置更新源和签名公钥。可打开发行页面查看已发布的构建。";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "翻译资源位于 Sources/Sumra/Resources/Localizations。请编辑对应语言 Localizable.strings 中的译文，保持英文键名和格式占位符不变，然后向 Vira Reader 仓库提交拉取请求。";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "此 Vira Reader 开发构建尚未配置更新源和签名公钥。可打开发行页面查看已发布的构建。";
 "Updates are checked daily. The prerelease channel also checks on startup. Sparkle verifies and installs updates after you approve them." = "每天检查更新，预发行渠道也会在启动时检查。你确认后，Sparkle 将校验并安装更新。";
 
 "Adjusting margins overrides document styles on all four sides." = "调整边距会覆盖文档的四边边距样式。";
@@ -825,7 +825,7 @@
 "Copy Link Address" = "复制链接地址";
 "Copy Comment" = "复制批注内容";
 "Show Comment" = "显示批注内容";
-"The PDF source was modified outside Sumra. Reload it before printing." = "PDF 源文件已被其他程序原地修改。请重新载入后打印。";
+"The PDF source was modified outside Vira Reader. Reload it before printing." = "PDF 源文件已被其他程序原地修改。请重新载入后打印。";
 "File format" = "文件格式";
 "Original file (without PDF edits)" = "原始文件（不含 PDF 编辑）";
 "App icon" = "应用图标";
@@ -989,7 +989,7 @@
 
 "Replace Current Document" = "替换当前文档";
 
-"New Sumra Window" = "新建 Sumra 窗口";
+"New Vira Reader Window" = "新建 Vira Reader 窗口";
 "New Tab" = "新建标签页";
 
 "Close Tab" = "关闭标签页";
@@ -1062,9 +1062,9 @@
 "Diagnostics" = "诊断";
 "Window Diagnostics" = "窗口诊断";
 "Record Window Diagnostics" = "记录窗口诊断";
-"Off by default. When enabled, recording stays on after restarting Sumra." = "默认关闭。开启后，重启 Sumra 仍会继续记录。";
+"Off by default. When enabled, recording stays on after restarting Vira Reader." = "默认关闭。开启后，重启 Vira Reader 仍会继续记录。";
 "Privacy and Retention" = "隐私与保留方式";
-"Records only Sumra window, tab and full-screen events. Does not record file names, paths, document contents or keystrokes. Nothing is uploaded automatically." = "仅记录 Sumra 的窗口、标签页和全屏事件。不记录文件名、路径、文档正文或按键，不会自动上传任何内容。";
+"Records only Vira Reader window, tab and full-screen events. Does not record file names, paths, document contents or keystrokes. Nothing is uploaded automatically." = "仅记录 Vira Reader 的窗口、标签页和全屏事件。不记录文件名、路径、文档正文或按键，不会自动上传任何内容。";
 "Each recording is kept separately until you delete it from the diagnostics folder. Export a ZIP archive to attach to a GitHub issue." = "每次记录独立保留，直到你从诊断文件夹中手动删除。可导出 ZIP 压缩包，作为附件添加到 GitHub 问题。";
 "Mark Current Window State" = "标记当前窗口状态";
 "Export Window Diagnostics…" = "导出窗口诊断…";

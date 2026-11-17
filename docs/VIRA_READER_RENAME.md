@@ -1,0 +1,15 @@
+# Vira Reader migration
+
+The project repository is now [Ares-X/Vira-Reader](https://github.com/Ares-X/Vira-Reader), retaining repository ID 1394160942 and its Git/issue/PR history. This is a branding preview; no Vira Reader version has been publicly released. Public downloads remain Sumra 0.2.47. New source builds produce `Vira Reader.app`; Swift targets and the internal executable remain Sumra.
+
+The icon follows the maintainer's supplied monochrome double-page V reference. [Icon sources and generation prompts](../Assets/AppIcon/README.md) describe the light/dark PNG inputs; the normal build makes all ten ICNS sizes. The four README variants use the new brand banner and distinguish unreleased source builds from the existing public download.
+
+The application retains `dev.aresx.leaf`, its extension and document-type identifiers, persisted preferences, the `sumra://synctex` integration, the Ares-X signing certificate and the existing Sparkle Ed25519 key. Existing diagnostic/cache storage remains in its current location. New applications use the canonical new repository feed URL; the feed itself still describes the preserved public versions.
+
+Sparkle 2.9.6 matches an incoming application by bundle identifier and normally retains the current installation path. Fresh installations use `Vira Reader.app`; an existing Sumra installation may still reside at `Sumra.app` after an update. Actual signed update acceptance remains pending; no custom installer or second feed is introduced.
+
+At the maintainer's explicit selection, 77 older releases and their 461 assets were deleted, representing 14,224,912,496 logical bytes. Public versions 0.2.45/46/47 and the previously accepted 0.2.48 draft were retained with their original asset identities. All 48 Git tag refs and commit history remained unchanged. The new branding candidate will be tested separately. No billing or physical storage reclamation is inferred from asset sizes.
+
+After repository rename, the old and new raw feeds returned identical bytes, all 18 preserved old asset URLs were reachable, the three public checksum manifests matched, and old/new Git HEADs matched. The old PR URL redirected correctly. The old issue #158 webpage returned 404 even with a unique query, while its new webpage returned 200 and both API paths returned the same issue ID. That GitHub webpage redirect remains an external limitation; use the canonical new issue link. No reporter reply was posted.
+
+Evidence is retained under `build/issues-remaining48/rebrand/`: exact cleanup manifests and per-release deletion receipts, post-rename public compatibility probes, packaging/localization checks, and focused native tests. The original bug-fix draft's signed acceptance is recorded separately in [the issue acceptance record](ISSUES_158_160_161_ACCEPTANCE.md). Signed branding/update/visual acceptance will be appended after the exact candidate is exercised in the existing macOS 26.6.2 VM.

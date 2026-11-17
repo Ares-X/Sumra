@@ -9,7 +9,7 @@ enum AppIconStyle: String, CaseIterable, Identifiable {
     var label: String { self == .light ? "Light" : "Dark" }
 
     fileprivate var resourceName: String {
-        self == .light ? "Sumra-Light" : "Sumra-Dark"
+        self == .light ? "ViraReader-Light" : "ViraReader-Dark"
     }
 }
 

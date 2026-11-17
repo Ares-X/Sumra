@@ -596,7 +596,7 @@
 "Parent folder" = "โฟลเดอร์แม่";
 "Pixels" = "พิกเซล";
 "Preserve PDF Image Colors" = "คงสีภาพ PDF";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "กดปุ่มลัดพร้อม Command, Control หรือ Option หรือกดปุ่มฟังก์ชัน โดย Sumra ต้องกำลังทำงาน";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "กดปุ่มลัดพร้อม Command, Control หรือ Option หรือกดปุ่มฟังก์ชัน โดย Vira Reader ต้องกำลังทำงาน";
 "Press shortcut keys…" = "กดปุ่มลัด…";
 "Press shortcut…" = "กดปุ่มลัด…";
 "Provider default" = "ค่าเริ่มต้นของผู้ให้บริการ";
@@ -664,8 +664,8 @@
 "Stable releases" = "รุ่นเสถียร";
 "Strike Out Selection" = "ขีดฆ่าส่วนที่เลือก";
 "Style" = "รูปแบบ";
-"Sumra Help" = "วิธีใช้ Sumra";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra รายงานข้อผิดพลาดเอกสารไปยัง Console ของ macOS ในระบบย่อย com.leaf.reader";
+"Vira Reader Help" = "วิธีใช้ Vira Reader";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader รายงานข้อผิดพลาดเอกสารไปยัง Console ของ macOS ในระบบย่อย com.leaf.reader";
 "System Theme" = "ธีมระบบ";
 "Tab Color" = "สีแท็บ";
 "Target language code" = "รหัสภาษาเป้าหมาย";
@@ -675,7 +675,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "นี่คือการกำหนดปุ่มคำสั่งปัจจุบัน แก้ไขได้ใน การตั้งค่า → ปุ่มลัด";
 "This PDF does not allow text extraction." = "PDF นี้ไม่อนุญาตให้แยกข้อความ";
 "This PDF has no embedded files" = "PDF นี้ไม่มีไฟล์ฝังตัว";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "Sumra รุ่นพัฒนานี้ยังไม่ได้กำหนดฟีดอัปเดตและคีย์ลงนาม เปิดรุ่นที่เผยแพร่เพื่อตรวจสอบบิลด์ที่เผยแพร่แล้ว";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "Vira Reader รุ่นพัฒนานี้ยังไม่ได้กำหนดฟีดอัปเดตและคีย์ลงนาม เปิดรุ่นที่เผยแพร่เพื่อตรวจสอบบิลด์ที่เผยแพร่แล้ว";
 "This document has no page thumbnails" = "เอกสารนี้ไม่มีภาพขนาดย่อของหน้า";
 "This document has unsaved annotations or form changes." = "เอกสารนี้มีคำอธิบายประกอบหรือการเปลี่ยนแปลงแบบฟอร์มที่ยังไม่บันทึก";
 "Timestamp Certificate" = "ใบรับรองการประทับเวลา";
@@ -685,7 +685,7 @@
 "Toggle Bookmark at Position" = "สลับที่คั่นหน้าที่ตำแหน่งนี้";
 "Tool" = "เครื่องมือ";
 "Tools" = "เครื่องมือ";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "คำแปลอยู่ใน Sources/Sumra/Resources/Localizations แก้ไขค่าใน Localizable.strings ของภาษาคุณ โดยไม่เปลี่ยนคีย์ภาษาอังกฤษและตัวยึดรูปแบบ ส่งการเปลี่ยนแปลงเป็นพูลรีเควสต์ไปยังคลัง Sumra";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "คำแปลอยู่ใน Sources/Sumra/Resources/Localizations แก้ไขค่าใน Localizable.strings ของภาษาคุณ โดยไม่เปลี่ยนคีย์ภาษาอังกฤษและตัวยึดรูปแบบ ส่งการเปลี่ยนแปลงเป็นพูลรีเควสต์ไปยังคลัง Vira Reader";
 "Trash File and Open Next…" = "ย้ายไฟล์ไปถังขยะและเปิดถัดไป…";
 "Two Pages" = "สองหน้า";
 "Type" = "ชนิด";
@@ -745,7 +745,7 @@
 
 "Replace Current Document" = "แทนที่เอกสารปัจจุบัน";
 
-"New Sumra Window" = "หน้าต่าง Sumra ใหม่";
+"New Vira Reader Window" = "หน้าต่าง Vira Reader ใหม่";
 "New Tab" = "แท็บใหม่";
 
 "Close Tab" = "ปิดแท็บ";

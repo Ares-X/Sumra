@@ -22,7 +22,7 @@ final class NativePDFDeferredDigestTests: XCTestCase {
         // With an eager digest this would return the old hash. A deferred hash
         // must instead refuse the changed baseline before it reads any bytes.
         XCTAssertThrowsError(try captured.checkpoint.digest) {
-            XCTAssertTrue($0.localizedDescription.contains("modified outside Sumra"))
+            XCTAssertTrue($0.localizedDescription.contains("modified outside Vira Reader"))
         }
         XCTAssertEqual(try Data(contentsOf: source), original)
     }

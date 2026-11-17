@@ -30,10 +30,10 @@ func main() throws {
         }
     }
     let config = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("Assets/Updates.json"))) as! [String: Any]
-    let plist = try run(URL(fileURLWithPath: "/usr/bin/unzip"), ["-p", archive.path, "Sumra.app/Contents/Info.plist"], capture: true)
+    let plist = try run(URL(fileURLWithPath: "/usr/bin/unzip"), ["-p", archive.path, "Vira Reader.app/Contents/Info.plist"], capture: true)
     let info = try PropertyListSerialization.propertyList(from: plist, format: nil) as! [String: Any]
     let version = info["CFBundleShortVersionString"] as! String
-    let stage = archive.deletingLastPathComponent().appendingPathComponent("Sumra-appcast-\(UUID().uuidString)")
+    let stage = archive.deletingLastPathComponent().appendingPathComponent("Vira-Reader-appcast-\(UUID().uuidString)")
     try fm.createDirectory(at: stage, withIntermediateDirectories: false)
     defer { try? fm.removeItem(at: stage) }
     try fm.linkItem(at: archive, to: stage.appendingPathComponent(archive.lastPathComponent))
@@ -42,8 +42,8 @@ func main() throws {
     let signing = ProcessInfo.processInfo.environment["SUMRA_SPARKLE_PRIVATE_KEY_FILE"].map { ["--ed-key-file", $0] }
         ?? ["--account", config["keychain_account"] as! String]
     var command = signing + ["--maximum-deltas", "0",
-        "--download-url-prefix", "https://github.com/Ares-X/Sumra/releases/download/v\(version)/",
-        "--link", "https://github.com/Ares-X/Sumra/releases", "-o", feed.path]
+        "--download-url-prefix", "https://github.com/Ares-X/Vira-Reader/releases/download/v\(version)/",
+        "--link", "https://github.com/Ares-X/Vira-Reader/releases", "-o", feed.path]
     if let channel { command += ["--channel", channel] }
     _ = try run(root.appendingPathComponent(".build/artifacts/sparkle/Sparkle/bin/generate_appcast"), command + [stage.path])
     try Data(contentsOf: feed).write(to: output)

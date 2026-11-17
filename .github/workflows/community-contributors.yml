@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sumra-community-contributors
+  group: vira-reader-community-contributors
   cancel-in-progress: false
 
 jobs:
