@@ -168,10 +168,10 @@ jobs:
       - name: Update the feed after the Release is public
         run: |
           set -euo pipefail
-          feed_sha="$(gh api "repos/$GH_REPO/contents/appcast.xml?ref=main" --jq .sha)"
+          feed_sha="$(gh api "repos/$GH_REPO/contents/vira-appcast.xml?ref=main" --jq .sha)"
           base64 -w 0 "$RUNNER_TEMP/sumra-release/appcast.xml" > "$RUNNER_TEMP/feed-base64"
           jq -n --arg message "Publish Vira Reader $VERSION update feed" --arg sha "$feed_sha" \
             --rawfile content "$RUNNER_TEMP/feed-base64" \
             '{message:$message,sha:$sha,branch:"main",content:$content}' > "$RUNNER_TEMP/feed-request.json"
-          gh api --method PUT "repos/$GH_REPO/contents/appcast.xml" \
+          gh api --method PUT "repos/$GH_REPO/contents/vira-appcast.xml" \
             --input "$RUNNER_TEMP/feed-request.json" --jq .commit.sha

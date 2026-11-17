@@ -46,7 +46,9 @@
 
 發行版以 **Apple Silicon（arm64）** 為目標平台，最低系統目標為 **macOS 13**。打包時會檢查內附執行檔和程式庫的 arm64 支援、最低部署版本與執行階段相依項目。閱讀器 GUI 已在 macOS 26.6.2 虛擬機完成驗收；尚未在 macOS 13 實機上驗證。
 
-0.2.0 沒有更新來源，需手動安裝一次較新版本；0.2.1 及後續版本支援 App 內更新。PostScript 和 EPS 需要另外安裝 Ghostscript。
+**從 Sumra 遷移：**需手動安裝一次 **Vira Reader.app**；新 App 使用新的 bundle identifier 和獨立更新來源，Sumra 更新來源停留在 0.2.47。首次啟動會複製舊偏好設定和閱讀歷程，並保留 Vira Reader 已有的選擇；此遷移尚待虛擬機驗收。預設檔案關聯和 macOS 視窗恢復狀態不會隨偏好設定遷移。
+
+Vira Reader 使用獨立更新來源，目前尚無公開版本。PostScript 和 EPS 需要另外安裝 Ghostscript。
 
 </details>
 

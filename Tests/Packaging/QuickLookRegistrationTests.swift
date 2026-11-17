@@ -2,6 +2,9 @@
 import UniformTypeIdentifiers
 
 let registration = quickLookRegistration()
+// Finder metadata keeps these published document type identifiers across the app rename.
+let exportedIDs = Set(registration.exported.compactMap { $0["UTTypeIdentifier"] as? String })
+precondition(exportedIDs == Set(["cbz", "cbr", "cbt", "cb7", "mobi", "kindle", "fb2"].map { "dev.aresx.leaf." + $0 }))
 let declarations = registration.exported + registration.imported
 let registeredIDs = Set(declarations.compactMap { $0["UTTypeIdentifier"] as? String })
 precondition(Set(registration.contentTypes) == registeredIDs.union(["org.idpf.epub-container"]))

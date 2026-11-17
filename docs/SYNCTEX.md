@@ -91,8 +91,9 @@ URL as one argument, and encode the file URL before encoding its query value
 
 This uses a macOS GUI callback; the Vira Reader executable has no command-line parser.
 The explicit app path selects the intended bundle when several development and
-installed copies exist. Use the actual installed path: an installation updated
-from Sumra may still be named `/Applications/Sumra.app`. Configure generated
+installed copies exist. Moving from Sumra requires a manual install of
+`/Applications/Vira Reader.app`; update editor tasks to target that app. The
+`sumra` protocol is unchanged despite the new bundle identifier. Configure generated
 source paths for multi-file projects
 with the editor's URL builder rather than inserting an unescaped `${file}`.
 [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks)

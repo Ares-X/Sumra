@@ -120,7 +120,7 @@ xcodebuild build-for-testing \
 
 TEST_RUNNER_SUMRA_GUI_APP_PATH="$PWD/dist/Vira Reader.app" \
 TEST_RUNNER_SUMRA_GUI_FIXTURE_PATH="$PWD/docs/demos/Reading-Notes.md" \
-TEST_RUNNER_SUMRA_GUI_LANGUAGE="$(defaults read dev.aresx.leaf language)" \
+TEST_RUNNER_SUMRA_GUI_LANGUAGE="$(defaults read dev.aresx.vira-reader language)" \
 xcodebuild test-without-building \
   -project tools/GUIAcceptance.xcodeproj -scheme GUIAcceptance \
   -destination 'platform=macOS' \

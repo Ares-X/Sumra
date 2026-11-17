@@ -18,7 +18,7 @@ func main() throws {
     var args = Array(CommandLine.arguments.dropFirst())
     guard !args.isEmpty else { throw AppcastError(description: "Usage: generate-appcast.swift archive [--output path] [--channel name]") }
     let archive = URL(fileURLWithPath: args.removeFirst()).standardizedFileURL
-    var output = root.appendingPathComponent("appcast.xml"), channel: String?
+    var output = root.appendingPathComponent("vira-appcast.xml"), channel: String?
     while !args.isEmpty {
         let option = args.removeFirst()
         guard !args.isEmpty else { throw AppcastError(description: "Missing value for \(option)") }
@@ -37,7 +37,7 @@ func main() throws {
     try fm.createDirectory(at: stage, withIntermediateDirectories: false)
     defer { try? fm.removeItem(at: stage) }
     try fm.linkItem(at: archive, to: stage.appendingPathComponent(archive.lastPathComponent))
-    let feed = stage.appendingPathComponent("appcast.xml"), existing = root.appendingPathComponent("appcast.xml")
+    let feed = stage.appendingPathComponent("appcast.xml"), existing = root.appendingPathComponent("vira-appcast.xml")
     if fm.fileExists(atPath: existing.path) { try fm.copyItem(at: existing, to: feed) }
     let signing = ProcessInfo.processInfo.environment["SUMRA_SPARKLE_PRIVATE_KEY_FILE"].map { ["--ed-key-file", $0] }
         ?? ["--account", config["keychain_account"] as! String]

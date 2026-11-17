@@ -110,6 +110,7 @@ func macOSVersion(_ value: String) -> [Int] {
 }
 
 // One registration list supplies the host app and both Quick Look extensions.
+// Published dev.aresx.leaf format identifiers survive the app bundle-ID change.
 // The imported CBZ identifiers are also used by other readers/archive apps;
 // Finder may already have assigned one of them to an existing comic.
 func quickLookRegistration() -> (exported: [[String: Any]], imported: [[String: Any]], contentTypes: [String]) {
@@ -252,11 +253,11 @@ func package() throws {
     let format = try String(contentsOf: root.appendingPathComponent("Sources/SumraCore/Format.swift"), encoding: .utf8)
     let groups = try matches(#"\(\.(\w+),\s*"([^"]+)"\)"#, in: format)
     let suffixes = groups.flatMap { $0[1].split(separator: " ").map(String.init) }
-    // Keep the installed identity so preferences, recent documents and macOS
-    // restoration survive the product rename.
+    // Vira Reader has its own app and extension identities. The document format
+    // UTIs and external sumra URL scheme remain existing integration contracts.
     var info: [String: Any] = [
         "CFBundleName": "Vira Reader", "CFBundleDisplayName": "Vira Reader", "CFBundleExecutable": "Sumra",
-        "CFBundleIdentifier": "dev.aresx.leaf", "CFBundlePackageType": "APPL",
+        "CFBundleIdentifier": "dev.aresx.vira-reader", "CFBundlePackageType": "APPL",
         "CFBundleShortVersionString": version, "CFBundleVersion": buildVersion,
         "CFBundleGetInfoString": "Vira Reader " + version, "NSHumanReadableCopyright": "© 2026 Vira Reader contributors",
         "LSApplicationCategoryType": "public.app-category.productivity",
@@ -266,7 +267,7 @@ func package() throws {
             "CFBundleTypeExtensions": Set(suffixes).sorted()
         ]],
         "CFBundleURLTypes": [[
-            "CFBundleURLName": "dev.aresx.leaf.synctex", "CFBundleTypeRole": "Viewer",
+            "CFBundleURLName": "dev.aresx.vira-reader.synctex", "CFBundleTypeRole": "Viewer",
             "CFBundleURLSchemes": ["sumra"]
         ]],
         "LSSupportsOpeningDocumentsInPlace": true, "LSMultipleInstancesProhibited": true,
@@ -298,7 +299,7 @@ func package() throws {
         let bundle = contents.appendingPathComponent("PlugIns/Sumra\(kind).appex")
         let extensionInfo: [String: Any] = [
             "CFBundleName": "Vira Reader \(kind)", "CFBundleExecutable": "SumraQuickLook",
-            "CFBundleIdentifier": "dev.aresx.leaf.\(point)", "CFBundlePackageType": "XPC!",
+            "CFBundleIdentifier": "dev.aresx.vira-reader.\(point)", "CFBundlePackageType": "XPC!",
             "CFBundleShortVersionString": version, "CFBundleVersion": buildVersion,
             "LSMinimumSystemVersion": "13.0",
             "NSExtension": ["NSExtensionPointIdentifier": "com.apple.quicklook.\(point)",

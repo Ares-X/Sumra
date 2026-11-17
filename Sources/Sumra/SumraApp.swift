@@ -2277,6 +2277,9 @@ extension ReaderState {
 @main
 enum SumraMain {
     @MainActor static func main() {
+        if Bundle.main.bundleIdentifier == "dev.aresx.vira-reader" {
+            ReaderPreferences.migrateIdentity(defaults: .standard, previousDomain: "dev.aresx.leaf", domain: "dev.aresx.vira-reader")
+        }
         ReaderWindowDiagnostics.shared.startAtLaunch()
         // AppKit's restoration funnel must exist before SwiftUI starts native
         // restoration; installing a window delegate is already too late.

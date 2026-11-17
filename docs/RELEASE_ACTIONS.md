@@ -37,11 +37,22 @@ New packages use `Vira Reader.app`, `Vira-Reader-VERSION-macOS-arm64.zip` and
 `Vira-Reader-corresponding-source.tar.gz` (with root `Vira-Reader-source`).
 The SwiftPM product and source modules remain `Sumra`.
 
-The bundle identifier `dev.aresx.leaf`, stored preferences, Sparkle public key and
-**Ares-X Code Signing** certificate remain unchanged. Sparkle is expected to
-update an existing Sumra installation at its existing `Sumra.app` path; verify
-that exact old-app → renamed-app update before claiming migration acceptance.
-The external `sumra://synctex` protocol also remains unchanged.
+The main bundle identifier is `dev.aresx.vira-reader`; the Quick Look extensions
+use `dev.aresx.vira-reader.preview` and `dev.aresx.vira-reader.thumbnail`.
+The Sparkle public key and **Ares-X Code Signing** certificate remain unchanged.
+The existing `appcast.xml` is frozen with Sumra 0.2.47, 0.2.46 and 0.2.45;
+Vira Reader uses `vira-appcast.xml`, initially with no items and no public release.
+
+Moving from Sumra requires a one-time manual install of `Vira Reader.app`.
+The stock old Sparkle updater cannot transition to both a new app name and bundle
+identifier. Do not use the old feed to publish this transition. A one-time startup
+migration copies old preferences and reading history into the new domain while
+preserving existing Vira Reader choices and the original Sumra data. Actual VM
+acceptance is pending. This preference copy does not migrate default file
+associations or macOS saved window state.
+
+The internal Sumra modules, exported format UTIs and external `sumra://synctex`
+protocol retain their existing names; they are separate from the bundle identity.
 
 ## Signing setup
 
@@ -82,8 +93,10 @@ the signed extensions through Finder before promoting a candidate.
    SHA-256. The Action verifies those draft bytes, publishes them under
    `vVERSION`, then commits their appcast to `main`. It does not rebuild,
    sign, recompress or upload replacement application files.
-5. Verify anonymous downloads and the update signature, then use the previous
-   configured public app to check, install and relaunch the new version.
+5. Verify anonymous downloads and the update signature, then use a previous
+   public Vira Reader app to check, install and relaunch a later Vira Reader version.
+   For the first Vira Reader release, validate the manual Sumra-to-Vira install
+   and preferences migration instead; the old Sumra updater is not this path.
 
 The appcast commit is delivery metadata and does not change the compiled app's
 source revision. Draft candidates are private to repository maintainers; only

@@ -269,6 +269,21 @@ private struct ShortcutSettings: View {
 enum ReaderPreferences {
     static let settingsSchemaVersion = 1
 
+    static func migrateIdentity(defaults: UserDefaults, previousDomain: String, domain: String) {
+        let marker = "viraReaderIdentityMigrated"
+        var current = defaults.persistentDomain(forName: domain) ?? [:]
+        guard current[marker] as? Bool != true else { return }
+        let previous = defaults.persistentDomain(forName: previousDomain) ?? [:]
+        for (key, value) in previous where current[key] == nil {
+            // Keep the user's update-check choice, but let the new app's signed
+            // bundle own its feed, signing key and Sparkle runtime state.
+            guard (!key.hasPrefix("SU") || key == "SUEnableAutomaticChecks"), key != "lastUpdateCheck" else { continue }
+            current[key] = value
+        }
+        current[marker] = true
+        defaults.setPersistentDomain(current, forName: domain)
+    }
+
     static func migrate(defaults: UserDefaults = .standard) {
         guard defaults.integer(forKey: "settingsSchemaVersion") < settingsSchemaVersion else { return }
         let saved = defaults.dictionaryRepresentation()
