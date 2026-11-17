@@ -10,9 +10,9 @@
 
 **macOS 13+ · Apple Silicon · Free and open source**
 
-[**Download Sumra 0.2.47**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [Release notes](https://github.com/Ares-X/Vira-Reader/releases) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Vira-Reader/issues)
+[**Download Vira Reader 0.2.48**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [Release notes](https://github.com/Ares-X/Vira-Reader/releases) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Vira-Reader/issues)
 
-**Rename preview:** Vira Reader is the new name of Sumra. No Vira Reader release has been published yet; the latest public download is still **Sumra 0.2.47**. Build the renamed app from source to try this preview. Home, light-mode and dark-mode screenshots show the signed Vira Reader preview; the two-page screenshot shows the earlier Sumra version.
+Vira Reader is the new name of Sumra. The Home, light-mode and dark-mode screenshots show Vira Reader; the two-page screenshot shows the earlier Sumra version. Moving from Sumra 0.2.47 requires one manual installation because the app has a new bundle identifier and update feed.
 
 Open an EPUB novel, a comic archive, a folder of images, Markdown notes or a PDF from Finder. Read in native Mac windows and tabs, choose your layout, and use contents, search and bookmarks to find your place.
 
@@ -33,8 +33,8 @@ All screenshots use the repository's [original demo document](docs/demos/Reading
 
 ## Install and start reading
 
-1. Download the Sumra 0.2.47 app ZIP from the [latest public release](https://github.com/Ares-X/Vira-Reader/releases/latest) and unzip it.
-2. Move **Sumra.app** to **Applications**, then open it. Source builds produce **Vira Reader.app**.
+1. Download the Vira Reader 0.2.48 app ZIP from the [latest release](https://github.com/Ares-X/Vira-Reader/releases/latest) and unzip it.
+2. Move **Vira Reader.app** to **Applications**, then open it.
 3. Press **⌘O** or drag a file into the window. Press **⌘F** to search its text.
 
 Public builds use the maintainer's **Ares-X Code Signing** self-signed certificate, rather than an Apple Developer ID certificate, and are not notarized. If macOS blocks the first launch and you trust the download, follow [Apple's instructions](https://support.apple.com/en-us/102445): open **System Settings → Privacy & Security → Open Anyway**, then confirm.
@@ -48,7 +48,7 @@ The release targets **Apple Silicon (arm64)** and **macOS 13 or later**. Bundled
 
 **Moving from Sumra:** install **Vira Reader.app** manually once; the app has a new bundle identifier and a separate update feed. Sumra’s feed stays at 0.2.47. On first launch, the app copies old preferences and reading history without overwriting choices already saved in Vira Reader. A manual-install check on macOS 26.6.2 verified controlled reading history, font size, language and the automatic-update choice, with the original Sumra settings unchanged. Default file associations and macOS saved windows are outside this preference migration.
 
-Vira Reader uses its own update feed, which currently contains no published release. PostScript and EPS require a separate Ghostscript installation.
+Vira Reader uses its own update feed for Vira Reader releases. PostScript and EPS require a separate Ghostscript installation.
 
 </details>
 
