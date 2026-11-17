@@ -8,6 +8,11 @@ import PDFKit
 
 @MainActor
 final class ReaderToolbarTests: XCTestCase {
+    private func opacityThroughAncestors(_ view: NSView) -> CGFloat {
+        var result: CGFloat = 1, ancestor: NSView? = view
+        while let current = ancestor { result *= current.alphaValue; ancestor = current.superview }
+        return result
+    }
     func testNativeOverflowLabelsAndActions() async throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard
@@ -142,9 +147,71 @@ final class ReaderToolbarTests: XCTestCase {
                 host.pointerMoved(to: CGPoint(x: 400, y: window.frame.height - 10))
                 host.updateChrome(revealingNativeControls: false)
                 XCTAssertFalse(toolbar.isVisible, "Hover must reveal only window controls")
-                XCTAssertFalse(try XCTUnwrap(window.standardWindowButton(.closeButton)).isHidden)
+                let close = try XCTUnwrap(window.standardWindowButton(.closeButton))
+                XCTAssertFalse(close.isHiddenOrHasHiddenAncestor)
+                var ancestor: NSView? = close
+                while let view = ancestor {
+                    XCTAssertGreaterThan(view.alphaValue, 0, "Always Hide hover must not leave a transparent ancestor above the window controls")
+                    ancestor = view.superview
+                }
             }
         }
+    }
+
+    func testWindowedChromeBacksTheNativeTitleAndFadesAccessoryDecorations() throws {
+        _ = NSApplication.shared
+        let state = ReaderState(recordsHistory: false)
+        state.document = ReadingDocument(url: URL(fileURLWithPath: "/proxy-hover.cbz"), content: .text("book"))
+        state.immersiveControls = false; state.toolbarDisplayMode = .shown; state.tabCount = 2
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 800, height: 500),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "native-title-backing")
+        state.window = window
+        let close = try XCTUnwrap(window.standardWindowButton(.closeButton))
+        let titlebar = try XCTUnwrap(close.superview)
+        titlebar.wantsLayer = true; titlebar.layer?.backgroundColor = NSColor.systemPink.cgColor
+        titlebar.alphaValue = 0.75
+        let observer = ReaderToolbarWindow.Host()
+        observer.state = state; observer.reducedMotion = true
+        window.contentView?.addSubview(observer)
+        defer { observer.detach(); window.contentView = nil; window.close(); state.windowClosed() }
+        let tabs = try XCTUnwrap(window.titlebarAccessoryViewControllers.compactMap { $0 as? ReaderNormalTabsAccessory }.first)
+        let presentation = try XCTUnwrap(tabs.view.superview)
+        let decoration = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 1))
+        presentation.addSubview(decoration)
+        func opacity(_ view: NSView) -> CGFloat {
+            var result: CGFloat = 1, ancestor: NSView? = view
+            while let current = ancestor { result *= current.alphaValue; ancestor = current.superview }
+            return result
+        }
+        let frame = window.frame
+        for theme in ["light", "dark"] {
+            state.theme = theme
+            state.toolbarDisplayMode = .auto
+            observer.pointerMoved(to: NSPoint(x: 400, y: window.frame.height - 1)); observer.updateChrome()
+            XCTAssertFalse(titlebar.isHiddenOrHasHiddenAncestor)
+            XCTAssertEqual(opacity(titlebar), 0.75, accuracy: 0.001)
+            XCTAssertEqual(NSColor(cgColor: try XCTUnwrap(titlebar.layer?.backgroundColor)), ReaderTheme.color(state.palette.background),
+                "The native title's owner must back proxy-icon cutouts as well as the toolbar items")
+            XCTAssertEqual(opacity(tabs.view), 0.75, accuracy: 0.001, "Descendant captions must not receive a second fade")
+            XCTAssertEqual(opacity(decoration), 0.75, accuracy: 0.001)
+            let viewport = window.contentView?.frame
+            observer.pointerMoved(to: NSPoint(x: 400, y: 100)); observer.updateChrome()
+            XCTAssertTrue(decoration.isHiddenOrHasHiddenAncestor || opacity(decoration) == 0,
+                "A native decoration beside the hosting view must hide with the caption strip")
+            XCTAssertEqual(window.frame, frame)
+            XCTAssertEqual(window.contentView?.frame, viewport)
+        }
+        state.toolbarDisplayMode = .hidden
+        observer.pointerMoved(to: NSPoint(x: 400, y: window.frame.height - 1)); observer.updateChrome()
+        XCTAssertFalse(close.isHiddenOrHasHiddenAncestor)
+        XCTAssertGreaterThan(opacity(close), 0, "Always Hide retains the separate window-control hover")
+        observer.detach()
+        XCTAssertEqual(titlebar.alphaValue, 0.75, accuracy: 0.001)
+        XCTAssertEqual(titlebar.layer?.backgroundColor, NSColor.systemPink.cgColor)
+        XCTAssertFalse(titlebar.isHidden)
+        XCTAssertFalse(window.isVisible)
     }
 
     func testSettingsKeyFocusKeepsAutoHideTrackingItsReaderWithoutBlinking() async throws {
@@ -840,8 +907,8 @@ final class ReaderToolbarTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(window.contentLayoutRect.maxY, layout.maxY)
             } else {
                 nativeToolbar = try XCTUnwrap(toolbarView(in: root))
-                XCTAssertEqual(nativeToolbar.isHidden, mode != .shown)
-                XCTAssertEqual(nativeToolbar.alphaValue, mode == .shown ? 1 : 0, accuracy: 0.001)
+                XCTAssertEqual(nativeToolbar.isHiddenOrHasHiddenAncestor, mode != .shown)
+                XCTAssertEqual(opacityThroughAncestors(nativeToolbar), mode == .shown ? 1 : 0, accuracy: 0.001)
                 if mode != .shown {
                     XCTAssertNil(nativeToolbar.hitTest(NSPoint(x: nativeToolbar.bounds.maxX - 20, y: nativeToolbar.bounds.midY)),
                                  "Hidden overflow must not intercept clicks on the book")
@@ -904,7 +971,7 @@ final class ReaderToolbarTests: XCTestCase {
                 XCTAssertTrue(group.selectedWindow === window)
                 for view in window.titlebarAccessoryViewControllers.map(\.view) {
                     XCTAssertTrue(view.isHidden, "Selecting a sibling must not reinstall native captions")
-                    XCTAssertEqual(view.alphaValue, shown ? 1 : 0, accuracy: 0.001)
+                    XCTAssertEqual(opacityThroughAncestors(view), shown ? 1 : 0, accuracy: 0.001)
                 }
                 XCTAssertEqual(states[index].toolbarShown, shown)
                 XCTAssertEqual(window.frame, frame)
@@ -1471,7 +1538,7 @@ final class ReaderToolbarTests: XCTestCase {
             observer.updateChrome()
             window.contentView?.layoutSubtreeIfNeeded()
             for view in accessories {
-                XCTAssertEqual(view.alphaValue, shown ? 0.75 : 0, accuracy: 0.001)
+                XCTAssertEqual(opacityThroughAncestors(view), shown ? 0.75 : 0, accuracy: 0.001)
                 XCTAssertTrue(view.isHidden)
                 XCTAssertNil(view.hitTest(NSPoint(x: view.bounds.midX, y: view.bounds.midY)),
                     "Replaced native tabs must not intercept clicks on the shared strip or book")

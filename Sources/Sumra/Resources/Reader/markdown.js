@@ -25,8 +25,8 @@
         const exact = pages.findIndex(page => config.chm ? new URL(page).pathname.toLowerCase() === here.toLowerCase() : new URL(page).pathname === here)
         if (exact >= 0) return exact
         // MarkdownModel's generated .html links are aliases for actual Markdown files.
-        const canonical = value => new URL(value, location.href).pathname.replace(/\.(md|markdown|html)$/i, '')
-        const alias = pages.findIndex(page => canonical(page) === canonical(here))
+        const canonical = path => path.replace(/\.(md|markdown|html)$/i, '')
+        const alias = pages.findIndex(page => canonical(new URL(page).pathname) === canonical(here))
         return alias >= 0 ? alias : config.page
     })()
     const pageURL = () => pages[currentPage] || withoutHash(location.href)
@@ -807,8 +807,14 @@
         }
         rememberReadingViewport(anchor)
     }
+    const clearSpeechRange = () => {
+        // WebKit 306396: registry deletion alone can leave old renderers painted.
+        CSS.highlights?.get('sumra-speech')?.clear()
+        CSS.highlights?.delete('sumra-speech')
+        speechRange = null
+    }
     const clearSpeech = () => {
-        speechNodes = []; speechRange = null; CSS.highlights?.delete('sumra-speech')
+        speechNodes = []; clearSpeechRange()
         publishRangeHighlights(true)
     }
     window.leafSetSpeechSource = (source, leavingDocument = null) => {
@@ -829,6 +835,8 @@
         }
     }
     window.leafHighlightSpeech = command => speechSource?.highlight(command)
+    // Same-origin srcdoc speech uses the top document's book-trusted bridge.
+    window.leafReadAloud = values => post('readAloud', values)
     const readAloud = source => {
         const current = selection(), selected = source === 'selection' || !source && !current.isCollapsed
         const cursor = source === 'cursor' || !source && interaction.keyboardSelection
@@ -861,11 +869,10 @@
             previousBlock = block
         }
         if (!spoken) throw Error('No text in the selection')
-        post('readAloud', { text: spoken, ...(selected ? {} : { page: currentPage }), startOffset: 0 })
+        window.top.leafReadAloud({ text: spoken, ...(selected ? {} : { page: currentPage }), startOffset: 0 })
     }
     const highlightSpeech = command => {
-        CSS.highlights?.delete('sumra-speech')
-        speechRange = null
+        clearSpeechRange()
         if (!command.length || !speechNodes.length) { publishRangeHighlights(true); return }
         const end = command.location + command.length
         // Spoken UTF-16 spans are ordered, with gaps for paragraph separators.

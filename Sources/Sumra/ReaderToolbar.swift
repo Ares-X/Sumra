@@ -493,13 +493,15 @@ struct ReaderToolbarAppearance: ViewModifier {
             // while the reader tools and tabs retain their own visibility.
             let revealWindowButtons = !state.usesCustomChrome && (systemChrome || (state.toolbarDisplayMode == .hidden && state.toolbarHoverVisible))
             updateToolbarWindow(opacity: revealWindowButtons ? 1 : readerOpacity)
-            updateTitlebarViews(opacity: readerOpacity, hidden: readerHidden,
-                                opacityOwner: revealWindowButtons ? nil : toolbarContent)
+            let opacityOwner = updateTitlebarViews(opacity: readerOpacity, hidden: readerHidden,
+                                                  opacityOwner: revealWindowButtons ? nil : toolbarContent)
             if let accessory = documentTabsAccessory {
-                // Fullscreen can host the accessory inside the native companion
-                // whose content already receives the reader's fade.
-                let fadesWithCompanion = toolbarContent.map { accessory.tabsView.isDescendant(of: $0) } ?? false
-                accessory.tabsView.alphaValue = fadesWithCompanion && !revealWindowButtons ? 1 : readerOpacity
+                // AppKit's accessory container also owns its separator. Fade
+                // that presentation, unless the enclosing chrome already fades.
+                let presentation = accessory.tabsView.superview ?? accessory.tabsView
+                let fadesWithChrome = opacityOwner.map { presentation.isDescendant(of: $0) } ?? false
+                accessory.tabsView.alphaValue = 1
+                presentation.alphaValue = fadesWithChrome ? 1 : readerOpacity
             }
             updateNormalTabInputOrder()
             updateNativeDragView()
@@ -605,8 +607,8 @@ struct ReaderToolbarAppearance: ViewModifier {
             frame.addSubview(saved.branch, positioned: .below, relativeTo: next)
         }
 
-        private func updateTitlebarViews(opacity: CGFloat, hidden readerHidden: Bool, opacityOwner: NSView?) {
-            guard let parent, let state else { return }
+        private func updateTitlebarViews(opacity: CGFloat, hidden readerHidden: Bool, opacityOwner: NSView?) -> NSView? {
+            guard let parent, let state else { return nil }
             let accessoryControllers = parent.styleMask.contains(.titled)
                 ? parent.titlebarAccessoryViewControllers.filter { !($0 is ReaderNormalTabsAccessory) } : []
             let accessories = accessoryControllers.map(\.view)
@@ -625,6 +627,17 @@ struct ReaderToolbarAppearance: ViewModifier {
                !controls.isDescendant(of: readerContent) { nativeControlsContainer = controls }
             if state.usesCustomChrome, let nativeControlsContainer,
                !views.contains(where: { $0 === nativeControlsContainer }) { views.append(nativeControlsContainer) }
+            // The windowed titlebar owns proxy-icon punch-through and accessory
+            // separators outside the toolbar's own view. Paint/fade that owner
+            // once so those native siblings share the controls' visibility.
+            let windowedChrome = !state.usesCustomChrome && state.toolbarDisplayMode != .hidden
+                && !parent.styleMask.contains(.fullScreen) && nativeControlsContainer?.window === parent
+                ? nativeControlsContainer : nil
+            if let windowedChrome, !views.contains(where: { $0 === windowedChrome }) { views.append(windowedChrome) }
+            let opacityOwner = opacityOwner ?? windowedChrome
+            func fadesHere(_ view: NSView) -> Bool {
+                view === windowedChrome || (opacityOwner.map { !view.isDescendant(of: $0) } ?? true)
+            }
             func nativeToolbar(in view: NSView) -> NSView? {
                 // Native window chrome lives outside the document's subtree.
                 if view === readerContent || view is ReaderNormalTabsAccessory.HostingView { return nil }
@@ -681,12 +694,11 @@ struct ReaderToolbarAppearance: ViewModifier {
                 // Full-size document content extends behind normal Auto Hide
                 // chrome. Paint both native tools and captions in their own
                 // bounds, including after AppKit installs another tab.
-                if entry.view === toolbar || accessories.contains(where: { $0 === entry.view }) {
+                if entry.view === toolbar || entry.view === windowedChrome || accessories.contains(where: { $0 === entry.view }) {
                     if !entry.view.wantsLayer { entry.view.wantsLayer = true }
                     if entry.view.layer?.backgroundColor != background { entry.view.layer?.backgroundColor = background }
                 }
-                let fadesHere = opacityOwner.map { !entry.view.isDescendant(of: $0) } ?? true
-                let hidden = entry.hidden || accessories.contains(where: { $0 === entry.view }) || (fadesHere && readerHidden)
+                let hidden = entry.hidden || accessories.contains(where: { $0 === entry.view }) || (fadesHere(entry.view) && readerHidden)
                 if entry.view.isHidden != hidden { entry.view.isHidden = hidden }
             }
             if accessoryOpacity != opacity || accessoryContentOwner !== opacityOwner || added {
@@ -697,11 +709,11 @@ struct ReaderToolbarAppearance: ViewModifier {
                     context.duration = animate ? (opacity > 0 ? ReaderMotion.revealDuration : ReaderMotion.dismissDuration) : 0
                     context.timingFunction = opacity > 0 ? ReaderMotion.timingFunction : CAMediaTimingFunction(name: .easeOut)
                     for entry in titlebarViews {
-                        let fadesHere = opacityOwner.map { !entry.view.isDescendant(of: $0) } ?? true
-                        entry.view.animator().alphaValue = entry.alpha * (fadesHere ? opacity : 1)
+                        entry.view.animator().alphaValue = entry.alpha * (fadesHere(entry.view) ? opacity : 1)
                     }
                 }
             }
+            return opacityOwner
         }
 
         private func updateToolbarWindow(opacity: CGFloat) {
