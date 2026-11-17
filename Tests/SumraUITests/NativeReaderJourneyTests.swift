@@ -49,7 +49,7 @@ final class NativeReaderJourneyTests: XCTestCase {
         guard app.dialogs.count == 0, app.sheets.count == 0 else {
             throw XCTSkip("An existing dialog belongs to the user")
         }
-        let home = app.windows.matching(NSPredicate(format: "title == %@", "Sumra"))
+        let home = app.windows.matching(NSPredicate(format: "title == %@", "Vira Reader"))
         guard home.count == 0 || environment["SUMRA_GUI_OWNS_INITIAL_HOME"] == "1" else {
             throw XCTSkip("Existing Home is not test-owned; close it or declare SUMRA_GUI_OWNS_INITIAL_HOME=1")
         }
@@ -113,7 +113,7 @@ final class NativeReaderJourneyTests: XCTestCase {
             return
         }
         if let fixtureDirectory, !ownedTitles.isEmpty {
-            let home = app.windows.matching(NSPredicate(format: "title == %@", "Sumra")).firstMatch
+            let home = app.windows.matching(NSPredicate(format: "title == %@", "Vira Reader")).firstMatch
             if !home.exists { openHomeFromFileMenu() }
             guard home.waitForExistence(timeout: 5) else {
                 XCTFail("Cannot open owned Home to forget test history; fixtures retained at \(fixtureDirectory.path)")
@@ -147,7 +147,7 @@ final class NativeReaderJourneyTests: XCTestCase {
             }
         }
         if ownsHome {
-            let home = app.windows.matching(NSPredicate(format: "title == %@", "Sumra")).firstMatch
+            let home = app.windows.matching(NSPredicate(format: "title == %@", "Vira Reader")).firstMatch
             if home.exists {
                 let close = home.buttons[XCUIIdentifierCloseWindow]
                 XCTAssertTrue(close.waitForExistence(timeout: 5))
@@ -615,8 +615,8 @@ final class NativeReaderJourneyTests: XCTestCase {
 
     private func openHomeFromFileMenu() {
         app.menuBars.menuBarItems["File"].click()
-        let command = app.menuItems[localized("New Sumra Window")]
-        XCTAssertTrue(command.waitForExistence(timeout: 5), "File must expose the native New Sumra Window command")
+        let command = app.menuItems[localized("New Vira Reader Window")]
+        XCTAssertTrue(command.waitForExistence(timeout: 5), "File must expose the native New Vira Reader Window command")
         XCTAssertTrue(command.isEnabled)
         command.click()
     }
@@ -715,7 +715,7 @@ final class NativeReaderJourneyTests: XCTestCase {
         try FileManager.default.copyItem(at: URL(fileURLWithPath: sourcePath), to: first)
         try FileManager.default.copyItem(at: first, to: second)
         ownedTitles = [first.lastPathComponent, second.lastPathComponent]
-        let home = app.windows.matching(NSPredicate(format: "title == %@", "Sumra")).firstMatch
+        let home = app.windows.matching(NSPredicate(format: "title == %@", "Vira Reader")).firstMatch
         XCTAssertTrue(home.waitForExistence(timeout: 5))
         XCTAssertTrue(waitUntil { home.frame.width > 0 && home.frame.height > 0 })
         let openDocument = home.buttons[localized("Open Document…")]

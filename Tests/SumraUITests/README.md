@@ -11,7 +11,7 @@ or open private documents. Targeted journeys may temporarily change reading-cont
 settings and restore their declared baseline. Use a disposable macOS login
 for a clean acceptance run when available. Xcode must have UI testing permission.
 
-The first journey uses File > New Sumra Window to create its own Home window,
+The first journey uses File > New Vira Reader Window to create its own Home window,
 then its Open Document button and a real Open panel (Go to Folder) to read unique temporary copies of
 `docs/demos/Reading-Notes.md`. It exercises real pointer hover over New Tab,
 canceling a tab's Open panel, adding and closing a native tab, and opening the
