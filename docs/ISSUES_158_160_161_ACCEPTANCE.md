@@ -1,5 +1,7 @@
 # Remaining reader issues after 0.2.47
 
+The later Vira Reader build 51 acceptance is recorded in [the 0.2.48 release acceptance](RELEASE_0_2_48_ACCEPTANCE.md). The checkpoints below preserve the original investigation and pre-rename candidate history.
+
 Baseline: `3dbf1bda50ab15bac5e954618a30c6f8dd06768a`. Only the existing macOS 26.6.2 VM is authorized. The signed 0.2.48 (50) draft candidate passed the scoped existing-VM workflows below. The maintainer then requested Vira Reader branding before publication; no new public release or issue closure is claimed.
 
 ## #160: frame speech source

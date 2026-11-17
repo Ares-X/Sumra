@@ -1,6 +1,8 @@
 # Vira Reader migration
 
-The project repository is now [Ares-X/Vira-Reader](https://github.com/Ares-X/Vira-Reader), retaining repository ID 1394160942 and its Git/issue/PR history. This is a branding preview; no Vira Reader version has been publicly released. Public downloads remain Sumra 0.2.47. New source builds produce `Vira Reader.app`; Swift targets and the internal executable remain Sumra.
+The following is the historical rename checkpoint recorded before the first Vira Reader release. Current release status is shown in the [README](../README.md).
+
+The project repository is now [Ares-X/Vira-Reader](https://github.com/Ares-X/Vira-Reader), retaining repository ID 1394160942 and its Git/issue/PR history. At this checkpoint no Vira Reader version had been publicly released; public downloads remained Sumra 0.2.47. New source builds produce `Vira Reader.app`; Swift targets and the internal executable remain Sumra.
 
 The icon follows the maintainer's supplied monochrome double-page V reference. [Icon sources and generation prompts](../Assets/AppIcon/README.md) describe the light/dark PNG inputs; the normal build makes all ten ICNS sizes. The four README variants use the new brand banner and distinguish unreleased source builds from the existing public download.
 

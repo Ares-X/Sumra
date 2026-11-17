@@ -10,9 +10,9 @@
 
 **macOS 13+ · Apple Silicon · 免费开源**
 
-[**下载 Sumra 0.2.47**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [版本说明](https://github.com/Ares-X/Vira-Reader/releases) · [支持格式](#支持的格式) · [从源码构建](#从源码构建) · [问题反馈](https://github.com/Ares-X/Vira-Reader/issues)
+[**下载 Vira Reader 0.2.48**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [版本说明](https://github.com/Ares-X/Vira-Reader/releases) · [支持格式](#支持的格式) · [从源码构建](#从源码构建) · [问题反馈](https://github.com/Ares-X/Vira-Reader/issues)
 
-**更名预览：**Vira Reader 是 Sumra 的新名称。目前尚未公开发布 Vira Reader，最新公开下载仍为 **Sumra 0.2.47**。可从源码构建体验更名后的应用。首页、浅色和深色截图来自已签名的 Vira Reader 预览版；双页截图展示更名前的 Sumra 版本。
+Vira Reader 是 Sumra 的新名称。首页、浅色和深色截图展示 Vira Reader；双页截图展示更名前的 Sumra 版本。从 Sumra 0.2.47 迁移时，由于应用使用新的 bundle identifier 和更新源，需手动安装一次。
 
 从 Finder 打开 EPUB 小说、漫画压缩包、图片文件夹、Markdown 笔记或 PDF。在原生 Mac 窗口和标签页中阅读，选择合适的布局，用目录、搜索和书签找到想读的内容。
 
@@ -33,8 +33,8 @@
 
 ## 安装与开始阅读
 
-1. 从[最新版下载页](https://github.com/Ares-X/Vira-Reader/releases/latest)下载 Sumra 0.2.47 应用 ZIP 并解压。
-2. 将 **Sumra.app** 移入 **应用程序** 文件夹，然后打开。从源码构建的应用名为 **Vira Reader.app**。
+1. 从[最新版下载页](https://github.com/Ares-X/Vira-Reader/releases/latest)下载 Vira Reader 0.2.48 应用 ZIP 并解压。
+2. 将 **Vira Reader.app** 移入 **应用程序** 文件夹，然后打开。
 3. 按 **⌘O** 打开文件，或将文件拖入窗口；按 **⌘F** 搜索正文。
 
 公开构建使用维护者的 **Ares-X Code Signing** 自签名证书，不是 Apple Developer ID 证书，也未经 Apple 公证。若 macOS 阻止首次启动，且你确认下载来源可信，可按 [Apple 的说明](https://support.apple.com/zh-cn/102445)，前往 **系统设置 → 隐私与安全性 → 仍要打开**，再确认打开。
@@ -48,7 +48,7 @@
 
 **从 Sumra 迁移：**需手动安装一次 **Vira Reader.app**；新应用使用新的 bundle identifier 和独立更新源，Sumra 更新源停留在 0.2.47。首次启动会复制旧偏好设置和阅读历史，并保留 Vira Reader 已有的选择；已在 macOS 26.6.2 虚拟机通过手动安装验证受控阅读历史、字号、语言和自动更新选择的迁移，原 Sumra 设置保持不变。默认文件关联和 macOS 窗口恢复状态不属于此偏好设置迁移范围。
 
-Vira Reader 使用独立更新源，目前其中尚无公开版本。PostScript 与 EPS 需另行安装 Ghostscript。
+Vira Reader 使用独立更新源，提供 Vira Reader 版本更新。PostScript 与 EPS 需另行安装 Ghostscript。
 
 </details>
 

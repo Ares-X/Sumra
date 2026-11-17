@@ -10,9 +10,9 @@
 
 **macOS 13 以降 · Apple Silicon · 無料・オープンソース**
 
-[**Sumra 0.2.47 をダウンロード**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [リリースノート](https://github.com/Ares-X/Vira-Reader/releases) · [対応形式](#対応形式) · [ソースからビルド](#ソースからビルド) · [問題を報告](https://github.com/Ares-X/Vira-Reader/issues)
+[**Vira Reader 0.2.48 をダウンロード**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [リリースノート](https://github.com/Ares-X/Vira-Reader/releases) · [対応形式](#対応形式) · [ソースからビルド](#ソースからビルド) · [問題を報告](https://github.com/Ares-X/Vira-Reader/issues)
 
-**名称変更のプレビュー：** Sumra の新しい名前は Vira Reader です。Vira Reader はまだ公開リリースされておらず、最新の公開版は **Sumra 0.2.47** です。新しい名称のアプリを試すにはソースからビルドしてください。ホーム、ライトモード、ダークモードの画面は署名済みの Vira Reader プレビュー版です。見開き表示の画面は以前の Sumra です。
+Vira Reader は Sumra の新しい名前です。ホーム、ライトモード、ダークモードの画面は Vira Reader、見開き表示の画面は以前の Sumra です。Sumra 0.2.47 から移行するには、バンドル識別子と更新フィードが変わるため、一度手動でインストールしてください。
 
 Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、Markdown メモ、PDF を開けます。Mac のネイティブウィンドウやタブで読み、レイアウトを選び、目次、検索、ブックマークで読みたい場所を見つけられます。
 
@@ -33,8 +33,8 @@ Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、M
 
 ## インストールして読書を始める
 
-1. [最新リリース](https://github.com/Ares-X/Vira-Reader/releases/latest)から Sumra 0.2.47 のアプリ ZIP をダウンロードして展開します。
-2. **Sumra.app** を **アプリケーション** に移動して開きます。ソースからビルドしたアプリの名前は **Vira Reader.app** です。
+1. [最新リリース](https://github.com/Ares-X/Vira-Reader/releases/latest)から Vira Reader 0.2.48 のアプリ ZIP をダウンロードして展開します。
+2. **Vira Reader.app** を **アプリケーション** に移動して開きます。
 3. **⌘O** を押すか、ウィンドウにファイルをドラッグします。文書内のテキストを検索するには **⌘F** を押します。
 
 公開ビルドには Apple Developer ID 証明書ではなく、メンテナーの自己署名証明書 **Ares-X Code Signing** を使用しており、公証されていません。初回起動時に macOS がブロックし、ダウンロード元を信頼できる場合は、[Apple の手順](https://support.apple.com/ja-jp/102445)に従って、**システム設定 → プライバシーとセキュリティ → このまま開く** を選び、確認してください。
@@ -48,7 +48,7 @@ Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、M
 
 **Sumra からの移行：** **Vira Reader.app** を一度手動でインストールしてください。バンドル識別子と更新フィードが変わり、Sumra のフィードは 0.2.47 のままです。初回起動で旧設定と読書履歴をコピーし、Vira Reader に保存済みの選択は保持します。macOS 26.6.2 の仮想マシンへの手動インストールで、管理した読書履歴、文字サイズ、言語、自動更新の選択の移行と、元の Sumra 設定の保持を確認しました。既定のファイル関連付けと macOS のウィンドウ復元状態は、この設定移行の対象外です。
 
-Vira Reader は独立した更新フィードを使います。現在、公開リリースは含まれていません。PostScript と EPS の利用には Ghostscript の別途インストールが必要です。
+Vira Reader は Vira Reader のリリース用に独立した更新フィードを使います。PostScript と EPS の利用には Ghostscript の別途インストールが必要です。
 
 </details>
 
