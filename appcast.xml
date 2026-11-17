@@ -1,36 +1,9 @@
-<?xml version="1.0" standalone="yes"?>
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
-    <channel>
-        <title>Sumra</title>
-        <item>
-            <title>0.2.47</title>
-            <pubDate>Sun, 15 Nov 2026 14:01:58 +0000</pubDate>
-            <link>https://github.com/Ares-X/Sumra/releases</link>
-            <sparkle:version>49</sparkle:version>
-            <sparkle:shortVersionString>0.2.47</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/Ares-X/Sumra/releases/download/v0.2.47/Sumra-0.2.47-macOS-arm64.zip" length="17308266" type="application/octet-stream" sparkle:edSignature="oLMoGRCEgU1A8vkHDrztHVnswptSh5CxTY8ImoB1Yo+3YupNO4NWCyDxPsUYeiZYT9dgBjHmsooWZjVWrHIsCw=="/>
-        </item>
-        <item>
-            <title>0.2.46</title>
-            <pubDate>Sun, 15 Nov 2026 11:34:06 +0000</pubDate>
-            <link>https://github.com/Ares-X/Sumra/releases</link>
-            <sparkle:version>48</sparkle:version>
-            <sparkle:shortVersionString>0.2.46</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/Ares-X/Sumra/releases/download/v0.2.46/Sumra-0.2.46-macOS-arm64.zip" length="17302543" type="application/octet-stream" sparkle:edSignature="GgxmPq6vBm4nakdf5iPGxrhTETrGztWg7HZTEHXlJZlHzJs80m8mqYWGGNa3egKfwuLEEbGeNatJYO4pGNRiBg=="/>
-        </item>
-        <item>
-            <title>0.2.45</title>
-            <pubDate>Sun, 15 Nov 2026 05:58:56 +0000</pubDate>
-            <link>https://github.com/Ares-X/Sumra/releases</link>
-            <sparkle:version>47</sparkle:version>
-            <sparkle:shortVersionString>0.2.45</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/Ares-X/Sumra/releases/download/v0.2.45/Sumra-0.2.45-macOS-arm64.zip" length="17285010" type="application/octet-stream" sparkle:edSignature="rqcJOU+vZx+Okp1Ag7KpIrSDtqkYbXV+ALC7a9tI3kSDwYqlI68e2fxql6nwX9dckGKoKHz0yzVahSlVf/ysAg=="/>
-        </item>
-    </channel>
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Sumra Updates</title>
+    <link>https://github.com/Ares-X/Vira-Reader/releases/latest</link>
+    <description>Sumra updates have ended. Install Vira Reader manually once to move to the new application and update feed.</description>
+    <language>en</language>
+  </channel>
 </rss>

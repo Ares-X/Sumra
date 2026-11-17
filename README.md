@@ -46,7 +46,7 @@ Public builds use the maintainer's **Ares-X Code Signing** self-signed certifica
 
 The release targets **Apple Silicon (arm64)** and **macOS 13 or later**. Bundled executables and libraries are checked for arm64 support, deployment targets and runtime dependencies. Reader GUI acceptance has been performed on a macOS 26.6.2 VM; a physical macOS 13 machine has not yet been verified.
 
-**Moving from Sumra:** install **Vira Reader.app** manually once; the app has a new bundle identifier and a separate update feed. Sumra’s feed stays at 0.2.47. On first launch, the app copies old preferences and reading history without overwriting choices already saved in Vira Reader. A manual-install check on macOS 26.6.2 verified controlled reading history, font size, language and the automatic-update choice, with the original Sumra settings unchanged. Default file associations and macOS saved windows are outside this preference migration.
+**Moving from Sumra:** install **Vira Reader.app** manually once; the app has a new bundle identifier and a separate update feed. Sumra no longer receives in-app updates. On first launch, the app copies old preferences and reading history without overwriting choices already saved in Vira Reader. A manual-install check on macOS 26.6.2 verified controlled reading history, font size, language and the automatic-update choice, with the original Sumra settings unchanged. Default file associations and macOS saved windows are outside this preference migration.
 
 Vira Reader uses its own update feed for Vira Reader releases. PostScript and EPS require a separate Ghostscript installation.
 
