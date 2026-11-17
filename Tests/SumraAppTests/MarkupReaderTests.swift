@@ -277,6 +277,138 @@ final class MarkupReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testFramedSpeechKeepsItsUTF16SourceAcrossParentAndSiblingFocus() async throws {
+        let (state, _, view) = try await reader([
+            "A.html": "<!doctype html><p id='parent' tabindex='0'>Parent text</p><iframe id='source' src='B.html' width='420' height='140'></iframe><iframe id='other' src='C.html' width='420' height='140'></iframe>",
+            "B.html": "<!doctype html><meta charset='utf-8'><p id='words'>A😀<b>中B</b>C</p>",
+            "C.html": "<!doctype html><p tabindex='0'>Other frame</p>"
+        ], opened: "A.html")
+        let supported = try await evaluate("return !!window.Highlight && !!CSS.highlights", view) as? Bool
+        guard supported == true else { throw XCTSkip("Custom Highlights unavailable") }
+        let result = try await evaluate("""
+            const source=document.getElementById('source'),other=document.getElementById('other');
+            for(const frame of [source,other]) if(!frame.contentWindow?.leafCommand)
+                await new Promise(resolve=>frame.addEventListener('load',resolve,{once:true}));
+            const child=source.contentWindow,doc=source.contentDocument,paragraph=doc.getElementById('words');
+            const handler=child.webkit.messageHandlers.leaf,post=handler.postMessage;
+            let spoken;handler.postMessage=body=>{if(body.type==='readAloud')spoken=body.text;else post.call(handler,body)};
+            const text=win=>[...(win.CSS.highlights.get('sumra-speech')||[])].map(range=>range.toString()).join('');
+            const rows=[],original=doc.body.innerHTML;
+            try {
+                await window.leafCommand({name:'interaction',flags:{speechFollow:false}});
+                for(const sourceKind of ['selection','cursor','visible']) {
+                    const range=doc.createRange();range.selectNodeContents(paragraph);
+                    if(sourceKind==='cursor'){range.setStart(paragraph.firstChild,1);range.collapse(true)}
+                    const selection=child.getSelection();selection.removeAllRanges();selection.addRange(range);
+                    child.focus();spoken=undefined;
+                    await window.leafCommand({name:'readAloud',source:sourceKind});
+                    const selected=selection.toString(),location=sourceKind==='cursor'?0:1;
+                    for(const focus of ['parent','sibling']) {
+                        if(focus==='parent') {
+                            document.getElementById('parent').focus();
+                            const local=document.createRange();local.selectNodeContents(document.getElementById('parent'));
+                            getSelection().removeAllRanges();getSelection().addRange(local);
+                        } else other.contentDocument.querySelector('p').focus();
+                        await window.leafCommand({name:'speechHighlight',location,length:2});
+                        rows.push({sourceKind,focus,spoken,word:text(child),parent:text(window),other:text(other.contentWindow),
+                            selectionUnchanged:selection.toString()===selected});
+                        await window.leafCommand({name:'speechHighlight',location:0,length:0});
+                        rows[rows.length-1].cleared=!child.CSS.highlights.has('sumra-speech');
+                    }
+                }
+                return {rows,bodyUnchanged:original===doc.body.innerHTML};
+            } finally {handler.postMessage=post}
+            """, view) as? [String: Any]
+        let rows = try XCTUnwrap(result?["rows"] as? [[String: Any]])
+        XCTAssertEqual(rows.count, 6)
+        for row in rows {
+            XCTAssertEqual(row["spoken"] as? String, row["sourceKind"] as? String == "cursor" ? "😀中BC" : "A😀中BC", "Speech must start from the frame’s \(row["sourceKind"] ?? "") position")
+            XCTAssertEqual(row["word"] as? String, "😀", "Speech callbacks must use the source Realm after \(row["focus"] ?? "") focus")
+            XCTAssertEqual(row["parent"] as? String, "")
+            XCTAssertEqual(row["other"] as? String, "")
+            XCTAssertEqual(row["selectionUnchanged"] as? Bool, true)
+            XCTAssertEqual(row["cleared"] as? Bool, true)
+        }
+        XCTAssertEqual(result?["bodyUnchanged"] as? Bool, true)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testFramedSpeechReplacementAndSourceNavigationClearThePreviousRealm() async throws {
+        let (state, _, view) = try await reader([
+            "A.html": "<!doctype html><p tabindex='0'>Parent text</p><iframe id='source' src='B.html' width='420' height='140'></iframe><iframe id='other' src='C.html' width='420' height='140'></iframe>",
+            "B.html": "<!doctype html><p>Original speech</p>",
+            "C.html": "<!doctype html><p>Replacement speech</p>"
+        ], opened: "A.html")
+        let supported = try await evaluate("return !!window.Highlight && !!CSS.highlights", view) as? Bool
+        guard supported == true else { throw XCTSkip("Custom Highlights unavailable") }
+        let result = try await evaluate("""
+            const source=document.getElementById('source'),other=document.getElementById('other');
+            for(const frame of [source,other]) if(!frame.contentWindow?.leafCommand)
+                await new Promise(resolve=>frame.addEventListener('load',resolve,{once:true}));
+            const handlers=[source.contentWindow,other.contentWindow].map(child=>[child.webkit.messageHandlers.leaf,child.webkit.messageHandlers.leaf.postMessage]);
+            for(const [handler,post] of handlers)handler.postMessage=body=>{if(body.type!=='readAloud')post.call(handler,body)};
+            const start=async frame=>{const child=frame.contentWindow,range=frame.contentDocument.createRange();
+                range.selectNodeContents(frame.contentDocument.querySelector('p'));
+                child.getSelection().removeAllRanges();child.getSelection().addRange(range);child.focus();
+                await window.leafCommand({name:'readAloud',source:'selection'});
+                await window.leafCommand({name:'speechHighlight',location:0,length:8});};
+            const text=registry=>[...(registry.get('sumra-speech')||[])].map(range=>range.toString()).join('');
+            try {
+                await start(source);const originalRegistry=source.contentWindow.CSS.highlights;
+                const original=text(originalRegistry);
+                await start(other);const replacementRegistry=other.contentWindow.CSS.highlights;
+                const replaced=text(originalRegistry),replacement=text(replacementRegistry);
+                await new Promise(resolve=>{other.addEventListener('load',resolve,{once:true});other.src='B.html'});
+                document.querySelector('p').focus();
+                await window.leafCommand({name:'speechHighlight',location:0,length:8});
+                const navigated=text(replacementRegistry),newDocument=text(other.contentWindow.CSS.highlights);
+                return {original,replaced,replacement,navigated,newDocument};
+            } finally {for(const [handler,post] of handlers)handler.postMessage=post}
+            """, view) as? [String: String]
+        XCTAssertEqual(result?["original"], "Original")
+        XCTAssertEqual(result?["replaced"], "", "Starting another frame's speech must clear the previous source")
+        XCTAssertEqual(result?["replacement"], "Replacem")
+        XCTAssertEqual(result?["navigated"], "", "Navigation must release the old Realm's speech range")
+        XCTAssertEqual(result?["newDocument"], "", "A WindowProxy must not retarget old speech callbacks to a new document")
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testFramedSpeechNativeOverlayStopsAfterFocusChangeAndSourceDetach() async throws {
+        let (state, coordinator, view) = try await reader([
+            "A.html": "<!doctype html><p tabindex='0'>Parent text</p><iframe src='B.html' width='420' height='160'></iframe>",
+            "B.html": "<!doctype html><p>Framed speech</p>"
+        ], opened: "A.html")
+        _ = try await evaluate("""
+            const frame=document.querySelector('iframe');
+            if(!frame.contentWindow?.leafCommand)await new Promise(resolve=>frame.addEventListener('load',resolve,{once:true}));
+            const child=frame.contentWindow,handler=child.webkit.messageHandlers.leaf,post=handler.postMessage;
+            window.Highlight=undefined;child.Highlight=undefined;
+            window.detachedSpeechReader=child;
+            handler.postMessage=body=>{if(body.type!=='readAloud')post.call(handler,body)};
+            try {
+                const range=frame.contentDocument.createRange();range.selectNodeContents(frame.contentDocument.querySelector('p'));
+                child.getSelection().removeAllRanges();child.getSelection().addRange(range);child.focus();
+                await window.leafCommand({name:'readAloud',source:'selection'});
+                document.querySelector('p').focus();
+                await window.leafCommand({name:'speechHighlight',location:0,length:6});
+            } finally {handler.postMessage=post}
+            """, view)
+        try await wait { coordinator.rangeHighlightView?.rectangles.speech.isEmpty == false }
+        _ = try await evaluate("await window.leafCommand({name:'speechHighlight',location:0,length:0})", view)
+        try await wait { coordinator.rangeHighlightView == nil }
+        _ = try await evaluate("await window.leafCommand({name:'speechHighlight',location:0,length:6})", view)
+        try await wait { coordinator.rangeHighlightView?.rectangles.speech.isEmpty == false }
+        _ = try await evaluate("document.querySelector('iframe').remove()", view)
+        try await wait { coordinator.rangeHighlightView == nil }
+        let remaining = try await evaluate("return window.detachedSpeechReader.leafRangeHighlights().speech.length", view) as? Int
+        XCTAssertEqual(remaining, 0, "Detaching the source must clear its retained range as well as native overlay geometry")
+        _ = try await evaluate("await window.leafCommand({name:'speechHighlight',location:0,length:6});delete window.detachedSpeechReader", view)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
     func testSpeechParagraphBoundariesKeepInlineTextAndLiteralReaderContracts() async throws {
         let publications = [
             ("Book.html", "<!doctype html><meta charset='utf-8'><h1>Heading😀</h1>\n  <p>A😀<strong>B</strong><span>C</span></p>\n  <p>Next中<span>文</span></p>"),

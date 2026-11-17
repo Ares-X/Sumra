@@ -1202,12 +1202,40 @@ actor Pages {
         guard let native = document.native, native.engine == .mupdf else { throw ReadError("Document is not a PDF") }
         return native
     }
-    private func mutatePDF<T>(_ action: (NativeFile) throws -> T) throws -> T {
+    private var pdfAnnotationRevision = 0
+    private var pdfAnnotationRebuildRevision = 0
+    private var pdfAnnotationPageRevisions = [Int: Int]()
+    func pdfAnnotationChanges(since revision: Int?) -> (revision: Int, pages: [Int]?) {
+        guard let revision, revision >= pdfAnnotationRebuildRevision else { return (pdfAnnotationRevision, nil) }
+        return (pdfAnnotationRevision, pdfAnnotationPageRevisions.compactMap { $0.value > revision ? $0.key : nil }.sorted())
+    }
+    private func mutatePDF<T>(annotationPages: [Int]? = nil, _ action: (NativeFile) throws -> T) throws -> T {
         let native = try pdfNative()
-        defer { document.invalidatePDFCaches(); layoutRevision += 1 }
+        defer {
+            document.invalidatePDFCaches(); layoutRevision += 1
+            pdfAnnotationRevision += 1
+            if let annotationPages {
+                for page in annotationPages { pdfAnnotationPageRevisions[page] = pdfAnnotationRevision }
+            } else {
+                // Undo and form JavaScript can change pages beyond the initiating widget.
+                pdfAnnotationRebuildRevision = pdfAnnotationRevision
+                pdfAnnotationPageRevisions.removeAll()
+            }
+        }
         return try action(native)
     }
-    func pdfAnnotations(_ page: Int) throws -> [PDFAnnotationSnapshot] { try pdfNative().pdfAnnotations(page) }
+    #if DEBUG
+    private var pdfAnnotationReadObserver: (@Sendable (Int) -> Void)?
+    func observePDFAnnotationReads(_ observer: (@Sendable (Int) -> Void)?) {
+        pdfAnnotationReadObserver = observer
+    }
+    #endif
+    func pdfAnnotations(_ page: Int) throws -> [PDFAnnotationSnapshot] {
+        #if DEBUG
+        pdfAnnotationReadObserver?(page)
+        #endif
+        return try pdfNative().pdfAnnotations(page)
+    }
     func pdfLinks(_ page: Int) throws -> [PDFLinkSnapshot] { try pdfNative().pdfLinks(page) }
     func pdfJavaScriptMenu(_ script: String) throws -> [String] { try pdfNative().pdfJavaScriptMenu(script) }
     func pdfAttachment(page: Int, id: Int32) throws -> PDFTools.Attachment { try pdfNative().pdfAttachment(page: page, id: id) }
@@ -1219,18 +1247,18 @@ actor Pages {
     }
     func pdfUndo(redo: Bool = false) throws { try mutatePDF { try $0.pdfUndo(redo: redo) } }
     func pdfCreateAnnotation(page: Int, type: String, bounds: CGRect, edits: [PDFAnnotationEdit] = []) throws -> Int32 {
-        try mutatePDF { try $0.pdfCreateAnnotation(page: page, type: type, bounds: bounds, edits: edits) }
+        try mutatePDF(annotationPages: [page]) { try $0.pdfCreateAnnotation(page: page, type: type, bounds: bounds, edits: edits) }
     }
     func pdfCreateAnnotations(_ items: [PDFAnnotationCreation]) throws -> [Int32] {
-        try mutatePDF { try $0.pdfCreateAnnotations(items) }
+        try mutatePDF(annotationPages: items.map(\.page)) { try $0.pdfCreateAnnotations(items) }
     }
     func pdfCreateLink(page: Int, bounds: CGRect, uri: String) throws -> Int32 {
-        try mutatePDF { try $0.pdfCreateLink(page: page, bounds: bounds, uri: uri) }
+        try mutatePDF(annotationPages: []) { try $0.pdfCreateLink(page: page, bounds: bounds, uri: uri) }
     }
     func pdfEditLink(page: Int, id: Int32, bounds: CGRect, uri: String?) throws {
-        try mutatePDF { try $0.pdfEditLink(page: page, id: id, bounds: bounds, uri: uri) }
+        try mutatePDF(annotationPages: []) { try $0.pdfEditLink(page: page, id: id, bounds: bounds, uri: uri) }
     }
-    func pdfDeleteLink(page: Int, id: Int32) throws { try mutatePDF { try $0.pdfDeleteLink(page: page, id: id) } }
+    func pdfDeleteLink(page: Int, id: Int32) throws { try mutatePDF(annotationPages: []) { try $0.pdfDeleteLink(page: page, id: id) } }
     func pdfStampImage(page: Int, id: Int32) throws -> Data? { try pdfNative().pdfStampImage(page: page, id: id) }
     private func unchangedCutAnnotation(_ native: NativeFile, page: Int, expected: PDFAnnotationSnapshot, stampImage: URL?) throws -> Bool {
         guard let current = try native.pdfAnnotations(page).first(where: { $0.id == expected.id }),
@@ -1248,12 +1276,12 @@ actor Pages {
             cut = (removing.page, removing.annotation.id)
         }
         // The comparison and journal transaction share this actor turn.
-        let id = try mutatePDF { try $0.pdfPasteAnnotation(item, removing: cut) }
+        let id = try mutatePDF(annotationPages: [item.page] + (cut.map { [$0.page] } ?? [])) { try $0.pdfPasteAnnotation(item, removing: cut) }
         return (id, cut != nil)
     }
     func pdfDeleteAnnotation(page: Int, matching expected: PDFAnnotationSnapshot, stampImage: URL?) throws -> Bool {
         guard try unchangedCutAnnotation(pdfNative(), page: page, expected: expected, stampImage: stampImage) else { return false }
-        try mutatePDF { try $0.pdfDeleteAnnotation(page: page, id: expected.id) }
+        try mutatePDF(annotationPages: [page]) { try $0.pdfDeleteAnnotation(page: page, id: expected.id) }
         return true
     }
     func pdfEraseInk(page: Int, points: [CGPoint], radius: CGFloat) throws -> Bool {
@@ -1268,13 +1296,13 @@ actor Pages {
             }
             return kept.count == strokes.count ? nil : PDFInkEdit(id: annotation.id, strokes: kept)
         }
-        if !edits.isEmpty { try mutatePDF { try $0.pdfEraseInk(page: page, edits: edits) } }
+        if !edits.isEmpty { try mutatePDF(annotationPages: [page]) { try $0.pdfEraseInk(page: page, edits: edits) } }
         return !edits.isEmpty
     }
     func pdfEditAnnotation(page: Int, id: Int32, edits: [PDFAnnotationEdit]) throws {
-        try mutatePDF { try $0.pdfEditAnnotation(page: page, id: id, edits: edits) }
+        try mutatePDF(annotationPages: [page]) { try $0.pdfEditAnnotation(page: page, id: id, edits: edits) }
     }
-    func pdfDeleteAnnotation(page: Int, id: Int32) throws { try mutatePDF { try $0.pdfDeleteAnnotation(page: page, id: id) } }
+    func pdfDeleteAnnotation(page: Int, id: Int32) throws { try mutatePDF(annotationPages: [page]) { try $0.pdfDeleteAnnotation(page: page, id: id) } }
     func pdfSetWidgetValue(page: Int, id: Int32, value: String) throws {
         try mutatePDF { try $0.pdfSetWidgetValue(page: page, id: id, value: value) }
     }

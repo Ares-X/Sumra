@@ -53,7 +53,7 @@
         scrollTo({left: offset * pageDirection(), top: 0, behavior: 'instant'})
     }
     let searchGeneration = 0, searchKey = '', searchOptions = null, hits = [], selected = -1, scan = null, searchAbort = null
-    let speechNodes = [], speechRange = null, restoring = false, ready = false
+    let speechNodes = [], speechRange = null, speechSource = null, speechDetach = null, restoring = false, ready = false
     let activationRevision = 0, restoreRevision = 0
     let printViewport = null
     let readingViewport = null
@@ -807,15 +807,38 @@
         }
         rememberReadingViewport(anchor)
     }
+    const clearSpeech = () => {
+        speechNodes = []; speechRange = null; CSS.highlights?.delete('sumra-speech')
+        publishRangeHighlights(true)
+    }
+    window.leafSetSpeechSource = (source, leavingDocument = null) => {
+        if (leavingDocument && speechSource?.document !== leavingDocument) return
+        speechDetach?.disconnect(); speechDetach = null
+        speechSource?.clear()
+        speechSource = source
+        if (!source) return
+        // Keep callbacks in the starting Realm: a navigated frame's WindowProxy
+        // refers to its new document, even while old speech is still finishing.
+        const frames = []
+        for (let reader = source.document.defaultView; reader !== window; reader = reader.parent) frames.push(reader.frameElement)
+        if (frames.length) {
+            speechDetach = new MutationObserver(() => {
+                if (frames.some(frame => !frame.isConnected)) window.leafSetSpeechSource(null)
+            })
+            for (const frame of frames) speechDetach.observe(frame.ownerDocument, {childList:true, subtree:true})
+        }
+    }
+    window.leafHighlightSpeech = command => speechSource?.highlight(command)
     const readAloud = source => {
         const current = selection(), selected = source === 'selection' || !source && !current.isCollapsed
         const cursor = source === 'cursor' || !source && interaction.keyboardSelection
         if (selected && current.isCollapsed) throw Error('Select text to read aloud')
         let range = selected || cursor && current.rangeCount ? current.getRangeAt(0).cloneRange()
-            : cursor && pointer ? caret(pointer.x, pointer.y) : visibleRange()
+            : cursor && pointer ? caret(pointer.x, pointer.y) : readingCaret()
         if (!range) throw Error('No text at the reading position')
         if (!selected) { range.collapse(true); range.setEnd(document.body, document.body.childNodes.length) }
-        speechNodes = []; let spoken = '', previousBlock = null
+        window.top.leafSetSpeechSource({document, highlight: highlightSpeech, clear: clearSpeech})
+        let spoken = '', previousBlock = null
         // Speech needs paragraph boundaries without changing the publication's
         // text, Selection, or Find offsets. Cache ancestors within this passage.
         const blocks = new WeakMap()
@@ -1058,9 +1081,9 @@
         if (command.name === 'activate') return await activate(command)
         try {
         if (['turnPages', 'scroll', 'page', 'progress', 'location', 'href', 'restore', 'find'].includes(command.name)) readingViewport = null
-        const focused = ['copy', 'speechHighlight'].includes(command.name)
+        const focused = command.name === 'copy'
             || command.name === 'readAloud' && (!command.source || command.source === 'selection') ? selectionReader() : focusedReader()
-        if (focused && ['copy', 'selectAll', 'selectCurrentPage', 'readAloud', 'speechHighlight'].includes(command.name)) return await focused.leafCommand(command)
+        if (focused && ['copy', 'selectAll', 'selectCurrentPage', 'readAloud'].includes(command.name)) return await focused.leafCommand(command)
         if (['style', 'interaction'].includes(command.name)) await Promise.all(childReaders().map(reader => reader.leafCommand(command)))
         switch (command.name) {
         case 'find': return await find(command)
@@ -1110,7 +1133,7 @@
         case 'selectAll': { const range = document.createRange(); range.selectNodeContents(document.body); selectRange(range); break }
         case 'selectCurrentPage': selectRange(visibleRange()); break
         case 'readAloud': readAloud(command.source); break
-        case 'speechHighlight': highlightSpeech(command); break
+        case 'speechHighlight': window.top.leafHighlightSpeech(command); break
         }
         } catch (error) { post('error', { message: error.message }) }
     }
@@ -1611,7 +1634,8 @@
         outlineLoad = null; outlineDemand = false
         printViewport = null
         clearFind(false); clearLinkPreview()
-        speechNodes = []; speechRange = null; CSS.highlights?.delete('sumra-speech'); scheduleRangeHighlights()
+        if (mainFrame || speechNodes.length) window.top.leafSetSpeechSource(null, mainFrame ? null : document)
+        clearSpeech()
     })
     scheme.addEventListener('change', () => { if (String(typography).split('|')[4] === 'system') applyStyle() })
     reflowPlainCHM()
