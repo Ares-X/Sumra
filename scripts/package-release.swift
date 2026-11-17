@@ -12,7 +12,7 @@ func run(_ args: [String], directory: URL? = nil, environment: [String: String]?
     let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/env"); process.arguments = args
     process.currentDirectoryURL = directory; process.environment = environment
     // File-backed output avoids deadlock when inventory commands produce large output.
-    let temporary = fm.temporaryDirectory.appendingPathComponent("sumra-package-process-" + UUID().uuidString)
+    let temporary = fm.temporaryDirectory.appendingPathComponent("vira-reader-package-process-" + UUID().uuidString)
     try fm.createDirectory(at: temporary, withIntermediateDirectories: false)
     defer { try? fm.removeItem(at: temporary) }
     let output = temporary.appendingPathComponent("out"), error = temporary.appendingPathComponent("err")
@@ -120,7 +120,7 @@ final class ArchiveReader {
     }
 }
 func verifySourceArchive(_ path: URL, _ files: [String: [String: Any]], _ links: [String: String]) throws {
-    let prefix = "Sumra-source/"
+    let prefix = "Vira-Reader-source/"
     try ArchiveReader().verify(path, files: Dictionary(uniqueKeysWithValues: files.map { (prefix + $0.key, $0.value["sha256"] as! String) }), links: Dictionary(uniqueKeysWithValues: links.map { (prefix + $0.key, $0.value) }), modes: Dictionary(uniqueKeysWithValues: files.map { (prefix + $0.key, ($0.value["mode"] as! NSNumber).intValue) }), gzipTar: true)
 }
 func verifyAppArchive(_ path: URL, _ appName: String, _ inventory: [String: Any]) throws {
@@ -258,7 +258,7 @@ func inventory() throws -> ([String: SourceInput], [String: String], [String: An
             else { try add(directory.appendingPathComponent(name), destination + "/" + name) }
         }
     }
-    for name in ["LICENSE", "THIRD_PARTY.md", "README.md", "README.zh-CN.md", "README.zh-TW.md", "README.ja.md", "Package.swift", "Package.resolved", ".gitignore"] { try add(root.appendingPathComponent(name), name) }
+    for name in ["LICENSE", "THIRD_PARTY.md", "README.md", "README.zh-CN.md", "README.zh-TW.md", "README.ja.md", "Package.swift", "Package.resolved", "vira-appcast.xml", ".gitignore"] { try add(root.appendingPathComponent(name), name) }
     for name in ["Sources", "Tests", "Native", "scripts", "Assets", "Licenses", "docs"] { try tree(root.appendingPathComponent(name), name) }
     if fm.fileExists(atPath: root.appendingPathComponent(".github/workflows").path) { try tree(root.appendingPathComponent(".github/workflows"), ".github/workflows") }
     try repository(root.appendingPathComponent("build/deps/mupdf"), "build/deps/mupdf", "f030eda1e472268667805f438e38cee8f1da61f8")
@@ -306,7 +306,7 @@ func inventory() throws -> ([String: SourceInput], [String: String], [String: An
     return (files, symlinks, ["origins": origins, "files": records, "symlinks": symlinks])
 }
 let sourceBuildNotes = """
-# Building the exported Sumra source
+# Building the exported Vira Reader source
 
 This is the release source snapshot with the existing patches applied.
 Its provenance records exact upstream revisions and the actual file hashes.
@@ -314,11 +314,11 @@ See provenance.json for frozen build-receipt correspondence and the
 bounded source/notice review status. Receipt matching is not reproducibility.
 
 After verifying SHA256SUMS, extract into a new empty directory with
-`tar -xkzf Sumra-corresponding-source.tar.gz -C <empty-directory>`.
+`tar -xkzf Vira-Reader-corresponding-source.tar.gz -C <empty-directory>`.
 Compare extracted file SHA256 values and relative symlink targets to
 the `files` and `symlinks` objects in the accompanying provenance.json.
 
-Run from Sumra-source on macOS with the build prerequisites listed in README.md:
+Run from Vira-Reader-source on macOS with the build prerequisites listed in README.md:
 
 - `./scripts/build-engines.sh` rebuilds the four native engines and ConvertLIT.
 - `./scripts/build-app.sh --release` builds and packages the GUI app.
@@ -338,21 +338,21 @@ is an ad-hoc signed, nonnotarized local application.
 
 """
 func archiveSource(_ archive: URL, _ files: [String: SourceInput], _ links: [String: String]) throws {
-    let staging = fm.temporaryDirectory.appendingPathComponent("sumra-package-source-" + UUID().uuidString)
+    let staging = fm.temporaryDirectory.appendingPathComponent("vira-reader-package-source-" + UUID().uuidString)
     try fm.createDirectory(at: staging, withIntermediateDirectories: false); defer { try? fm.removeItem(at: staging) }
     for (name, input) in files {
-        let target = staging.appendingPathComponent("Sumra-source/" + name)
+        let target = staging.appendingPathComponent("Vira-Reader-source/" + name)
         try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         if let data = input.generated { try data.write(to: target); try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: target.path) }
         else { try fm.copyItem(at: input.path!, to: target) }
     }
     for (name, link) in links {
-        let target = staging.appendingPathComponent("Sumra-source/" + name)
+        let target = staging.appendingPathComponent("Vira-Reader-source/" + name)
         try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fm.createSymbolicLink(atPath: target.path, withDestinationPath: link)
     }
     let list = staging.appendingPathComponent("entries")
-    try Data((files.keys.sorted() + links.keys.sorted()).map { "Sumra-source/" + $0 + "\0" }.joined().utf8).write(to: list)
+    try Data((files.keys.sorted() + links.keys.sorted()).map { "Vira-Reader-source/" + $0 + "\0" }.joined().utf8).write(to: list)
     var environment = ProcessInfo.processInfo.environment; environment["COPYFILE_DISABLE"] = "1"
     _ = try run(["tar", "--no-mac-metadata", "--uid", "0", "--gid", "0", "--uname", "", "--gname", "", "-czf", archive.path, "-C", staging.path, "--no-recursion", "--null", "-T", list.path], environment: environment)
 }
@@ -360,30 +360,30 @@ func packageArtifacts(_ app: URL, _ output: URL, _ files: [String: SourceInput],
     guard !fm.fileExists(atPath: output.path) else { try fail("Output directory already exists: \(output.path)") }
     try fm.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
     guard Darwin.mkdir(output.path, 0o755) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
-    let sourceTar = output.appendingPathComponent("Sumra-corresponding-source.tar.gz")
+    let sourceTar = output.appendingPathComponent("Vira-Reader-corresponding-source.tar.gz")
     try archiveSource(sourceTar, files, links); try verifySourceArchive(sourceTar, provenance["files"] as! [String: [String: Any]], links)
     let version = ((provenance["app_metadata"] as! [String: Any])["info_plist"] as! [String: Any])["CFBundleShortVersionString"] as! String
-    let appZip = output.appendingPathComponent("Sumra-\(version)-macOS-arm64.zip")
+    let appZip = output.appendingPathComponent("Vira-Reader-\(version)-macOS-arm64.zip")
     if let appArchive { try fm.linkItem(at: appArchive.resolvingSymlinksInPath(), to: appZip) } else { try archiveApp(app, appZip) }
     try verifyAppArchive(appZip, app.lastPathComponent, provenance)
     let manifest = output.appendingPathComponent("provenance.json"), notes = output.appendingPathComponent("README.txt")
     try writeJSON(provenance, to: manifest)
     let correspondence = receipts ? "Source and app match the frozen build receipts embedded in provenance.json.\nThis establishes receipt correspondence, not reproducibility.\n" : "Source/build matching is not attested.\n"
-    let noteText = "Sumra \(version) — nonnotarized community release artifacts\n\n" + correspondence + """
+    let noteText = "Vira Reader \(version) — nonnotarized community release artifacts\n\n" + correspondence + """
 The bounded source/notice review found no demonstrated missing inputs.
 This archive does not establish Developer ID, notarization or Gatekeeper acceptance.
 
 Verify from this directory: shasum -a 256 -c SHA256SUMS
 Extract sources into a new empty directory:
   mkdir source-extraction
-  tar -xkzf Sumra-corresponding-source.tar.gz -C source-extraction
+  tar -xkzf Vira-Reader-corresponding-source.tar.gz -C source-extraction
 Source file hashes and relative link targets are listed in provenance.json.
 The packager verifies complete file/link membership, types, file modes, bytes and link
 targets against that inventory before success.
 Project sources retain all local patches, resources, licenses and build scripts.
 Public upstream test fixtures are included as part of upstream source trees.
 The allowlist excludes repository metadata, session data and local build/test evidence.
-See Sumra-source/README.md for macOS build prerequisites. Sparkle's matching
+See Vira-Reader-source/README.md for macOS build prerequisites. Sparkle's matching
 source is in upstream/Sparkle; SwiftPM resolves the existing pinned binary framework.
 
 """
@@ -416,7 +416,7 @@ func packageMain() throws {
     if let destination = arguments["--inventory"] { try writeJSON(provenance, to: destination, exclusive: true) }
     guard let appArgument else { return }
     let app = appArgument.resolvingSymlinksInPath()
-    guard app.pathExtension == "app", fm.fileExists(atPath: app.appendingPathComponent("Contents/MacOS/Sumra").path) else { try fail("Expected a packaged Sumra.app") }
+    guard app.pathExtension == "app", fm.fileExists(atPath: app.appendingPathComponent("Contents/MacOS/Sumra").path) else { try fail("Expected a packaged Vira Reader.app") }
     if let recordDestination, let sourceReceipt {
         try recordBuild(recordDestination, sourceReceipt, provenance, app)
         print("Recorded verified build receipt in \(recordDestination.path).")

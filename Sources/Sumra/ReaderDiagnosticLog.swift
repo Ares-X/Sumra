@@ -101,7 +101,7 @@ final class ReaderDiagnosticLog {
                 try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false,
                                                         attributes: [.posixPermissions: 0o700])
                 temporaryCreated = true
-                let report = temporary.appendingPathComponent("Sumra-Window-Diagnostics", isDirectory: true)
+                let report = temporary.appendingPathComponent("Vira Reader-Window-Diagnostics", isDirectory: true)
                 try FileManager.default.createDirectory(at: report, withIntermediateDirectories: false,
                                                         attributes: [.posixPermissions: 0o700])
                 for file in files {

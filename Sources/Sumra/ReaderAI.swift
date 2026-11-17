@@ -572,7 +572,7 @@ enum ReaderAIRunner {
         do {
             if modelRequest {
                 let request = """
-                {"method":"initialize","id":1,"params":{"clientInfo":{"name":"Sumra","version":"1"}}}
+                {"method":"initialize","id":1,"params":{"clientInfo":{"name":"Vira Reader","version":"1"}}}
                 {"method":"initialized","params":{}}
                 {"method":"model/list","id":2,"params":{"limit":100,"includeHidden":false}}
 

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/images/sumra-brand.png" alt="Sumra — a lightweight, open-source reader for macOS" width="720">
+  <img src="docs/images/vira-reader-brand.png" alt="Vira Reader — a lightweight, open-source reader for macOS" width="720">
 </p>
 
-# Sumra — A Lightweight macOS Reader
+# Vira Reader — A Lightweight macOS Reader
 
 **Ebooks, comics, PDFs, images and Markdown. One native Mac app, focused on reading.**
 
@@ -10,20 +10,22 @@
 
 **macOS 13+ · Apple Silicon · Free and open source**
 
-[**Download for Mac**](https://github.com/Ares-X/Sumra/releases/latest) · [Release notes](https://github.com/Ares-X/Sumra/releases) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Sumra/issues)
+[**Download Sumra 0.2.47**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [Release notes](https://github.com/Ares-X/Vira-Reader/releases) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Vira-Reader/issues)
+
+**Rename preview:** Vira Reader is the new name of Sumra. No Vira Reader release has been published yet; the latest public download is still **Sumra 0.2.47**. Build the renamed app from source to try this preview. Home, light-mode and dark-mode screenshots show the signed Vira Reader preview; the two-page screenshot shows the earlier Sumra version.
 
 Open an EPUB novel, a comic archive, a folder of images, Markdown notes or a PDF from Finder. Read in native Mac windows and tabs, choose your layout, and use contents, search and bookmarks to find your place.
 
-![Sumra displaying Markdown reading notes and contents in light mode](docs/images/reader-light.png)
+![Vira Reader displaying Markdown reading notes and contents in light mode](docs/images/reader-light.png)
 
 <details>
 <summary>More screenshots: two-page reading, recent files and dark mode</summary>
 
-![Two-page reading with the contents sidebar](docs/images/reader-two-pages.png)
+![Earlier Sumra version: two-page reading with the contents sidebar](docs/images/reader-two-pages.png)
 
-![Recent documents on the Home screen](docs/images/home-light.png)
+![Vira Reader recent documents on the Home screen](docs/images/home-light.png)
 
-![Reading in dark mode](docs/images/reader-dark.png)
+![Vira Reader reading in dark mode](docs/images/reader-dark.png)
 
 All screenshots use the repository's [original demo document](docs/demos/Reading-Notes.md).
 
@@ -31,8 +33,8 @@ All screenshots use the repository's [original demo document](docs/demos/Reading
 
 ## Install and start reading
 
-1. Download the app ZIP from the [latest release](https://github.com/Ares-X/Sumra/releases/latest) and unzip it.
-2. Move **Sumra.app** to **Applications**, then open it.
+1. Download the Sumra 0.2.47 app ZIP from the [latest public release](https://github.com/Ares-X/Vira-Reader/releases/latest) and unzip it.
+2. Move **Sumra.app** to **Applications**, then open it. Source builds produce **Vira Reader.app**.
 3. Press **⌘O** or drag a file into the window. Press **⌘F** to search its text.
 
 Public builds use the maintainer's **Ares-X Code Signing** self-signed certificate, rather than an Apple Developer ID certificate, and are not notarized. If macOS blocks the first launch and you trust the download, follow [Apple's instructions](https://support.apple.com/en-us/102445): open **System Settings → Privacy & Security → Open Anyway**, then confirm.
@@ -42,15 +44,17 @@ Public builds use the maintainer's **Ares-X Code Signing** self-signed certifica
 <details>
 <summary>Compatibility and older installations</summary>
 
-The release targets **Apple Silicon (arm64)** and **macOS 13 or later**. Bundled executables and libraries are checked for arm64 support, deployment targets and runtime dependencies. GUI acceptance has been performed on macOS 27.0.1; a physical macOS 13 machine has not yet been verified.
+The release targets **Apple Silicon (arm64)** and **macOS 13 or later**. Bundled executables and libraries are checked for arm64 support, deployment targets and runtime dependencies. Reader GUI acceptance has been performed on a macOS 26.6.2 VM; a physical macOS 13 machine has not yet been verified.
 
-Version 0.2.0 has no update feed. Install a newer release manually once; 0.2.1 and later support in-app updates. PostScript and EPS require a separate Ghostscript installation.
+**Moving from Sumra:** install **Vira Reader.app** manually once; the app has a new bundle identifier and a separate update feed. Sumra’s feed stays at 0.2.47. On first launch, the app copies old preferences and reading history without overwriting choices already saved in Vira Reader. A manual-install check on macOS 26.6.2 verified controlled reading history, font size, language and the automatic-update choice, with the original Sumra settings unchanged. Default file associations and macOS saved windows are outside this preference migration.
+
+Vira Reader uses its own update feed, which currently contains no published release. PostScript and EPS require a separate Ghostscript installation.
 
 </details>
 
 ## Made for reading
 
-- **Native windows and tabs.** Open from Finder, drag files into Sumra, or continue from Home. Enable **Use window tabs** in Settings to keep multiple books together.
+- **Native windows and tabs.** Open from Finder, drag files into Vira Reader, or continue from Home. Enable **Use window tabs** in Settings to keep multiple books together.
 - **A layout that suits the document.** Single-page, continuous scrolling and two-page spreads, with themes and typography controls. Reflowable books adapt to the window; fixed pages keep their original geometry.
 - **Find your place.** Contents, chapter-title search, full-text search, thumbnails, bookmarks and optional reading-position history. TXT and MOBI can detect standalone chapter titles when an authored table of contents is absent.
 - **Navigate comic collections.** Archive folders become Contents entries with their names and nesting preserved. Suitable solid LZMA2 archives support distant jumps through an in-memory section index, without modifying the original or writing an extracted book cache.
@@ -61,11 +65,11 @@ Use the sidebar for Contents, thumbnails and bookmarks, the **View** menu for la
 
 Choose from five built-in reading themes, or save your own text, background and link colors. **View → Document Colors → Choose Theme…** previews the selection; **Customize…** creates a named palette or edits the selected custom theme. Previously saved theme settings remain readable:
 
-![Preview of Sumra's five built-in reading themes](docs/images/themes.png)
+![Preview of Vira Reader's five built-in reading themes](docs/images/themes.png)
 
 Choose installed fonts from the reading **Font** menu or Settings. The **Aa** reading-settings button applies typography, colors and layout live; **Typography and CSS…** also accepts a family name, such as `Iowan Old Style`, including supplemental fonts macOS omits from its available-font list. Install your own font files with macOS Font Book first. **Light** uses pure white paper. For per-document text, background and link colors, open **View → Document Colors → Custom Document Colors…**. Color wells, RGB fields and an instant preview help you choose; **Use Theme** restores the theme palette.
 
-CHM files expose a separate **Index** tab when they contain a keyword index. EPUB and comic files also support paged Quick Look previews and first-page thumbnails through Sumra's bundled extensions. For EPUB thumbnails, Finder may select Apple Books instead, leaving coverless books with a generic icon. [Editor SyncTeX integration](docs/SYNCTEX.md) and [reading controls](docs/READER_CONTROLS.md) describe the available GUI workflows.
+CHM files expose a separate **Index** tab when they contain a keyword index. EPUB and comic files also support paged Quick Look previews and first-page thumbnails through Vira Reader's bundled extensions. For EPUB thumbnails, Finder may select Apple Books instead, leaving coverless books with a generic icon. [Editor SyncTeX integration](docs/SYNCTEX.md) and [reading controls](docs/READER_CONTROLS.md) describe the available GUI workflows.
 
 ## Supported formats
 
@@ -78,7 +82,7 @@ CHM files expose a separate **Index** tab when they contain a keyword index. EPU
 | Other compatible formats | PDF-compatible AI, P7M envelopes, LIT |
 | Requires additional software | PostScript / EPS: install Ghostscript separately |
 
-Support varies by file variant. Sumra does not provide OCR or DRM removal; scanned pages need an existing text layer for text search.
+Support varies by file variant. Vira Reader does not provide OCR or DRM removal; scanned pages need an existing text layer for text search.
 
 <details>
 <summary>Rendering notes and format limitations</summary>
@@ -97,38 +101,38 @@ See [format and engine coverage](docs/SUMATRA_ENGINE_PARITY.md), [Markdown rende
 You need macOS, the Apple Swift toolchain and macOS SDK, and CMake. The first build needs internet access to fetch pinned native dependencies and Sparkle. Project build and packaging scripts use Swift and system tools; Python is not required.
 
 ```sh
-git clone https://github.com/Ares-X/Sumra.git
-cd Sumra
+git clone https://github.com/Ares-X/Vira-Reader.git
+cd Vira-Reader
 ./scripts/build-app.sh --release
-open dist/Sumra.app
+open "dist/Vira Reader.app"
 ```
 
 If needed, install CMake with your package manager, for example `brew install cmake`. For a development build and launch, use `./scripts/run-dev.sh`. Local builds are ad-hoc signed by default.
 
-Sumra is a graphical application; opening files, document tools and printing use its interface. For development, see the [implementation notes](docs/IMPLEMENTATION_STATUS.md), [local checks](scripts/check-source.sh) and [release procedure](docs/RELEASE_ACTIONS.md).
+Vira Reader is a graphical application; opening files, document tools and printing use its interface. For development, see the [implementation notes](docs/IMPLEMENTATION_STATUS.md), [local checks](scripts/check-source.sh) and [release procedure](docs/RELEASE_ACTIONS.md).
 
 ## Contribute and translate
 
 Choose among 25 common interface language/region options in Settings. The managed UI labels are translated; native-speaker review is still welcome. Document font coverage is separate and depends on embedded, bundled and installed fonts. See [language support and validation](docs/LANGUAGE_SUPPORT.md) for the list, tested scripts and layout limits.
 
-[Bug reports, feature requests](https://github.com/Ares-X/Sumra/issues) and pull requests are welcome. Include the macOS and Sumra versions, file format, reproduction steps and a shareable sample when possible.
+[Bug reports, feature requests](https://github.com/Ares-X/Vira-Reader/issues) and pull requests are welcome. Include the macOS and Vira Reader versions, file format, reproduction steps and a shareable sample when possible.
 
 The README is available in English, Simplified Chinese, Traditional Chinese and Japanese. Use [README.md](README.md) as the content reference, keep the same section order, and update the other versions when shared information changes. All versions reuse the same screenshots and link to the technical documentation.
 
 <!-- community-contributors:start -->
 ## Community contributors
 
-Thanks to everyone improving Sumra through issue reports, code, and reviews. This list is automatically generated from eligible GitHub issues and merged pull requests. See the [recognition rules](docs/COMMUNITY_CONTRIBUTORS.md).
+Thanks to everyone improving Vira Reader through issue reports, code, and reviews. This list is automatically generated from eligible GitHub issues and merged pull requests. See the [recognition rules](docs/COMMUNITY_CONTRIBUTORS.md).
 
 | Contributor | Contributions |
 | --- | --- |
-| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Sumra/issues/31) [Issue #42](https://github.com/Ares-X/Sumra/issues/42) [Issue #68](https://github.com/Ares-X/Sumra/issues/68) [Issue #69](https://github.com/Ares-X/Sumra/issues/69) [Issue #82](https://github.com/Ares-X/Sumra/issues/82) [Issue #118](https://github.com/Ares-X/Sumra/issues/118) [Issue #137](https://github.com/Ares-X/Sumra/issues/137) [Issue #158](https://github.com/Ares-X/Sumra/issues/158) |
-| <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [Issue #48](https://github.com/Ares-X/Sumra/issues/48) [Issue #74](https://github.com/Ares-X/Sumra/issues/74) |
+| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Vira-Reader/issues/31) [Issue #42](https://github.com/Ares-X/Vira-Reader/issues/42) [Issue #68](https://github.com/Ares-X/Vira-Reader/issues/68) [Issue #69](https://github.com/Ares-X/Vira-Reader/issues/69) [Issue #82](https://github.com/Ares-X/Vira-Reader/issues/82) [Issue #118](https://github.com/Ares-X/Vira-Reader/issues/118) [Issue #137](https://github.com/Ares-X/Vira-Reader/issues/137) [Issue #158](https://github.com/Ares-X/Vira-Reader/issues/158) |
+| <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [Issue #48](https://github.com/Ares-X/Vira-Reader/issues/48) [Issue #74](https://github.com/Ares-X/Vira-Reader/issues/74) |
 
 <!-- community-contributors:end -->
 
 ## License and acknowledgments
 
-New Sumra code is licensed under **[AGPL-3.0-or-later](LICENSE)**. Upstream and ported components retain their own licenses and copyright notices; see [THIRD_PARTY.md](THIRD_PARTY.md) for sources, versions and licenses.
+New Vira Reader code is licensed under **[AGPL-3.0-or-later](LICENSE)**. Upstream and ported components retain their own licenses and copyright notices; see [THIRD_PARTY.md](THIRD_PARTY.md) for sources, versions and licenses.
 
-Inspired by [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf), Sumra reuses MuPDF and parts of SumatraPDF's document handling with a SwiftUI and AppKit interface. Thanks to [MuPDF](https://mupdf.com/) and the other upstream projects. Sumra is independently developed; the [reference notes](docs/SUMATRA_PARITY.md) describe feature coverage and remaining differences.
+Inspired by [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf), Vira Reader reuses MuPDF and parts of SumatraPDF's document handling with a SwiftUI and AppKit interface. Thanks to [MuPDF](https://mupdf.com/) and the other upstream projects. Vira Reader is independently developed; the [reference notes](docs/SUMATRA_PARITY.md) describe feature coverage and remaining differences.

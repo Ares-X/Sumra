@@ -20,7 +20,7 @@
 
 # Product scope
 
-Sumra is a graphical macOS document reader. Do not add or restore a Sumra CLI,
+Vira Reader is a graphical macOS document reader. Do not add or restore a reader CLI,
 argument parser, command-line PDF tools or silent-printing interface. File
 opening, printing and document tools use the GUI and macOS document callbacks.
 Build/test scripts and GUI-driven integrations with external tools remain in scope.

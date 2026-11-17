@@ -693,7 +693,7 @@ final class ReaderFloatingNativeIntegrationTests: XCTestCase {
             XCTAssertFalse(buttons.contains { $0.accessibilityLabel() == L("Open Document") },
                 "Welcome already owns the document-opening action")
             XCTAssertFalse(elements.contains {
-                $0.accessibilityRole() == .staticText && ($0.accessibilityValue() as? String == "Sumra" || $0.accessibilityLabel() == "Sumra")
+                $0.accessibilityRole() == .staticText && ($0.accessibilityValue() as? String == "Vira Reader" || $0.accessibilityLabel() == "Vira Reader")
             }, "Welcome already displays the application title")
             XCTAssertTrue(controls.subviews.compactMap { $0 as? NSButton }.allSatisfy { $0.target === window && $0.isEnabled })
             XCTAssertFalse(mounted.contains { $0 is NSScrollView })

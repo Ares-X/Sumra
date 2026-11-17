@@ -2,4 +2,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ./scripts/build-app.sh "$@"
-open dist/Sumra.app
+open "dist/Vira Reader.app"

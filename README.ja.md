@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/images/sumra-brand.png" alt="Sumra — macOS 向けの軽量なオープンソースリーダー" width="720">
+  <img src="docs/images/vira-reader-brand.png" alt="Vira Reader — macOS 向けの軽量なオープンソースリーダー" width="720">
 </p>
 
-# Sumra — 軽量な macOS リーダー
+# Vira Reader — 軽量な macOS リーダー
 
 **電子書籍、コミック、PDF、画像、Markdown。読書に集中できるネイティブ Mac アプリです。**
 
@@ -10,20 +10,22 @@
 
 **macOS 13 以降 · Apple Silicon · 無料・オープンソース**
 
-[**Mac 版をダウンロード**](https://github.com/Ares-X/Sumra/releases/latest) · [リリースノート](https://github.com/Ares-X/Sumra/releases) · [対応形式](#対応形式) · [ソースからビルド](#ソースからビルド) · [問題を報告](https://github.com/Ares-X/Sumra/issues)
+[**Sumra 0.2.47 をダウンロード**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [リリースノート](https://github.com/Ares-X/Vira-Reader/releases) · [対応形式](#対応形式) · [ソースからビルド](#ソースからビルド) · [問題を報告](https://github.com/Ares-X/Vira-Reader/issues)
+
+**名称変更のプレビュー：** Sumra の新しい名前は Vira Reader です。Vira Reader はまだ公開リリースされておらず、最新の公開版は **Sumra 0.2.47** です。新しい名称のアプリを試すにはソースからビルドしてください。ホーム、ライトモード、ダークモードの画面は署名済みの Vira Reader プレビュー版です。見開き表示の画面は以前の Sumra です。
 
 Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、Markdown メモ、PDF を開けます。Mac のネイティブウィンドウやタブで読み、レイアウトを選び、目次、検索、ブックマークで読みたい場所を見つけられます。
 
-![ライトモードで Markdown の読書メモと目次を表示する Sumra](docs/images/reader-light.png)
+![ライトモードで Markdown の読書メモと目次を表示する Vira Reader](docs/images/reader-light.png)
 
 <details>
 <summary>スクリーンショットをもっと見る：見開き表示、最近使ったファイル、ダークモード</summary>
 
-![目次サイドバー付きの見開き表示](docs/images/reader-two-pages.png)
+![以前の Sumra：目次サイドバー付きの見開き表示](docs/images/reader-two-pages.png)
 
-![ホーム画面の最近使った書類](docs/images/home-light.png)
+![Vira Reader ホーム画面の最近使った書類](docs/images/home-light.png)
 
-![ダークモードでの読書](docs/images/reader-dark.png)
+![Vira Reader のダークモードでの読書](docs/images/reader-dark.png)
 
 すべてのスクリーンショットには、リポジトリ内の[デモ用原稿](docs/demos/Reading-Notes.md)を使用しています。
 
@@ -31,8 +33,8 @@ Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、M
 
 ## インストールして読書を始める
 
-1. [最新リリース](https://github.com/Ares-X/Sumra/releases/latest)からアプリの ZIP をダウンロードして展開します。
-2. **Sumra.app** を **アプリケーション** に移動して開きます。
+1. [最新リリース](https://github.com/Ares-X/Vira-Reader/releases/latest)から Sumra 0.2.47 のアプリ ZIP をダウンロードして展開します。
+2. **Sumra.app** を **アプリケーション** に移動して開きます。ソースからビルドしたアプリの名前は **Vira Reader.app** です。
 3. **⌘O** を押すか、ウィンドウにファイルをドラッグします。文書内のテキストを検索するには **⌘F** を押します。
 
 公開ビルドには Apple Developer ID 証明書ではなく、メンテナーの自己署名証明書 **Ares-X Code Signing** を使用しており、公証されていません。初回起動時に macOS がブロックし、ダウンロード元を信頼できる場合は、[Apple の手順](https://support.apple.com/ja-jp/102445)に従って、**システム設定 → プライバシーとセキュリティ → このまま開く** を選び、確認してください。
@@ -42,15 +44,17 @@ Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、M
 <details>
 <summary>互換性と旧バージョンからの移行</summary>
 
-リリースの対象は **Apple Silicon（arm64）** と **macOS 13 以降** です。同梱の実行ファイルとライブラリについて、arm64 対応、デプロイメントターゲット、実行時依存関係を確認しています。macOS 27.0.1 で GUI の受け入れ確認を行っています。実機の macOS 13 ではまだ確認していません。
+リリースの対象は **Apple Silicon（arm64）** と **macOS 13 以降** です。同梱の実行ファイルとライブラリについて、arm64 対応、デプロイメントターゲット、実行時依存関係を確認しています。macOS 26.6.2 の仮想マシンでリーダー GUI の受け入れ確認を行っています。実機の macOS 13 ではまだ確認していません。
 
-バージョン 0.2.0 にはアップデートフィードがありません。新しいリリースを手動で一度インストールしてください。0.2.1 以降はアプリ内アップデートに対応しています。PostScript と EPS の利用には Ghostscript の別途インストールが必要です。
+**Sumra からの移行：** **Vira Reader.app** を一度手動でインストールしてください。バンドル識別子と更新フィードが変わり、Sumra のフィードは 0.2.47 のままです。初回起動で旧設定と読書履歴をコピーし、Vira Reader に保存済みの選択は保持します。macOS 26.6.2 の仮想マシンへの手動インストールで、管理した読書履歴、文字サイズ、言語、自動更新の選択の移行と、元の Sumra 設定の保持を確認しました。既定のファイル関連付けと macOS のウィンドウ復元状態は、この設定移行の対象外です。
+
+Vira Reader は独立した更新フィードを使います。現在、公開リリースは含まれていません。PostScript と EPS の利用には Ghostscript の別途インストールが必要です。
 
 </details>
 
 ## 読書のための機能
 
-- **ネイティブのウィンドウとタブ。** Finder から開く、ファイルを Sumra にドラッグする、ホームから続ける、といった方法で読書を始められます。複数の本をまとめるには、設定で **Use window tabs** を有効にします。
+- **ネイティブのウィンドウとタブ。** Finder から開く、ファイルを Vira Reader にドラッグする、ホームから続ける、といった方法で読書を始められます。複数の本をまとめるには、設定で **Use window tabs** を有効にします。
 - **文書に合わせたレイアウト。** 1 ページ、連続スクロール、見開き表示を切り替えられ、テーマや文字組みも調整できます。リフロー型の本はウィンドウに合わせて表示され、固定ページは元のページ構成を保ちます。
 - **読みたい場所を探す。** 目次、章タイトル検索、全文検索、サムネイル、ブックマーク、任意の読書位置履歴を利用できます。TXT と MOBI では、作成者による目次がない場合に独立した章タイトルを検出できます。
 - **コミックコレクションを移動する。** アーカイブ内のフォルダを、名前と階層を保った目次項目として表示します。対応するソリッド LZMA2 アーカイブでは、メモリ上のセクションインデックスを使って離れた位置へ移動できます。元ファイルは変更せず、展開済みの本のキャッシュも書き込みません。
@@ -61,7 +65,7 @@ Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、M
 
 5 種類の組み込みテーマから選ぶか、文字・背景・リンクの色をカスタマイズして保存できます。既存のカスタムテーマと保存済み設定も引き続き利用できます。
 
-![Sumra の 5 種類の組み込み読書テーマ](docs/images/themes.png)
+![Vira Reader の 5 種類の組み込み読書テーマ](docs/images/themes.png)
 
 ## 対応形式
 
@@ -74,7 +78,7 @@ Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、M
 | その他の対応形式 | PDF 対応 AI、P7M エンベロープ、LIT |
 | 追加ソフトウェアが必要 | PostScript / EPS：Ghostscript を別途インストールしてください |
 
-対応状況はファイルのバリエーションによって異なります。Sumra は OCR と DRM の解除には対応していません。スキャンしたページのテキスト検索には、既存のテキストレイヤーが必要です。
+対応状況はファイルのバリエーションによって異なります。Vira Reader は OCR と DRM の解除には対応していません。スキャンしたページのテキスト検索には、既存のテキストレイヤーが必要です。
 
 <details>
 <summary>描画に関する補足と形式の制限</summary>
@@ -93,38 +97,38 @@ Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、M
 macOS、Apple Swift ツールチェーンと macOS SDK、CMake が必要です。初回ビルドでは、固定バージョンのネイティブ依存関係と Sparkle を取得するためインターネット接続が必要です。プロジェクトのビルドとパッケージングのスクリプトは Swift とシステムツールを使います。Python は必要ありません。
 
 ```sh
-git clone https://github.com/Ares-X/Sumra.git
-cd Sumra
+git clone https://github.com/Ares-X/Vira-Reader.git
+cd Vira-Reader
 ./scripts/build-app.sh --release
-open dist/Sumra.app
+open "dist/Vira Reader.app"
 ```
 
 必要に応じて、パッケージマネージャーで CMake をインストールしてください（例：`brew install cmake`）。開発ビルドを起動するには `./scripts/run-dev.sh` を使います。ローカルビルドはデフォルトで ad-hoc 署名されます。
 
-Sumra は GUI アプリケーションです。ファイルを開く操作、文書ツール、印刷にはアプリのインターフェースを使います。開発については、[実装状況](docs/IMPLEMENTATION_STATUS.md)、[ローカルチェック](scripts/check-source.sh)、[リリース手順](docs/RELEASE_ACTIONS.md)を参照してください。
+Vira Reader は GUI アプリケーションです。ファイルを開く操作、文書ツール、印刷にはアプリのインターフェースを使います。開発については、[実装状況](docs/IMPLEMENTATION_STATUS.md)、[ローカルチェック](scripts/check-source.sh)、[リリース手順](docs/RELEASE_ACTIONS.md)を参照してください。
 
 ## 貢献と翻訳
 
 設定では、よく使われる25の言語・地域を選べます。管理対象の画面文言は翻訳済みで、母語話者による改善も歓迎します。本文の文字表示は埋め込み・同梱・インストール済みフォントに依存します。対応一覧、検証範囲、組版の制限は[言語対応と検証](docs/LANGUAGE_SUPPORT.md)をご覧ください。
 
-[バグ報告と機能リクエスト](https://github.com/Ares-X/Sumra/issues)やプルリクエストを歓迎します。可能であれば、macOS と Sumra のバージョン、ファイル形式、再現手順、共有可能なサンプルを記載してください。
+[バグ報告と機能リクエスト](https://github.com/Ares-X/Vira-Reader/issues)やプルリクエストを歓迎します。可能であれば、macOS と Vira Reader のバージョン、ファイル形式、再現手順、共有可能なサンプルを記載してください。
 
 README は英語、簡体字中国語、繁体字中国語、日本語で読めます。内容の基準として [README.md](README.md) を参照し、セクションの順序を揃えてください。共通情報が変わった場合は、他の言語版も更新してください。すべての言語版で同じスクリーンショットを使い、技術文書へリンクしています。
 
 <!-- community-contributors:start -->
 ## コミュニティ貢献者
 
-Issue の報告、コードの提供、レビューを通じて Sumra を改善してくださる皆さんに感謝します。この一覧は対象の GitHub Issue とマージ済み Pull Request から自動更新されます。[掲載ルール](docs/COMMUNITY_CONTRIBUTORS.md)をご覧ください。
+Issue の報告、コードの提供、レビューを通じて Vira Reader を改善してくださる皆さんに感謝します。この一覧は対象の GitHub Issue とマージ済み Pull Request から自動更新されます。[掲載ルール](docs/COMMUNITY_CONTRIBUTORS.md)をご覧ください。
 
 | 貢献者 | 貢献内容 |
 | --- | --- |
-| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Sumra/issues/31) [Issue #42](https://github.com/Ares-X/Sumra/issues/42) [Issue #68](https://github.com/Ares-X/Sumra/issues/68) [Issue #69](https://github.com/Ares-X/Sumra/issues/69) [Issue #82](https://github.com/Ares-X/Sumra/issues/82) [Issue #118](https://github.com/Ares-X/Sumra/issues/118) [Issue #137](https://github.com/Ares-X/Sumra/issues/137) [Issue #158](https://github.com/Ares-X/Sumra/issues/158) |
-| <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [Issue #48](https://github.com/Ares-X/Sumra/issues/48) [Issue #74](https://github.com/Ares-X/Sumra/issues/74) |
+| <a href="https://github.com/HomeStarRunnerTron"><img src="https://github.com/HomeStarRunnerTron.png?size=80" alt="@HomeStarRunnerTron" width="40"></a> [@HomeStarRunnerTron](https://github.com/HomeStarRunnerTron) | 📝 [Issue #31](https://github.com/Ares-X/Vira-Reader/issues/31) [Issue #42](https://github.com/Ares-X/Vira-Reader/issues/42) [Issue #68](https://github.com/Ares-X/Vira-Reader/issues/68) [Issue #69](https://github.com/Ares-X/Vira-Reader/issues/69) [Issue #82](https://github.com/Ares-X/Vira-Reader/issues/82) [Issue #118](https://github.com/Ares-X/Vira-Reader/issues/118) [Issue #137](https://github.com/Ares-X/Vira-Reader/issues/137) [Issue #158](https://github.com/Ares-X/Vira-Reader/issues/158) |
+| <a href="https://github.com/2924661311"><img src="https://github.com/2924661311.png?size=80" alt="@2924661311" width="40"></a> [@2924661311](https://github.com/2924661311) | 📝 [Issue #48](https://github.com/Ares-X/Vira-Reader/issues/48) [Issue #74](https://github.com/Ares-X/Vira-Reader/issues/74) |
 
 <!-- community-contributors:end -->
 
 ## ライセンスと謝辞
 
-Sumra の新規コードは **[AGPL-3.0-or-later](LICENSE)** でライセンスされています。上流から取り込んだコンポーネントと移植したコンポーネントは、それぞれのライセンスと著作権表示を引き継ぎます。出典、バージョン、ライセンスは [THIRD_PARTY.md](THIRD_PARTY.md) を参照してください。
+Vira Reader の新規コードは **[AGPL-3.0-or-later](LICENSE)** でライセンスされています。上流から取り込んだコンポーネントと移植したコンポーネントは、それぞれのライセンスと著作権表示を引き継ぎます。出典、バージョン、ライセンスは [THIRD_PARTY.md](THIRD_PARTY.md) を参照してください。
 
-[SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf) に着想を得て、Sumra は MuPDF と SumatraPDF の文書処理の一部を、SwiftUI と AppKit のインターフェースで再利用しています。[MuPDF](https://mupdf.com/) とその他の上流プロジェクトに感謝します。Sumra は独立して開発されており、機能の対応状況と残る差異は[比較資料](docs/SUMATRA_PARITY.md)に記載しています。
+[SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf) に着想を得て、Vira Reader は MuPDF と SumatraPDF の文書処理の一部を、SwiftUI と AppKit のインターフェースで再利用しています。[MuPDF](https://mupdf.com/) とその他の上流プロジェクトに感謝します。Vira Reader は独立して開発されており、機能の対応状況と残る差異は[比較資料](docs/SUMATRA_PARITY.md)に記載しています。

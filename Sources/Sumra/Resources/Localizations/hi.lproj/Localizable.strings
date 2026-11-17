@@ -596,7 +596,7 @@
 "Parent folder" = "मूल फ़ोल्डर";
 "Pixels" = "पिक्सेल";
 "Preserve PDF Image Colors" = "PDF छवियों के रंग बनाए रखें";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Command, Control या Option वाला शॉर्टकट या फ़ंक्शन कुंजी दबाएँ। Sumra चलना चाहिए।";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Command, Control या Option वाला शॉर्टकट या फ़ंक्शन कुंजी दबाएँ। Vira Reader चलना चाहिए।";
 "Press shortcut keys…" = "शॉर्टकट कुंजियाँ दबाएँ…";
 "Press shortcut…" = "शॉर्टकट दबाएँ…";
 "Provider default" = "प्रदाता का डिफ़ॉल्ट";
@@ -664,8 +664,8 @@
 "Stable releases" = "स्थिर रिलीज़";
 "Strike Out Selection" = "चयन को काटती रेखा";
 "Style" = "शैली";
-"Sumra Help" = "Sumra सहायता";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra दस्तावेज़ की त्रुटियाँ macOS Console में com.leaf.reader उपप्रणाली के अंतर्गत रिपोर्ट करता है।";
+"Vira Reader Help" = "Vira Reader सहायता";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader दस्तावेज़ की त्रुटियाँ macOS Console में com.leaf.reader उपप्रणाली के अंतर्गत रिपोर्ट करता है।";
 "System Theme" = "सिस्टम थीम";
 "Tab Color" = "टैब का रंग";
 "Target language code" = "लक्ष्य भाषा कोड";
@@ -675,7 +675,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "ये आपके मौजूदा कमांड संबंध हैं। इन्हें सेटिंग → शॉर्टकट में संपादित करें।";
 "This PDF does not allow text extraction." = "यह PDF पाठ निकालने की अनुमति नहीं देता।";
 "This PDF has no embedded files" = "इस PDF में एम्बेड की गई फ़ाइलें नहीं हैं";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "Sumra के इस विकास बिल्ड में अपडेट फ़ीड और हस्ताक्षर कुंजी कॉन्फ़िगर नहीं हैं। प्रकाशित बिल्ड देखने के लिए रिलीज़ खोलें।";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "Vira Reader के इस विकास बिल्ड में अपडेट फ़ीड और हस्ताक्षर कुंजी कॉन्फ़िगर नहीं हैं। प्रकाशित बिल्ड देखने के लिए रिलीज़ खोलें।";
 "This document has no page thumbnails" = "इस दस्तावेज़ में पृष्ठ थंबनेल नहीं हैं";
 "This document has unsaved annotations or form changes." = "इस दस्तावेज़ में असहेजी टिप्पणियाँ या फ़ॉर्म बदलाव हैं।";
 "Timestamp Certificate" = "टाइमस्टैम्प प्रमाणपत्र";
@@ -685,7 +685,7 @@
 "Toggle Bookmark at Position" = "इस स्थान पर बुकमार्क बदलें";
 "Tool" = "उपकरण";
 "Tools" = "उपकरण";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "अनुवाद Sources/Sumra/Resources/Localizations में हैं। अपनी भाषा की Localizable.strings में मान संपादित करें और अंग्रेज़ी कुंजियाँ तथा प्रारूप प्लेसहोल्डर अपरिवर्तित रखें। अपने बदलाव Sumra रिपॉज़िटरी में पुल अनुरोध के रूप में भेजें।";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "अनुवाद Sources/Sumra/Resources/Localizations में हैं। अपनी भाषा की Localizable.strings में मान संपादित करें और अंग्रेज़ी कुंजियाँ तथा प्रारूप प्लेसहोल्डर अपरिवर्तित रखें। अपने बदलाव Vira Reader रिपॉज़िटरी में पुल अनुरोध के रूप में भेजें।";
 "Trash File and Open Next…" = "फ़ाइल कूड़ेदान में भेजें और अगली खोलें…";
 "Two Pages" = "दो पृष्ठ";
 "Type" = "प्रकार";
@@ -745,7 +745,7 @@
 
 "Replace Current Document" = "मौजूदा दस्तावेज़ बदलें";
 
-"New Sumra Window" = "नई Sumra विंडो";
+"New Vira Reader Window" = "नई Vira Reader विंडो";
 "New Tab" = "नया टैब";
 
 "Close Tab" = "टैब बंद करें";

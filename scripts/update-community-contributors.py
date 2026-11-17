@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Update Sumra's four README contributor sections from GitHub activity."""
+"""Update Vira Reader's four README contributor sections from GitHub activity."""
 
 import json
 import os
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-REPOSITORY = "Ares-X/Sumra"
+REPOSITORY = "Ares-X/Vira-Reader"
 START = "<!-- community-contributors:start -->"
 END = "<!-- community-contributors:end -->"
 ELIGIBLE_ISSUE_LABELS = {"bug", "enhancement", "documentation", "community-credit"}
@@ -16,7 +16,7 @@ EXCLUDED_LABELS = {"invalid", "duplicate", "spam", "wontfix", "no-credit"}
 LANGUAGES = {
     "README.md": (
         "Community contributors",
-        "Thanks to everyone improving Sumra through issue reports, code, and reviews. "
+        "Thanks to everyone improving Vira Reader through issue reports, code, and reviews. "
         "This list is automatically generated from eligible GitHub issues and merged pull requests. "
         "See the [recognition rules](docs/COMMUNITY_CONTRIBUTORS.md).",
         "Contributor", "Contributions", "Issue", "PR", "Review",
@@ -24,7 +24,7 @@ LANGUAGES = {
     ),
     "README.zh-CN.md": (
         "社区贡献者",
-        "感谢通过问题反馈、代码和评审帮助改进 Sumra 的每一位贡献者。"
+        "感谢通过问题反馈、代码和评审帮助改进 Vira Reader 的每一位贡献者。"
         "此名单根据符合条件的 GitHub Issue 和已合并的 Pull Request 自动更新。"
         "详见[计入规则](docs/COMMUNITY_CONTRIBUTORS.md)。",
         "贡献者", "贡献记录", "问题", "PR", "评审",
@@ -32,7 +32,7 @@ LANGUAGES = {
     ),
     "README.zh-TW.md": (
         "社群貢獻者",
-        "感謝透過問題回報、程式碼與審查協助改進 Sumra 的每一位貢獻者。"
+        "感謝透過問題回報、程式碼與審查協助改進 Vira Reader 的每一位貢獻者。"
         "此名單依符合條件的 GitHub Issue 與已合併的 Pull Request 自動更新。"
         "詳見[列入規則](docs/COMMUNITY_CONTRIBUTORS.md)。",
         "貢獻者", "貢獻紀錄", "問題", "PR", "審查",
@@ -40,7 +40,7 @@ LANGUAGES = {
     ),
     "README.ja.md": (
         "コミュニティ貢献者",
-        "Issue の報告、コードの提供、レビューを通じて Sumra を改善してくださる皆さんに感謝します。"
+        "Issue の報告、コードの提供、レビューを通じて Vira Reader を改善してくださる皆さんに感謝します。"
         "この一覧は対象の GitHub Issue とマージ済み Pull Request から自動更新されます。"
         "[掲載ルール](docs/COMMUNITY_CONTRIBUTORS.md)をご覧ください。",
         "貢献者", "貢献内容", "Issue", "PR", "レビュー",
@@ -59,7 +59,7 @@ def fetch_pages(path, token):
         request = Request(url, headers={
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
-            "User-Agent": "Sumra-community-contributors",
+            "User-Agent": "Vira-Reader-community-contributors",
             "X-GitHub-Api-Version": "2022-11-28",
         })
         with urlopen(request, timeout=30) as response:

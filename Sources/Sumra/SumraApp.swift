@@ -117,7 +117,7 @@ struct ReaderWindow: View {
     }
 
     private var windowTitle: String {
-        guard let path = state.document?.url.path ?? state.restoredPayload?.path ?? payload.path else { return "Sumra" }
+        guard let path = state.document?.url.path ?? state.restoredPayload?.path ?? payload.path else { return "Vira Reader" }
         return (fullPathTitle ? path : URL(fileURLWithPath: path).lastPathComponent) + (pageInTitle && state.count > 0 ? " — " + state.positionLabel : "")
     }
 
@@ -237,7 +237,7 @@ private final class ReaderTabWindowController: NSWindowController, NSWindowDeleg
         window.toolbarStyle = .unifiedCompact
         window.tabbingIdentifier = parent.tabbingIdentifier
         window.tabbingMode = .preferred
-        window.title = payload.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Sumra"
+        window.title = payload.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Vira Reader"
         super.init(window: window)
         window.delegate = self
         window.contentViewController = NSHostingController(rootView: NativeReaderWindowRoot(payload: payload, application: application))
@@ -2277,6 +2277,9 @@ extension ReaderState {
 @main
 enum SumraMain {
     @MainActor static func main() {
+        if Bundle.main.bundleIdentifier == "dev.aresx.vira-reader" {
+            ReaderPreferences.migrateIdentity(defaults: .standard, previousDomain: "dev.aresx.leaf", domain: "dev.aresx.vira-reader")
+        }
         ReaderWindowDiagnostics.shared.startAtLaunch()
         // AppKit's restoration funnel must exist before SwiftUI starts native
         // restoration; installing a window delegate is already too late.
@@ -2380,7 +2383,7 @@ struct SumraApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Sumra", id: "reader", for: WindowPayload.self) { $payload in
+        WindowGroup("Vira Reader", id: "reader", for: WindowPayload.self) { $payload in
             ReaderScene(payload: $payload, application: delegate)
                 .modifier(ReaderLanguage())
         } defaultValue: {

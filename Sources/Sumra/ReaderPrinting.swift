@@ -203,7 +203,7 @@ enum ReaderPrinting {
             set { (representedObject as? NSPrintInfo)?.printSettings[centerKey] = newValue }
         }
         override func loadView() {
-            title = "Sumra"
+            title = "Vira Reader"
             let scaling = NSPopUpButton()
             for mode in [Scaling.shrink, .fit, .stretch, .actual] {
                 scaling.addItem(withTitle: L(mode.title)); scaling.lastItem?.tag = mode.rawValue

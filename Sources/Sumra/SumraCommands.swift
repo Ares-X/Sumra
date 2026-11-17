@@ -68,7 +68,7 @@ struct SumraCommands: Commands {
     @CommandsBuilder
     private var applicationCommands: some Commands {
         CommandGroup(replacing: .help) {
-            Button(L("Sumra Help")) { ReaderHelp.showManual() }
+            Button(L("Vira Reader Help")) { ReaderHelp.showManual() }
             Button(L("Keyboard Shortcuts")) { ReaderHelp.showShortcuts() }
             Button(L("Application Log")) { ReaderHelp.showLog() }
             Button(L("Errors in This Session")) { ReaderHelp.showErrors() }
@@ -79,7 +79,7 @@ struct SumraCommands: Commands {
             Button(L("Check for Updates…")) { ReaderHelp.checkForUpdates() }
         }
         CommandGroup(replacing: .newItem) {
-            Button(L("New Sumra Window")) {
+            Button(L("New Vira Reader Window")) {
                 ReaderWindows.leaveOverview(of: ReaderWindows.newTabState?.window) {
                     application.openReaderWindow(WindowPayload())
                 }

@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "Sumra", defaultLocalization: "en", platforms: [.macOS(.v13)],
+    name: "Vira Reader", defaultLocalization: "en", platforms: [.macOS(.v13)],
     targets: [
         .target(name: "CArchive", linkerSettings: [.linkedLibrary("archive")]),
         .target(name: "SumraCore", dependencies: ["CArchive"]),

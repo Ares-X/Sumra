@@ -22,10 +22,10 @@ if [ "$BUILD_CONFIGURATION" = release ]; then BUILD_FLAGS+=(-Xswiftc -Osize -Xli
 swift build "${BUILD_FLAGS[@]}"
 BIN="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)"
 mkdir -p "$PWD/dist"
-APP_STAGE="$(mktemp -d "$PWD/dist/.Sumra-build.XXXXXX")"
-APP="$APP_STAGE/Sumra.app/Contents"
+APP_STAGE="$(mktemp -d "$PWD/dist/.Vira-Reader-build.XXXXXX")"
+APP="$APP_STAGE/Vira Reader.app/Contents"
 mkdir -p "$APP/MacOS" "$APP/Resources"
-ICON_TMP="$(mktemp -d "${TMPDIR:-/tmp}/Sumra-icon.XXXXXX")"
+ICON_TMP="$(mktemp -d "${TMPDIR:-/tmp}/Vira-Reader-icon.XXXXXX")"
 cleanup() {
     local result=$?
     rm -rf "$ICON_TMP"
@@ -36,9 +36,9 @@ cleanup() {
 }
 trap cleanup EXIT
 for variant in Light Dark; do
-    ICONSET="$ICON_TMP/Sumra-$variant.iconset"
-    swift scripts/rasterize-icon.swift "Assets/AppIcon/Sumra-$variant.pdf" "$ICONSET"
-    iconutil -c icns "$ICONSET" -o "$APP/Resources/Sumra-$variant.icns"
+    ICONSET="$ICON_TMP/ViraReader-$variant.iconset"
+    swift scripts/rasterize-icon.swift "Assets/AppIcon/ViraReader-$variant.png" "$ICONSET"
+    iconutil -c icns "$ICONSET" -o "$APP/Resources/ViraReader-$variant.icns"
 done
 cp "$BIN/Sumra" "$APP/MacOS/Sumra"
 if [ "$BUILD_CONFIGURATION" = release ]; then strip -x "$APP/MacOS/Sumra"; fi
@@ -54,19 +54,19 @@ codesign --verify --deep --strict "$APP/.."
 # Publish only a completely packaged and verified bundle. Keep the preceding
 # app recoverable, including if promotion fails after moving it out of the way.
 PREVIOUS=""
-if [ -e "$PWD/dist/Sumra.app" ]; then
-    PREVIOUS="$(mktemp -d "$PWD/dist/.Sumra-previous.XXXXXX")"
-    mv "$PWD/dist/Sumra.app" "$PREVIOUS/Sumra.app"
+if [ -e "$PWD/dist/Vira Reader.app" ]; then
+    PREVIOUS="$(mktemp -d "$PWD/dist/.Vira-Reader-previous.XXXXXX")"
+    mv "$PWD/dist/Vira Reader.app" "$PREVIOUS/Vira Reader.app"
 fi
-if ! mv "$APP_STAGE/Sumra.app" "$PWD/dist/Sumra.app"; then
-    if [ -n "$PREVIOUS" ]; then mv "$PREVIOUS/Sumra.app" "$PWD/dist/Sumra.app"; rmdir "$PREVIOUS"; fi
+if ! mv "$APP_STAGE/Vira Reader.app" "$PWD/dist/Vira Reader.app"; then
+    if [ -n "$PREVIOUS" ]; then mv "$PREVIOUS/Vira Reader.app" "$PWD/dist/Vira Reader.app"; rmdir "$PREVIOUS"; fi
     exit 1
 fi
 rmdir "$APP_STAGE"
-if [ -n "$PREVIOUS" ]; then echo "Previous bundle retained at $PREVIOUS/Sumra.app"; fi
+if [ -n "$PREVIOUS" ]; then echo "Previous bundle retained at $PREVIOUS/Vira Reader.app"; fi
 if [ "${SUMRA_CODE_SIGN_IDENTITY:--}" = - ]; then
-    echo "Built dist/Sumra.app ($BUILD_CONFIGURATION, ad-hoc signed local development build, not notarized)."
+    echo "Built dist/Vira Reader.app ($BUILD_CONFIGURATION, ad-hoc signed local development build, not notarized)."
 else
-    echo "Built dist/Sumra.app ($BUILD_CONFIGURATION, signed; notarization and update delivery still require validation)."
+    echo "Built dist/Vira Reader.app ($BUILD_CONFIGURATION, signed; notarization and update delivery still require validation)."
 fi
-du -sh dist/Sumra.app
+du -sh "dist/Vira Reader.app"

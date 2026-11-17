@@ -782,11 +782,14 @@ struct AnnotationList: View {
         let page: Int, index: Int, type: String, text: String
         var id: String { "\(page):\(index)" }
     }
-    @State private var rows = (revision: "", values: [Row]())
+    @State private var rows = (documentID: Optional<UUID>.none, mutationRevision: Optional<Int>.none, count: 0, pages: [Int: [Row]]())
+    #if DEBUG
+    var didLoadForTesting: (([(page: Int, index: Int, type: String, text: String)]) -> Void)? = nil
+    #endif
     var body: some View {
         let _ = language
         let revision = "\(state.document?.id.uuidString ?? ""):\(state.editRevision)"
-        let all = rows.revision == revision ? rows.values : []
+        let all = rows.documentID == state.document?.id ? rows.pages.keys.sorted().flatMap { rows.pages[$0] ?? [] } : []
         let visible = all.filter { (kind == "All" || $0.type == kind) && (query.isEmpty || $0.text.localizedCaseInsensitiveContains(query)) }
         VStack {
             TextField(L("Search annotations"), text: $query).padding([.top, .horizontal], 8)
@@ -800,7 +803,7 @@ struct AnnotationList: View {
                 }.buttonStyle(.plain)
             }.listStyle(.sidebar)
             .overlay {
-                if visible.isEmpty, state.nativePDF == nil || rows.revision == revision {
+                if visible.isEmpty, state.nativePDF == nil || rows.documentID == state.document?.id && rows.mutationRevision != nil {
                     Text(L("No results")).foregroundStyle(.secondary).padding()
                 }
             }
@@ -813,19 +816,28 @@ struct AnnotationList: View {
             if let pages = state.nativePDF {
                 let documentID = state.document?.id, editRevision = state.editRevision
                 do {
-                    var collected = [Row]()
                     let count = await pages.count
-                    for page in 0..<count {
+                    let sameDocument = rows.documentID == documentID && rows.count == count
+                    let changes = await pages.pdfAnnotationChanges(since: sameDocument ? rows.mutationRevision : nil)
+                    let changedPages = changes.pages ?? Array(0..<count)
+                    var collected = changes.pages == nil ? [Int: [Row]]() : rows.pages
+                    for page in changedPages {
                         try Task.checkCancellation()
                         let annotations = try await pages.pdfAnnotations(page)
                         guard state.document?.id == documentID, state.editRevision == editRevision else { return }
-                        collected += annotations.filter { $0.type != "Widget" && $0.type != "Link" }.map {
+                        let pageRows = annotations.filter { $0.type != "Widget" && $0.type != "Link" }.map {
                             Row(page: page, index: Int($0.id), type: $0.type,
                                 text: [$0.author, $0.contents].filter { !$0.isEmpty }.joined(separator: " — "))
                         }
+                        collected[page] = pageRows.isEmpty ? nil : pageRows
                     }
                     if !Task.isCancelled, state.document?.id == documentID, state.editRevision == editRevision {
-                        rows = (revision, collected)
+                        rows = (documentID, changes.revision, count, collected)
+                        #if DEBUG
+                        didLoadForTesting?(collected.keys.sorted().flatMap { collected[$0] ?? [] }.map {
+                            (page: $0.page, index: $0.index, type: $0.type, text: $0.text)
+                        })
+                        #endif
                     }
                 } catch { if !Task.isCancelled, state.document?.id == documentID { state.error = error.localizedDescription } }
             }

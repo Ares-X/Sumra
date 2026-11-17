@@ -1,10 +1,10 @@
 # SyncTeX editor integration
 
-Sumra supports inverse search from a PDF to its source and forward search from an
+Vira Reader supports inverse search from a PDF to its source and forward search from an
 editor source position to the PDF. Compile with SyncTeX enabled and keep the
 `.synctex` or `.synctex.gz` index beside the output PDF.
 
-Editors invoke forward search through the macOS URL handler:
+The existing `sumra` URL scheme is retained after the Vira Reader rename so editor configurations continue to use the same protocol. Editors invoke forward search through the macOS URL handler:
 
 ```text
 sumra://synctex?pdf=<encoded absolute file URL>&source=<encoded absolute file URL>&line=42&column=0
@@ -31,7 +31,7 @@ url.queryItems = [
 NSWorkspace.shared.open(url.url!)
 ```
 
-macOS delivers the URL to Sumra's existing document-open callback. Sumra resolves
+macOS delivers the URL to Vira Reader's existing document-open callback. Vira Reader resolves
 the source line through its bundled SyncTeX parser and activates an existing
 window for the same PDF, including a symlink to that PDF. When several windows
 show it, the active window takes precedence. The window reloads the compiled PDF
@@ -41,7 +41,7 @@ reader or a new window. A newer request for the same PDF supersedes a query stil
 being parsed. The regular file watcher also reloads changed PDFs independently
 of editor requests.
 
-A bundled Sumra app must have been registered with Launch Services for the `sumra`
+A bundled Vira Reader app must have been registered with Launch Services for the `sumra`
 scheme to resolve. A bare SwiftPM executable does not register a URL handler.
 Missing or malformed indices and unavailable destination pages produce a SyncTeX
 error dialog. Page boxes and coordinate conversion come from the opened MuPDF
@@ -76,11 +76,11 @@ URL as one argument, and encode the file URL before encoding its query value
 {
   "version": "2.0.0",
   "tasks": [{
-    "label": "Sumra: Forward SyncTeX",
+    "label": "Vira Reader: Forward SyncTeX",
     "type": "process",
     "command": "/usr/bin/open",
     "args": [
-      "-a", "/Applications/Sumra.app",
+      "-a", "/Applications/Vira Reader.app",
       "sumra://synctex?pdf=file%3A%2F%2F%2FUsers%2Fme%2Fpaper%2FMy%2520Book.pdf&source=file%3A%2F%2F%2FUsers%2Fme%2Fpaper%2Fmain.tex&line=${lineNumber}&column=0"
     ],
     "problemMatcher": [],
@@ -89,9 +89,12 @@ URL as one argument, and encode the file URL before encoding its query value
 }
 ```
 
-This uses a macOS GUI callback; the Sumra executable has no command-line parser.
+This uses a macOS GUI callback; the Vira Reader executable has no command-line parser.
 The explicit app path selects the intended bundle when several development and
-installed copies exist. Configure generated source paths for multi-file projects
+installed copies exist. Moving from Sumra requires a manual install of
+`/Applications/Vira Reader.app`; update editor tasks to target that app. The
+`sumra` protocol is unchanged despite the new bundle identifier. Configure generated
+source paths for multi-file projects
 with the editor's URL builder rather than inserting an unescaped `${file}`.
 [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks)
 and [cursor variables](https://code.visualstudio.com/docs/reference/variables-reference)

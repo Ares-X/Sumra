@@ -1280,7 +1280,7 @@ private struct WelcomeView: View {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable().scaledToFit().frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(L("Sumra")).font(.system(size: 24, weight: .semibold))
+                    Text(L("Vira Reader")).font(.system(size: 24, weight: .semibold))
                     Text(L("PDF, books, comics & Markdown"))
                         .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 }

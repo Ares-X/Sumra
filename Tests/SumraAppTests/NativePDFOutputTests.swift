@@ -371,13 +371,13 @@ final class NativePDFOutputTests: XCTestCase {
             XCTAssertTrue(try recovered.pdfAnnotations(0).contains { $0.contents == "Keep the local edit" })
             let copiedBytes = try Data(contentsOf: output)
             do { try await pages.pdfSave(to: source); XCTFail("Ordinary Save must preserve the external version") }
-            catch { XCTAssertTrue(error.localizedDescription.contains("changed outside Sumra")) }
+            catch { XCTAssertTrue(error.localizedDescription.contains("changed outside Vira Reader")) }
             do {
                 try await pages.pdfSignCopy(to: output, password: "",
                     identity: .pkcs12(directory.url.appendingPathComponent("missing.p12"), password: ""),
                     fieldName: "Approval", page: 0, bounds: .zero)
                 XCTFail("A missing signing identity must fail without changing output or the live journal")
-            } catch { XCTAssertFalse(error.localizedDescription.contains("modified outside Sumra"), error.localizedDescription) }
+            } catch { XCTAssertFalse(error.localizedDescription.contains("modified outside Vira Reader"), error.localizedDescription) }
             XCTAssertEqual(try Data(contentsOf: source), replacement)
             XCTAssertEqual(try Data(contentsOf: output), copiedBytes)
             let after = try await pages.pdfInfo(), annotations = try await pages.pdfAnnotations(0)

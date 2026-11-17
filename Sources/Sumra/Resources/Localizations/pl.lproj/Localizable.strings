@@ -598,7 +598,7 @@
 "Parent folder" = "Folder nadrzędny";
 "Pixels" = "Piksele";
 "Preserve PDF Image Colors" = "Zachowaj kolory obrazów PDF";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Naciśnij skrót z Command, Control lub Option albo klawisz funkcyjny. Sumra musi być uruchomiona.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Naciśnij skrót z Command, Control lub Option albo klawisz funkcyjny. Vira Reader musi być uruchomiona.";
 "Press shortcut keys…" = "Naciśnij klawisze skrótu…";
 "Press shortcut…" = "Naciśnij skrót…";
 "Provider default" = "Domyślny dostawcy";
@@ -666,8 +666,8 @@
 "Stable releases" = "Wydania stabilne";
 "Strike Out Selection" = "Przekreśl zaznaczenie";
 "Style" = "Styl";
-"Sumra Help" = "Pomoc Sumra";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra zgłasza błędy dokumentów w Konsoli macOS w podsystemie com.leaf.reader.";
+"Vira Reader Help" = "Pomoc Vira Reader";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader zgłasza błędy dokumentów w Konsoli macOS w podsystemie com.leaf.reader.";
 "System Theme" = "Motyw systemowy";
 "Target language code" = "Kod języka docelowego";
 "TeX source editor" = "Edytor źródeł TeX";
@@ -676,7 +676,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "To bieżące przypisania poleceń. Zmień je w Ustawienia → Skróty.";
 "This PDF does not allow text extraction." = "Ten PDF nie zezwala na wyodrębnianie tekstu.";
 "This PDF has no embedded files" = "Ten PDF nie ma plików osadzonych";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "Ta rozwojowa kompilacja Sumra nie ma skonfigurowanego kanału aktualizacji ani klucza podpisu. Otwórz wydania, aby sprawdzić opublikowane kompilacje.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "Ta rozwojowa kompilacja Vira Reader nie ma skonfigurowanego kanału aktualizacji ani klucza podpisu. Otwórz wydania, aby sprawdzić opublikowane kompilacje.";
 "This document has no page thumbnails" = "Ten dokument nie ma miniatur stron";
 "This document has unsaved annotations or form changes." = "Dokument zawiera niezapisane zmiany adnotacji lub formularzy.";
 "Timestamp Certificate" = "Certyfikat znacznika czasu";
@@ -686,7 +686,7 @@
 "Toggle Bookmark at Position" = "Przełącz zakładkę w bieżącej pozycji";
 "Tool" = "Narzędzie";
 "Tools" = "Narzędzia";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "Tłumaczenia znajdują się w Sources/Sumra/Resources/Localizations. Edytuj wartości w pliku Localizable.strings swojego języka, zachowując angielskie klucze i znaczniki formatu. Prześlij zmiany jako pull request do repozytorium Sumra.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "Tłumaczenia znajdują się w Sources/Sumra/Resources/Localizations. Edytuj wartości w pliku Localizable.strings swojego języka, zachowując angielskie klucze i znaczniki formatu. Prześlij zmiany jako pull request do repozytorium Vira Reader.";
 "Trash File and Open Next…" = "Przenieś plik do Kosza i otwórz następny…";
 "Two Pages" = "Dwie strony";
 "Type" = "Typ";
@@ -745,7 +745,7 @@
 
 "Replace Current Document" = "Zastąp bieżący dokument";
 
-"New Sumra Window" = "Nowe okno Sumra";
+"New Vira Reader Window" = "Nowe okno Vira Reader";
 "New Tab" = "Nowa karta";
 
 "Close Tab" = "Zamknij kartę";

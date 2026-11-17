@@ -4,7 +4,7 @@ import Foundation
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 guard arguments.count == 2 else {
-    fputs("Usage: rasterize-icon.swift <source.pdf> <output.iconset>\n", stderr)
+    fputs("Usage: rasterize-icon.swift <source.png> <output.iconset>\n", stderr)
     exit(2)
 }
 

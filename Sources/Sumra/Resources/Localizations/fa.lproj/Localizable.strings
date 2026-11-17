@@ -572,7 +572,7 @@
 "Parent folder" = "پوشهٔ والد";
 "Pixels" = "پیکسل";
 "Preserve PDF Image Colors" = "حفظ رنگ‌های تصویر PDF";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "میان‌بری با Command یا Control یا Option، یا یک کلید عملکرد فشار دهید. Sumra باید در حال اجرا باشد.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "میان‌بری با Command یا Control یا Option، یا یک کلید عملکرد فشار دهید. Vira Reader باید در حال اجرا باشد.";
 "Press shortcut keys…" = "کلیدهای میان‌بر را فشار دهید…";
 "Press shortcut…" = "میان‌بر را فشار دهید…";
 "Provider default" = "پیش‌فرض ارائه‌دهنده";
@@ -640,8 +640,8 @@
 "Stable releases" = "انتشارهای پایدار";
 "Strike Out Selection" = "خط زدن انتخاب";
 "Style" = "سبک";
-"Sumra Help" = "راهنمای Sumra";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra خطاهای سند را در Console سیستم macOS زیر زیرسیستم com.leaf.reader گزارش می‌کند.";
+"Vira Reader Help" = "راهنمای Vira Reader";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader خطاهای سند را در Console سیستم macOS زیر زیرسیستم com.leaf.reader گزارش می‌کند.";
 "System Theme" = "پوستهٔ سیستم";
 "Tab Color" = "رنگ زبانه";
 "Target language code" = "کد زبان مقصد";
@@ -651,7 +651,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "این‌ها تخصیص‌های فرمان کنونی شما هستند. آن‌ها را در تنظیمات ← میان‌برها ویرایش کنید.";
 "This PDF does not allow text extraction." = "این PDF اجازهٔ استخراج متن نمی‌دهد.";
 "This PDF has no embedded files" = "این PDF پروندهٔ تعبیه‌شده ندارد";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "برای این نسخهٔ توسعهٔ Sumra خوراک به‌روزرسانی و کلید امضا پیکربندی نشده است. برای بررسی نسخه‌های منتشرشده، انتشارها را باز کنید.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "برای این نسخهٔ توسعهٔ Vira Reader خوراک به‌روزرسانی و کلید امضا پیکربندی نشده است. برای بررسی نسخه‌های منتشرشده، انتشارها را باز کنید.";
 "This document has no page thumbnails" = "این سند تصویر بندانگشتی صفحه ندارد";
 "This document has unsaved annotations or form changes." = "این سند یادداشت یا تغییرات فرم ذخیره‌نشده دارد.";
 "Timestamp Certificate" = "گواهی مهر زمانی";
@@ -661,7 +661,7 @@
 "Toggle Bookmark at Position" = "تغییر وضعیت نشانک در موقعیت";
 "Tool" = "ابزار";
 "Tools" = "ابزارها";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "ترجمه‌ها در Sources/Sumra/Resources/Localizations هستند. مقدارها را در Localizable.strings زبان خود ویرایش کنید و کلیدهای انگلیسی و جای‌نگهدارهای قالب را تغییر ندهید. تغییرات را به‌شکل درخواست ادغام به مخزن Sumra بفرستید.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "ترجمه‌ها در Sources/Sumra/Resources/Localizations هستند. مقدارها را در Localizable.strings زبان خود ویرایش کنید و کلیدهای انگلیسی و جای‌نگهدارهای قالب را تغییر ندهید. تغییرات را به‌شکل درخواست ادغام به مخزن Vira Reader بفرستید.";
 "Trash File and Open Next…" = "انتقال پرونده به زباله‌دان و باز کردن بعدی…";
 "Two Pages" = "دو صفحه";
 "Type" = "نوع";
@@ -738,7 +738,7 @@
 
 "Replace Current Document" = "جایگزینی سند فعلی";
 
-"New Sumra Window" = "پنجرهٔ جدید Sumra";
+"New Vira Reader Window" = "پنجرهٔ جدید Vira Reader";
 "New Tab" = "زبانه جدید";
 
 "Close Tab" = "بستن زبانه";

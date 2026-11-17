@@ -241,7 +241,7 @@ private struct ReaderHomeDragRegion: NSViewRepresentable {
     }
 
     private var preferredWidth: CGFloat {
-        let titles = tabs.isEmpty ? [state.document?.url.lastPathComponent ?? "Sumra"] : tabs.map(\.title)
+        let titles = tabs.isEmpty ? [state.document?.url.lastPathComponent ?? "Vira Reader"] : tabs.map(\.title)
         let labelWidth = titles.map { ($0 as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width }.max() ?? 0
         // Keep long filenames readable without letting one title occupy the bar.
         let tabWidth = min(220, max(120, ceil(labelWidth) + 63))

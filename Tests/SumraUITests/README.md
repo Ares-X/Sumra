@@ -11,7 +11,7 @@ or open private documents. Targeted journeys may temporarily change reading-cont
 settings and restore their declared baseline. Use a disposable macOS login
 for a clean acceptance run when available. Xcode must have UI testing permission.
 
-The first journey uses File > New Sumra Window to create its own Home window,
+The first journey uses File > New Vira Reader Window to create its own Home window,
 then its Open Document button and a real Open panel (Go to Folder) to read unique temporary copies of
 `docs/demos/Reading-Notes.md`. It exercises real pointer hover over New Tab,
 canceling a tab's Open panel, adding and closing a native tab, and opening the
@@ -118,9 +118,9 @@ xcodebuild build-for-testing \
   -destination 'platform=macOS' \
   -derivedDataPath build/gui-acceptance-20261101/xcode
 
-TEST_RUNNER_SUMRA_GUI_APP_PATH="$PWD/dist/Sumra.app" \
+TEST_RUNNER_SUMRA_GUI_APP_PATH="$PWD/dist/Vira Reader.app" \
 TEST_RUNNER_SUMRA_GUI_FIXTURE_PATH="$PWD/docs/demos/Reading-Notes.md" \
-TEST_RUNNER_SUMRA_GUI_LANGUAGE="$(defaults read dev.aresx.leaf language)" \
+TEST_RUNNER_SUMRA_GUI_LANGUAGE="$(defaults read dev.aresx.vira-reader language)" \
 xcodebuild test-without-building \
   -project tools/GUIAcceptance.xcodeproj -scheme GUIAcceptance \
   -destination 'platform=macOS' \

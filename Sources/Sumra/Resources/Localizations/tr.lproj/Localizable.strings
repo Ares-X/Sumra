@@ -597,7 +597,7 @@
 "Parent folder" = "Üst klasör";
 "Pixels" = "Piksel";
 "Preserve PDF Image Colors" = "PDF Resim Renklerini Koru";
-"Press a shortcut with Command, Control or Option, or a function key. Sumra must be running." = "Command, Control veya Option içeren bir kısayola ya da işlev tuşuna basın. Sumra çalışıyor olmalıdır.";
+"Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running." = "Command, Control veya Option içeren bir kısayola ya da işlev tuşuna basın. Vira Reader çalışıyor olmalıdır.";
 "Press shortcut keys…" = "Kısayol tuşlarına basın…";
 "Press shortcut…" = "Kısayola basın…";
 "Provider default" = "Sağlayıcının varsayılanı";
@@ -665,8 +665,8 @@
 "Stable releases" = "Kararlı sürümler";
 "Strike Out Selection" = "Seçimin Üstünü Çiz";
 "Style" = "Stil";
-"Sumra Help" = "Sumra Yardımı";
-"Sumra reports document errors to macOS Console under subsystem com.leaf.reader." = "Sumra, belge hatalarını macOS Konsolunda com.leaf.reader alt sistemi altında bildirir.";
+"Vira Reader Help" = "Vira Reader Yardımı";
+"Vira Reader reports document errors to macOS Console under subsystem com.leaf.reader." = "Vira Reader, belge hatalarını macOS Konsolunda com.leaf.reader alt sistemi altında bildirir.";
 "System Theme" = "Sistem Teması";
 "Tab Color" = "Sekme Rengi";
 "Target language code" = "Hedef dil kodu";
@@ -676,7 +676,7 @@
 "These are your current command bindings. Edit them in Settings → Shortcuts." = "Bunlar geçerli komut atamalarınızdır. Ayarlar → Kısayollar bölümünde düzenleyin.";
 "This PDF does not allow text extraction." = "Bu PDF metin çıkarmaya izin vermiyor.";
 "This PDF has no embedded files" = "Bu PDF'de gömülü dosya yok";
-"This development build of Sumra has no update feed and signing key configured. Open Releases to check for published builds." = "Bu Sumra geliştirme derlemesinde güncelleme akışı ve imza anahtarı yapılandırılmamış. Yayımlanan derlemeleri denetlemek için Sürümler'i açın.";
+"This development build of Vira Reader has no update feed and signing key configured. Open Releases to check for published builds." = "Bu Vira Reader geliştirme derlemesinde güncelleme akışı ve imza anahtarı yapılandırılmamış. Yayımlanan derlemeleri denetlemek için Sürümler'i açın.";
 "This document has no page thumbnails" = "Bu belgede sayfa küçük resimleri yok";
 "This document has unsaved annotations or form changes." = "Bu belgede kaydedilmemiş açıklama veya form değişiklikleri var.";
 "Timestamp Certificate" = "Zaman Damgası Sertifikası";
@@ -686,7 +686,7 @@
 "Toggle Bookmark at Position" = "Konumdaki Yer İmini Aç/Kapat";
 "Tool" = "Araç";
 "Tools" = "Araçlar";
-"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Sumra repository." = "Çeviriler Sources/Sumra/Resources/Localizations içindedir. Dilinizin Localizable.strings dosyasındaki değerleri düzenleyin; İngilizce anahtarları ve biçim yer tutucularını değiştirmeyin. Değişikliklerinizi Sumra deposuna çekme isteği olarak gönderin.";
+"Translations are in Sources/Sumra/Resources/Localizations. Edit the values in your language's Localizable.strings, keeping the English keys and format placeholders unchanged. Send your changes as a pull request to the Vira Reader repository." = "Çeviriler Sources/Sumra/Resources/Localizations içindedir. Dilinizin Localizable.strings dosyasındaki değerleri düzenleyin; İngilizce anahtarları ve biçim yer tutucularını değiştirmeyin. Değişikliklerinizi Vira Reader deposuna çekme isteği olarak gönderin.";
 "Trash File and Open Next…" = "Dosyayı Çöpe Taşı ve Sonrakini Aç…";
 "Two Pages" = "İki Sayfa";
 "Type" = "Tür";
@@ -745,7 +745,7 @@
 
 "Replace Current Document" = "Geçerli belgeyi değiştir";
 
-"New Sumra Window" = "Yeni Sumra penceresi";
+"New Vira Reader Window" = "Yeni Vira Reader penceresi";
 "New Tab" = "Yeni sekme";
 
 "Close Tab" = "Sekmeyi kapat";

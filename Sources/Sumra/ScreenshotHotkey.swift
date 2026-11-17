@@ -47,7 +47,7 @@ enum ScreenshotHotkey {
 
     static func configure(_ state: ReaderState) {
         let alert = NSAlert(); alert.messageText = L("Global Screenshot Shortcut")
-        alert.informativeText = L("Press a shortcut with Command, Control or Option, or a function key. Sumra must be running.")
+        alert.informativeText = L("Press a shortcut with Command, Control or Option, or a function key. Vira Reader must be running.")
         let recorder = Recorder(frame: NSRect(x: 0, y: 0, width: 400, height: 40))
         recorder.binding = current
         alert.accessoryView = recorder; alert.window.initialFirstResponder = recorder
