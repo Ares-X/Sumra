@@ -4,5 +4,15 @@
         <title>Vira Reader</title>
         <link>https://github.com/Ares-X/Vira-Reader/releases</link>
         <description>Vira Reader updates</description>
+        <item>
+            <title>0.2.48</title>
+            <pubDate>Tue, 17 Nov 2026 11:20:01 +0000</pubDate>
+            <link>https://github.com/Ares-X/Vira-Reader/releases</link>
+            <sparkle:version>51</sparkle:version>
+            <sparkle:shortVersionString>0.2.48</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/Ares-X/Vira-Reader/releases/download/v0.2.48/Vira-Reader-0.2.48-macOS-arm64.zip" length="19800820" type="application/octet-stream" sparkle:edSignature="ZHfAc4lyIg0x7ELuSuDg83gaTfh47f3VifXC4sUlG5xmY4uWo1muzceFBjp+kIE5lDxt0jJsb+ibkspCqos3Bw=="/>
+        </item>
     </channel>
 </rss>
