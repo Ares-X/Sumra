@@ -46,7 +46,7 @@ Vira Reader 是 Sumra 的新名称。首页、浅色和深色截图展示 Vira R
 
 发行版面向 **Apple Silicon（arm64）**，最低系统目标为 **macOS 13**。打包时检查可执行文件与库的 arm64 支持、最低系统和运行时依赖。阅读器 GUI 已在 macOS 26.6.2 虚拟机完成验收，macOS 13 的实机兼容性尚未验证。
 
-**从 Sumra 迁移：**需手动安装一次 **Vira Reader.app**；新应用使用新的 bundle identifier 和独立更新源，Sumra 更新源停留在 0.2.47。首次启动会复制旧偏好设置和阅读历史，并保留 Vira Reader 已有的选择；已在 macOS 26.6.2 虚拟机通过手动安装验证受控阅读历史、字号、语言和自动更新选择的迁移，原 Sumra 设置保持不变。默认文件关联和 macOS 窗口恢复状态不属于此偏好设置迁移范围。
+**从 Sumra 迁移：**需手动安装一次 **Vira Reader.app**；新应用使用新的 bundle identifier 和独立更新源，Sumra 不再提供应用内更新。首次启动会复制旧偏好设置和阅读历史，并保留 Vira Reader 已有的选择；已在 macOS 26.6.2 虚拟机通过手动安装验证受控阅读历史、字号、语言和自动更新选择的迁移，原 Sumra 设置保持不变。默认文件关联和 macOS 窗口恢复状态不属于此偏好设置迁移范围。
 
 Vira Reader 使用独立更新源，提供 Vira Reader 版本更新。PostScript 与 EPS 需另行安装 Ghostscript。
 
