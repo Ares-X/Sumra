@@ -12,20 +12,20 @@
 
 [**下载 Sumra 0.2.47**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [版本说明](https://github.com/Ares-X/Vira-Reader/releases) · [支持格式](#支持的格式) · [从源码构建](#从源码构建) · [问题反馈](https://github.com/Ares-X/Vira-Reader/issues)
 
-**更名预览：**Vira Reader 是 Sumra 的新名称。目前尚未公开发布 Vira Reader，最新公开下载仍为 **Sumra 0.2.47**。可从源码构建体验更名后的应用。下方截图展示更名前的 Sumra 界面。
+**更名预览：**Vira Reader 是 Sumra 的新名称。目前尚未公开发布 Vira Reader，最新公开下载仍为 **Sumra 0.2.47**。可从源码构建体验更名后的应用。首页、浅色和深色截图来自已签名的 Vira Reader 预览版；双页截图展示更名前的 Sumra 版本。
 
 从 Finder 打开 EPUB 小说、漫画压缩包、图片文件夹、Markdown 笔记或 PDF。在原生 Mac 窗口和标签页中阅读，选择合适的布局，用目录、搜索和书签找到想读的内容。
 
-![Sumra 浅色界面，展示 Markdown 阅读笔记与目录](docs/images/reader-light.png)
+![Vira Reader 浅色界面，展示 Markdown 阅读笔记与目录](docs/images/reader-light.png)
 
 <details>
 <summary>更多截图：双页阅读、最近文件与深色界面</summary>
 
-![双页阅读与目录侧栏](docs/images/reader-two-pages.png)
+![旧版 Sumra：双页阅读与目录侧栏](docs/images/reader-two-pages.png)
 
-![首页中的最近文档](docs/images/home-light.png)
+![Vira Reader 首页中的最近文档](docs/images/home-light.png)
 
-![深色阅读界面](docs/images/reader-dark.png)
+![Vira Reader 深色阅读界面](docs/images/reader-dark.png)
 
 截图均使用仓库内的[原创演示文档](docs/demos/Reading-Notes.md)。
 
@@ -46,7 +46,7 @@
 
 发行版面向 **Apple Silicon（arm64）**，最低系统目标为 **macOS 13**。打包时检查可执行文件与库的 arm64 支持、最低系统和运行时依赖。阅读器 GUI 已在 macOS 26.6.2 虚拟机完成验收，macOS 13 的实机兼容性尚未验证。
 
-**从 Sumra 迁移：**需手动安装一次 **Vira Reader.app**；新应用使用新的 bundle identifier 和独立更新源，Sumra 更新源停留在 0.2.47。首次启动会复制旧偏好设置和阅读历史，并保留 Vira Reader 已有的选择；此迁移尚待虚拟机验收。默认文件关联和 macOS 窗口恢复状态不会随偏好设置迁移。
+**从 Sumra 迁移：**需手动安装一次 **Vira Reader.app**；新应用使用新的 bundle identifier 和独立更新源，Sumra 更新源停留在 0.2.47。首次启动会复制旧偏好设置和阅读历史，并保留 Vira Reader 已有的选择；已在 macOS 26.6.2 虚拟机通过手动安装验证受控阅读历史、字号、语言和自动更新选择的迁移，原 Sumra 设置保持不变。默认文件关联和 macOS 窗口恢复状态不属于此偏好设置迁移范围。
 
 Vira Reader 使用独立更新源，目前其中尚无公开版本。PostScript 与 EPS 需另行安装 Ghostscript。
 
@@ -65,7 +65,7 @@ Vira Reader 使用独立更新源，目前其中尚无公开版本。PostScript 
 
 可从五种内置阅读主题中选择，也可自定义并保存正文、背景和链接颜色。现有自定义主题和已保存的设置仍可继续使用：
 
-![Sumra 五种内置阅读主题预览](docs/images/themes.png)
+![Vira Reader 五种内置阅读主题预览](docs/images/themes.png)
 
 工具栏 **Aa** 打开即时生效的阅读设置，集中调整已安装字体、字号、行距、边距、配色与布局，也可输入补充字体名称。CHM 带有关键词索引时，侧栏会提供独立的 **索引** 页签。EPUB 和漫画支持 Finder 缩略图与 Quick Look 翻页预览。详见[阅读控件](docs/READER_CONTROLS.md)和 [SyncTeX 编辑器集成](docs/SYNCTEX.md)。
 

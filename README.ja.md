@@ -12,20 +12,20 @@
 
 [**Sumra 0.2.47 をダウンロード**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [リリースノート](https://github.com/Ares-X/Vira-Reader/releases) · [対応形式](#対応形式) · [ソースからビルド](#ソースからビルド) · [問題を報告](https://github.com/Ares-X/Vira-Reader/issues)
 
-**名称変更のプレビュー：** Sumra の新しい名前は Vira Reader です。Vira Reader はまだ公開リリースされておらず、最新の公開版は **Sumra 0.2.47** です。新しい名称のアプリを試すにはソースからビルドしてください。以下のスクリーンショットは以前の Sumra の画面です。
+**名称変更のプレビュー：** Sumra の新しい名前は Vira Reader です。Vira Reader はまだ公開リリースされておらず、最新の公開版は **Sumra 0.2.47** です。新しい名称のアプリを試すにはソースからビルドしてください。ホーム、ライトモード、ダークモードの画面は署名済みの Vira Reader プレビュー版です。見開き表示の画面は以前の Sumra です。
 
 Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、Markdown メモ、PDF を開けます。Mac のネイティブウィンドウやタブで読み、レイアウトを選び、目次、検索、ブックマークで読みたい場所を見つけられます。
 
-![ライトモードで Markdown の読書メモと目次を表示する Sumra](docs/images/reader-light.png)
+![ライトモードで Markdown の読書メモと目次を表示する Vira Reader](docs/images/reader-light.png)
 
 <details>
 <summary>スクリーンショットをもっと見る：見開き表示、最近使ったファイル、ダークモード</summary>
 
-![目次サイドバー付きの見開き表示](docs/images/reader-two-pages.png)
+![以前の Sumra：目次サイドバー付きの見開き表示](docs/images/reader-two-pages.png)
 
-![ホーム画面の最近使った書類](docs/images/home-light.png)
+![Vira Reader ホーム画面の最近使った書類](docs/images/home-light.png)
 
-![ダークモードでの読書](docs/images/reader-dark.png)
+![Vira Reader のダークモードでの読書](docs/images/reader-dark.png)
 
 すべてのスクリーンショットには、リポジトリ内の[デモ用原稿](docs/demos/Reading-Notes.md)を使用しています。
 
@@ -46,7 +46,7 @@ Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、M
 
 リリースの対象は **Apple Silicon（arm64）** と **macOS 13 以降** です。同梱の実行ファイルとライブラリについて、arm64 対応、デプロイメントターゲット、実行時依存関係を確認しています。macOS 26.6.2 の仮想マシンでリーダー GUI の受け入れ確認を行っています。実機の macOS 13 ではまだ確認していません。
 
-**Sumra からの移行：** **Vira Reader.app** を一度手動でインストールしてください。バンドル識別子と更新フィードが変わり、Sumra のフィードは 0.2.47 のままです。初回起動で旧設定と読書履歴をコピーし、Vira Reader に保存済みの選択は保持します。この移行の仮想マシンでの受け入れ確認は未完了です。既定のファイル関連付けと macOS のウィンドウ復元状態は移行しません。
+**Sumra からの移行：** **Vira Reader.app** を一度手動でインストールしてください。バンドル識別子と更新フィードが変わり、Sumra のフィードは 0.2.47 のままです。初回起動で旧設定と読書履歴をコピーし、Vira Reader に保存済みの選択は保持します。macOS 26.6.2 の仮想マシンへの手動インストールで、管理した読書履歴、文字サイズ、言語、自動更新の選択の移行と、元の Sumra 設定の保持を確認しました。既定のファイル関連付けと macOS のウィンドウ復元状態は、この設定移行の対象外です。
 
 Vira Reader は独立した更新フィードを使います。現在、公開リリースは含まれていません。PostScript と EPS の利用には Ghostscript の別途インストールが必要です。
 
@@ -65,7 +65,7 @@ Vira Reader は独立した更新フィードを使います。現在、公開�
 
 5 種類の組み込みテーマから選ぶか、文字・背景・リンクの色をカスタマイズして保存できます。既存のカスタムテーマと保存済み設定も引き続き利用できます。
 
-![Sumra の 5 種類の組み込み読書テーマ](docs/images/themes.png)
+![Vira Reader の 5 種類の組み込み読書テーマ](docs/images/themes.png)
 
 ## 対応形式
 

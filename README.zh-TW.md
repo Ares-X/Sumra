@@ -12,20 +12,20 @@
 
 [**下載 Sumra 0.2.47**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [版本資訊](https://github.com/Ares-X/Vira-Reader/releases) · [支援格式](#支援的格式) · [從原始碼建置](#從原始碼建置) · [回報問題](https://github.com/Ares-X/Vira-Reader/issues)
 
-**更名預覽：**Vira Reader 是 Sumra 的新名稱。目前尚未公開發布 Vira Reader，最新公開下載仍為 **Sumra 0.2.47**。可從原始碼建置體驗更名後的 App。下方截圖顯示更名前的 Sumra 介面。
+**更名預覽：**Vira Reader 是 Sumra 的新名稱。目前尚未公開發布 Vira Reader，最新公開下載仍為 **Sumra 0.2.47**。可從原始碼建置體驗更名後的 App。首頁、淺色和深色截圖來自已簽署的 Vira Reader 預覽版；雙頁截圖顯示更名前的 Sumra 版本。
 
 從 Finder 開啟 EPUB 小說、漫畫壓縮檔、圖片資料夾、Markdown 筆記或 PDF。在原生 Mac 視窗和分頁中閱讀，選擇合適的版面配置，再透過目錄、搜尋和書籤找到想看的內容。
 
-![Sumra 淺色模式畫面，顯示 Markdown 閱讀筆記與目錄](docs/images/reader-light.png)
+![Vira Reader 淺色模式畫面，顯示 Markdown 閱讀筆記與目錄](docs/images/reader-light.png)
 
 <details>
 <summary>更多截圖：雙頁閱讀、最近開啟的檔案與深色模式</summary>
 
-![雙頁閱讀與目錄側邊欄](docs/images/reader-two-pages.png)
+![舊版 Sumra：雙頁閱讀與目錄側邊欄](docs/images/reader-two-pages.png)
 
-![首頁上的最近文件](docs/images/home-light.png)
+![Vira Reader 首頁上的最近文件](docs/images/home-light.png)
 
-![深色模式閱讀畫面](docs/images/reader-dark.png)
+![Vira Reader 深色模式閱讀畫面](docs/images/reader-dark.png)
 
 所有截圖都使用儲存庫中的[原創示範文件](docs/demos/Reading-Notes.md)。
 
@@ -46,7 +46,7 @@
 
 發行版以 **Apple Silicon（arm64）** 為目標平台，最低系統目標為 **macOS 13**。打包時會檢查內附執行檔和程式庫的 arm64 支援、最低部署版本與執行階段相依項目。閱讀器 GUI 已在 macOS 26.6.2 虛擬機完成驗收；尚未在 macOS 13 實機上驗證。
 
-**從 Sumra 遷移：**需手動安裝一次 **Vira Reader.app**；新 App 使用新的 bundle identifier 和獨立更新來源，Sumra 更新來源停留在 0.2.47。首次啟動會複製舊偏好設定和閱讀歷程，並保留 Vira Reader 已有的選擇；此遷移尚待虛擬機驗收。預設檔案關聯和 macOS 視窗恢復狀態不會隨偏好設定遷移。
+**從 Sumra 遷移：**需手動安裝一次 **Vira Reader.app**；新 App 使用新的 bundle identifier 和獨立更新來源，Sumra 更新來源停留在 0.2.47。首次啟動會複製舊偏好設定和閱讀歷程，並保留 Vira Reader 已有的選擇；已在 macOS 26.6.2 虛擬機透過手動安裝驗證受控閱讀歷程、字級、語言和自動更新選擇的遷移，原 Sumra 設定保持不變。預設檔案關聯和 macOS 視窗恢復狀態不在此偏好設定遷移範圍內。
 
 Vira Reader 使用獨立更新來源，目前尚無公開版本。PostScript 和 EPS 需要另外安裝 Ghostscript。
 
@@ -65,7 +65,7 @@ Vira Reader 使用獨立更新來源，目前尚無公開版本。PostScript 和
 
 可選擇五種內建閱讀主題，也可自訂並儲存文字、背景和連結色彩。現有自訂主題與已儲存設定仍可繼續使用：
 
-![Sumra 五種內建閱讀主題預覽](docs/images/themes.png)
+![Vira Reader 五種內建閱讀主題預覽](docs/images/themes.png)
 
 ## 支援的格式
 

@@ -12,20 +12,20 @@
 
 [**Download Sumra 0.2.47**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [Release notes](https://github.com/Ares-X/Vira-Reader/releases) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Vira-Reader/issues)
 
-**Rename preview:** Vira Reader is the new name of Sumra. No Vira Reader release has been published yet; the latest public download is still **Sumra 0.2.47**. Build the renamed app from source to try this preview. The screenshots below show the previous Sumra interface.
+**Rename preview:** Vira Reader is the new name of Sumra. No Vira Reader release has been published yet; the latest public download is still **Sumra 0.2.47**. Build the renamed app from source to try this preview. Home, light-mode and dark-mode screenshots show the signed Vira Reader preview; the two-page screenshot shows the earlier Sumra version.
 
 Open an EPUB novel, a comic archive, a folder of images, Markdown notes or a PDF from Finder. Read in native Mac windows and tabs, choose your layout, and use contents, search and bookmarks to find your place.
 
-![Sumra displaying Markdown reading notes and contents in light mode](docs/images/reader-light.png)
+![Vira Reader displaying Markdown reading notes and contents in light mode](docs/images/reader-light.png)
 
 <details>
 <summary>More screenshots: two-page reading, recent files and dark mode</summary>
 
-![Two-page reading with the contents sidebar](docs/images/reader-two-pages.png)
+![Earlier Sumra version: two-page reading with the contents sidebar](docs/images/reader-two-pages.png)
 
-![Recent documents on the Home screen](docs/images/home-light.png)
+![Vira Reader recent documents on the Home screen](docs/images/home-light.png)
 
-![Reading in dark mode](docs/images/reader-dark.png)
+![Vira Reader reading in dark mode](docs/images/reader-dark.png)
 
 All screenshots use the repository's [original demo document](docs/demos/Reading-Notes.md).
 
@@ -46,7 +46,7 @@ Public builds use the maintainer's **Ares-X Code Signing** self-signed certifica
 
 The release targets **Apple Silicon (arm64)** and **macOS 13 or later**. Bundled executables and libraries are checked for arm64 support, deployment targets and runtime dependencies. Reader GUI acceptance has been performed on a macOS 26.6.2 VM; a physical macOS 13 machine has not yet been verified.
 
-**Moving from Sumra:** install **Vira Reader.app** manually once; the app has a new bundle identifier and a separate update feed. Sumra’s feed stays at 0.2.47. On first launch, the app copies old preferences and reading history without overwriting choices already saved in Vira Reader; VM acceptance of this migration is pending. Default file associations and macOS saved windows are not migrated.
+**Moving from Sumra:** install **Vira Reader.app** manually once; the app has a new bundle identifier and a separate update feed. Sumra’s feed stays at 0.2.47. On first launch, the app copies old preferences and reading history without overwriting choices already saved in Vira Reader. A manual-install check on macOS 26.6.2 verified controlled reading history, font size, language and the automatic-update choice, with the original Sumra settings unchanged. Default file associations and macOS saved windows are outside this preference migration.
 
 Vira Reader uses its own update feed, which currently contains no published release. PostScript and EPS require a separate Ghostscript installation.
 
@@ -65,7 +65,7 @@ Use the sidebar for Contents, thumbnails and bookmarks, the **View** menu for la
 
 Choose from five built-in reading themes, or save your own text, background and link colors. **View → Document Colors → Choose Theme…** previews the selection; **Customize…** creates a named palette or edits the selected custom theme. Previously saved theme settings remain readable:
 
-![Preview of Sumra's five built-in reading themes](docs/images/themes.png)
+![Preview of Vira Reader's five built-in reading themes](docs/images/themes.png)
 
 Choose installed fonts from the reading **Font** menu or Settings. The **Aa** reading-settings button applies typography, colors and layout live; **Typography and CSS…** also accepts a family name, such as `Iowan Old Style`, including supplemental fonts macOS omits from its available-font list. Install your own font files with macOS Font Book first. **Light** uses pure white paper. For per-document text, background and link colors, open **View → Document Colors → Custom Document Colors…**. Color wells, RGB fields and an instant preview help you choose; **Use Theme** restores the theme palette.
 
