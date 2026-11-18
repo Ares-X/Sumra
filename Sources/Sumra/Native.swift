@@ -965,9 +965,12 @@ final class NativeFile {
         }
         if result < 0 || Task.isCancelled || cancellation?.isCancelled == true { throw CancellationError() }
         guard result != 0 else { throw Self.failure(error, "Cannot prepare PDF for printing") }
-        return stride(from: 0, to: contentBounds.count, by: 4).map {
-            CGRect(x: CGFloat(contentBounds[$0]), y: CGFloat(contentBounds[$0+1]),
-                   width: CGFloat(contentBounds[$0+2]), height: CGFloat(contentBounds[$0+3]))
+        return stride(from: 0, to: contentBounds.count, by: 4).map { index in
+            let x = CGFloat(contentBounds[index])
+            let y = CGFloat(contentBounds[index + 1])
+            let width = CGFloat(contentBounds[index + 2])
+            let height = CGFloat(contentBounds[index + 3])
+            return CGRect(x: x, y: y, width: width, height: height)
         }
     }
 
