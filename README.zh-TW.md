@@ -10,7 +10,7 @@
 
 **macOS 13 以上版本 · Apple Silicon · 免費開源**
 
-[**下載 Vira Reader 0.2.48**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [版本資訊](https://github.com/Ares-X/Vira-Reader/releases) · [支援格式](#支援的格式) · [從原始碼建置](#從原始碼建置) · [回報問題](https://github.com/Ares-X/Vira-Reader/issues)
+[**下載 Vira Reader**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [版本資訊](https://github.com/Ares-X/Vira-Reader/releases) · [支援格式](#支援的格式) · [從原始碼建置](#從原始碼建置) · [回報問題](https://github.com/Ares-X/Vira-Reader/issues)
 
 Vira Reader 是 Sumra 的新名稱。首頁、淺色和深色截圖展示 Vira Reader；雙頁截圖展示更名前的 Sumra 版本。從 Sumra 0.2.47 遷移時，由於 App 使用新的 bundle identifier 和更新來源，需手動安裝一次。
 
@@ -33,7 +33,7 @@ Vira Reader 是 Sumra 的新名稱。首頁、淺色和深色截圖展示 Vira R
 
 ## 安裝並開始閱讀
 
-1. 從[最新版本下載頁面](https://github.com/Ares-X/Vira-Reader/releases/latest)下載 Vira Reader 0.2.48 的 App ZIP 檔並解壓縮。
+1. 從[最新版本下載頁面](https://github.com/Ares-X/Vira-Reader/releases/latest)下載 Vira Reader 的 App ZIP 檔並解壓縮。
 2. 將 **Vira Reader.app** 移至「**應用程式**」資料夾，然後開啟。
 3. 按 **⌘O** 開啟檔案，或將檔案拖進視窗；按 **⌘F** 搜尋文件內容。
 

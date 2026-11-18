@@ -12,8 +12,8 @@ let environment = ProcessInfo.processInfo.environment
 let identity = environment["SUMRA_CODE_SIGN_IDENTITY"] ?? "-"
 let keychain = environment["SUMRA_CODE_SIGN_KEYCHAIN"] ?? ""
 let timestamp = environment["SUMRA_CODE_SIGN_TIMESTAMP"] ?? ""
-let version = environment["SUMRA_VERSION"] ?? "0.2.48"
-let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "51"
+let version = environment["SUMRA_VERSION"] ?? "0.2.49"
+let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "52"
 
 func fail(_ message: String) throws -> Never {
     throw NSError(domain: "Sumra.Bundle", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
@@ -253,6 +253,7 @@ func package() throws {
     let format = try String(contentsOf: root.appendingPathComponent("Sources/SumraCore/Format.swift"), encoding: .utf8)
     let groups = try matches(#"\(\.(\w+),\s*"([^"]+)"\)"#, in: format)
     let suffixes = groups.flatMap { $0[1].split(separator: " ").map(String.init) }
+    let lightIcon = "ViraReader-Light.icns"
     // Vira Reader has its own app and extension identities. The document format
     // UTIs and external sumra URL scheme remain existing integration contracts.
     var info: [String: Any] = [
@@ -271,7 +272,7 @@ func package() throws {
             "CFBundleURLSchemes": ["sumra"]
         ]],
         "LSSupportsOpeningDocumentsInPlace": true, "LSMultipleInstancesProhibited": true,
-        "CFBundleIconFile": "ViraReader-Light.icns"
+        "CFBundleIconFile": lightIcon
     ]
     // Catalogs live below Localizations rather than the bundle root. Declare them
     // so AppKit can negotiate the system language for its menus and panels too.
@@ -283,6 +284,7 @@ func package() throws {
     var documentTypes = info["CFBundleDocumentTypes"] as! [[String: Any]]
     documentTypes.append([
         "CFBundleTypeName": "Ebooks and comics", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
+        "CFBundleTypeIconFile": lightIcon,
         "LSItemContentTypes": quickLook.contentTypes
     ])
     info["CFBundleDocumentTypes"] = documentTypes
