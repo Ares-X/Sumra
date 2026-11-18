@@ -10,7 +10,7 @@
 
 **macOS 13 以降 · Apple Silicon · 無料・オープンソース**
 
-[**Vira Reader 0.2.48 をダウンロード**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [リリースノート](https://github.com/Ares-X/Vira-Reader/releases) · [対応形式](#対応形式) · [ソースからビルド](#ソースからビルド) · [問題を報告](https://github.com/Ares-X/Vira-Reader/issues)
+[**Vira Reader をダウンロード**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [リリースノート](https://github.com/Ares-X/Vira-Reader/releases) · [対応形式](#対応形式) · [ソースからビルド](#ソースからビルド) · [問題を報告](https://github.com/Ares-X/Vira-Reader/issues)
 
 Vira Reader は Sumra の新しい名前です。ホーム、ライトモード、ダークモードの画面は Vira Reader、見開き表示の画面は以前の Sumra です。Sumra 0.2.47 から移行するには、バンドル識別子と更新フィードが変わるため、一度手動でインストールしてください。
 
@@ -33,7 +33,7 @@ Finder から EPUB 小説、コミックアーカイブ、画像フォルダ、M
 
 ## インストールして読書を始める
 
-1. [最新リリース](https://github.com/Ares-X/Vira-Reader/releases/latest)から Vira Reader 0.2.48 のアプリ ZIP をダウンロードして展開します。
+1. [最新リリース](https://github.com/Ares-X/Vira-Reader/releases/latest)から Vira Reader のアプリ ZIP をダウンロードして展開します。
 2. **Vira Reader.app** を **アプリケーション** に移動して開きます。
 3. **⌘O** を押すか、ウィンドウにファイルをドラッグします。文書内のテキストを検索するには **⌘F** を押します。
 

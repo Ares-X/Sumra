@@ -10,7 +10,7 @@
 
 **macOS 13+ · Apple Silicon · Free and open source**
 
-[**Download Vira Reader 0.2.48**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [Release notes](https://github.com/Ares-X/Vira-Reader/releases) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Vira-Reader/issues)
+[**Download Vira Reader**](https://github.com/Ares-X/Vira-Reader/releases/latest) · [Release notes](https://github.com/Ares-X/Vira-Reader/releases) · [Supported formats](#supported-formats) · [Build from source](#build-from-source) · [Report an issue](https://github.com/Ares-X/Vira-Reader/issues)
 
 Vira Reader is the new name of Sumra. The Home, light-mode and dark-mode screenshots show Vira Reader; the two-page screenshot shows the earlier Sumra version. Moving from Sumra 0.2.47 requires one manual installation because the app has a new bundle identifier and update feed.
 
@@ -33,7 +33,7 @@ All screenshots use the repository's [original demo document](docs/demos/Reading
 
 ## Install and start reading
 
-1. Download the Vira Reader 0.2.48 app ZIP from the [latest release](https://github.com/Ares-X/Vira-Reader/releases/latest) and unzip it.
+1. Download the Vira Reader app ZIP from the [latest release](https://github.com/Ares-X/Vira-Reader/releases/latest) and unzip it.
 2. Move **Vira Reader.app** to **Applications**, then open it.
 3. Press **⌘O** or drag a file into the window. Press **⌘F** to search its text.
 
