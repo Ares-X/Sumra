@@ -28,5 +28,15 @@ enum AppIcon {
         }
         return NSImage(contentsOf: url)
     }
+
+    static func documentImage(for url: URL) -> NSImage? {
+        guard let names = Bundle.main.object(forInfoDictionaryKey: "ViraDocumentIconNames") as? [String: String],
+              let name = names[url.pathExtension.lowercased()],
+              let resource = Bundle.main.url(forResource: name, withExtension: "icns"),
+              (try? url.resourceValues(forKeys: [.customIconKey]).customIcon) == nil,
+              let image = NSImage(contentsOf: resource) else { return nil }
+        image.size = NSSize(width: 16, height: 16)
+        return image
+    }
 }
 #endif
