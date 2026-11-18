@@ -4,6 +4,8 @@ The maintainer's reference is a monochrome open-book V formed by two black taper
 
 Sources: `ViraReader-Light.png` and `ViraReader-Dark.png`. Both contain alpha outside the tile. The existing `scripts/rasterize-icon.swift` renders the ten macOS icon sizes, and `iconutil` packages the ICNS resources. The original generated files remain in the maintainer's image-generation output; these committed copies are the application inputs.
 
+The same rasterizer uses the light artwork to draw folded-page ebook and comic icons. Packaging assigns those resources to the corresponding Finder document types and provides the same icons to the reader's native titlebar. Extensions sharing a macOS type share one format label, such as AZW/AZW3. Finder still shows a cover when its preview is available.
+
 The current `ViraReader-Light.png` is the exact original PNG supplied by the maintainer (SHA-256: `aa265af14334ac441fea44556cb6c33b306ea1ce8b90bf66a72823adcfaeb6ae`); it was not edited or regenerated for this release. The dark icon's provenance and historical prompts follow. The superseded blue concept is not an application asset.
 
 ## Light reconstruction prompt

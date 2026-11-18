@@ -8,6 +8,9 @@ precondition(exportedIDs == Set(["cbz", "cbr", "cbt", "cb7", "mobi", "kindle", "
 let declarations = registration.exported + registration.imported
 let registeredIDs = Set(declarations.compactMap { $0["UTTypeIdentifier"] as? String })
 precondition(Set(registration.contentTypes) == registeredIDs.union(["org.idpf.epub-container"]))
+precondition(registration.contentTypes.count == registeredIDs.count + 1, "Each UTI gets one icon claim")
+let cbzIcon = registration.icons.first { $0.suffixes == ["cbz"] }
+precondition(Set(cbzIcon?.contentTypes ?? []) == ["dev.aresx.leaf.cbz", "com.bandisoft.cbz", "public.cbz-archive"])
 var registeredExtensions = Set<String>()
 for declaration in declarations {
     let parents = declaration["UTTypeConformsTo"] as! [String]

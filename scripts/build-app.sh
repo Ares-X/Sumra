@@ -49,7 +49,7 @@ mkdir -p "$APP/Resources/Tools"
 cp build/native-macos13/bin/clit "$APP/Resources/Tools/clit"
 chmod 755 "$APP/Resources/Tools/clit"
 ./scripts/build-quicklook.sh "$BIN" "$APP"
-swift scripts/bundle.swift "$APP"
+swift scripts/bundle.swift "$APP" "$ICON_TMP"
 codesign --verify --deep --strict "$APP/.."
 # Publish only a completely packaged and verified bundle. Keep the preceding
 # app recoverable, including if promotion fails after moving it out of the way.

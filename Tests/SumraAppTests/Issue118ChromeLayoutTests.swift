@@ -170,6 +170,19 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         }
         let originalProxyHidden = proxy.isHidden, originalProxyAlpha = proxy.alphaValue
         let proxyAction = proxy.action, proxyTarget = proxy.target, representedURL = window.representedURL
+        func assertNativeProxyVisibilityIsPreserved() throws {
+            let liveProxy = try XCTUnwrap(window.standardWindowButton(.documentIconButton))
+            let hidden = liveProxy.isHidden
+            defer { liveProxy.isHidden = hidden }
+            // The offscreen fixture cannot rely on physical hover. Exercise
+            // both states AppKit can apply to a visible title's native proxy.
+            for nativeHidden in [!hidden, hidden, !hidden] {
+                liveProxy.isHidden = nativeHidden
+                observer.updateChrome(revealingNativeControls: false)
+                XCTAssertEqual(liveProxy.isHidden, nativeHidden, "The visible native title owns its proxy visibility")
+            }
+        }
+        try assertNativeProxyVisibilityIsPreserved()
         let frame = window.frame
         let tabOrder = group.windows.map(\.windowNumber)
         let scroll = try XCTUnwrap(state.readerScrollView)
@@ -227,6 +240,15 @@ final class Issue118ChromeLayoutTests: XCTestCase {
         XCTAssertEqual(window.frame, frame)
         XCTAssertEqual(try XCTUnwrap(state.readerScrollView).convert(scroll.bounds, to: nil), shownViewport,
             "Restoring the shown toolbar restores its existing reading geometry")
+        for state in states { state.toolbarDisplayMode = .auto }
+        observer.pointerMoved(to: headerPoint)
+        try await settle()
+        observer.pointerMoved(to: headerPoint)
+        observer.updateChrome(revealingNativeControls: false)
+        XCTAssertTrue(state.toolbarShown, "The Auto Hide test must exercise a revealed native title")
+        try assertNativeProxyVisibilityIsPreserved()
+        for state in states { state.toolbarDisplayMode = .shown }
+        try await settle()
         // The shared strip's explicit single-tab choice survives toolbar mode
         // switches without changing AppKit's underlying document membership.
         group.removeWindow(windows[1])

@@ -136,6 +136,9 @@ struct ReaderToolbarAppearance: ViewModifier {
         private var hoverDismiss: Task<Void, Never>?
         private var menuTracking = false
         private var originalButtonAppearance: [NSWindow.ButtonType: (button: NSButton, hidden: Bool)] = [:]
+        private var suppressedDocumentProxy: (button: NSButton, hidden: Bool)?
+        private weak var styledDocumentProxy: NSButton?
+        private var styledDocumentURL: URL?
         private weak var toolbarWindow: NSWindow?
         private weak var toolbarContent: NSView?
         private var originalToolbarChrome: (contentAlpha: CGFloat, ignoresMouse: Bool, background: NSColor, opaque: Bool,
@@ -172,6 +175,7 @@ struct ReaderToolbarAppearance: ViewModifier {
                 let button = appearance.button
                 return !button.isHiddenOrHasHiddenAncestor && button.convert(button.bounds, to: self).contains(point)
             }) { return nil }
+            if isOverDocumentProxy(convert(point, to: nil)) { return nil }
             return self
         }
         override var mouseDownCanMoveWindow: Bool { true }
@@ -263,6 +267,7 @@ struct ReaderToolbarAppearance: ViewModifier {
 
         private func isTitlebarDragPoint(_ point: NSPoint) -> Bool {
             guard let parent, nativeTitlebarRect.contains(convert(point, from: nil)),
+                  !isOverDocumentProxy(point),
                   let root = parent.contentView?.superview,
                   let hit = root.hitTest(root.convert(point, from: nil)), hit.mouseDownCanMoveWindow else { return false }
             // Native tab backgrounds can report draggable input. Their
@@ -275,6 +280,40 @@ struct ReaderToolbarAppearance: ViewModifier {
             return !(parent.toolbar?.items ?? []).contains { item in
                 guard let view = item.view, view.window === parent, !view.isHiddenOrHasHiddenAncestor else { return false }
                 return view.convert(view.bounds, to: nil).contains(point)
+            }
+        }
+
+        private func isOverDocumentProxy(_ point: NSPoint) -> Bool {
+            guard let proxy = parent?.standardWindowButton(.documentIconButton),
+                  !proxy.isHiddenOrHasHiddenAncestor else { return false }
+            return proxy.convert(proxy.bounds, to: nil).contains(point)
+        }
+
+        private func restoreDocumentProxyVisibility() {
+            if let suppressedDocumentProxy {
+                suppressedDocumentProxy.button.isHidden = suppressedDocumentProxy.hidden
+                self.suppressedDocumentProxy = nil
+            }
+        }
+
+        private func updateDocumentProxy(in window: NSWindow, hide: Bool) {
+            let proxy = window.standardWindowButton(.documentIconButton)
+            if !hide || suppressedDocumentProxy?.button !== proxy { restoreDocumentProxyVisibility() }
+            guard let proxy else {
+                styledDocumentProxy = nil; styledDocumentURL = nil
+                return
+            }
+            // AppKit controls the icon's hover visibility in the native title.
+            // Only Always Hide suppresses the proxy while exposing the traffic lights.
+            if hide {
+                if suppressedDocumentProxy == nil { suppressedDocumentProxy = (proxy, proxy.isHidden) }
+                if !proxy.isHidden { proxy.isHidden = true }
+            }
+            let url = window.representedURL
+            if styledDocumentProxy !== proxy || styledDocumentURL != url {
+                if let url, let image = AppIcon.documentImage(for: url) { proxy.image = image }
+                styledDocumentProxy = proxy
+                styledDocumentURL = url
             }
         }
         private func activateForTitlebarMouseDown(_ event: NSEvent) {
@@ -364,7 +403,7 @@ struct ReaderToolbarAppearance: ViewModifier {
             }
             // SwiftUI can attach this host before AppKit installs native
             // window controls. Capture each control when it becomes available.
-            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton, .documentIconButton] {
+            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
                 guard originalButtonAppearance[type] == nil else { continue }
                 guard var button = parent.standardWindowButton(type) else { continue }
                 if button.superview is ReaderFloatingWindowButtons.Buttons {
@@ -470,11 +509,9 @@ struct ReaderToolbarAppearance: ViewModifier {
             // AppKit owns native button opacity, including fullscreen exit.
             // A tab first mounted fullscreen can have alpha zero; retaining
             // that temporary value would disable its windowed controls later.
-            // Fullscreen document-icon visibility also belongs to AppKit.
             let nativeFullscreen = parent.styleMask.contains(.fullScreen)
-            for (type, appearance) in originalButtonAppearance {
-                if nativeFullscreen, type == .documentIconButton { continue }
-                let revealsWindowControl = type != .documentIconButton && (systemChrome || state.toolbarHoverVisible)
+            for appearance in originalButtonAppearance.values {
+                let revealsWindowControl = systemChrome || state.toolbarHoverVisible
                 let hideButton = appearance.hidden || (!state.usesCustomChrome && readerHidden && !revealsWindowControl)
                 // Fullscreen can change standardWindowButton to the mounted
                 // factory buttons. Native appearance belongs to the exact
@@ -482,6 +519,7 @@ struct ReaderToolbarAppearance: ViewModifier {
                 let button = appearance.button
                 if button.isHidden != hideButton { button.isHidden = hideButton }
             }
+            updateDocumentProxy(in: parent, hide: !nativeFullscreen && !state.usesCustomChrome && state.toolbarDisplayMode == .hidden)
             // Older systems lack SwiftUI's title-item removal policy. Their
             // unified title reserves space from the visible native buttons.
             if #unavailable(macOS 15) {
@@ -935,6 +973,8 @@ struct ReaderToolbarAppearance: ViewModifier {
             if state?.readerToolbarHost === self { state?.readerToolbarHost = nil }
             hoverDismiss?.cancel(); hoverDismiss = nil
             nativeDragView?.removeFromSuperview(); nativeDragView = nil
+            restoreDocumentProxyVisibility()
+            styledDocumentProxy = nil; styledDocumentURL = nil
             trackToolbarCursor(in: nil)
             menuTracking = false
             let originalFrame = parent?.frame
@@ -968,10 +1008,7 @@ struct ReaderToolbarAppearance: ViewModifier {
                 parent.titlebarSeparatorStyle = original.separator
                 parent.backgroundColor = original.background
                 parent.acceptsMouseMovedEvents = original.mouseMoved
-                let fullscreen = parent.styleMask.contains(.fullScreen)
-                for (type, appearance) in originalButtonAppearance {
-                    if !fullscreen || type != .documentIconButton { appearance.button.isHidden = appearance.hidden }
-                }
+                for appearance in originalButtonAppearance.values { appearance.button.isHidden = appearance.hidden }
                 if parent.frame != frame { parent.setFrame(frame, display: false) }
             }
             if let parent { ReaderWindowDiagnostics.event("chrome.host.detached", window: parent) }

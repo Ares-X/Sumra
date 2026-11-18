@@ -12,8 +12,8 @@ let environment = ProcessInfo.processInfo.environment
 let identity = environment["SUMRA_CODE_SIGN_IDENTITY"] ?? "-"
 let keychain = environment["SUMRA_CODE_SIGN_KEYCHAIN"] ?? ""
 let timestamp = environment["SUMRA_CODE_SIGN_TIMESTAMP"] ?? ""
-let version = environment["SUMRA_VERSION"] ?? "0.2.49"
-let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "52"
+let version = environment["SUMRA_VERSION"] ?? "0.2.50"
+let buildVersion = environment["SUMRA_BUILD_VERSION"] ?? "53"
 
 func fail(_ message: String) throws -> Never {
     throw NSError(domain: "Sumra.Bundle", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
@@ -113,7 +113,15 @@ func macOSVersion(_ value: String) -> [Int] {
 // Published dev.aresx.leaf format identifiers survive the app bundle-ID change.
 // The imported CBZ identifiers are also used by other readers/archive apps;
 // Finder may already have assigned one of them to an existing comic.
-func quickLookRegistration() -> (exported: [[String: Any]], imported: [[String: Any]], contentTypes: [String]) {
+struct DocumentIcon {
+    let title: String
+    let suffixes: [String]
+    let contentTypes: [String]
+    var resource: String { "ViraDocument-" + suffixes[0] }
+    var label: String { suffixes.joined(separator: "/").uppercased() }
+}
+
+func quickLookRegistration() -> (exported: [[String: Any]], imported: [[String: Any]], contentTypes: [String], icons: [DocumentIcon]) {
     let exported = [
         ("dev.aresx.leaf.cbz", "Comic ZIP", ["cbz"], "public.zip-archive"),
         ("dev.aresx.leaf.cbr", "Comic RAR", ["cbr"], "public.archive"),
@@ -135,8 +143,12 @@ func quickLookRegistration() -> (exported: [[String: Any]], imported: [[String: 
             "UTTypeTagSpecification": ["public.filename-extension": suffixes]
         ] }
     }
-    return (declarations(exported), declarations(imported),
-            ["org.idpf.epub-container"] + (exported + imported).map { $0.0 })
+    let icons = [DocumentIcon(title: "EPUB ebook", suffixes: ["epub"], contentTypes: ["org.idpf.epub-container"])]
+        + exported.map { id, title, suffixes, _ in
+            let aliases = imported.filter { $0.2 == suffixes }.map { $0.0 }
+            return DocumentIcon(title: title, suffixes: suffixes, contentTypes: [id] + aliases)
+        }
+    return (declarations(exported), declarations(imported), icons.flatMap(\.contentTypes), icons)
 }
 
 func localizationRegistration(in directory: URL) throws -> [String: Any] {
@@ -281,13 +293,25 @@ func package() throws {
     let quickLook = quickLookRegistration()
     info["UTExportedTypeDeclarations"] = quickLook.exported
     info["UTImportedTypeDeclarations"] = quickLook.imported
+    let iconSets = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+    let rasterizer = root.appendingPathComponent("scripts/rasterize-icon.swift").path
+    let artwork = root.appendingPathComponent("Assets/AppIcon/ViraReader-Light.png").path
     var documentTypes = info["CFBundleDocumentTypes"] as! [[String: Any]]
-    documentTypes.append([
-        "CFBundleTypeName": "Ebooks and comics", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
-        "CFBundleTypeIconFile": lightIcon,
-        "LSItemContentTypes": quickLook.contentTypes
-    ])
+    for icon in quickLook.icons {
+        let iconSet = iconSets.appendingPathComponent(icon.resource + ".iconset").path
+        let file = icon.resource + ".icns"
+        let destination = contents.appendingPathComponent("Resources/" + file).path
+        try run(["swift", rasterizer, artwork, iconSet, icon.label])
+        try run(["iconutil", "-c", "icns", iconSet, "-o", destination])
+        documentTypes.append([
+            "CFBundleTypeName": icon.title, "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
+            "CFBundleTypeIconFile": file, "LSItemContentTypes": icon.contentTypes
+        ])
+    }
     info["CFBundleDocumentTypes"] = documentTypes
+    info["ViraDocumentIconNames"] = Dictionary(uniqueKeysWithValues: quickLook.icons.flatMap { icon in
+        icon.suffixes.map { ($0, icon.resource) }
+    })
     if !updateFeed.isEmpty {
         info["SUFeedURL"] = updateFeed
         info["SUPublicEDKey"] = updateKey
