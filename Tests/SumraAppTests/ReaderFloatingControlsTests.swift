@@ -200,7 +200,7 @@ import SumraCore
         XCTAssertFalse(window.isVisible)
     }
 
-    func testFloatingControlsPaintIndependentlyOfTheNativeButtonLayers() throws {
+    func testFloatingControlsPaintCirclesIndependentlyOfTheNativeButtonLayers() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -212,15 +212,17 @@ import SumraCore
 
         let buttons = controls.subviews.compactMap { $0 as? NSButton }
         XCTAssertEqual(buttons.count, 3)
-        func raster() throws -> Data {
-            let rect = controls.convert(controls.bounds, to: host)
+        // Factory buttons can have a taller hit frame than their visible discs.
+        for button in buttons { button.setFrameSize(NSSize(width: 12, height: 16)) }
+        func raster(in rect: NSRect) throws -> NSBitmapImageRep {
             host.needsDisplay = true
             let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: rect))
             host.cacheDisplay(in: rect, to: bitmap)
-            return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            return bitmap
         }
 
-        let artwork = try raster()
+        let groupRect = controls.convert(controls.bounds, to: host)
+        let artwork = try raster(in: groupRect).tiffRepresentation
         for button in buttons {
             let point = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: host)
             XCTAssertTrue(controls.hitTest(point) === button)
@@ -230,7 +232,24 @@ import SumraCore
         }
         // Hide the native views entirely as a control. Their appearance, even
         // when AppKit rolls them over, must never contribute to the raster.
-        XCTAssertEqual(try raster(), artwork)
+        XCTAssertEqual(try raster(in: groupRect).tiffRepresentation, artwork)
+
+        let buttonRects = buttons.map { controls.convert($0.frame, to: host) }
+        let painted = try buttonRects.map { try raster(in: $0) }
+        controls.isHidden = true
+        for (bitmap, rect) in zip(painted, buttonRects) {
+            let background = try raster(in: rect)
+            var columns = Set<Int>()
+            var rows = Set<Int>()
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide where bitmap.colorAt(x: x, y: y) != background.colorAt(x: x, y: y) {
+                    columns.insert(x)
+                    rows.insert(y)
+                }
+            }
+            XCTAssertGreaterThan(columns.count, 0)
+            XCTAssertEqual(columns.count, rows.count, accuracy: 1, "A rectangular hit frame must still paint a circle")
+        }
     }
 
     func testWelcomeDocumentAndHomeKeepTheirOwnChromeAndRetainTheFloatingSetting() async throws {
