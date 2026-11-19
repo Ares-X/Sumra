@@ -144,11 +144,14 @@ struct ReaderWindow: View {
             .frame(minWidth: 560, minHeight: state.hasDocument ? 400 : 500)
             .ignoresSafeArea(.container, edges: state.extendsReadingUnderChrome ? .top : [])
             .navigationTitle(windowTitle)
-            .background(WindowTabs(state: state, tabWith: opening.tabWith, identifier: opening.tabIdentifier, openingPath: opening.path, restorationID: opening.id, placementOwnedByController: placementOwnedByController) {
+            .background(WindowTabs(state: state, tabWith: opening.tabWith, identifier: opening.tabIdentifier, openingPath: opening.path, restorationID: opening.id, placementOwnedByController: placementOwnedByController,
+                                   onWindowAttaching: { window in
+                application.prepareStartupWindow(window, automaticHome: opening.automaticHome)
+            }) {
                 ReaderWindowDiagnostics.event("scene.ready", window: state.window, request: opening.id,
                                               fields: ["hasPath": opening.path != nil, "restoring": opening.restoring])
                 documentOpenLog.notice("scene-ready payload=\(opening.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
-                application.connect(state, canReuse: opening.path == nil, automaticHome: opening.automaticHome)
+                application.connect(state, canReuse: opening.path == nil)
                 if let window = state.window { ReaderWindows.windowReady(window, payload: opening) }
             })
             .focusedSceneObject(state)
@@ -166,8 +169,7 @@ struct ReaderWindow: View {
                 }
                 state.createWindow = { [weak application] in application?.openReaderWindow($0) }
                 state.openAuxiliaryWindow = { [weak application] in application?.openAuxiliaryWindow($0) }
-                application.connect(state, canReuse: payload.path == nil, automaticHome: payload.automaticHome,
-                                    windowReady: false)
+                application.connect(state, canReuse: payload.path == nil, windowReady: false)
                 ScreenshotHotkey.capture = { [weak application] in
                     guard let application else { return }
                     let receiver = ReaderWindows.states.first(where: { $0.window === NSApp.keyWindow }) ?? ReaderWindows.states.first ?? ReaderState()
@@ -276,6 +278,7 @@ struct WindowTabs: NSViewRepresentable {
     let openingPath: String?
     var restorationID: UUID? = nil
     var placementOwnedByController = false
+    var onWindowAttaching: ((NSWindow) -> Void)? = nil
     let onWindowReady: () -> Void
 
     func makeNSView(context: Context) -> HostView {
@@ -286,6 +289,7 @@ struct WindowTabs: NSViewRepresentable {
         view.restorationID = restorationID
         view.placementOwnedByController = placementOwnedByController
         view.openingPath = openingPath
+        view.onWindowAttaching = onWindowAttaching
         view.onWindowReady = onWindowReady
         return view
     }
@@ -293,6 +297,7 @@ struct WindowTabs: NSViewRepresentable {
     func updateNSView(_ view: HostView, context: Context) {
         view.state = state
         view.openingPath = openingPath
+        view.onWindowAttaching = onWindowAttaching
         view.onWindowReady = onWindowReady
         view.updateDocumentProperties()
     }
@@ -305,6 +310,7 @@ struct WindowTabs: NSViewRepresentable {
         var restorationID: UUID?
         var placementOwnedByController = false
         var openingPath: String?
+        var onWindowAttaching: ((NSWindow) -> Void)?
         var onWindowReady: (() -> Void)?
         private var closeGuard: ReaderCloseGuard?
         private weak var guardedWindow: NSWindow?
@@ -318,6 +324,11 @@ struct WindowTabs: NSViewRepresentable {
             closeGuard?.updateTabbingPolicy(window)
         }
 
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            if let newWindow { onWindowAttaching?(newWindow) }
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -553,7 +564,7 @@ final class ReaderCloseGuard: NSResponder, NSWindowDelegate, NSUserInterfaceVali
 
 @MainActor
 final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
-    private enum StartupHome { case awaitingAttachment, superseded, resolved }
+    private enum StartupHome { case awaitingLaunch, superseded, resolved }
 
     let undoCommands = ReaderUndoCommands()
     private var keyMonitor: Any?
@@ -569,7 +580,8 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     private var hasFinishedRestoringWindows = false
     private var startupSceneIDs = Set<UUID>()
     private var nativeSessionTakesPrecedence = false
-    private var startupHome = StartupHome.awaitingAttachment
+    private var startupHome = StartupHome.awaitingLaunch
+    private weak var provisionalHome: NSWindow?
     private weak var emptyReader: ReaderState?
 
     func installTabResponder() {
@@ -712,19 +724,40 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
         openPendingFiles()
     }
 
-    func connect(_ state: ReaderState, canReuse: Bool, automaticHome: Bool = false, windowReady: Bool = true) {
+    func prepareStartupWindow(_ window: NSWindow, automaticHome: Bool) {
+        if automaticHome, startupHome != .resolved {
+            guard provisionalHome !== window else { return }
+            // SwiftUI can order the default window before its ready callback.
+            // Withhold both the native frame and hit testing during attachment.
+            window.alphaValue = 0
+            window.ignoresMouseEvents = true
+            provisionalHome = window
+            ReaderWindowDiagnostics.event("startup.home.withheld", window: window)
+        } else if provisionalHome === window {
+            // A restored payload can replace the provisional default in place.
+            revealStartupHome(window)
+        }
+    }
+
+    private func revealStartupHome(_ window: NSWindow) {
+        provisionalHome = nil
+        window.alphaValue = 1
+        window.ignoresMouseEvents = false
+        ReaderWindowDiagnostics.event("startup.home.revealed", window: window)
+    }
+
+    private func retireStartupHome(_ window: NSWindow) {
+        provisionalHome = nil
+        startupHome = .resolved
+        ReaderWindowDiagnostics.event("startup.home.superseded", window: window)
+        window.close()
+    }
+
+    func connect(_ state: ReaderState, canReuse: Bool, windowReady: Bool = true) {
         guard let window = state.window else { return }
-        if automaticHome {
-            // The native window may already have received the file through the
-            // front-window route before its SwiftUI ready callback.
-            if startupHome == .superseded, canReuse, state.generation == 0 {
-                guard windowReady else { return }
-                startupHome = .resolved
-                ReaderWindowDiagnostics.event("startup.home.superseded", window: window)
-                window.close()
-                return
-            }
-            startupHome = .resolved
+        if provisionalHome === window {
+            if startupHome == .superseded, windowReady { retireStartupHome(window) }
+            return
         }
         if canReuse { emptyReader = state }
         documentOpenLog.notice("reader-connected window=\(window.windowNumber, privacy: .public)")
@@ -739,16 +772,23 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     }
 
     private func openPendingFiles() {
-        guard hasFinishedLaunching, !ReaderWindows.isRestoringNativeWindows, sceneOpener != nil,
-              !pendingFiles.isEmpty || !pendingSyncTeX.isEmpty else { return }
+        guard hasFinishedLaunching, !ReaderWindows.isRestoringNativeWindows else { return }
+        if startupHome == .awaitingLaunch {
+            startupHome = pendingFiles.isEmpty ? .resolved : .superseded
+            if startupHome == .resolved, let provisionalHome {
+                emptyReader = (provisionalHome.delegate as? ReaderCloseGuard)?.state
+                revealStartupHome(provisionalHome)
+            }
+        }
+        guard sceneOpener != nil, !pendingFiles.isEmpty || !pendingSyncTeX.isEmpty else { return }
+        if startupHome == .superseded, let provisionalHome, provisionalHome.delegate is ReaderCloseGuard {
+            retireStartupHome(provisionalHome)
+        }
         // Finder and editor requests can arrive before SwiftUI installs a window.
         NSApp.activate(ignoringOtherApps: true)
         let urls = pendingFiles
         pendingFiles.removeAll()
         if !urls.isEmpty {
-            // Finder can launch without an automatic Home. Hand off now and
-            // retire the launch Home if SwiftUI supplies it later.
-            if startupHome == .awaitingAttachment { startupHome = .superseded }
             documentOpenLog.notice("pending-handoff count=\(urls.count, privacy: .public)")
             ReaderWindows.open(urls, in: emptyReader, createWindow: openReaderWindow)
             emptyReader = nil

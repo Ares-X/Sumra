@@ -200,6 +200,39 @@ import SumraCore
         XCTAssertFalse(window.isVisible)
     }
 
+    func testFloatingControlsPaintIndependentlyOfTheNativeButtonLayers() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 2200, y: 100, width: 700, height: 500),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = try XCTUnwrap(window.contentView)
+        let controls = ReaderFloatingWindowButtons.Buttons(frame: CGRect(x: 16, y: 20, width: 54, height: 20))
+        host.addSubview(controls)
+        defer { controls.stopObservingWindow(); window.contentView = nil; window.close() }
+
+        let buttons = controls.subviews.compactMap { $0 as? NSButton }
+        XCTAssertEqual(buttons.count, 3)
+        func raster() throws -> Data {
+            let rect = controls.convert(controls.bounds, to: host)
+            host.needsDisplay = true
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: rect))
+            host.cacheDisplay(in: rect, to: bitmap)
+            return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        }
+
+        let artwork = try raster()
+        for button in buttons {
+            let point = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: host)
+            XCTAssertTrue(controls.hitTest(point) === button)
+            XCTAssertTrue(button.isAccessibilityElement())
+            XCTAssertEqual(button.alphaValue, 1)
+            button.isHidden = true
+        }
+        // Hide the native views entirely as a control. Their appearance, even
+        // when AppKit rolls them over, must never contribute to the raster.
+        XCTAssertEqual(try raster(), artwork)
+    }
+
     func testWelcomeDocumentAndHomeKeepTheirOwnChromeAndRetainTheFloatingSetting() async throws {
         _ = NSApplication.shared
         let state = ReaderState(recordsHistory: false)
