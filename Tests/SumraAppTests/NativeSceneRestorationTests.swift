@@ -657,13 +657,90 @@ final class NativeSceneRestorationTests: XCTestCase {
         XCTAssertEqual(opened.count, 1, "The queued Finder request must be consumed once")
     }
 
+    func testFinderHandoffBeforeAutomaticHomeAttachmentRetiresOnlyThatHome() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let restoredURL = try fixture.document("restored.txt")
+        let finderURLs = try ["first.txt", "second.txt"].map(fixture.document)
+        let restored = WindowPayload(path: restoredURL.path)
+        SumraApp.restoring = ReaderWindows.prepareRestoration([restored])
+        ReaderWindows.isRestoringNativeWindows = true
+        fixture.application.applicationWillFinishLaunching(
+            Notification(name: NSApplication.willFinishLaunchingNotification, object: NSApp))
+        var opened = [WindowPayload]()
+        fixture.application.installWindowOpener { opened.append($0) }
+        fixture.application.application(NSApp, open: finderURLs)
+        fixture.application.finishLaunching()
+        XCTAssertTrue(opened.isEmpty)
+
+        NotificationCenter.default.post(name: NSApplication.didFinishRestoringWindowsNotification, object: NSApp)
+        XCTAssertEqual(opened.first?.id, restored.id)
+        XCTAssertEqual(opened.map(\.path), ([restoredURL] + finderURLs).map(\.path))
+        let documents = opened.map { fixture.mount($0) }
+        let explicitHome = fixture.mount(WindowPayload())
+        let automaticHome = fixture.mount(SumraApp.defaultWindowPayload())
+        try await fixture.waitUntil("The restored and Finder readers did not take over launch") {
+            automaticHome.window.didClose && explicitHome.state != nil &&
+                documents.compactMap { $0.state?.document?.url } == [restoredURL] + finderURLs
+        }
+        XCTAssertFalse(explicitHome.window.didClose)
+        XCTAssertTrue(documents.allSatisfy { !$0.window.didClose })
+        XCTAssertEqual(opened.count, 3)
+    }
+
+    func testFinderHandoffAfterAutomaticHomeAttachmentOpensFirstFileInPlace() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let urls = try ["first.txt", "second.txt"].map(fixture.document)
+        let home = fixture.mount(SumraApp.defaultWindowPayload())
+        try await fixture.waitUntil("The automatic Home did not attach") { home.state?.window === home.window }
+        // The host schedules its ready callback as soon as the window attaches.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        var opened = [WindowPayload]()
+        fixture.application.installWindowOpener { opened.append($0) }
+        fixture.application.application(NSApp, open: urls)
+        fixture.application.finishLaunching()
+
+        try await fixture.waitUntil("Finder did not load the first file in the initial Home") {
+            home.state?.document?.url == urls[0]
+        }
+        XCTAssertEqual(opened.map(\.path), [urls[1].path])
+        XCTAssertFalse(home.window.didClose)
+    }
+
+    func testOrdinaryLaunchKeepsItsAutomaticHome() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        var opened = [WindowPayload]()
+        fixture.application.installWindowOpener { opened.append($0) }
+        fixture.application.finishLaunching()
+        let home = fixture.mount(SumraApp.defaultWindowPayload())
+        try await fixture.waitUntil("An ordinary launch did not attach Home") { home.state?.window === home.window }
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+
+        XCTAssertFalse(home.window.didClose)
+        XCTAssertNil(home.state?.document)
+        XCTAssertTrue(opened.isEmpty)
+    }
+
     private enum StartupEvent {
         case nativeRestoration, windowOpener, launch
     }
 
     @MainActor private final class Window: NSWindow {
+        private(set) var didClose = false
+
         override func makeKeyAndOrderFront(_ sender: Any?) {
             // WindowServer focus and fullscreen behavior belong to GUI acceptance.
+        }
+
+        override func close() {
+            didClose = true
+            super.close()
         }
     }
 
