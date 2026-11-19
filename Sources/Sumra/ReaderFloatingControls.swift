@@ -772,7 +772,12 @@ struct ReaderFloatingSurface: ViewModifier {
                     case .miniaturizeButton: color = NSColor(srgbRed: 0.996, green: 0.737, blue: 0.18, alpha: 1)
                     default: color = NSColor(srgbRed: 0.157, green: 0.784, blue: 0.251, alpha: 1)
                     }
-                    let circle = NSBezierPath(ovalIn: button.frame.insetBy(dx: 1, dy: 1))
+                    let frame = button.frame
+                    let center = CGPoint(x: frame.midX, y: frame.midY)
+                    // AppKit's hit frame can be taller than the painted disc.
+                    let radius = min(frame.width, frame.height) / 2 - 1
+                    let circle = NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius,
+                                                            width: 2 * radius, height: 2 * radius))
                     let fill = active && button.isEnabled ? color : NSColor.quaternaryLabelColor
                     (pressedButton === button ? fill.shadow(withLevel: 0.18) ?? fill : fill).setFill()
                     circle.fill()
@@ -783,7 +788,6 @@ struct ReaderFloatingSurface: ViewModifier {
                     guard owner.pointerInside, button.isEnabled else { continue }
                     NSColor.black.withAlphaComponent(0.7).setStroke()
                     NSColor.black.withAlphaComponent(0.7).setFill()
-                    let center = CGPoint(x: button.frame.midX, y: button.frame.midY)
                     let path = NSBezierPath()
                     path.lineWidth = 1.15
                     path.lineCapStyle = .round
