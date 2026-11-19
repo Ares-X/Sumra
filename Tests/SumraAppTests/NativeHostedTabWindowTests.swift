@@ -4,11 +4,12 @@ import SumraCore
 import XCTest
 @testable import Sumra
 
-// Exercise the production AppKit factory without allowing its queued ready
-// callback to order a window. Actual fullscreen Spaces require GUI acceptance.
+// Exercise the production AppKit factory with isolated windows. Actual
+// fullscreen Spaces require GUI acceptance.
 @MainActor
 final class NativeHostedTabWindowTests: XCTestCase {
     func testExplicitTabIsHostedWithItsOriginalIdentityBeforeNativeJoinAndReleasedOnClose() async throws {
+        guard #available(macOS 14, *) else { throw XCTSkip("Native hosting uses the macOS 14 toolbar bridge") }
         let fixture = try Fixture()
         defer { fixture.close() }
         let payload = fixture.tabRequest()
@@ -61,6 +62,7 @@ final class NativeHostedTabWindowTests: XCTestCase {
     }
 
     func testUnselectedBatchTabsHaveDistinctNativeIdentitiesBeforeDisplay() async throws {
+        guard #available(macOS 14, *) else { throw XCTSkip("Native hosting uses the macOS 14 toolbar bridge") }
         let fixture = try Fixture()
         defer { fixture.close() }
         var children = [NSWindow]()
@@ -78,6 +80,52 @@ final class NativeHostedTabWindowTests: XCTestCase {
         await fixture.drainReadyCallbacks()
         XCTAssertTrue(fixture.application.readerWindowControllers.isEmpty)
         XCTAssertTrue(children.allSatisfy { !$0.isVisible })
+    }
+
+    func testSelectedHostedReaderRegistersNormalToolbarItems() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        var payload = fixture.tabRequest()
+        guard #available(macOS 14, *) else {
+            fixture.application.openReaderWindow(payload)
+            let request = try XCTUnwrap(fixture.sceneRequests.first)
+            XCTAssertEqual(request.id, payload.id)
+            XCTAssertTrue(request.tabOpening === payload.tabOpening)
+            return
+        }
+        // Keep automatic ordering pending while the selected test tab loads.
+        payload.tabOpening = ReaderWindows.TabOpening(payloads: [payload, WindowPayload()], parent: fixture.parent)
+        fixture.application.openReaderWindow(payload)
+        let child = try XCTUnwrap(fixture.application.readerWindowControllers[payload.id]?.window)
+        child.alphaValue = 0; child.ignoresMouseEvents = true
+        child.contentView?.layoutSubtreeIfNeeded()
+        let state = try XCTUnwrap((child.delegate as? ReaderCloseGuard)?.state)
+        let deadline = Date().addingTimeInterval(3)
+        while !state.hasDocument && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(state.supportsSearch)
+
+        child.tabGroup?.selectedWindow = child
+        child.setContentSize(NSSize(width: 1100, height: 500))
+        child.orderFront(nil)
+        child.displayIfNeeded()
+        await fixture.drainReadyCallbacks()
+        XCTAssertTrue(child.tabGroup?.selectedWindow === child)
+        let toolbar = try XCTUnwrap(child.toolbar)
+        XCTAssertTrue(toolbar.isVisible)
+        let registered = Set(toolbar.items.map(\.itemIdentifier.rawValue))
+        XCTAssertTrue(Set(["open", "navigation", "zoom", "find"]).isSubset(of: registered), "Installed items: \(registered)")
+        let visible = try XCTUnwrap(toolbar.visibleItems)
+        let find = try XCTUnwrap(visible.first { $0.itemIdentifier.rawValue == "find" })
+        // Use the same toolbar item's AppKit overflow action without taking
+        // mouse or keyboard focus from the current application.
+        let overflowFind = try XCTUnwrap(find.menuFormRepresentation)
+        let action = try XCTUnwrap(overflowFind.action)
+        XCTAssertFalse(state.showFind)
+        XCTAssertTrue(NSApp.sendAction(action, to: overflowFind.target, from: overflowFind))
+        await fixture.drainReadyCallbacks()
+        XCTAssertTrue(state.showFind)
     }
 
     func testOrdinaryAndRestoredRequestsKeepTheirOriginalSceneOpenerPayloads() throws {
@@ -171,6 +219,9 @@ final class NativeHostedTabWindowTests: XCTestCase {
             overrides["disableHistory"] = true
             overrides["disableReadingState"] = true
             overrides["showContentsOnOpen"] = false
+            overrides["toolbarDisplayMode"] = ReaderToolbarDisplayMode.shown.rawValue
+            overrides["immersiveControls"] = false
+            overrides["findFloating"] = false
             UserDefaults.standard.setVolatileDomain(overrides, forName: UserDefaults.argumentDomain)
             parentState.document = ReadingDocument(url: input, content: .text("Parent reader"))
             host.state = parentState
