@@ -46,6 +46,8 @@ struct WindowPayload: Codable, Hashable {
     var active: Bool?
     // Startup metadata only; the native tab group owns order after restoration.
     var restoring = false
+    // Only an empty WindowGroup default can be the automatic launch Home.
+    var automaticHome = false
     enum CodingKeys: String, CodingKey { case id, path, position, tabWith, tabIdentifier, nativeWindowIdentifier, recordsHistory, tabColor, fileBookmark, selected, active }
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
@@ -146,7 +148,7 @@ struct ReaderWindow: View {
                 ReaderWindowDiagnostics.event("scene.ready", window: state.window, request: opening.id,
                                               fields: ["hasPath": opening.path != nil, "restoring": opening.restoring])
                 documentOpenLog.notice("scene-ready payload=\(opening.id.uuidString, privacy: .public) window=\(state.window?.windowNumber ?? -1, privacy: .public)")
-                application.connect(state, canReuse: opening.path == nil)
+                application.connect(state, canReuse: opening.path == nil, automaticHome: opening.automaticHome)
                 if let window = state.window { ReaderWindows.windowReady(window, payload: opening) }
             })
             .focusedSceneObject(state)
@@ -164,7 +166,8 @@ struct ReaderWindow: View {
                 }
                 state.createWindow = { [weak application] in application?.openReaderWindow($0) }
                 state.openAuxiliaryWindow = { [weak application] in application?.openAuxiliaryWindow($0) }
-                application.connect(state, canReuse: payload.path == nil)
+                application.connect(state, canReuse: payload.path == nil, automaticHome: payload.automaticHome,
+                                    windowReady: false)
                 ScreenshotHotkey.capture = { [weak application] in
                     guard let application else { return }
                     let receiver = ReaderWindows.states.first(where: { $0.window === NSApp.keyWindow }) ?? ReaderWindows.states.first ?? ReaderState()
@@ -220,6 +223,7 @@ private struct NativeReaderWindowRoot: View {
 }
 
 @MainActor
+@available(macOS 14, *)
 private final class ReaderTabWindowController: NSWindowController, NSWindowDelegate {
     private let requestID: UUID
     private weak var application: ReaderApplicationDelegate?
@@ -240,7 +244,11 @@ private final class ReaderTabWindowController: NSWindowController, NSWindowDeleg
         window.title = payload.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Vira Reader"
         super.init(window: window)
         window.delegate = self
-        window.contentViewController = NSHostingController(rootView: NativeReaderWindowRoot(payload: payload, application: application))
+        let hosting = NSHostingController(rootView: NativeReaderWindowRoot(payload: payload, application: application))
+        // The implicit bridge can be disabled for apps linked against older
+        // SDKs. Install the same title and toolbar as the reader scene.
+        hosting.sceneBridgingOptions = [.title, .toolbars]
+        window.contentViewController = hosting
         window.contentMinSize = NSSize(width: 560, height: 400)
     }
 
@@ -545,6 +553,8 @@ final class ReaderCloseGuard: NSResponder, NSWindowDelegate, NSUserInterfaceVali
 
 @MainActor
 final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
+    private enum StartupHome { case awaitingAttachment, superseded, resolved }
+
     let undoCommands = ReaderUndoCommands()
     private var keyMonitor: Any?
     private var routingNativeTabMenu = false
@@ -559,6 +569,7 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     private var hasFinishedRestoringWindows = false
     private var startupSceneIDs = Set<UUID>()
     private var nativeSessionTakesPrecedence = false
+    private var startupHome = StartupHome.awaitingAttachment
     private weak var emptyReader: ReaderState?
 
     func installTabResponder() {
@@ -602,7 +613,8 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     }
 
     func openReaderWindow(_ payload: WindowPayload) {
-        if payload.tabOpening != nil, !payload.restoring,
+        // macOS 13 needs the existing SwiftUI scene to supply its toolbar.
+        if #available(macOS 14, *), payload.tabOpening != nil, !payload.restoring,
            ReaderWindows.pendingRestoration(for: payload.id) == nil,
            !UserDefaults.standard.bool(forKey: "disableTabs"),
            let parentNumber = payload.tabWith,
@@ -700,15 +712,25 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
         openPendingFiles()
     }
 
-    func connect(_ state: ReaderState, canReuse: Bool) {
-        guard state.window != nil else { return }
+    func connect(_ state: ReaderState, canReuse: Bool, automaticHome: Bool = false, windowReady: Bool = true) {
+        guard let window = state.window else { return }
+        if automaticHome {
+            // The native window may already have received the file through the
+            // front-window route before its SwiftUI ready callback.
+            if startupHome == .superseded, canReuse, state.generation == 0 {
+                guard windowReady else { return }
+                startupHome = .resolved
+                ReaderWindowDiagnostics.event("startup.home.superseded", window: window)
+                window.close()
+                return
+            }
+            startupHome = .resolved
+        }
         if canReuse { emptyReader = state }
-        documentOpenLog.notice("reader-connected window=\(state.window?.windowNumber ?? -1, privacy: .public)")
+        documentOpenLog.notice("reader-connected window=\(window.windowNumber, privacy: .public)")
         openPendingFiles()
     }
 
-    // Let an initial Home connect during launch before opening pending books,
-    // so a later empty Home cannot cover an already opened book.
     func finishLaunching() {
         hasFinishedLaunching = true
         documentOpenLog.notice("launch-finished")
@@ -724,6 +746,9 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
         let urls = pendingFiles
         pendingFiles.removeAll()
         if !urls.isEmpty {
+            // Finder can launch without an automatic Home. Hand off now and
+            // retire the launch Home if SwiftUI supplies it later.
+            if startupHome == .awaitingAttachment { startupHome = .superseded }
             documentOpenLog.notice("pending-handoff count=\(urls.count, privacy: .public)")
             ReaderWindows.open(urls, in: emptyReader, createWindow: openReaderWindow)
             emptyReader = nil
@@ -2360,7 +2385,8 @@ struct SumraApp: App {
             return request
         }
         guard let request = restoring.first(where: { !issuedDefaultIDs.contains($0.id) }) else {
-            let payload = WindowPayload()
+            var payload = WindowPayload()
+            payload.automaticHome = true
             ReaderWindowDiagnostics.event("restoration.defaultPayload", request: payload.id,
                                           fields: ["source": "newWindow"])
             return payload
