@@ -717,6 +717,50 @@ final class NativeSceneRestorationTests: XCTestCase {
         XCTAssertTrue(home.window.ignoresMouseEvents)
     }
 
+    func testSeparateFinderCallbacksPreserveTheFirstAttachingDocument() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let urls = try ["first.txt", "second.txt"].map(fixture.document)
+        var opened = [WindowPayload]()
+        fixture.application.installWindowOpener { opened.append($0) }
+        fixture.application.application(NSApp, open: [urls[0]])
+        fixture.application.finishLaunching()
+
+        let initial = try XCTUnwrap(opened.first)
+        XCTAssertEqual(initial.path, urls[0].path)
+        let first = ReaderState(recordsHistory: false)
+        let window = Window(contentRect: CGRect(x: 2400, y: 100, width: 800, height: 600),
+                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
+        let host = WindowTabs.HostView()
+        host.state = first
+        host.openingPath = initial.path
+        window.contentView = host
+        defer {
+            first.windowClosed()
+            window.contentView = nil
+            window.close()
+        }
+        // Attach and order the real native host before SwiftUI starts the load.
+        window.orderFront(nil)
+        XCTAssertTrue(NSApp.orderedWindows.contains(window))
+        XCTAssertTrue(first.window === window)
+        XCTAssertNil(first.document)
+        XCTAssertFalse(first.busy)
+        XCTAssertEqual(first.generation, 0)
+
+        fixture.application.application(NSApp, open: [urls[1]])
+        XCTAssertEqual(opened.map(\.path), urls.map(\.path))
+        XCTAssertEqual(first.generation, 0, "The second request must not start loading in the first reader")
+        let second = fixture.mount(try XCTUnwrap(opened.dropFirst().first))
+        first.openWithoutHistory(urls[0])
+        try await fixture.waitUntil("Both Finder documents did not load in their original readers") {
+            first.document?.url == urls[0] && second.state?.document?.url == urls[1]
+        }
+    }
+
     func testOrdinaryLaunchRevealsItsHomeAndReusesItForSubsequentFinderOpen() async throws {
         let fixture = try Fixture()
         defer { fixture.close() }
