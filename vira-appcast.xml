@@ -5,6 +5,16 @@
         <link>https://github.com/Ares-X/Vira-Reader/releases</link>
         <description>Vira Reader updates</description>
         <item>
+            <title>0.2.53</title>
+            <pubDate>Thu, 19 Nov 2026 07:22:10 +0000</pubDate>
+            <link>https://github.com/Ares-X/Vira-Reader/releases</link>
+            <sparkle:version>56</sparkle:version>
+            <sparkle:shortVersionString>0.2.53</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/Ares-X/Vira-Reader/releases/download/v0.2.53/Vira-Reader-0.2.53-macOS-arm64.zip" length="20522660" type="application/octet-stream" sparkle:edSignature="QthykF4fbwqsQew9deiA/OiCagkbeDGTGEgN8tk5TONYog2ouyRvM9WLnIu/3MEr78O4aHbYRr+1nQtp2DC7BQ=="/>
+        </item>
+        <item>
             <title>0.2.52</title>
             <pubDate>Thu, 19 Nov 2026 06:22:02 +0000</pubDate>
             <link>https://github.com/Ares-X/Vira-Reader/releases</link>
@@ -23,16 +33,6 @@
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/Ares-X/Vira-Reader/releases/download/v0.2.51/Vira-Reader-0.2.51-macOS-arm64.zip" length="20049957" type="application/octet-stream" sparkle:edSignature="frPscdGsgTBbXRT8aXAddDIItRlSqzQWGjIbhMzlpaLajytzirPku8948DpR6B/Qo59X4x3PKwClnLsobDdvAQ=="/>
-        </item>
-        <item>
-            <title>0.2.50</title>
-            <pubDate>Wed, 18 Nov 2026 13:55:03 +0000</pubDate>
-            <link>https://github.com/Ares-X/Vira-Reader/releases</link>
-            <sparkle:version>53</sparkle:version>
-            <sparkle:shortVersionString>0.2.50</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/Ares-X/Vira-Reader/releases/download/v0.2.50/Vira-Reader-0.2.50-macOS-arm64.zip" length="20051504" type="application/octet-stream" sparkle:edSignature="8LWHXAudhlfykTVbpY5TORqfPTSeM9NYz3yIwPw0+0NYUtOLN6wcUTVF8mZUu0A4qHwEKCMpwH7GAMQ+d736BQ=="/>
         </item>
     </channel>
 </rss>
