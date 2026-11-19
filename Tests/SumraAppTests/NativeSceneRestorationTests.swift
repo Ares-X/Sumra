@@ -717,6 +717,33 @@ final class NativeSceneRestorationTests: XCTestCase {
         XCTAssertTrue(home.window.ignoresMouseEvents)
     }
 
+    func testSeparateFinderCallbacksPreserveTheFirstAttachingDocument() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let urls = try ["first.txt", "second.txt"].map(fixture.document)
+        var readers = [Scene]()
+        fixture.application.installWindowOpener { [weak fixture] payload in
+            if let fixture { readers.append(fixture.mount(payload)) }
+        }
+        fixture.application.application(NSApp, open: [urls[0]])
+        fixture.application.finishLaunching()
+
+        let first = try XCTUnwrap(readers.first)
+        first.host.layoutSubtreeIfNeeded()
+        first.window.orderFront(nil)
+        let state = try XCTUnwrap(first.state)
+        XCTAssertTrue(NSApp.orderedWindows.contains(first.window))
+        XCTAssertNil(state.document)
+        XCTAssertFalse(state.busy)
+        XCTAssertEqual(state.generation, 0)
+
+        fixture.application.application(NSApp, open: [urls[1]])
+        XCTAssertEqual(readers.map { $0.payload.value.path }, urls.map(\.path))
+        try await fixture.waitUntil("Both Finder documents did not load in their original readers") {
+            readers.compactMap { $0.state?.document?.url } == urls
+        }
+    }
+
     func testOrdinaryLaunchRevealsItsHomeAndReusesItForSubsequentFinderOpen() async throws {
         let fixture = try Fixture()
         defer { fixture.close() }

@@ -86,6 +86,12 @@ struct WindowPayload: Codable, Hashable {
     }
 }
 
+private extension ReaderState {
+    func isAwaitingDocumentOpen(at path: String?) -> Bool {
+        path != nil && generation == 0
+    }
+}
+
 @MainActor
 struct ReaderScene: View {
     @Binding var payload: WindowPayload
@@ -126,7 +132,7 @@ struct ReaderWindow: View {
     func readerView(for state: ReaderState) -> ReaderView {
         // The selected file owns the scene before its opening task starts.
         // Once a load has run, its normal success/error state owns the view.
-        ReaderView(state: state, awaitingDocumentOpen: payload.path != nil && state.generation == 0)
+        ReaderView(state: state, awaitingDocumentOpen: state.isAwaitingDocumentOpen(at: payload.path))
     }
 
     var body: some View {
@@ -1168,12 +1174,13 @@ enum ReaderWindows {
         let tabIdentifier = opensInTabs && tabWith == nil ? UUID().uuidString : nil
         var created: [WindowPayload] = []
         for (index, url) in urls.enumerated() {
-            // Home always receives the first file. Replacing a loaded document
-            // still goes through ReaderState's unsaved-changes confirmation.
-            if index == 0, let state, state.window != nil,
+            // A scene can already be frontmost while its initial document task
+            // still awaits execution. Its pending request reserves the window.
+            if index == 0, let state, let window = state.window,
                state.restoredPayload == nil, !state.busy,
+               !state.isAwaitingDocumentOpen(at: (window.delegate as? ReaderCloseGuard)?.openingPath),
                state.document == nil || behavior == .replaceCurrent {
-                documentOpenLog.notice("route-reuse window=\(state.window?.windowNumber ?? -1, privacy: .public)")
+                documentOpenLog.notice("route-reuse window=\(window.windowNumber, privacy: .public)")
                 if recordsHistory { state.open(url) }
                 else { state.openWithoutHistory(url) }
                 state.window?.makeKeyAndOrderFront(nil)
