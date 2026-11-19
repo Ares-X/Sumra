@@ -223,6 +223,7 @@ private struct NativeReaderWindowRoot: View {
 }
 
 @MainActor
+@available(macOS 14, *)
 private final class ReaderTabWindowController: NSWindowController, NSWindowDelegate {
     private let requestID: UUID
     private weak var application: ReaderApplicationDelegate?
@@ -243,7 +244,11 @@ private final class ReaderTabWindowController: NSWindowController, NSWindowDeleg
         window.title = payload.path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Vira Reader"
         super.init(window: window)
         window.delegate = self
-        window.contentViewController = NSHostingController(rootView: NativeReaderWindowRoot(payload: payload, application: application))
+        let hosting = NSHostingController(rootView: NativeReaderWindowRoot(payload: payload, application: application))
+        // The implicit bridge can be disabled for apps linked against older
+        // SDKs. Install the same title and toolbar as the reader scene.
+        hosting.sceneBridgingOptions = [.title, .toolbars]
+        window.contentViewController = hosting
         window.contentMinSize = NSSize(width: 560, height: 400)
     }
 
@@ -608,7 +613,8 @@ final class ReaderApplicationDelegate: NSResponder, NSApplicationDelegate {
     }
 
     func openReaderWindow(_ payload: WindowPayload) {
-        if payload.tabOpening != nil, !payload.restoring,
+        // macOS 13 needs the existing SwiftUI scene to supply its toolbar.
+        if #available(macOS 14, *), payload.tabOpening != nil, !payload.restoring,
            ReaderWindows.pendingRestoration(for: payload.id) == nil,
            !UserDefaults.standard.bool(forKey: "disableTabs"),
            let parentNumber = payload.tabWith,
