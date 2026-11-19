@@ -738,6 +738,7 @@ struct ReaderFloatingSurface: ViewModifier {
 
         private final class PressFeedback: NSGestureRecognizer {
             override func mouseDown(with event: NSEvent) {
+                defer { state = .failed }
                 guard let group = view as? Buttons, let superview = group.superview,
                       let button = group.hitTest(superview.convert(event.locationInWindow, from: nil)) as? NSButton,
                       button.isEnabled else { return }
