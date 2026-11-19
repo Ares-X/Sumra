@@ -721,26 +721,43 @@ final class NativeSceneRestorationTests: XCTestCase {
         let fixture = try Fixture()
         defer { fixture.close() }
         let urls = try ["first.txt", "second.txt"].map(fixture.document)
-        var readers = [Scene]()
-        fixture.application.installWindowOpener { [weak fixture] payload in
-            if let fixture { readers.append(fixture.mount(payload)) }
-        }
+        var opened = [WindowPayload]()
+        fixture.application.installWindowOpener { opened.append($0) }
         fixture.application.application(NSApp, open: [urls[0]])
         fixture.application.finishLaunching()
 
-        let first = try XCTUnwrap(readers.first)
-        first.host.layoutSubtreeIfNeeded()
-        first.window.orderFront(nil)
-        let state = try XCTUnwrap(first.state)
-        XCTAssertTrue(NSApp.orderedWindows.contains(first.window))
-        XCTAssertNil(state.document)
-        XCTAssertFalse(state.busy)
-        XCTAssertEqual(state.generation, 0)
+        let initial = try XCTUnwrap(opened.first)
+        XCTAssertEqual(initial.path, urls[0].path)
+        let first = ReaderState(recordsHistory: false)
+        let window = Window(contentRect: CGRect(x: 2400, y: 100, width: 800, height: 600),
+                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
+        let host = WindowTabs.HostView()
+        host.state = first
+        host.openingPath = initial.path
+        window.contentView = host
+        defer {
+            first.windowClosed()
+            window.contentView = nil
+            window.close()
+        }
+        // Attach and order the real native host before SwiftUI starts the load.
+        window.orderFront(nil)
+        XCTAssertTrue(NSApp.orderedWindows.contains(window))
+        XCTAssertTrue(first.window === window)
+        XCTAssertNil(first.document)
+        XCTAssertFalse(first.busy)
+        XCTAssertEqual(first.generation, 0)
 
         fixture.application.application(NSApp, open: [urls[1]])
-        XCTAssertEqual(readers.map { $0.payload.value.path }, urls.map(\.path))
+        XCTAssertEqual(opened.map(\.path), urls.map(\.path))
+        XCTAssertEqual(first.generation, 0, "The second request must not start loading in the first reader")
+        let second = fixture.mount(try XCTUnwrap(opened.dropFirst().first))
+        first.openWithoutHistory(urls[0])
         try await fixture.waitUntil("Both Finder documents did not load in their original readers") {
-            readers.compactMap { $0.state?.document?.url } == urls
+            first.document?.url == urls[0] && second.state?.document?.url == urls[1]
         }
     }
 
