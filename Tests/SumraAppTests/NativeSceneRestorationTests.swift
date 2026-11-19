@@ -677,53 +677,66 @@ final class NativeSceneRestorationTests: XCTestCase {
         XCTAssertEqual(opened.first?.id, restored.id)
         XCTAssertEqual(opened.map(\.path), ([restoredURL] + finderURLs).map(\.path))
         let documents = opened.map { fixture.mount($0) }
-        let explicitHome = fixture.mount(WindowPayload())
-        let automaticHome = fixture.mount(SumraApp.defaultWindowPayload())
+        let explicitHome = fixture.mount(WindowPayload(), observePresentation: true)
+        let automaticHome = fixture.mount(SumraApp.defaultWindowPayload(), observePresentation: true)
         try await fixture.waitUntil("The restored and Finder readers did not take over launch") {
             automaticHome.window.didClose && explicitHome.state != nil &&
                 documents.compactMap { $0.state?.document?.url } == [restoredURL] + finderURLs
         }
+        XCTAssertEqual(automaticHome.window.alphaValue, 0)
+        XCTAssertTrue(automaticHome.window.ignoresMouseEvents)
         XCTAssertFalse(explicitHome.window.didClose)
+        XCTAssertEqual(explicitHome.window.alphaValue, 1)
+        XCTAssertFalse(explicitHome.window.ignoresMouseEvents)
         XCTAssertTrue(documents.allSatisfy { !$0.window.didClose })
         XCTAssertEqual(opened.count, 3)
     }
 
-    func testFinderHandoffAfterAutomaticHomeAttachmentOpensFirstFileInPlace() async throws {
+    func testFinderHandoffAfterAutomaticHomeAttachmentKeepsHomeInert() async throws {
         let fixture = try Fixture()
         defer { fixture.close() }
         let urls = try ["first.txt", "second.txt"].map(fixture.document)
-        let home = fixture.mount(SumraApp.defaultWindowPayload())
-        try await fixture.waitUntil("The automatic Home did not attach") { home.state?.window === home.window }
-        // The host schedules its ready callback as soon as the window attaches.
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
-        }
+        let home = fixture.mount(SumraApp.defaultWindowPayload(), observePresentation: true)
+        try await fixture.waitUntil("The provisional Home did not attach") { home.state?.window === home.window }
+        XCTAssertEqual(home.window.alphaValue, 0)
+        XCTAssertTrue(home.window.ignoresMouseEvents)
         var opened = [WindowPayload]()
-        fixture.application.installWindowOpener { opened.append($0) }
+        fixture.application.installWindowOpener { [weak fixture] payload in
+            XCTAssertTrue(home.window.didClose, "Retire the provisional Home before opening the Finder readers")
+            opened.append(payload)
+            fixture?.mount(payload)
+        }
         fixture.application.application(NSApp, open: urls)
         fixture.application.finishLaunching()
 
-        try await fixture.waitUntil("Finder did not load the first file in the initial Home") {
-            home.state?.document?.url == urls[0]
+        try await fixture.waitUntil("Both Finder documents did not load") {
+            opened.map(\.path) == urls.map(\.path) &&
+                ReaderWindows.states.filter { $0.document.map { urls.contains($0.url) } == true }.count == 2
         }
-        XCTAssertEqual(opened.map(\.path), [urls[1].path])
-        XCTAssertFalse(home.window.didClose)
+        XCTAssertEqual(home.window.alphaValue, 0)
+        XCTAssertTrue(home.window.ignoresMouseEvents)
     }
 
-    func testOrdinaryLaunchKeepsItsAutomaticHome() async throws {
+    func testOrdinaryLaunchRevealsItsHomeAndReusesItForSubsequentFinderOpen() async throws {
         let fixture = try Fixture()
         defer { fixture.close() }
+        let url = try fixture.document("warm-open.txt")
         var opened = [WindowPayload]()
         fixture.application.installWindowOpener { opened.append($0) }
+        let home = fixture.mount(SumraApp.defaultWindowPayload(), observePresentation: true)
+        try await fixture.waitUntil("The provisional Home did not attach") { home.state?.window === home.window }
+        XCTAssertEqual(home.window.alphaValue, 0)
+        XCTAssertTrue(home.window.ignoresMouseEvents)
         fixture.application.finishLaunching()
-        let home = fixture.mount(SumraApp.defaultWindowPayload())
-        try await fixture.waitUntil("An ordinary launch did not attach Home") { home.state?.window === home.window }
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
-        }
 
         XCTAssertFalse(home.window.didClose)
+        XCTAssertEqual(home.window.alphaValue, 1)
+        XCTAssertFalse(home.window.ignoresMouseEvents)
         XCTAssertNil(home.state?.document)
+        fixture.application.application(NSApp, open: [url])
+        try await fixture.waitUntil("The launch Home did not open the subsequent Finder file") {
+            home.state?.document?.url == url
+        }
         XCTAssertTrue(opened.isEmpty)
     }
 
@@ -764,15 +777,17 @@ final class NativeSceneRestorationTests: XCTestCase {
         let host: NSHostingView<SceneRoot>
         var state: ReaderState? { (window.delegate as? ReaderCloseGuard)?.state }
 
-        init(_ request: WindowPayload, application: ReaderApplicationDelegate) {
+        init(_ request: WindowPayload, application: ReaderApplicationDelegate, observePresentation: Bool) {
             let store = PayloadStore(request)
             payload = store
             host = NSHostingView(rootView: SceneRoot(store: store, application: application))
             window = Window(contentRect: CGRect(x: 2400, y: 100, width: 800, height: 600),
                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            window.alphaValue = 0
-            window.ignoresMouseEvents = true
+            if !observePresentation {
+                window.alphaValue = 0
+                window.ignoresMouseEvents = true
+            }
             window.contentView = host
         }
     }
@@ -831,8 +846,8 @@ final class NativeSceneRestorationTests: XCTestCase {
             return url
         }
 
-        @discardableResult func mount(_ payload: WindowPayload) -> Scene {
-            let scene = Scene(payload, application: application)
+        @discardableResult func mount(_ payload: WindowPayload, observePresentation: Bool = false) -> Scene {
+            let scene = Scene(payload, application: application, observePresentation: observePresentation)
             scenes.append(scene)
             return scene
         }
