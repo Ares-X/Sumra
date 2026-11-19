@@ -597,7 +597,7 @@ struct ReaderFloatingSurface: ViewModifier {
         private var optionDown = false
         private var fullscreen = false
         private var nativeCloseAction: Selector?
-        private let glyphs = HoverGlyphs(frame: .zero)
+        private let artwork = ButtonArtwork(frame: .zero)
         override init(frame: NSRect) {
             super.init(frame: frame)
             for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
@@ -616,11 +616,20 @@ struct ReaderFloatingSurface: ViewModifier {
                 button.setAccessibilitySubrole(subrole)
                 button.setAccessibilityLabel(NSAccessibility.Role.button.description(with: subrole))
                 addSubview(button)
+                // The factory cell can paint rollover from AppKit’s titlebar
+                // group even when the pointer is outside these controls.
+                // Suppress its layer, leaving the NSButton visible to AppKit
+                // for the real hit area, accessibility and green-button menu.
+                button.wantsLayer = true
+                button.layer?.opacity = 0
             }
-            glyphs.owner = self
-            glyphs.frame = bounds
-            glyphs.autoresizingMask = [.width, .height]
-            addSubview(glyphs)
+            artwork.owner = self
+            artwork.frame = bounds
+            artwork.autoresizingMask = [.width, .height]
+            addSubview(artwork)
+            let pressFeedback = PressFeedback()
+            pressFeedback.delaysPrimaryMouseButtonEvents = false
+            addGestureRecognizer(pressFeedback)
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override func viewDidMoveToWindow() {
@@ -658,13 +667,13 @@ struct ReaderFloatingSurface: ViewModifier {
         private func setPointerInside(_ inside: Bool) {
             guard pointerInside != inside else { return }
             pointerInside = inside
-            glyphs.needsDisplay = true
+            artwork.needsDisplay = true
         }
         func modifierFlagsChanged(_ flags: NSEvent.ModifierFlags) {
             let option = flags.contains(.option)
             if optionDown != option {
                 optionDown = option
-                glyphs.needsDisplay = true
+                artwork.needsDisplay = true
             }
         }
         func stopObservingWindow() {
@@ -690,11 +699,18 @@ struct ReaderFloatingSurface: ViewModifier {
                                  NSWindow.didExitFullScreenNotification] {
                         NotificationCenter.default.addObserver(self, selector: #selector(updateButtons), name: name, object: window)
                     }
+                    for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                                 NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification] {
+                        NotificationCenter.default.addObserver(self, selector: #selector(updateArtwork), name: name, object: window)
+                    }
+                    for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+                        NotificationCenter.default.addObserver(self, selector: #selector(updateArtwork), name: name, object: NSApp)
+                    }
                 }
             }
             let capabilities = readerWindow?.styleMask ?? []
             let isFullscreen = capabilities.contains(.fullScreen)
-            if fullscreen != isFullscreen { fullscreen = isFullscreen; glyphs.needsDisplay = true }
+            if fullscreen != isFullscreen { fullscreen = isFullscreen; artwork.needsDisplay = true }
             for button in subviews.compactMap({ $0 as? NSButton }) {
                 // AppKit owns the minimize and green-button modifier actions.
                 // The red window control closes the whole reader group through
@@ -714,26 +730,63 @@ struct ReaderFloatingSurface: ViewModifier {
                     enabled = capabilities.contains(.miniaturizable) && !capabilities.contains(.fullScreen)
                 default: enabled = capabilities.contains(.resizable) || capabilities.contains(.fullScreen)
                 }
-                if button.isEnabled != enabled { button.isEnabled = enabled; glyphs.needsDisplay = true }
+                if button.isEnabled != enabled { button.isEnabled = enabled; artwork.needsDisplay = true }
             }
             synchronizePointer()
         }
-        // Standard factory buttons keep native rendering, hit regions and
-        // pressed states. AppKit's shared titlebar hover owner isn't public;
-        // draw only its familiar group symbols above the unmodified controls.
-        private final class HoverGlyphs: NSView {
+        @objc private func updateArtwork() { artwork.needsDisplay = true }
+
+        private final class PressFeedback: NSGestureRecognizer {
+            override func mouseDown(with event: NSEvent) {
+                guard let group = view as? Buttons, let superview = group.superview,
+                      let button = group.hitTest(superview.convert(event.locationInWindow, from: nil)) as? NSButton,
+                      button.isEnabled else { return }
+                group.artwork.pressedButton = button
+                group.artwork.needsDisplay = true
+                group.artwork.displayIfNeeded()
+                // Native cells consume mouse-up in their tracking loop.
+                // Clear the feedback when that loop returns to default mode.
+                RunLoop.main.perform(inModes: [.default]) { [weak group] in
+                    MainActor.assumeIsolated {
+                        group?.artwork.pressedButton = nil
+                        group?.artwork.needsDisplay = true
+                    }
+                }
+            }
+        }
+
+        private final class ButtonArtwork: NSView {
             weak var owner: Buttons?
+            weak var pressedButton: NSButton?
+
             override func hitTest(_ point: NSPoint) -> NSView? { nil }
             override func draw(_ dirtyRect: NSRect) {
-                guard let owner, owner.pointerInside else { return }
-                NSColor.black.withAlphaComponent(0.7).setStroke()
-                NSColor.black.withAlphaComponent(0.7).setFill()
-                for button in owner.subviews.compactMap({ $0 as? NSButton }) where button.isEnabled {
+                guard let owner else { return }
+                let active = NSApp.isActive && (window?.isKeyWindow == true || window?.isMainWindow == true)
+                for button in owner.subviews.compactMap({ $0 as? NSButton }) {
+                    let type = NSWindow.ButtonType(rawValue: UInt(button.tag))!
+                    let color: NSColor
+                    switch type {
+                    case .closeButton: color = NSColor(srgbRed: 1, green: 0.373, blue: 0.341, alpha: 1)
+                    case .miniaturizeButton: color = NSColor(srgbRed: 0.996, green: 0.737, blue: 0.18, alpha: 1)
+                    default: color = NSColor(srgbRed: 0.157, green: 0.784, blue: 0.251, alpha: 1)
+                    }
+                    let circle = NSBezierPath(ovalIn: button.frame.insetBy(dx: 1, dy: 1))
+                    let fill = active && button.isEnabled ? color : NSColor.quaternaryLabelColor
+                    (pressedButton === button ? fill.shadow(withLevel: 0.18) ?? fill : fill).setFill()
+                    circle.fill()
+                    NSColor.black.withAlphaComponent(0.15).setStroke()
+                    circle.lineWidth = 0.5
+                    circle.stroke()
+
+                    guard owner.pointerInside, button.isEnabled else { continue }
+                    NSColor.black.withAlphaComponent(0.7).setStroke()
+                    NSColor.black.withAlphaComponent(0.7).setFill()
                     let center = CGPoint(x: button.frame.midX, y: button.frame.midY)
                     let path = NSBezierPath()
                     path.lineWidth = 1.15
                     path.lineCapStyle = .round
-                    switch NSWindow.ButtonType(rawValue: UInt(button.tag))! {
+                    switch type {
                     case .closeButton:
                         path.move(to: CGPoint(x: center.x - 2.4, y: center.y - 2.4))
                         path.line(to: CGPoint(x: center.x + 2.4, y: center.y + 2.4))
