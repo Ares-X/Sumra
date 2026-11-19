@@ -46,6 +46,16 @@ func drawDocument(label: String, pixels: Int, context: CGContext) {
     let paleGray = NSColor(white: 0.89, alpha: 1)
     NSGradient(starting: paleGray, ending: white)?.draw(in: paper, angle: 90)
 
+    let showLabel = pixels >= 32
+    let badgeSize: CGFloat = showLabel ? 65 : 72
+    let badgeY: CGFloat = showLabel ? 19 : 13
+    image.draw(
+        in: NSRect(x: (100 - badgeSize) / 2, y: badgeY, width: badgeSize, height: badgeSize),
+        from: .zero,
+        operation: .sourceOver,
+        fraction: 1
+    )
+
     let fold = NSBezierPath()
     fold.move(to: NSPoint(x: 63, y: 94))
     fold.line(to: NSPoint(x: 63, y: 76))
@@ -57,16 +67,6 @@ func drawDocument(label: String, pixels: Int, context: CGContext) {
     NSColor(white: 0.48, alpha: 0.8).setStroke()
     paper.lineWidth = max(1, 0.6 / unit)
     paper.stroke()
-
-    let showLabel = pixels >= 32
-    let badgeSize: CGFloat = showLabel ? 65 : 72
-    let badgeY: CGFloat = showLabel ? 19 : 13
-    image.draw(
-        in: NSRect(x: (100 - badgeSize) / 2, y: badgeY, width: badgeSize, height: badgeSize),
-        from: .zero,
-        operation: .sourceOver,
-        fraction: 1
-    )
 
     if showLabel {
         let font = NSFont.systemFont(ofSize: 14, weight: .bold)
