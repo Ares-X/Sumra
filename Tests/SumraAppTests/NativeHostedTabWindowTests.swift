@@ -98,6 +98,12 @@ final class NativeHostedTabWindowTests: XCTestCase {
         fixture.application.openReaderWindow(payload)
         let child = try XCTUnwrap(fixture.application.readerWindowControllers[payload.id]?.window)
         child.alphaValue = 0; child.ignoresMouseEvents = true
+        defer {
+            child.tabGroup?.removeWindow(child)
+            child.orderOut(nil)
+            child.close()
+            fixture.parent.orderOut(nil)
+        }
         child.contentView?.layoutSubtreeIfNeeded()
         let state = try XCTUnwrap((child.delegate as? ReaderCloseGuard)?.state)
         let deadline = Date().addingTimeInterval(3)
@@ -126,6 +132,8 @@ final class NativeHostedTabWindowTests: XCTestCase {
         XCTAssertTrue(NSApp.sendAction(action, to: overflowFind.target, from: overflowFind))
         await fixture.drainReadyCallbacks()
         XCTAssertTrue(state.showFind)
+        state.toggleFindPanel()
+        await fixture.drainReadyCallbacks()
     }
 
     func testOrdinaryAndRestoredRequestsKeepTheirOriginalSceneOpenerPayloads() throws {

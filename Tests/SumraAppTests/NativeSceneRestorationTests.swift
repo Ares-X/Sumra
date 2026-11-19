@@ -810,6 +810,7 @@ final class NativeSceneRestorationTests: XCTestCase {
             automaticTabbing = NSWindow.allowsAutomaticWindowTabbing
             var overrides = arguments.merging([
                 "disableHistory": false, "disableReadingState": true, "disableTabs": false,
+                "documentOpenBehavior": DocumentOpenBehavior.newWindow.rawValue,
                 "restoreSession": true, "showContentsOnOpen": false,
                 "documentOpenHistory": Data("{}".utf8), "pinnedDocuments": [String](),
                 "pageAspectLayout": false, "automaticLayout": false,
